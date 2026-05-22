@@ -1,0 +1,12 @@
+# Build outputs
+firmware/stm32h563/build/
+*.o
+/wolftrust
+
+# Stray duplicate at repo root
+/stm32h563_OTP.bin
+
+# Tool-specific files
+.claude/
+.codex
+
