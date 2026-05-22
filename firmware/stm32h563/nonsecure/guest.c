@@ -11,9 +11,6 @@ extern uint32_t _sbss;
 extern uint32_t _ebss;
 extern uint32_t _estack;
 
-#define RCC_BASE              0x44020C00u
-#define RCC_APB1LENR          (*(volatile uint32_t *)(RCC_BASE + 0x9Cu))
-
 #define USART2_BASE           0x40004400u
 #define USART3_BASE           0x40004800u
 #define USART_CR1(base)       (*(volatile uint32_t *)((base) + 0x00u))
@@ -28,7 +25,13 @@ extern uint32_t _estack;
 #define USART_ISR_TXE         (1u << 7)
 
 #define WT_SYSCLK_HZ          64000000u
-#define WT_SLICE_HEARTBEATS   4000u
+
+#define SYST_CSR     (*(volatile uint32_t *)0xE000E010u)
+#define SYST_RVR     (*(volatile uint32_t *)0xE000E014u)
+#define SYST_CVR     (*(volatile uint32_t *)0xE000E018u)
+#define SYST_CSR_CLKSOURCE   (1u << 2)
+#define SYST_CSR_TICKINT     (1u << 1)
+#define SYST_CSR_ENABLE      (1u << 0)
 
 typedef struct wt_guest_mailbox {
     volatile uint32_t boot_count;
@@ -41,6 +44,8 @@ typedef struct wt_guest_mailbox {
 } wt_guest_mailbox_t;
 
 static wt_guest_mailbox_t g_mailbox __attribute__((section(".shared")));
+static volatile uint32_t g_tick_ms;
+static uint32_t g_next_print_ms;
 
 static void default_handler(void)
 {
@@ -57,7 +62,7 @@ void UsageFault_Handler(void) __attribute__((weak, alias("default_handler")));
 void SVC_Handler(void) __attribute__((weak, alias("default_handler")));
 void DebugMon_Handler(void) __attribute__((weak, alias("default_handler")));
 void PendSV_Handler(void) __attribute__((weak, alias("default_handler")));
-void SysTick_Handler(void) __attribute__((weak, alias("default_handler")));
+void SysTick_Handler(void);
 
 __attribute__((section(".vectors")))
 const uint32_t g_vectors[16] = {
@@ -107,12 +112,6 @@ static void wt_uart_init(void)
     uintptr_t base = wt_uart_base();
     uint32_t brr = WT_SYSCLK_HZ / 115200u;
 
-#if WT_GUEST_ID == 0u
-    RCC_APB1LENR |= (1u << 17);
-#else
-    RCC_APB1LENR |= (1u << 18);
-#endif
-
     USART_CR1(base) = 0u;
     USART_CR2(base) = 0u;
     USART_CR3(base) = 0u;
@@ -159,6 +158,25 @@ static void wt_print_status(uint32_t second_mark)
     wt_uart_putc('\n');
 }
 
+static void wt_systick_init(void)
+{
+    SYST_CSR = 0u;
+    SYST_RVR = (WT_SYSCLK_HZ / 1000u) - 1u;
+    SYST_CVR = 0u;
+    SYST_CSR = SYST_CSR_CLKSOURCE | SYST_CSR_TICKINT | SYST_CSR_ENABLE;
+}
+
+void SysTick_Handler(void)
+{
+    g_tick_ms++;
+    g_mailbox.heartbeat++;
+    if (g_tick_ms >= g_next_print_ms) {
+        wt_print_status(g_next_print_ms / 1000u);
+        g_mailbox.lines_printed++;
+        g_next_print_ms += 1000u;
+    }
+}
+
 void Reset_Handler(void)
 {
     if (g_mailbox.boot_count == 0u) {
@@ -171,20 +189,11 @@ void Reset_Handler(void)
         g_mailbox.heartbeat = 0u;
         g_mailbox.virtual_ms = 0u;
         g_mailbox.lines_printed = 0u;
-        g_mailbox.next_print_ms = 1000u;
+        g_next_print_ms = 1000u;
+        wt_systick_init();
     }
 
     for (;;) {
-        g_mailbox.heartbeat++;
-
-        if (g_mailbox.virtual_ms >= g_mailbox.next_print_ms) {
-            wt_print_status(g_mailbox.next_print_ms / 1000u);
-            g_mailbox.lines_printed++;
-            g_mailbox.next_print_ms += 1000u;
-        }
-
-        if ((g_mailbox.heartbeat % WT_SLICE_HEARTBEATS) == 0u) {
-            __asm volatile("" ::: "memory");
-        }
+        __asm volatile("wfi");
     }
 }

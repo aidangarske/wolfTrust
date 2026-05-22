@@ -7,7 +7,6 @@
 #endif
 
 #define WT_USART_REGION_SIZE 0x00000400U
-#define WT_RCC_REGION_SIZE   0x00000400U
 
 static const wt_guest_config_t g_partition_configs[] = {
     {
@@ -29,12 +28,10 @@ static const wt_guest_config_t g_partition_configs[] = {
         .mpu_regions = {
             {0x08002000U, 0x00010000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
             {0x20000000U, 0x00004000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE},
-            {0x44020C00U, WT_RCC_REGION_SIZE,
-             WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE},
             {0x40004400U, WT_USART_REGION_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE}
         },
-        .mpu_region_count = 4U,
+        .mpu_region_count = 3U,
         .restart_policy = {
             .restart_limit = 3U,
             .restart_window_ticks = 64U,
@@ -61,12 +58,10 @@ static const wt_guest_config_t g_partition_configs[] = {
         .mpu_regions = {
             {0x08012000U, 0x00010000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
             {0x20004000U, 0x00004000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE},
-            {0x44020C00U, WT_RCC_REGION_SIZE,
-             WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE},
             {0x40004800U, WT_USART_REGION_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE}
         },
-        .mpu_region_count = 4U,
+        .mpu_region_count = 3U,
         .restart_policy = {
             .restart_limit = 3U,
             .restart_window_ticks = 64U,

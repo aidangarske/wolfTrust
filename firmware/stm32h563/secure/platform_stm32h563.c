@@ -51,6 +51,7 @@ static volatile uint32_t g_last_fault_pc;
 static volatile uint32_t g_switch_count;
 static volatile uint32_t g_virtual_ms;
 static volatile uint32_t g_active_guest;
+static uint32_t g_ns_systick_csr[WT_MAX_GUESTS];
 
 static void wt_sau_set_region(uint32_t rnr,
                               uint32_t base,
@@ -228,14 +229,7 @@ static void wt_maybe_finish_demo(void)
 
 static void wt_update_virtual_time(void)
 {
-    volatile wt_guest_mailbox_t* g0 = (volatile wt_guest_mailbox_t*)WT_GUEST0_RAM_BASE;
-    volatile wt_guest_mailbox_t* g1 = (volatile wt_guest_mailbox_t*)WT_GUEST1_RAM_BASE;
-
     g_virtual_ms += g_timeslice_ms;
-    g0->virtual_ms = g_virtual_ms;
-    g1->virtual_ms = g_virtual_ms;
-    g0->run_token = (g_active_guest == 0u) ? 1u : 0u;
-    g1->run_token = (g_active_guest == 1u) ? 1u : 0u;
     wt_maybe_finish_demo();
 }
 
@@ -265,6 +259,8 @@ void wt_platform_init(void)
     WT_SCB_VTOR_S = WT_FLASH_S_BASE;
     wt_gtzc_init();
     wt_sau_init();
+    /* Enable USART2 (guest 0) and USART3 (guest 1) clocks before guests run */
+    WT_RCC_APB1LENR |= (1u << 17) | (1u << 18);
     wt_platform_zero_guest_memory(WT_GUEST0_RAM_BASE, WT_GUEST_RAM_SIZE);
     wt_platform_zero_guest_memory(WT_GUEST1_RAM_BASE, WT_GUEST_RAM_SIZE);
     g_switch_count = 0u;
@@ -366,12 +362,28 @@ void wt_platform_program_ns_mpu(const wt_mpu_region_t* regions, size_t count)
 void wt_platform_prepare_guest_return(wt_guest_id_t guest_id,
                                       const wt_guest_context_t* context)
 {
+    uint32_t csr;
+
     if (context == NULL) {
         return;
     }
 
+    /* Stop the departing guest's NS SysTick and save its settings */
+    csr = WT_SYST_NS_CSR;
+    if (g_active_guest < WT_MAX_GUESTS) {
+        g_ns_systick_csr[g_active_guest] = csr;
+    }
+    WT_SYST_NS_CSR = 0u;
+
     WT_SCB_VTOR_NS = (uint32_t)context->vector_table_ns;
     g_active_guest = guest_id;
+    WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSTCLR;
+
+    /* Restart the arriving guest's NS SysTick from a clean 1ms countdown */
+    if (guest_id < WT_MAX_GUESTS && (g_ns_systick_csr[guest_id] & WT_SYST_CSR_ENABLE)) {
+        WT_SYST_NS_CVR = 0u;
+        WT_SYST_NS_CSR = g_ns_systick_csr[guest_id];
+    }
 }
 
 void wt_platform_capture_guest_context(wt_guest_context_t* context,

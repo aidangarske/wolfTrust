@@ -6,6 +6,8 @@
 #define WT_SCB_VTOR_S            (*(volatile uint32_t*)0xE000ED08u)
 #define WT_SCB_VTOR_NS           (*(volatile uint32_t*)0xE002ED08u)
 #define WT_SCB_SHCSR_S           (*(volatile uint32_t*)0xE000ED24u)
+#define WT_SCB_ICSR_NS           (*(volatile uint32_t*)0xE002ED04u)
+#define WT_SCB_ICSR_PENDSTCLR    (1u << 25)
 
 #define WT_NVIC_ISER0            (*(volatile uint32_t*)0xE000E100u)
 #define WT_NVIC_ISER1            (*(volatile uint32_t*)0xE000E104u)
@@ -46,6 +48,10 @@
 #define WT_SYST_CSR              (*(volatile uint32_t*)0xE000E010u)
 #define WT_SYST_RVR              (*(volatile uint32_t*)0xE000E014u)
 #define WT_SYST_CVR              (*(volatile uint32_t*)0xE000E018u)
+
+#define WT_SYST_NS_CSR           (*(volatile uint32_t*)0xE002E010u)
+#define WT_SYST_NS_RVR           (*(volatile uint32_t*)0xE002E014u)
+#define WT_SYST_NS_CVR           (*(volatile uint32_t*)0xE002E018u)
 
 #define WT_SYST_CSR_ENABLE       (1u << 0)
 #define WT_SYST_CSR_TICKINT      (1u << 1)
