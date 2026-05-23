@@ -1,6 +1,6 @@
 # m33mu papercuts
 
-Hardware-only defects found while bringing up the STM32H563 TrustZone demo.
+Hardware-only defects found while bringing up the STM32H563 TrustZone firmware test.
 Treat these as emulator fidelity gaps until each has a reduced reproducer.
 
 ## Fixed in this pass
@@ -51,7 +51,7 @@ Treat these as emulator fidelity gaps until each has a reduced reproducer.
 - The HSM ECC sign path overflowed a 32 KiB secure coroutine stack on hardware:
   the watchpoint hit in the TFM/wolfCrypt path below the coroutine stack base
   during `wc_ecc_sign_hash`. wolfTrust now uses 64 KiB coroutine stacks for the
-  HSM demo; m33mu should get a reduced stack-canary test if this path still
+  HSM engine; m33mu should get a reduced stack-canary test if this path still
   passes silently under emulation.
 - ARMv8-M `BXNS/BLXNS` should reject secure-to-nonsecure targets that still
   carry the Thumb bit. Hardware raised `SFSR=INVEP` when the first-dispatch
@@ -77,12 +77,12 @@ Treat these as emulator fidelity gaps until each has a reduced reproducer.
   left hardware faulting on the first non-secure USART access; `m33mu` did not
   model the split clock-gate view.
 - HSM-mode scheduling still needs a reduced test: with `WT_SHARED_UART=1`,
-  the non-HSM demo prints both `g0` and `g1` on USART2 under installed
-  `m33mu`, proving basic secure scheduling and UART routing. The HSM demo
+  the non-HSM firmware test prints both `g0` and `g1` on USART2 under installed
+  `m33mu`, proving basic secure scheduling and UART routing. The HSM engine path
   still prints only `g0` on the same USART2 path, so the remaining issue is
   narrowed to HSM/coroutine interaction rather than UART routing. Do not
   classify this as an m33mu fidelity bug without a hardware comparison.
-- The HSM demo originally entered libgcc's `__gnu_cmse_nonsecure_call` helper
+- The HSM engine path originally entered libgcc's `__gnu_cmse_nonsecure_call` helper
   for the first non-secure reset call, which emitted `vlstm sp`. The installed
   emulator treated that instruction as an undefined instruction even though
   the STM32H563 FPU path is enabled. Firmware now uses an integer-only

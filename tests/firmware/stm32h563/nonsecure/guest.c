@@ -23,7 +23,7 @@
 
 #include "memory_map.h"
 
-#ifdef WT_HSM_DEMO
+#ifdef WT_ENGINE_HSM
 #include "wolfssl/wolfcrypt/settings.h"
 #include "wolfssl/wolfcrypt/ecc.h"
 #include "wolfssl/wolfcrypt/random.h"
@@ -37,7 +37,7 @@ static ecc_key  s_ecc_key;
 static WC_RNG   s_rng;
 static uint8_t  s_sig[80];
 static uint8_t  s_digest[WC_SHA256_DIGEST_SIZE];
-#endif /* WT_HSM_DEMO */
+#endif /* WT_ENGINE_HSM */
 
 extern uint32_t _sidata;
 extern uint32_t _sdata;
@@ -228,7 +228,7 @@ void SysTick_Handler(void)
     }
 }
 
-#ifdef WT_HSM_DEMO
+#ifdef WT_ENGINE_HSM
 
 static void print_str(const char *s)
 {
@@ -252,7 +252,7 @@ static const uint8_t s_hash_input[32] = {
     0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F
 };
 
-static void run_hsm_demo(void)
+static void run_hsm_selftest(void)
 {
     int      rc;
     word32   sig_len;
@@ -364,7 +364,7 @@ static void run_hsm_demo(void)
     g_mailbox.signature = 0x47534D4Fu | (wt_guest_id() << 24);
 }
 
-#endif /* WT_HSM_DEMO */
+#endif /* WT_ENGINE_HSM */
 
 __attribute__((section(".reset")))
 void Reset_Handler(void)
@@ -381,8 +381,8 @@ void Reset_Handler(void)
         g_mailbox.lines_printed = 0u;
         g_next_print_ms = 1000u;
 
-#ifdef WT_HSM_DEMO
-        run_hsm_demo();
+#ifdef WT_ENGINE_HSM
+        run_hsm_selftest();
 #endif
 
         wt_systick_init();

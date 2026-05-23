@@ -23,7 +23,7 @@
 
 #include <stdbool.h>
 
-#ifdef WT_HSM_DEMO
+#ifdef WT_ENGINE_HSM
 #include "wolftrust/sched/coroutine.h"
 #define WT_HSM_TICK_BUDGET 4u
 #endif
@@ -249,7 +249,7 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
 {
     g_scheduler.monotonic_ticks++;
     wt_platform_mask_all_guest_irqs();
-#ifdef WT_HSM_DEMO
+#ifdef WT_ENGINE_HSM
     /* If SysTick interrupted a secure-side coroutine (mid-crypto), the
      * trap frame represents the coroutine's state — not a guest's. Do
      * NOT attempt guest scheduling here: the saved-context plumbing
@@ -270,7 +270,7 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
     wt_schedule_next_guest();
 }
 
-#ifdef WT_HSM_DEMO
+#ifdef WT_ENGINE_HSM
 /* Called from the NSC yield veneer when a guest voluntarily relinquishes
  * its slice (typically because its wolfHSM client got WH_ERROR_NOTREADY
  * and chose to wait rather than spin). Captures the guest context like

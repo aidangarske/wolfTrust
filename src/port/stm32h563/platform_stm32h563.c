@@ -32,7 +32,7 @@
 #include "memory_map.h"
 #include "stm32h563_regs.h"
 
-#ifdef WT_HSM_DEMO
+#ifdef WT_ENGINE_HSM
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/arch/armv8m/cmse.h"
 #include "wolftrust/arch/armv8m/cmse_transport.h"
@@ -42,7 +42,7 @@
 
 #define WT_HSM_YIELD_BUDGET  16u
 #define WT_HSM_SUBMIT_BUDGET  8u
-#endif /* WT_HSM_DEMO */
+#endif /* WT_ENGINE_HSM */
 
 typedef struct wt_exception_frame {
     uint32_t r0;
@@ -124,7 +124,7 @@ static void wt_gtzc_init(void)
     WT_GTZC1_MPCBB1_SECCFGR[0] = 0x00000000u;
     WT_GTZC1_MPCBB1_SECCFGR[1] = 0x00000000u;
 
-    /* Guests own the demo UARTs. SAU makes the APB window non-secure, but
+    /* Guests own the UARTs. SAU makes the APB window non-secure, but
      * STM32H5 also gates peripheral security through GTZC/TZSC. */
     WT_GTZC1_TZSC_SECCFGR1 &= ~(WT_GTZC_SECCFGR1_USART2SEC |
                                 WT_GTZC_SECCFGR1_USART3SEC);
@@ -340,7 +340,7 @@ static void wt_jump_to_ns(uint32_t msp_ns __attribute__((unused)),
     );
 }
 
-static void wt_maybe_finish_demo(void)
+static void wt_maybe_finish_test(void)
 {
     volatile wt_guest_mailbox_t* g0 = (volatile wt_guest_mailbox_t*)WT_GUEST0_RAM_BASE;
     volatile wt_guest_mailbox_t* g1 = (volatile wt_guest_mailbox_t*)WT_GUEST1_RAM_BASE;
@@ -358,7 +358,7 @@ static void wt_maybe_finish_demo(void)
 static void wt_update_virtual_time(void)
 {
     g_virtual_ms += g_timeslice_ms;
-    wt_maybe_finish_demo();
+    wt_maybe_finish_test();
 }
 
 static void wt_secure_systick_dispatch(const wt_trap_frame_t* frame)
@@ -465,7 +465,7 @@ void WolfTrust_Yield(void)
     WolfTrust_Yield_Impl();
 }
 
-#ifdef WT_HSM_DEMO
+#ifdef WT_ENGINE_HSM
 void WolfTrust_Yield_Impl(void)
 {
     /* No need to precheck g_active_guest — yield is harmless even if
@@ -703,12 +703,12 @@ void Reset_Handler(void)
 
     wt_monitor_init();
     g_active_guest = 0u;
-#ifdef WT_HSM_DEMO
+#ifdef WT_ENGINE_HSM
     /* Bring up the secure-side wolfHSM service before dispatching guests:
      *  1. coroutine scheduler (provides the bootstrap context)
      *  2. shared wolfCrypt + NVM + lock
      *  3. one transport + server context + coroutine per guest
-     * Any failure here is fatal — the demo cannot proceed. */
+     * Any failure here is fatal because guests require this engine. */
     wt_co_init();
     if (wt_hsm_init() != 0) wt_platform_panic();
     for (wt_guest_id_t gid = 0u; gid < WT_MAX_GUESTS; gid++) {
@@ -746,7 +746,7 @@ __attribute__((naked)) void SecureFault_Handler(void)
     );
 }
 
-#ifdef WT_HSM_DEMO
+#ifdef WT_ENGINE_HSM
 
 /* Common preamble: validate the current guest is known and HSM-ready. */
 static int wt_hsm_veneer_precheck(void)
@@ -838,7 +838,7 @@ int WolfTrust_HSM_Cancel_Impl(uint16_t seq)
     return WH_ERROR_OK;
 }
 
-#endif /* WT_HSM_DEMO */
+#endif /* WT_ENGINE_HSM */
 
 __attribute__((naked)) void SysTick_Handler(void)
 {

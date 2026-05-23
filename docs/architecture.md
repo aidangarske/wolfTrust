@@ -84,7 +84,7 @@ What is implemented there:
 - Secure `SysTick` driven preemptive context switching between the two guests,
 - NS MPU reload on each dispatch for guest-local flash/RAM isolation in the
   emulator-backed port,
-- a visible dual-UART demo where the two guest sandboxes print independently on
+- a visible dual-UART firmware test where the two guest sandboxes print independently on
   `USART2` and `USART3`.
 
 What is intentionally deferred in that first port:

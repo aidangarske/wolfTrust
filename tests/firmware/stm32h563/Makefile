@@ -16,7 +16,7 @@ CFLAGS_COMMON += -DWT_TIMESLICE_MS=$(WT_TIMESLICE_MS)
 WT_SHARED_UART ?= 3
 CFLAGS_COMMON += -DWT_SHARED_UART=$(WT_SHARED_UART)
 # Guest SysTick only runs while that guest is scheduled. With the current
-# two-guest round-robin demo each guest receives about half the 240 MHz
+# two-guest round-robin firmware test each guest receives about half the 240 MHz
 # physical CPU time, so expose the effective virtual core clock to keep
 # guest timers aligned with wall time.
 WT_GUEST_CORE_CLOCK_HZ ?= 120000000
@@ -56,9 +56,10 @@ all: $(SECURE_BIN) $(GUEST0_BIN) $(GUEST1_BIN)
 	@$(SIZE) $(SECURE_ELF) $(GUEST0_ELF) $(GUEST1_ELF)
 
 # ---------------------------------------------------------------------------
-# wolfHSM / wolfCrypt / wolftrust HSM demo (activated by WT_HSM_DEMO=1)
+# wolfHSM / wolfCrypt / wolftrust HSM engine (activated by WT_ENGINE_HSM=1)
 # ---------------------------------------------------------------------------
-ifeq ($(WT_HSM_DEMO),1)
+WT_ENGINE_HSM ?= 0
+ifeq ($(WT_ENGINE_HSM),1)
 
 WOLFHSM_DIR := $(ROOT)/lib/wolfHSM
 WOLFSSL_DIR := $(ROOT)/lib/wolfSSL
@@ -83,10 +84,10 @@ HSM_INCLUDES_GUEST  := $(HSM_INCLUDES) -I$(abspath nonsecure)
 #   we must provide the interval ourselves.
 HSM_DEFS_SECURE  := -DWOLFSSL_USER_SETTINGS -DWOLFHSM_CFG \
     -DWOLF_CRYPTO_CB -UNO_CODING \
-    -DWC_RESEED_INTERVAL=1000000 -DWT_HSM_DEMO=1
+    -DWC_RESEED_INTERVAL=1000000 -DWT_ENGINE_HSM=1
 HSM_DEFS_GUEST   := -DWOLFSSL_USER_SETTINGS -DWOLFHSM_CFG \
     -DWOLF_CRYPTO_CB -UNO_CODING \
-    -DWC_RESEED_INTERVAL=1000000 -DWT_HSM_DEMO=1 \
+    -DWC_RESEED_INTERVAL=1000000 -DWT_ENGINE_HSM=1 \
     -DWOLFHSM_CFG_ENABLE_CLIENT \
     -DNO_ERROR_STRINGS
 
@@ -326,7 +327,7 @@ $(BUILD_DIR)/ns_%.o: nonsecure/%.c $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | 
 $(BUILD_DIR)/wh_guest_wolfhsm_client_glue.o: nonsecure/wolfhsm_client_glue.c $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(GUEST_LIB_CFLAGS) -c -o $@ $<
 
-endif  # WT_HSM_DEMO=1
+endif  # WT_ENGINE_HSM=1
 
 # ---------------------------------------------------------------------------
 # Per-mode ELF link rules
@@ -338,7 +339,7 @@ $(BUILD_DIR):
 $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 	@tmp="$@.tmp"; \
 	printf '%s\n' \
-		'WT_HSM_DEMO=$(WT_HSM_DEMO)' \
+		'WT_ENGINE_HSM=$(WT_ENGINE_HSM)' \
 		'WT_SHARED_UART=$(WT_SHARED_UART)' \
 		'WT_TIMESLICE_MS=$(WT_TIMESLICE_MS)' \
 		'WT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ)' \
@@ -349,7 +350,7 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		mv "$$tmp" "$@"; \
 	fi
 
-ifeq ($(WT_HSM_DEMO),1)
+ifeq ($(WT_ENGINE_HSM),1)
 
 # CMSE import library: secure link emits an object file containing weak
 # symbols at the resolved addresses of every cmse_nonsecure_entry. Guests
@@ -404,7 +405,7 @@ $(GUEST1_ELF): $(NONSECURE_SRCS) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUIL
 		-Wl,--defsym=GUEST_RAM_ORIGIN=0x20004000 \
 		-o $@ $(NONSECURE_SRCS) -lgcc
 
-endif  # WT_HSM_DEMO=1
+endif  # WT_ENGINE_HSM=1
 
 $(SECURE_BIN): $(SECURE_ELF)
 	$(OBJCOPY) -O binary $< $@
@@ -424,13 +425,13 @@ run-tui: all
 		$(SECURE_BIN) $(GUEST0_BIN):0x18000 $(GUEST1_BIN):0x28000
 
 run-uarts:
-	WT_HSM_DEMO=$(WT_HSM_DEMO) WT_SHARED_UART=$(WT_SHARED_UART) EMU_TIMEOUT=$(EMU_TIMEOUT) M33MU="$(M33MU)" ./run_dual_uart_demo.sh
+	WT_ENGINE_HSM=$(WT_ENGINE_HSM) WT_SHARED_UART=$(WT_SHARED_UART) EMU_TIMEOUT=$(EMU_TIMEOUT) M33MU="$(M33MU)" ./run_dual_uart_test.sh
 
 run-hsm:
-	$(MAKE) WT_HSM_DEMO=1 run
+	$(MAKE) WT_ENGINE_HSM=1 run
 
 run-hsm-uarts:
-	$(MAKE) WT_HSM_DEMO=1 run-uarts
+	$(MAKE) WT_ENGINE_HSM=1 run-uarts
 
 clean:
 	rm -rf $(BUILD_DIR)
