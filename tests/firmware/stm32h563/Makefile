@@ -23,6 +23,7 @@ WT_GUEST_CORE_CLOCK_HZ ?= 120000000
 WT_GUEST_UART_CLOCK_HZ ?= 120000000
 CFLAGS_COMMON += -DWT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ)
 CFLAGS_COMMON += -DWT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ)
+WT_INSECURE_TEST_RNG ?= 0
 
 SECURE_CFLAGS := $(CFLAGS_COMMON) -mcmse
 NONSECURE_CFLAGS := $(CFLAGS_COMMON)
@@ -56,9 +57,9 @@ all: $(SECURE_BIN) $(GUEST0_BIN) $(GUEST1_BIN)
 	@$(SIZE) $(SECURE_ELF) $(GUEST0_ELF) $(GUEST1_ELF)
 
 # ---------------------------------------------------------------------------
-# wolfHSM / wolfCrypt / wolftrust HSM engine (activated by WT_ENGINE_HSM=1)
+# wolfHSM / wolfCrypt / wolftrust HSM engine.
 # ---------------------------------------------------------------------------
-WT_ENGINE_HSM ?= 0
+WT_ENGINE_HSM ?= 1
 ifeq ($(WT_ENGINE_HSM),1)
 
 WOLFHSM_DIR := $(ROOT)/lib/wolfHSM
@@ -90,6 +91,9 @@ HSM_DEFS_GUEST   := -DWOLFSSL_USER_SETTINGS -DWOLFHSM_CFG \
     -DWC_RESEED_INTERVAL=1000000 -DWT_ENGINE_HSM=1 \
     -DWOLFHSM_CFG_ENABLE_CLIENT \
     -DNO_ERROR_STRINGS
+ifeq ($(WT_INSECURE_TEST_RNG),1)
+HSM_DEFS_SECURE += -DWT_INSECURE_TEST_RNG=1
+endif
 
 # Switch secure ELF to -Os: wolfCrypt is too slow at -O0 for embedded use.
 SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
@@ -114,7 +118,8 @@ NONSECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
 # Flags for third-party wolfHSM/wolfCrypt sources: suppress their noisy warnings.
 # wolftrust's own sources are compiled with the base flags (no suppression).
 HSM_LIB_CFLAGS   := $(SECURE_CFLAGS) \
-    -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter
+    -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter \
+    -Wno-type-limits
 GUEST_LIB_CFLAGS := $(NONSECURE_CFLAGS) \
     -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter
 
@@ -156,7 +161,6 @@ WOLFCRYPT_SECURE_SRCS := \
     $(WOLFSSL_DIR)/wolfcrypt/src/hmac.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/logging.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/memory.c \
-    $(WOLFSSL_DIR)/wolfcrypt/src/misc.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/random.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/sha256.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/tfm.c \
@@ -172,6 +176,10 @@ WT_SECURE_EXTRA_SRCS := \
 
 # Target entropy source — include only when the port provides it.
 WT_SECURE_EXTRA_SRCS += $(wildcard $(PORT_DIR)/rng_entropy.c)
+WT_SECURE_EXTRA_SRCS += \
+    $(WOLFHAL_DIR)/src/reg.c \
+    $(WOLFHAL_DIR)/src/rng/rng.c \
+    $(WOLFHAL_DIR)/src/rng/stm32h5_rng.c
 
 # libc stubs (memcpy/memset/memmove/memcmp/strlen/etc) — wolfCrypt needs them
 # and we build -nostdlib -fno-builtin.
@@ -209,7 +217,6 @@ WOLFCRYPT_GUEST_SRCS := \
     $(WOLFSSL_DIR)/wolfcrypt/src/error.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/hash.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/memory.c \
-    $(WOLFSSL_DIR)/wolfcrypt/src/misc.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/sha.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/tfm.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/wolfmath.c \
@@ -296,6 +303,12 @@ $(BUILD_DIR)/wt_sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE
 $(BUILD_DIR)/wt_sec_%.o: $(PORT_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/wt_sec_%.o: $(WOLFHAL_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(WOLFHAL_DIR)/src/rng/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
 # Wave 3/4 services sources
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/wolfhsm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
@@ -340,6 +353,7 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 	@tmp="$@.tmp"; \
 	printf '%s\n' \
 		'WT_ENGINE_HSM=$(WT_ENGINE_HSM)' \
+		'WT_INSECURE_TEST_RNG=$(WT_INSECURE_TEST_RNG)' \
 		'WT_SHARED_UART=$(WT_SHARED_UART)' \
 		'WT_TIMESLICE_MS=$(WT_TIMESLICE_MS)' \
 		'WT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ)' \
@@ -416,16 +430,18 @@ $(GUEST0_BIN): $(GUEST0_ELF)
 $(GUEST1_BIN): $(GUEST1_ELF)
 	$(OBJCOPY) -O binary $< $@
 
-run: all
+run:
+	$(MAKE) WT_INSECURE_TEST_RNG=1 all
 	$(M33MU) --cpu stm32h563 --expect-bkpt 0x7f --timeout $(EMU_TIMEOUT) --quit-on-faults \
 		$(SECURE_BIN) $(GUEST0_BIN):0x18000 $(GUEST1_BIN):0x28000
 
-run-tui: all
+run-tui:
+	$(MAKE) WT_INSECURE_TEST_RNG=1 all
 	$(M33MU) --cpu stm32h563 --tui --timeout $(EMU_TIMEOUT) \
 		$(SECURE_BIN) $(GUEST0_BIN):0x18000 $(GUEST1_BIN):0x28000
 
 run-uarts:
-	WT_ENGINE_HSM=$(WT_ENGINE_HSM) WT_SHARED_UART=$(WT_SHARED_UART) EMU_TIMEOUT=$(EMU_TIMEOUT) M33MU="$(M33MU)" ./run_dual_uart_test.sh
+	WT_ENGINE_HSM=$(WT_ENGINE_HSM) WT_INSECURE_TEST_RNG=1 WT_SHARED_UART=$(WT_SHARED_UART) EMU_TIMEOUT=$(EMU_TIMEOUT) M33MU="$(M33MU)" ./run_dual_uart_test.sh
 
 run-hsm:
 	$(MAKE) WT_ENGINE_HSM=1 run

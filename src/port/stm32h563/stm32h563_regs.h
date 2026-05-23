@@ -74,6 +74,8 @@
 #define WT_RCC_CR_HSION          (1u << 0)
 #define WT_RCC_CR_HSIRDY         (1u << 1)
 #define WT_RCC_CR_HSIDIV_MASK    (0x3u << 3)
+#define WT_RCC_CR_HSI48ON        (1u << 12)
+#define WT_RCC_CR_HSI48RDY       (1u << 13)
 #define WT_RCC_CR_HSEON          (1u << 16)
 #define WT_RCC_CR_HSERDY         (1u << 17)
 #define WT_RCC_CR_HSEBYP         (1u << 18)

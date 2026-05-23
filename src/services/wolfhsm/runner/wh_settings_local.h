@@ -129,9 +129,4 @@
  *---------------------------------------------------------------------------*/
 #define WOLFHSM_CFG_NO_SYS_TIME
 
-/*---------------------------------------------------------------------------
- * Volatile NVM reminder
- *---------------------------------------------------------------------------*/
-#warning "wolfTrust HSM build: NVM is RAM-backed volatile (wh_flash_ramsim) — keys do not persist"
-
 #endif /* WOLFTRUST_SECURE_WH_SETTINGS_LOCAL_H */

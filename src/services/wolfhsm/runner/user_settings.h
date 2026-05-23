@@ -35,14 +35,8 @@
  *   - SHA-256
  *   - HMAC-SHA-256  (required by wolfHSM HKDF paths)
  *   - HKDF          (required by wolfHSM key-derivation paths)
- *   - HashDRBG RNG  (entropy stub — see CUSTOM_RAND_GENERATE_BLOCK below)
+ *   - HashDRBG RNG  (seeded from the STM32H5 hardware RNG via wolfHAL)
  */
-
-/* -------------------------------------------------------------------------
- * Re-declare even though -DWOLFSSL_USER_SETTINGS is on the command line;
- * keeps the header self-contained if included in isolation.
- * ---------------------------------------------------------------------- */
-#define WOLFSSL_USER_SETTINGS
 
 /* -------------------------------------------------------------------------
  * Disable the TLS/SSL layer — wolfCrypt primitives only.
@@ -91,10 +85,12 @@
  * USE_FAST_MATH makes ecc.c call into tfm.c instead (which IS linked).
  *
  * TFM_TIMING_RESISTANT switches TFM to a constant-time mod-exp ladder.
+ * ECC_TIMING_RESISTANT enables wolfCrypt's ECC blinding/hardening path.
  * TFM_ECC256 enables the 256-bit specialised path.
  * ---------------------------------------------------------------------- */
 #define USE_FAST_MATH
 #define TFM_TIMING_RESISTANT
+#define ECC_TIMING_RESISTANT
 #define TFM_ECC256
 
 /* -------------------------------------------------------------------------
@@ -141,15 +137,11 @@
  *
  * HAVE_HASHDRBG selects the wolfCrypt HashDRBG engine.  The DRBG requires
  * an entropy source supplied via CUSTOM_RAND_GENERATE_BLOCK.
- *
- * WARNING: the function below is a STUB that returns deterministic zeroes.
- * It will be replaced with a TRNG-backed implementation before any
- * production use. See src/port/stm32h563/rng_entropy.c (TBD).
  * ---------------------------------------------------------------------- */
 #define HAVE_HASHDRBG
 
 /*
- * Map wolfCrypt's entropy hook to our stub.  The actual symbol must be
+ * Map wolfCrypt's entropy hook to the port TRNG.  The actual symbol must be
  * defined (with external linkage) in exactly one .c file before any call
  * to wc_InitRng() or wc_RNG_GenerateBlock().
  */
@@ -191,7 +183,5 @@ int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
  * undefined).  The constant-time ECC ladder costs a few extra cycles but
  * is mandatory for a hardware security module.
  * ---------------------------------------------------------------------- */
-
-#warning "wolfTrust secure-side wolfSSL build: keys are volatile, RNG is a stub — NOT FOR PRODUCTION"
 
 #endif /* WOLFTRUST_SECURE_USER_SETTINGS_H */

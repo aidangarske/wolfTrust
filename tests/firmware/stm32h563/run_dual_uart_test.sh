@@ -7,6 +7,7 @@ LOG_FILE=$(mktemp)
 EMU_CMD="${M33MU:-m33mu}"
 EMU_TIMEOUT="${EMU_TIMEOUT:-120}"
 WT_ENGINE_HSM="${WT_ENGINE_HSM:-0}"
+WT_INSECURE_TEST_RNG="${WT_INSECURE_TEST_RNG:-1}"
 WT_SHARED_UART="${WT_SHARED_UART:-3}"
 
 cleanup() {
@@ -25,7 +26,7 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-make -C "$SCRIPT_DIR" WT_ENGINE_HSM="$WT_ENGINE_HSM" WT_SHARED_UART="$WT_SHARED_UART" all >/dev/null
+make -C "$SCRIPT_DIR" WT_ENGINE_HSM="$WT_ENGINE_HSM" WT_INSECURE_TEST_RNG="$WT_INSECURE_TEST_RNG" WT_SHARED_UART="$WT_SHARED_UART" all >/dev/null
 
 stdbuf -oL -eL "$EMU_CMD" --cpu stm32h563 --expect-bkpt 0x7f --timeout "$EMU_TIMEOUT" --quit-on-faults \
     "$BUILD_DIR/secure.bin" "$BUILD_DIR/guest0.bin:0x18000" "$BUILD_DIR/guest1.bin:0x28000" \

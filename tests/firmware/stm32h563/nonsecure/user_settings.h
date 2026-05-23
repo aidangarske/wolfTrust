@@ -50,17 +50,8 @@
  * defined in wolfhsm_client_glue.c.  This stub exists ONLY to satisfy
  * wolfCrypt's seed callback at link time.  In practice the guest's RNG calls
  * go through the crypto-cb device (wolfHSM client) which fetches randomness
- * from the secure-side HSM.  The stub is the fallback path; calling it
- * directly returns deterministic bytes.  The implementation in
- * wolfhsm_client_glue.c emits a #warning to flag any direct invocation as
- * unsafe for production.
+ * from the secure-side HSM.  Direct use of the stub fails closed.
  */
-
-/* -------------------------------------------------------------------------
- * Re-declare even though -DWOLFSSL_USER_SETTINGS is on the command line;
- * keeps the header self-contained if included in isolation.
- * ---------------------------------------------------------------------- */
-#define WOLFSSL_USER_SETTINGS
 
 /* -------------------------------------------------------------------------
  * Disable the TLS/SSL layer — wolfCrypt primitives only.
@@ -69,12 +60,10 @@
 
 /* -------------------------------------------------------------------------
  * Crypto callback device: every wc_* call is dispatched to the secure-side
- * HSM server through wh_Client_CryptoCb.  WOLF_CRYPTO_CB is also passed on
- * the command line (-DWOLF_CRYPTO_CB) but is re-declared here for defence in
- * depth — this header must be self-consistent even if the compiler flag is
- * accidentally dropped.
+ * HSM server through wh_Client_CryptoCb.  WOLF_CRYPTO_CB is passed on the
+ * command line because wolfSSL only includes this file when compiler-side
+ * user settings are enabled.
  * ---------------------------------------------------------------------- */
-#define WOLF_CRYPTO_CB
 
 /* -------------------------------------------------------------------------
  * Memory model: the guest has a normal heap (malloc/free available through
@@ -112,10 +101,12 @@
  * signatures (fp_int sizes, function prototypes) are identical on both sides.
  * USE_FAST_MATH makes ecc.c call into tfm.c instead of the SP math backend.
  * TFM_TIMING_RESISTANT switches TFM to a constant-time mod-exp ladder.
+ * ECC_TIMING_RESISTANT enables wolfCrypt's ECC blinding/hardening path.
  * TFM_ECC256 enables the 256-bit specialised path.
  * ---------------------------------------------------------------------- */
 #define USE_FAST_MATH
 #define TFM_TIMING_RESISTANT
+#define ECC_TIMING_RESISTANT
 #define TFM_ECC256
 
 /* -------------------------------------------------------------------------
@@ -155,8 +146,8 @@
  *
  * On the guest side, RNG calls travel through the crypto-cb device to the
  * secure-side HSM; the stub below exists only to satisfy the linker.  The
- * implementation in wolfhsm_client_glue.c emits a compile-time #warning on
- * the direct invocation path so any accidental use is visible at build time.
+ * implementation in wolfhsm_client_glue.c fails closed if that direct path is
+ * accidentally reached.
  * ---------------------------------------------------------------------- */
 #define HAVE_HASHDRBG
 
@@ -203,7 +194,5 @@ int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz);
  * Explicitly keep side-channel hardening ON (WC_NO_HARDEN is left
  * undefined).
  * ---------------------------------------------------------------------- */
-
-#warning "wolfTrust guest-side wolfSSL build — RNG is delegated to HSM via crypto-cb; the local CUSTOM_RAND stub is a fallback only"
 
 #endif /* WOLFTRUST_NS_USER_SETTINGS_H */

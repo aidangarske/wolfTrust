@@ -1,23 +1,10 @@
-CC ?= cc
-CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Iinclude -Isrc/port/stm32h563
-
-SRCS = \
-	src/main.c \
-	src/monitor.c \
-	src/port/stm32h563/partitions.c \
-	src/platform_stub.c
-
-OBJS = $(SRCS:.c=.o)
-
-all: wolftrust
-
-wolftrust: $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $(OBJS)
+all: firmware-stm32h563
 
 clean:
-	rm -f $(OBJS) wolftrust
+	rm -f wolftrust
+	$(MAKE) -C tests/firmware/stm32h563 clean
 
-.PHONY: all clean
+.PHONY: all clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts
 
 firmware-stm32h563:
 	$(MAKE) -C tests/firmware/stm32h563 all

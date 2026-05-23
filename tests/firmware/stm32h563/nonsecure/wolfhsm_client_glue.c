@@ -292,27 +292,13 @@ whClientContext *wolfhsm_guest_client(void)
  * device and fulfilled by the secure-side HSM, so this stub is never reached.
  *
  * It exists solely to satisfy wolfCrypt's early-init seed path at link time.
- * It is NOT cryptographically secure — it outputs bytes derived from a linear
- * congruential generator seeded with a fixed constant.
+ * Direct use fails closed so guest-side RNG cannot silently bypass the HSM.
  * ---------------------------------------------------------------------------*/
-#warning "wolftrust_guest_rng_stub is a deterministic fallback — never use directly in production"
 int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz)
 {
-    static uint32_t s_counter = 0xDEADBEEFu;
-
-    while (sz != 0u) {
-        unsigned int n;
-        unsigned int i;
-
-        s_counter = (s_counter * 1664525u) + 1013904223u;
-        n = (sz < 4u) ? sz : 4u;
-        for (i = 0u; i < n; ++i) {
-            *output++ = (unsigned char)(s_counter >> (8u * i));
-        }
-        sz -= n;
-    }
-
-    return 0;
+    (void)output;
+    (void)sz;
+    return -1;
 }
 
 /* ---------------------------------------------------------------------------

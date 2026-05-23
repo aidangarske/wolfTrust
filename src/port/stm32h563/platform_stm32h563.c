@@ -187,6 +187,9 @@ static void wt_clock_init(void)
     }
     while ((WT_RCC_CR & WT_RCC_CR_HSERDY) == 0u) {
     }
+    WT_RCC_CR |= WT_RCC_CR_HSI48ON;
+    while ((WT_RCC_CR & WT_RCC_CR_HSI48RDY) == 0u) {
+    }
 
     /* NUCLEO-H563ZI HSE is the 8 MHz ST-LINK MCO. PLL1: 8 / 2 * 120 / 2
      * gives a 240 MHz core clock. APB1/APB3 are kept at 120 MHz. */
@@ -433,6 +436,8 @@ void wt_platform_init(void)
         {WHAL_STM32H563_USART2_CLOCK},
         {WHAL_STM32H563_USART3_CLOCK},
     };
+    static const whal_Stm32h5_Rcc_PeriphClk rng_clock =
+        {WHAL_STM32H563_RNG_CLOCK};
 
     wt_clock_init();
     WT_SCB_VTOR_S = WT_FLASH_S_BASE;
@@ -443,6 +448,7 @@ void wt_platform_init(void)
         wt_rcc_enable_clock(WT_RCC_BASE_S, &uart_clocks[i]);
         wt_rcc_enable_clock(WT_RCC_BASE_NS, &uart_clocks[i]);
     }
+    wt_rcc_enable_clock(WT_RCC_BASE_S, &rng_clock);
     wt_uart_gpio_init();
     wt_platform_zero_guest_memory(WT_GUEST0_RAM_BASE, WT_GUEST_RAM_SIZE);
     wt_platform_zero_guest_memory(WT_GUEST1_RAM_BASE, WT_GUEST_RAM_SIZE);

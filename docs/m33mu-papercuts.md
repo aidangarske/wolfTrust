@@ -88,3 +88,9 @@ Treat these as emulator fidelity gaps until each has a reduced reproducer.
   the STM32H563 FPU path is enabled. Firmware now uses an integer-only
   first-dispatch `BXNS` shim, but the missing/rough FP lazy-stack instruction
   coverage is still worth a reduced m33mu test.
+- STM32H563 RNG peripheral fidelity is still missing or incomplete. The secure
+  wolfHSM entropy path now uses the wolfHAL STM32H5 TRNG driver and fails
+  closed if the peripheral never becomes ready. `m33mu` does not yet provide
+  enough RNG readiness/data-register behavior for that production path, so the
+  firmware UART run targets build with an explicit `WT_INSECURE_TEST_RNG=1`
+  fallback until a reduced STM32H5 RNG model/test exists.
