@@ -40,4 +40,8 @@ void wt_monitor_on_guest_fault(const wt_trap_frame_t* frame,
                                wt_fault_reason_t reason);
 const wt_scheduler_state_t* wt_monitor_state(void);
 
+#ifdef WT_HSM_DEMO
+void wt_monitor_on_yield(const wt_trap_frame_t* frame);
+#endif
+
 #endif

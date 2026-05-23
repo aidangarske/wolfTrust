@@ -2,6 +2,7 @@
 firmware/stm32h563/build/
 *.o
 /wolftrust
+tests/host/wolfhsm_loopback/test_loopback
 
 # Stray duplicate at repo root
 /stm32h563_OTP.bin
@@ -9,4 +10,3 @@ firmware/stm32h563/build/
 # Tool-specific files
 .claude/
 .codex
-

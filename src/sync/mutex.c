@@ -1,0 +1,131 @@
+/* mutex.c
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ */
+
+#include "wolftrust/sync/mutex.h"
+#include "wolftrust/sched/coroutine_internal.h"
+
+/* NOTE ON ATOMICITY
+ * -----------------
+ * The secure side runs on a single core with cooperative scheduling.
+ * The only point at which control can transfer to another coroutine is an
+ * explicit wt_co_block() or wt_co_yield() call.  There are no such calls
+ * between the holder-NULL check and the holder assignment in acquire, nor
+ * between the holder check and the wake in release, so both operations are
+ * logically atomic with respect to other coroutines.
+ *
+ * SysTick / interrupt handlers that call wt_co_tick() run from the bootstrap
+ * context (id == 0 / wt_co_current() == NULL).  The API contract forbids
+ * bootstrap code from holding mutexes, so no interrupt can be a mutex
+ * participant.  Do NOT add a critical section (PRIMASK / BASEPRI disable)
+ * here — it is unnecessary and would mask faults during the blocking path.
+ */
+
+void wt_mutex_init(wt_mutex_t *m)
+{
+    m->holder       = NULL;
+    m->wait_head    = NULL;
+    m->wait_tail    = NULL;
+    m->acquire_count = 0u;
+    m->contend_count = 0u;
+}
+
+int wt_mutex_acquire(wt_mutex_t *m)
+{
+    wt_co_t *self;
+
+    /* Bootstrap context (monitor / interrupt) must not block — doing so
+     * would deadlock the monitor.  Detect by wt_co_current() returning NULL
+     * (which maps to id == 0 in the internal layout). */
+    self = wt_co_current();
+    if (self == NULL)
+        return -1;
+
+    if (m->holder == NULL) {
+        /* Fast path: mutex is free. */
+        m->holder = self;
+        m->acquire_count++;
+        return 0;
+    }
+
+    /* Slow path: mutex is held by another coroutine.  Enqueue self and
+     * block.  When wt_co_block returns we have been woken by the releasing
+     * coroutine, which already assigned m->holder = self before calling
+     * wt_co_wake, so no further assignment is needed here. */
+    m->contend_count++;
+
+    self->next_wait = NULL;
+    if (m->wait_head == NULL) {
+        m->wait_head = self;
+        m->wait_tail = self;
+    } else {
+        m->wait_tail->next_wait = self;
+        m->wait_tail = self;
+    }
+
+    wt_co_block();
+
+    /* Resumed — release() has already set m->holder = self. */
+    m->acquire_count++;
+    return 0;
+}
+
+int wt_mutex_release(wt_mutex_t *m)
+{
+    wt_co_t *next;
+
+    if (m->holder != wt_co_current())
+        return -1;
+
+    if (m->wait_head == NULL) {
+        /* No waiters: simply release. */
+        m->holder = NULL;
+        return 0;
+    }
+
+    /* Pop the head of the wait queue and transfer ownership before waking,
+     * so the woken coroutine observes itself as holder the instant it
+     * resumes. */
+    next            = m->wait_head;
+    m->wait_head    = next->next_wait;
+    if (m->wait_head == NULL)
+        m->wait_tail = NULL;
+    next->next_wait = NULL;
+
+    m->holder = next;
+    wt_co_wake(next);
+
+    return 0;
+}
+
+bool wt_mutex_try_acquire(wt_mutex_t *m)
+{
+    if (m->holder != NULL)
+        return false;
+
+    m->holder = wt_co_current();
+    m->acquire_count++;
+    return true;
+}
+
+struct wt_co *wt_mutex_holder(const wt_mutex_t *m)
+{
+    return m->holder;
+}

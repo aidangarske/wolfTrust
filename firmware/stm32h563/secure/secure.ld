@@ -23,7 +23,10 @@ ENTRY(Reset_Handler)
 
 MEMORY {
   FLASH (rx) : ORIGIN = 0x0C000000, LENGTH = 128K
-  RAM   (rwx): ORIGIN = 0x30020000, LENGTH = 512K
+  /* SRAM1 has Secure and Non-secure aliases to the same physical memory.
+   * The first 32 KiB are assigned to the two guests through the 0x20000000
+   * Non-secure alias, so keep secure .data/.bss above that physical window. */
+  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 480K
 }
 
 _estack = ORIGIN(RAM) + LENGTH(RAM);
@@ -53,7 +56,7 @@ SECTIONS {
     *(.eh_frame)
   } > FLASH
 
-  ASSERT(. <= 0x0C002000, "secure image overlaps guest image")
+  ASSERT(. <= 0x0C020000, "secure image overflows secure flash region")
   ASSERT(SIZEOF(.gnu.sgstubs) + SIZEOF(.nsc) <= 0x400, "NSC window overflow")
 
   .data : {

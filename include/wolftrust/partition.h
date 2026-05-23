@@ -24,6 +24,16 @@
 
 #include "wolftrust/types.h"
 
+/* Per-guest CMSE shared-buffer descriptor for the wolfHSM transport.
+ * The buffer lives in the guest's NS RAM. The secure side validates
+ * every byte access against this descriptor + cmse_check_address_range.
+ * Both base and size are required; size==0 means this guest does not
+ * have an HSM transport configured. */
+typedef struct wt_hsm_transport_window {
+    uintptr_t base;
+    size_t    size;
+} wt_hsm_transport_window_t;
+
 typedef struct wt_guest_config {
     wt_guest_id_t guest_id;
     char name[WT_MAX_NAME_LEN];
@@ -38,6 +48,7 @@ typedef struct wt_guest_config {
     size_t mpu_region_count;
     wt_restart_policy_t restart_policy;
     uint32_t timeslice_ms;
+    wt_hsm_transport_window_t hsm_transport;
 } wt_guest_config_t;
 
 typedef struct wt_guest_runtime {

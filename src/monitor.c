@@ -23,6 +23,11 @@
 
 #include <stdbool.h>
 
+#ifdef WT_HSM_DEMO
+#include "wolftrust/sched/coroutine.h"
+#define WT_HSM_TICK_BUDGET 4u
+#endif
+
 static wt_scheduler_state_t g_scheduler;
 
 static wt_guest_runtime_t* wt_guest_runtime(wt_guest_id_t guest_id)
@@ -244,10 +249,44 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
 {
     g_scheduler.monotonic_ticks++;
     wt_platform_mask_all_guest_irqs();
+#ifdef WT_HSM_DEMO
+    /* If SysTick interrupted a secure-side coroutine (mid-crypto), the
+     * trap frame represents the coroutine's state — not a guest's. Do
+     * NOT attempt guest scheduling here: the saved-context plumbing
+     * would corrupt the coroutine. Just return; guest scheduling
+     * resumes on the next SysTick after the coroutine yields. The
+     * coroutine itself is preserved because its MSP is intact and the
+     * hardware will pop the exception frame on return. */
+    if (wt_co_current() != (wt_co_t *)0) {
+        return;
+    }
+#endif
     wt_save_running_guest(frame);
     wt_tick_restart_backoff();
+    /* NOTE: coroutines run only inside NSC veneers, not from this
+     * SysTick handler.  Mixing handler-mode wt_co_tick with secure-side
+     * MSP swapping has subtle re-entry races. v1 keeps the boundaries
+     * clean: SysTick rotates guests, NSC entries drive coroutines. */
     wt_schedule_next_guest();
 }
+
+#ifdef WT_HSM_DEMO
+/* Called from the NSC yield veneer when a guest voluntarily relinquishes
+ * its slice (typically because its wolfHSM client got WH_ERROR_NOTREADY
+ * and chose to wait rather than spin). Captures the guest context like
+ * a timer tick, runs a SLIGHTLY larger coroutine slice (because we
+ * KNOW the calling guest has nothing better to do), then dispatches
+ * the next runnable guest. */
+void wt_monitor_on_yield(const wt_trap_frame_t* frame)
+{
+    wt_platform_mask_all_guest_irqs();
+    wt_save_running_guest(frame);
+    /* Larger budget than the periodic tick: the guest explicitly told
+     * us it is waiting on HSM work. Push more progress through. */
+    (void)wt_co_tick(WT_HSM_TICK_BUDGET * 4u);
+    wt_schedule_next_guest();
+}
+#endif
 
 void wt_monitor_on_guest_fault(const wt_trap_frame_t* frame,
                                wt_fault_reason_t reason)

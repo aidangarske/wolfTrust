@@ -20,6 +20,7 @@
  */
 
 #include "wolftrust/partition.h"
+#include "memory_map.h"
 
 #include <string.h>
 
@@ -28,67 +29,101 @@
 #endif
 
 #define WT_USART_REGION_SIZE 0x00000400U
+#if WT_SHARED_UART == 3
+#define WT_GUEST0_USART_BASE 0x40004800U
+#else
+#define WT_GUEST0_USART_BASE 0x40004400U
+#endif
+#if WT_SHARED_UART == 1 || WT_SHARED_UART == 2
+#define WT_GUEST1_USART_BASE 0x40004400U
+#else
+#define WT_GUEST1_USART_BASE 0x40004800U
+#endif
+#ifdef WT_HSM_DEMO
+#define WT_GUEST_RESET_OFFSET 0x00000115U
+#else
+#define WT_GUEST_RESET_OFFSET 0x000002B1U
+#endif
+/* Initial restore runs from a Secure exception and returns to a Non-secure
+ * Thread/MSP frame. ES must stay set because the exception was taken to Secure
+ * state; clearing it trips INVPC on STM32H563 hardware. */
+#define WT_EXC_RETURN_NS_THREAD_MSP_FROM_SECURE 0xFFFFFFB9U
 
 static const wt_guest_config_t g_partition_configs[] = {
     {
         .guest_id = 0U,
         .name = "guest-a",
-        .entry_point = 0x08002101U,
-        .vector_table = 0x08002000U,
+        .entry_point = WT_GUEST0_FLASH_BASE + WT_GUEST_RESET_OFFSET,
+        .vector_table = WT_GUEST0_FLASH_BASE,
         .initial_psp_ns = 0x00000000U,
         .initial_msp_ns = 0x20004000U,
         .irq_mask = {
             .words = {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U}
         },
         .memory_windows = {
-            {0x08002000U, 0x00010000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
+            {WT_GUEST0_FLASH_BASE, WT_GUEST_FLASH_SIZE,
+             WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
             {0x20000000U, 0x00004000U,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_RESTART_CLEAR}
         },
         .memory_window_count = 2U,
         .mpu_regions = {
-            {0x08002000U, 0x00010000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
+            {WT_GUEST0_FLASH_BASE, WT_GUEST_FLASH_SIZE,
+             WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
             {0x20000000U, 0x00004000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE},
-            {0x40004400U, WT_USART_REGION_SIZE,
-             WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE}
+            {WT_GUEST0_USART_BASE, WT_USART_REGION_SIZE,
+             WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE},
+            /* NSC window: NS guests must be able to fetch the SG veneers.
+             * Without this region the NS MPU blocks BL into 0x0C000400+
+             * (the gateway). Per ARMv8-M, NSC fetches succeed when SAU
+             * marks them NSC AND the NS MPU grants execute permission. */
+            {WT_FLASH_NSC_BASE, (WT_FLASH_NSC_END - WT_FLASH_NSC_BASE + 1U),
+             WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC}
         },
-        .mpu_region_count = 3U,
+        .mpu_region_count = 4U,
         .restart_policy = {
             .restart_limit = 3U,
             .restart_window_ticks = 64U,
             .initial_delay_ticks = 1U
         },
-        .timeslice_ms = WT_TIMESLICE_MS
+        .timeslice_ms = WT_TIMESLICE_MS,
+        .hsm_transport = { .base = WT_GUEST0_HSM_BUF_BASE, .size = WT_HSM_BUF_SIZE }
     },
     {
         .guest_id = 1U,
         .name = "guest-b",
-        .entry_point = 0x08012101U,
-        .vector_table = 0x08012000U,
+        .entry_point = WT_GUEST1_FLASH_BASE + WT_GUEST_RESET_OFFSET,
+        .vector_table = WT_GUEST1_FLASH_BASE,
         .initial_psp_ns = 0x00000000U,
         .initial_msp_ns = 0x20008000U,
         .irq_mask = {
             .words = {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U}
         },
         .memory_windows = {
-            {0x08012000U, 0x00010000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
+            {WT_GUEST1_FLASH_BASE, WT_GUEST_FLASH_SIZE,
+             WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
             {0x20004000U, 0x00004000U,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_RESTART_CLEAR}
         },
         .memory_window_count = 2U,
         .mpu_regions = {
-            {0x08012000U, 0x00010000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
+            {WT_GUEST1_FLASH_BASE, WT_GUEST_FLASH_SIZE,
+             WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
             {0x20004000U, 0x00004000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE},
-            {0x40004800U, WT_USART_REGION_SIZE,
-             WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE}
+            {WT_GUEST1_USART_BASE, WT_USART_REGION_SIZE,
+             WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE},
+            /* NSC window — see guest-a above. */
+            {WT_FLASH_NSC_BASE, (WT_FLASH_NSC_END - WT_FLASH_NSC_BASE + 1U),
+             WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC}
         },
-        .mpu_region_count = 3U,
+        .mpu_region_count = 4U,
         .restart_policy = {
             .restart_limit = 3U,
             .restart_window_ticks = 64U,
             .initial_delay_ticks = 1U
         },
-        .timeslice_ms = WT_TIMESLICE_MS
+        .timeslice_ms = WT_TIMESLICE_MS,
+        .hsm_transport = { .base = WT_GUEST1_HSM_BUF_BASE, .size = WT_HSM_BUF_SIZE }
     }
 };
 
@@ -136,6 +171,6 @@ void wt_partition_reset_runtime(const wt_guest_config_t* config,
     runtime->context.pc = config->entry_point;
     runtime->context.lr = 0U;
     runtime->context.xpsr = 0x01000000U;
-    runtime->context.exc_return = 0xFFFFFFB8U;
+    runtime->context.exc_return = WT_EXC_RETURN_NS_THREAD_MSP_FROM_SECURE;
     runtime->context.frame_stacked = false;
 }

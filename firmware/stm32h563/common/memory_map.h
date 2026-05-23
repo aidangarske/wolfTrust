@@ -28,8 +28,8 @@
 #define WT_FLASH_NSC_END         0x0C0007FFu
 
 #define WT_FLASH_NS_BASE         0x08000000u
-#define WT_GUEST0_FLASH_BASE     0x08002000u
-#define WT_GUEST1_FLASH_BASE     0x08012000u
+#define WT_GUEST0_FLASH_BASE     0x08018000u
+#define WT_GUEST1_FLASH_BASE     0x08028000u
 #define WT_GUEST_FLASH_SIZE      0x00010000u
 
 #define WT_RAM_NS_BASE           0x20000000u
@@ -37,9 +37,24 @@
 #define WT_GUEST1_RAM_BASE       0x20004000u
 #define WT_GUEST_RAM_SIZE        0x00004000u
 
-#define WT_RAM_S_BASE            0x30020000u
+#define WT_RAM_S_BASE            0x30028000u
 #define WT_RAM_S_SIZE            0x00080000u
 
 #define WT_SHARED_STATUS_ADDR    0x20000000u
+
+/* Per-guest CMSE shared transport buffer for wolfHSM. Sits inside each
+ * guest's NS RAM window at offset 0x100 (the first 256 bytes are
+ * reserved for the existing shared-status mailbox). The secure side
+ * validates every access via cmse_check_address_range.
+ *
+ * Buffer layout (512 bytes total):
+ *   [0x000 .. 0x0FF]  request slot  — whCommHeader (8 B) + notify counter + payload
+ *   [0x100 .. 0x1FF]  response slot — whCommHeader (8 B) + notify counter + payload
+ * Payload size is bounded by WOLFHSM_CFG_COMM_DATA_LEN (256 B).
+ * Exact layout in src/arch/armv8m/cmse_transport.c */
+#define WT_HSM_BUF_OFFSET        0x00000100u
+#define WT_HSM_BUF_SIZE          0x00000200u  /* 512 B = req + resp */
+#define WT_GUEST0_HSM_BUF_BASE   (WT_GUEST0_RAM_BASE + WT_HSM_BUF_OFFSET)
+#define WT_GUEST1_HSM_BUF_BASE   (WT_GUEST1_RAM_BASE + WT_HSM_BUF_OFFSET)
 
 #endif

@@ -29,6 +29,18 @@
 #include "memory_map.h"
 #include "stm32h563_regs.h"
 
+#ifdef WT_HSM_DEMO
+#include "wolftrust/services/hsm.h"
+#include "wolftrust/arch/armv8m/cmse.h"
+#include "wolftrust/arch/armv8m/cmse_transport.h"
+#include "wolftrust/sched/coroutine.h"
+#include "wolfhsm/wh_error.h"
+#include "wolfhsm/wh_transport_mem.h"
+
+#define WT_HSM_YIELD_BUDGET  16u
+#define WT_HSM_SUBMIT_BUDGET  8u
+#endif /* WT_HSM_DEMO */
+
 typedef struct wt_exception_frame {
     uint32_t r0;
     uint32_t r1;
@@ -61,9 +73,11 @@ _Static_assert(WT_GUEST_CONTEXT_CONTROL_NS_OFFSET == offsetof(wt_guest_context_t
 _Static_assert(WT_GUEST_CONTEXT_EXC_RETURN_OFFSET == offsetof(wt_guest_context_t, exc_return),
                "wt_guest_context_t layout changed");
 
-static wt_guest_context_t g_return_context;
-static uint32_t g_live_r4_r11[8];
-static uintptr_t g_live_exc_return;
+/* Referenced by inline asm in SysTick_Handler; mark used so -Os does
+ * not DCE them since the C code only touches them by name in __asm. */
+static wt_guest_context_t g_return_context __attribute__((used));
+static uint32_t g_live_r4_r11[8] __attribute__((used));
+static uintptr_t g_live_exc_return __attribute__((used));
 static uint32_t g_systick_reload;
 static uint32_t g_timeslice_ms;
 static uintptr_t g_secure_entry_sp __attribute__((used));
@@ -91,8 +105,19 @@ static void wt_gtzc_init(void)
     WT_RCC_AHB2ENR |= WT_RCC_AHB2ENR_GTZC1EN;
 
     for (i = 0; i < 16u; ++i) {
-        WT_GTZC1_MPCBB1_SECCFGR[i] = 0x00000000u;
+        WT_GTZC1_MPCBB1_SECCFGR[i] = 0xFFFFFFFFu;
     }
+
+    /* SRAM1 MPCBB blocks are 512 B. The two guest windows occupy the first
+     * 32 KiB of SRAM1 through the Non-secure alias at 0x20000000, while the
+     * Secure monitor .data/.bss starts above that physical window. */
+    WT_GTZC1_MPCBB1_SECCFGR[0] = 0x00000000u;
+    WT_GTZC1_MPCBB1_SECCFGR[1] = 0x00000000u;
+
+    /* Guests own the demo UARTs. SAU makes the APB window non-secure, but
+     * STM32H5 also gates peripheral security through GTZC/TZSC. */
+    WT_GTZC1_TZSC_SECCFGR1 &= ~(WT_GTZC_SECCFGR1_USART2SEC |
+                                WT_GTZC_SECCFGR1_USART3SEC);
 
     for (i = 0; i < 4u; ++i) {
         WT_GTZC1_MPCBB2_SECCFGR[i] = 0xFFFFFFFFu;
@@ -114,6 +139,82 @@ static void wt_sau_init(void)
     wt_isb();
 }
 
+static void wt_clock_init(void)
+{
+    uint32_t reg;
+
+    if (((WT_RCC_CFGR1 >> WT_RCC_CFGR1_SWS_SHIFT) & WT_RCC_CFGR1_SW_MASK) ==
+        WT_RCC_CFGR1_SW_PLL1) {
+        return;
+    }
+
+    reg = WT_PWR_VOSCR & ~WT_PWR_VOSCR_VOS_MASK;
+    WT_PWR_VOSCR = reg | WT_PWR_VOSCR_SCALE0;
+    while ((WT_PWR_VOSSR & WT_PWR_VOSSR_VOSRDY) == 0u) {
+    }
+
+    reg = WT_FLASH_ACR & ~(WT_FLASH_ACR_LATENCY_MASK |
+                           WT_FLASH_ACR_WRHIGHFREQ_MASK);
+    WT_FLASH_ACR = reg | WT_FLASH_LATENCY_5WS | WT_FLASH_WRHIGHFREQ_2;
+    while ((WT_FLASH_ACR & (WT_FLASH_ACR_LATENCY_MASK |
+                            WT_FLASH_ACR_WRHIGHFREQ_MASK)) !=
+           (WT_FLASH_LATENCY_5WS | WT_FLASH_WRHIGHFREQ_2)) {
+    }
+
+    WT_RCC_CFGR1 = (WT_RCC_CFGR1 & ~WT_RCC_CFGR1_SW_MASK) |
+                   WT_RCC_CFGR1_SW_HSI;
+    while (((WT_RCC_CFGR1 >> WT_RCC_CFGR1_SWS_SHIFT) &
+            WT_RCC_CFGR1_SW_MASK) != WT_RCC_CFGR1_SW_HSI) {
+    }
+
+    WT_RCC_CR &= ~WT_RCC_CR_PLL1ON;
+    while ((WT_RCC_CR & WT_RCC_CR_PLL1RDY) != 0u) {
+    }
+
+    WT_RCC_CR = (WT_RCC_CR | WT_RCC_CR_HSION | WT_RCC_CR_HSEON |
+                 WT_RCC_CR_HSEBYP) & ~WT_RCC_CR_HSIDIV_MASK;
+    while ((WT_RCC_CR & WT_RCC_CR_HSIRDY) == 0u) {
+    }
+    while ((WT_RCC_CR & WT_RCC_CR_HSERDY) == 0u) {
+    }
+
+    /* NUCLEO-H563ZI HSE is the 8 MHz ST-LINK MCO. PLL1: 8 / 2 * 120 / 2
+     * gives a 240 MHz core clock. APB1/APB3 are kept at 120 MHz. */
+    WT_RCC_PLL1CFGR = WT_RCC_PLL1CFGR_SRC_HSE |
+                      WT_RCC_PLL1CFGR_RGE_4_8 |
+                      WT_RCC_PLL1CFGR_VCO_WIDE |
+                      (2u << WT_RCC_PLL1CFGR_M_SHIFT);
+    WT_RCC_PLL1DIVR = ((120u - 1u) << WT_RCC_PLL1DIVR_N_SHIFT) |
+                      ((2u - 1u) << WT_RCC_PLL1DIVR_P_SHIFT) |
+                      ((4u - 1u) << WT_RCC_PLL1DIVR_Q_SHIFT) |
+                      ((2u - 1u) << WT_RCC_PLL1DIVR_R_SHIFT);
+    WT_RCC_PLL1FRACR = 0u;
+    WT_RCC_PLL1CFGR |= WT_RCC_PLL1CFGR_PEN |
+                       WT_RCC_PLL1CFGR_QEN |
+                       WT_RCC_PLL1CFGR_REN;
+
+    WT_RCC_CFGR2 = (WT_RCC_AHB_DIV_NONE << WT_RCC_CFGR2_HPRE_SHIFT) |
+                   (WT_RCC_APB_DIV_2 << WT_RCC_CFGR2_PPRE1_SHIFT) |
+                   (WT_RCC_APB_DIV_NONE << WT_RCC_CFGR2_PPRE2_SHIFT) |
+                   (WT_RCC_APB_DIV_2 << WT_RCC_CFGR2_PPRE3_SHIFT);
+
+    WT_RCC_CR |= WT_RCC_CR_PLL1ON;
+    while ((WT_RCC_CR & WT_RCC_CR_PLL1RDY) == 0u) {
+    }
+
+    WT_RCC_CFGR1 = (WT_RCC_CFGR1 & ~WT_RCC_CFGR1_SW_MASK) |
+                   WT_RCC_CFGR1_SW_PLL1;
+    while (((WT_RCC_CFGR1 >> WT_RCC_CFGR1_SWS_SHIFT) &
+            WT_RCC_CFGR1_SW_MASK) != WT_RCC_CFGR1_SW_PLL1) {
+    }
+
+    /* USART2/USART3 kernel clock source 0 is PCLK1. */
+    WT_RCC_CCIPR1 &= ~((WT_RCC_CCIPR_USARTSEL_MASK <<
+                        WT_RCC_CCIPR1_USART2SEL_SHIFT) |
+                       (WT_RCC_CCIPR_USARTSEL_MASK <<
+                        WT_RCC_CCIPR1_USART3SEL_SHIFT));
+}
+
 static uint32_t wt_read_psp_ns(void)
 {
     uint32_t value;
@@ -133,16 +234,6 @@ static uint32_t wt_read_ipsr(void)
     uint32_t value;
     __asm volatile("mrs %0, ipsr" : "=r"(value));
     return value;
-}
-
-static void wt_write_msp_ns(uint32_t value)
-{
-    __asm volatile("msr msp_ns, %0" :: "r"(value) : "memory");
-}
-
-static void wt_write_control_ns(uint32_t value)
-{
-    __asm volatile("msr control_ns, %0" :: "r"(value) : "memory");
 }
 
 static void wt_program_ns_mpu_region(uintptr_t base, size_t size, uint32_t attributes)
@@ -223,14 +314,20 @@ typedef struct wt_guest_mailbox {
     volatile uint32_t run_token;
 } wt_guest_mailbox_t;
 
-static void wt_jump_to_ns(uint32_t msp_ns, uint32_t reset_addr) __attribute__((noreturn));
-
 static void wt_jump_to_ns(uint32_t msp_ns, uint32_t reset_addr)
+    __attribute__((naked, noreturn));
+
+static void wt_jump_to_ns(uint32_t msp_ns __attribute__((unused)),
+                          uint32_t reset_addr __attribute__((unused)))
 {
-    wt_write_msp_ns(msp_ns);
-    wt_write_control_ns(0u);
-    __asm volatile("bxns %0" :: "r"(reset_addr) : "memory");
-    __builtin_unreachable();
+    __asm volatile(
+        "msr msp_ns, r0     \n"
+        "bics r1, r1, #1    \n"
+        "movs r2, #0        \n"
+        "msr control_ns, r2 \n"
+        "isb 0xF            \n"
+        "bxns r1            \n"
+    );
 }
 
 static void wt_maybe_finish_demo(void)
@@ -255,7 +352,7 @@ static void wt_update_virtual_time(void)
 }
 
 static void wt_secure_systick_dispatch(const wt_trap_frame_t* frame)
-    __attribute__((noreturn, used));
+    __attribute__((used));
 static void wt_secure_fault_dispatch(const wt_trap_frame_t* frame)
     __attribute__((noreturn, used));
 
@@ -263,8 +360,6 @@ static void wt_secure_systick_dispatch(const wt_trap_frame_t* frame)
 {
     wt_update_virtual_time();
     wt_monitor_on_secure_timer(frame);
-    wt_platform_panic();
-    __builtin_unreachable();
 }
 
 static void wt_secure_fault_dispatch(const wt_trap_frame_t* frame)
@@ -275,13 +370,56 @@ static void wt_secure_fault_dispatch(const wt_trap_frame_t* frame)
     __builtin_unreachable();
 }
 
+static void wt_configure_uart_gpio_pin(uintptr_t gpio_base, uint32_t pin,
+                                       uint32_t af)
+{
+    volatile uint32_t* afr;
+    uint32_t shift;
+
+    WT_GPIO_MODER(gpio_base) =
+        (WT_GPIO_MODER(gpio_base) & ~(0x3u << (pin * 2u))) |
+        (0x2u << (pin * 2u));
+    WT_GPIO_OTYPER(gpio_base) &= ~(1u << pin);
+    WT_GPIO_OSPEEDR(gpio_base) |= (0x3u << (pin * 2u));
+    WT_GPIO_PUPDR(gpio_base) =
+        (WT_GPIO_PUPDR(gpio_base) & ~(0x3u << (pin * 2u))) |
+        (0x1u << (pin * 2u));
+    WT_GPIO_SECCFGR(gpio_base) &= ~(1u << pin);
+
+    if (pin < 8u) {
+        afr = &WT_GPIO_AFRL(gpio_base);
+        shift = pin * 4u;
+    } else {
+        afr = &WT_GPIO_AFRH(gpio_base);
+        shift = (pin - 8u) * 4u;
+    }
+
+    *afr = (*afr & ~(0xFu << shift)) | ((af & 0xFu) << shift);
+}
+
+static void wt_uart_gpio_init(void)
+{
+    WT_RCC_AHB2ENR |= WT_RCC_AHB2ENR_GPIOAEN | WT_RCC_AHB2ENR_GPIODEN;
+    (void)WT_RCC_AHB2ENR;
+    WT_PWR_CR2 |= WT_PWR_CR2_IOSV;
+
+    /* USART2 on PA2/PA3, USART3 VCP on PD8/PD9. */
+    wt_configure_uart_gpio_pin(WT_GPIOA_BASE_S, 2u, 7u);
+    wt_configure_uart_gpio_pin(WT_GPIOA_BASE_S, 3u, 7u);
+    wt_configure_uart_gpio_pin(WT_GPIOD_BASE_S, 8u, 7u);
+    wt_configure_uart_gpio_pin(WT_GPIOD_BASE_S, 9u, 7u);
+}
+
 void wt_platform_init(void)
 {
+    wt_clock_init();
     WT_SCB_VTOR_S = WT_FLASH_S_BASE;
     wt_gtzc_init();
     wt_sau_init();
-    /* Enable USART2 (guest 0) and USART3 (guest 1) clocks before guests run */
+    /* Enable USART2/USART3 clocks in both security views before guests run. */
     WT_RCC_APB1LENR |= (1u << 17) | (1u << 18);
+    WT_RCC_APB1LENR_NS |= (1u << 17) | (1u << 18);
+    wt_uart_gpio_init();
     wt_platform_zero_guest_memory(WT_GUEST0_RAM_BASE, WT_GUEST_RAM_SIZE);
     wt_platform_zero_guest_memory(WT_GUEST1_RAM_BASE, WT_GUEST_RAM_SIZE);
     g_switch_count = 0u;
@@ -289,23 +427,35 @@ void wt_platform_init(void)
     g_timeslice_ms = 0u;
 }
 
-void WolfTrust_Yield_Impl(void) __attribute__((noreturn));
+/* WolfTrust_Yield uses the cmse_nonsecure_entry attribute (rather than the
+ * older naked-sg-tail-call pattern) so the compiler generates an
+ * __acle_se_WolfTrust_Yield wrapper that clears scratch registers
+ * (r1-r3, r12, CPSR_fs) before BXNS. Without this, values left in r1/r2
+ * by wt_co_tick → wt_co_arch_switch (notably a secure-RAM coroutine
+ * SP) would leak to the non-secure caller (Wave 4C audit finding). */
+void WolfTrust_Yield_Impl(void);
 
-__attribute__((naked, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
 void WolfTrust_Yield(void)
 {
-    __asm volatile(
-        "sg                        \n"
-        "b.w WolfTrust_Yield_Impl  \n"
-    );
+    WolfTrust_Yield_Impl();
 }
 
+#ifdef WT_HSM_DEMO
+void WolfTrust_Yield_Impl(void)
+{
+    /* No need to precheck g_active_guest — yield is harmless even if
+     * the caller is in an invalid state; we just tick coroutines and
+     * return. The next SysTick will steal CPU naturally. */
+    (void)wt_co_tick(WT_HSM_YIELD_BUDGET);
+}
+#else
 void WolfTrust_Yield_Impl(void)
 {
     __asm volatile("bkpt #0x70");
     wt_platform_panic();
-    __builtin_unreachable();
 }
+#endif
 
 void wt_platform_start_secure_timer(uint32_t timeslice_ms)
 {
@@ -316,7 +466,7 @@ void wt_platform_start_secure_timer(uint32_t timeslice_ms)
     }
 
     g_timeslice_ms = timeslice_ms;
-    reload = timeslice_ms * (64000000u / 1000u);
+    reload = timeslice_ms * (WT_STM32H563_CORE_CLOCK_HZ / 1000u);
     g_systick_reload = reload;
 }
 
@@ -440,16 +590,12 @@ void wt_platform_restore_guest_context(wt_guest_context_t* context)
     g_switch_count++;
 
     if (!context->frame_stacked) {
-        volatile uint32_t* vtor = (volatile uint32_t*)context->vector_table_ns;
-
         if (wt_read_ipsr() == 0u) {
             wt_arm_secure_timer();
-            wt_jump_to_ns(vtor[0], vtor[1]);
+            wt_jump_to_ns((uint32_t)context->msp_ns, (uint32_t)context->pc);
         } else {
             wt_exception_frame_t* stacked;
 
-            context->msp_ns = (uintptr_t)vtor[0];
-            context->pc = (uintptr_t)vtor[1];
             context->lr = 0u;
             context->xpsr = 0x01000000u;
             stacked = (wt_exception_frame_t*)(context->msp_ns - sizeof(wt_exception_frame_t));
@@ -533,6 +679,30 @@ void Reset_Handler(void)
 
     wt_monitor_init();
     g_active_guest = 0u;
+#ifdef WT_HSM_DEMO
+    /* Bring up the secure-side wolfHSM service before dispatching guests:
+     *  1. coroutine scheduler (provides the bootstrap context)
+     *  2. shared wolfCrypt + NVM + lock
+     *  3. one transport + server context + coroutine per guest
+     * Any failure here is fatal — the demo cannot proceed. */
+    wt_co_init();
+    if (wt_hsm_init() != 0) wt_platform_panic();
+    for (wt_guest_id_t gid = 0u; gid < WT_MAX_GUESTS; gid++) {
+        const wt_guest_config_t *configs;
+        size_t cfg_count;
+        wt_cmse_transport_cfg_t tx_cfg;
+        wt_cmse_transport_ctx_t *tx_ctx;
+        configs = wt_partitions_config_table(&cfg_count);
+        if (configs == NULL || gid >= cfg_count) break;
+        if (configs[gid].hsm_transport.size == 0u) continue;
+        wt_cmse_transport_cfg_for(gid, &tx_cfg);
+        tx_ctx = wt_cmse_transport_ctx_for(gid);
+        if (tx_ctx == NULL) continue;
+        if (wt_hsm_guest_init(gid, &wt_cmse_transport_cb, tx_ctx, &tx_cfg) != 0) {
+            wt_platform_panic();
+        }
+    }
+#endif
     wt_monitor_start();
     wt_platform_panic();
 }
@@ -551,6 +721,100 @@ __attribute__((naked)) void SecureFault_Handler(void)
         "b wt_secure_fault_dispatch     \n"
     );
 }
+
+#ifdef WT_HSM_DEMO
+
+/* Common preamble: validate the current guest is known and HSM-ready. */
+static int wt_hsm_veneer_precheck(void)
+{
+    if (g_active_guest >= WT_MAX_GUESTS) return WH_ERROR_BADARGS;
+    if (!wt_hsm_guest_ready(g_active_guest)) return WH_ERROR_BADARGS;
+    return WH_ERROR_OK;
+}
+
+int WolfTrust_HSM_Submit_Impl(uint16_t size);
+__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+int WolfTrust_HSM_Submit(uint16_t size)
+{
+    return WolfTrust_HSM_Submit_Impl(size);
+}
+
+int WolfTrust_HSM_Submit_Impl(uint16_t size)
+{
+    int rc = wt_hsm_veneer_precheck();
+    if (rc != WH_ERROR_OK) return rc;
+    if (size == 0u || size > WOLFHSM_CFG_COMM_DATA_LEN) return WH_ERROR_BADARGS;
+
+    /* The transport's Recv callback walks the request slot using
+     * wt_cmse_check_ns_rw, so we don't need to copy here. We just
+     * need to give the coroutine some CPU so it can pick the request
+     * up and process it. The size argument is informational — we do
+     * not trust it for memory access, only for early validation. */
+    wt_co_t *co = wt_hsm_guest_coroutine(g_active_guest);
+    if (co != NULL) wt_co_wake(co);
+    (void)wt_co_tick(WT_HSM_SUBMIT_BUDGET);
+    return WH_ERROR_OK;
+}
+
+int WolfTrust_HSM_Poll_Impl(uint16_t seq);
+__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+int WolfTrust_HSM_Poll(uint16_t seq)
+{
+    return WolfTrust_HSM_Poll_Impl(seq);
+}
+
+int WolfTrust_HSM_Poll_Impl(uint16_t seq)
+{
+    int rc = wt_hsm_veneer_precheck();
+    wt_co_t *co;
+
+    if (rc != WH_ERROR_OK) return rc;
+
+    /* Poll is part of the active request/response handshake. Wake only the
+     * current guest's HSM server so foreign guest buffers are never touched
+     * while this guest's NS MPU window is active. */
+    co = wt_hsm_guest_coroutine(g_active_guest);
+    if (co != NULL) wt_co_wake(co);
+    (void)wt_co_tick(WT_HSM_SUBMIT_BUDGET);
+
+    /* Read the response notify counter from the guest's NS buffer
+     * via the transport context (which already validated the pointer
+     * at init). We do NOT trust `seq` for memory access — it is
+     * compared against a value we read ourselves. */
+    wt_cmse_transport_ctx_t *tx = wt_cmse_transport_ctx_for(g_active_guest);
+    if (tx == NULL || tx->resp_csr == NULL) return WH_ERROR_NOTREADY;
+    if (!wt_cmse_check_ns_rw(tx->resp_csr, sizeof(*tx->resp_csr))) {
+        return WH_ERROR_ABORTED;
+    }
+    /* Compare notify field with the seq we were given. The client uses
+     * seq as a sequence-number lookup; mismatch means "response not yet
+     * ready" (or "response is for a different request, retry"). */
+    if (tx->resp_csr->s.notify == seq) {
+        return WH_ERROR_OK;
+    }
+    return WH_ERROR_NOTREADY;
+}
+
+int WolfTrust_HSM_Cancel_Impl(uint16_t seq);
+__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+int WolfTrust_HSM_Cancel(uint16_t seq)
+{
+    return WolfTrust_HSM_Cancel_Impl(seq);
+}
+
+int WolfTrust_HSM_Cancel_Impl(uint16_t seq)
+{
+    int rc = wt_hsm_veneer_precheck();
+    if (rc != WH_ERROR_OK) return rc;
+    (void)seq;
+    /* TODO(future): tag the per-guest server with a cancel flag the
+     * coroutine inspects between message-handler steps. For now,
+     * cancel is a soft no-op — the request will run to completion
+     * and the client can discard the response. */
+    return WH_ERROR_OK;
+}
+
+#endif /* WT_HSM_DEMO */
 
 __attribute__((naked)) void SysTick_Handler(void)
 {

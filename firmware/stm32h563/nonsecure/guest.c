@@ -21,9 +21,23 @@
 
 #include <stdint.h>
 
-#ifndef WT_GUEST_ID
-#define WT_GUEST_ID 0u
-#endif
+#include "memory_map.h"
+
+#ifdef WT_HSM_DEMO
+#include "wolfssl/wolfcrypt/settings.h"
+#include "wolfssl/wolfcrypt/ecc.h"
+#include "wolfssl/wolfcrypt/random.h"
+#include "wolfssl/wolfcrypt/hash.h"
+#include "wolfhsm/wh_client.h"
+
+int wolfhsm_guest_init(void);
+
+/* Static buffers to keep large structs off the stack. */
+static ecc_key  s_ecc_key;
+static WC_RNG   s_rng;
+static uint8_t  s_sig[80];
+static uint8_t  s_digest[WC_SHA256_DIGEST_SIZE];
+#endif /* WT_HSM_DEMO */
 
 extern uint32_t _sidata;
 extern uint32_t _sdata;
@@ -42,10 +56,17 @@ extern uint32_t _estack;
 #define USART_TDR(base)       (*(volatile uint32_t *)((base) + 0x28u))
 
 #define USART_CR1_UE          (1u << 0)
+#define USART_CR1_RE          (1u << 2)
 #define USART_CR1_TE          (1u << 3)
 #define USART_ISR_TXE         (1u << 7)
 
-#define WT_SYSCLK_HZ          64000000u
+#ifndef WT_GUEST_CORE_CLOCK_HZ
+#define WT_GUEST_CORE_CLOCK_HZ 240000000u
+#endif
+
+#ifndef WT_GUEST_UART_CLOCK_HZ
+#define WT_GUEST_UART_CLOCK_HZ 120000000u
+#endif
 
 #define SYST_CSR     (*(volatile uint32_t *)0xE000E010u)
 #define SYST_RVR     (*(volatile uint32_t *)0xE000E014u)
@@ -102,11 +123,20 @@ const uint32_t g_vectors[16] = {
 
 static uintptr_t wt_uart_base(void)
 {
-#if WT_GUEST_ID == 0u
+#if WT_SHARED_UART == 1 || WT_SHARED_UART == 2
     return USART2_BASE;
-#else
+#elif WT_SHARED_UART == 3
     return USART3_BASE;
+#else
+    return ((uintptr_t)&_estack == (WT_GUEST1_RAM_BASE + WT_GUEST_RAM_SIZE)) ?
+           USART3_BASE : USART2_BASE;
 #endif
+}
+
+static uint32_t wt_guest_id(void)
+{
+    return ((uintptr_t)&_estack == (WT_GUEST1_RAM_BASE + WT_GUEST_RAM_SIZE)) ?
+           1u : 0u;
 }
 
 static void wt_copy_data(void)
@@ -131,13 +161,13 @@ static void wt_zero_bss(void)
 static void wt_uart_init(void)
 {
     uintptr_t base = wt_uart_base();
-    uint32_t brr = WT_SYSCLK_HZ / 115200u;
+    uint32_t brr = WT_GUEST_UART_CLOCK_HZ / 115200u;
 
     USART_CR1(base) = 0u;
     USART_CR2(base) = 0u;
     USART_CR3(base) = 0u;
     USART_BRR(base) = brr;
-    USART_CR1(base) = USART_CR1_UE | USART_CR1_TE;
+    USART_CR1(base) = USART_CR1_UE | USART_CR1_TE | USART_CR1_RE;
 }
 
 static void wt_uart_putc(char c)
@@ -173,7 +203,7 @@ static void wt_uart_put_u32(uint32_t value)
 static void wt_print_status(uint32_t second_mark)
 {
     wt_uart_putc('g');
-    wt_uart_put_u32(WT_GUEST_ID);
+    wt_uart_put_u32(wt_guest_id());
     wt_uart_putc(':');
     wt_uart_put_u32(second_mark);
     wt_uart_putc('\n');
@@ -182,7 +212,7 @@ static void wt_print_status(uint32_t second_mark)
 static void wt_systick_init(void)
 {
     SYST_CSR = 0u;
-    SYST_RVR = (WT_SYSCLK_HZ / 1000u) - 1u;
+    SYST_RVR = (WT_GUEST_CORE_CLOCK_HZ / 1000u) - 1u;
     SYST_CVR = 0u;
     SYST_CSR = SYST_CSR_CLKSOURCE | SYST_CSR_TICKINT | SYST_CSR_ENABLE;
 }
@@ -198,6 +228,144 @@ void SysTick_Handler(void)
     }
 }
 
+#ifdef WT_HSM_DEMO
+
+static void print_str(const char *s)
+{
+    while (*s != '\0') {
+        wt_uart_putc(*s++);
+    }
+}
+
+static void print_hex_byte(uint8_t b)
+{
+    static const char hex[] = "0123456789abcdef";
+    wt_uart_putc(hex[(b >> 4) & 0xFu]);
+    wt_uart_putc(hex[b & 0xFu]);
+}
+
+/* Fixed 32-byte input for SHA-256: bytes 0x00..0x1F */
+static const uint8_t s_hash_input[32] = {
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+    0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+    0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F
+};
+
+static void run_hsm_demo(void)
+{
+    int      rc;
+    word32   sig_len;
+    int      verify_ok = 0;
+
+    /* --- Step 1: Init wolfHSM client --- */
+    rc = wolfhsm_guest_init();
+    if (rc != 0) {
+        wt_uart_putc('g');
+        wt_uart_put_u32(wt_guest_id());
+        print_str(":hsm-init ");
+        wt_uart_put_u32((uint32_t)rc);
+        wt_uart_putc('\n');
+        return; /* fall through to heartbeat loop */
+    }
+
+    /* --- Step 2: Init RNG via HSM --- */
+    rc = wc_InitRng_ex(&s_rng, NULL, WH_DEV_ID);
+    if (rc != 0) {
+        wt_uart_putc('g');
+        wt_uart_put_u32(wt_guest_id());
+        print_str(":HSM FAIL ");
+        wt_uart_put_u32((uint32_t)rc);
+        wt_uart_putc('\n');
+        return;
+    }
+
+    /* --- Step 3: Init ECC key via HSM --- */
+    rc = wc_ecc_init_ex(&s_ecc_key, NULL, WH_DEV_ID);
+    if (rc != 0) {
+        wc_FreeRng(&s_rng);
+        wt_uart_putc('g');
+        wt_uart_put_u32(wt_guest_id());
+        print_str(":HSM FAIL ");
+        wt_uart_put_u32((uint32_t)rc);
+        wt_uart_putc('\n');
+        return;
+    }
+
+    /* --- Step 4: Generate P-256 key via HSM --- */
+    rc = wc_ecc_make_key_ex(&s_rng, 32, &s_ecc_key, ECC_SECP256R1);
+    if (rc != 0) {
+        wc_ecc_free(&s_ecc_key);
+        wc_FreeRng(&s_rng);
+        wt_uart_putc('g');
+        wt_uart_put_u32(wt_guest_id());
+        print_str(":HSM FAIL ");
+        wt_uart_put_u32((uint32_t)rc);
+        wt_uart_putc('\n');
+        return;
+    }
+
+    /* --- Step 5: SHA-256 locally (proves guest wolfCrypt works) --- */
+    rc = wc_Sha256Hash(s_hash_input, sizeof(s_hash_input), s_digest);
+    if (rc != 0) {
+        wc_ecc_free(&s_ecc_key);
+        wc_FreeRng(&s_rng);
+        wt_uart_putc('g');
+        wt_uart_put_u32(wt_guest_id());
+        print_str(":HSM FAIL ");
+        wt_uart_put_u32((uint32_t)rc);
+        wt_uart_putc('\n');
+        return;
+    }
+
+    /* --- Step 6: Sign the digest via HSM --- */
+    sig_len = (word32)sizeof(s_sig);
+    rc = wc_ecc_sign_hash(s_digest, WC_SHA256_DIGEST_SIZE,
+                          s_sig, &sig_len, &s_rng, &s_ecc_key);
+    if (rc != 0) {
+        wc_ecc_free(&s_ecc_key);
+        wc_FreeRng(&s_rng);
+        wt_uart_putc('g');
+        wt_uart_put_u32(wt_guest_id());
+        print_str(":HSM FAIL ");
+        wt_uart_put_u32((uint32_t)rc);
+        wt_uart_putc('\n');
+        return;
+    }
+
+    /* --- Step 7: Verify the signature via HSM --- */
+    rc = wc_ecc_verify_hash(s_sig, sig_len,
+                            s_digest, WC_SHA256_DIGEST_SIZE,
+                            &verify_ok, &s_ecc_key);
+
+    wc_ecc_free(&s_ecc_key);
+    wc_FreeRng(&s_rng);
+
+    if (rc != 0 || verify_ok != 1) {
+        wt_uart_putc('g');
+        wt_uart_put_u32(wt_guest_id());
+        print_str(":HSM FAIL ");
+        wt_uart_put_u32((uint32_t)rc);
+        wt_uart_putc('\n');
+        return;
+    }
+
+    /* --- Step 8: Success --- */
+    wt_uart_putc('g');
+    wt_uart_put_u32(wt_guest_id());
+    print_str(":sig[0]=");
+    print_hex_byte(s_sig[0]);
+    wt_uart_putc('\n');
+
+    wt_uart_putc('g');
+    wt_uart_put_u32(wt_guest_id());
+    print_str(":HSM OK\n");
+
+    g_mailbox.signature = 0x47534D4Fu | (wt_guest_id() << 24);
+}
+
+#endif /* WT_HSM_DEMO */
+
 void Reset_Handler(void)
 {
     if (g_mailbox.boot_count == 0u) {
@@ -206,12 +374,16 @@ void Reset_Handler(void)
         wt_uart_init();
 
         g_mailbox.boot_count = 1u;
-        g_mailbox.signature = 0x47554530u + WT_GUEST_ID;
+        g_mailbox.signature = 0x47554530u + wt_guest_id();
         g_mailbox.heartbeat = 0u;
         g_mailbox.virtual_ms = 0u;
         g_mailbox.lines_printed = 0u;
         g_next_print_ms = 1000u;
         wt_systick_init();
+
+#ifdef WT_HSM_DEMO
+        run_hsm_demo();
+#endif
     }
 
     for (;;) {
