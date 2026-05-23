@@ -25,6 +25,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <wolfHAL/clock/stm32h5_rcc.h>
+#include <wolfHAL/platform/st/stm32h563xx.h>
+#include <wolfHAL/reg.h>
 
 #include "memory_map.h"
 #include "stm32h563_regs.h"
@@ -87,6 +90,13 @@ static volatile uint32_t g_switch_count;
 static volatile uint32_t g_virtual_ms;
 static volatile uint32_t g_active_guest;
 static uint32_t g_ns_systick_csr[WT_MAX_GUESTS];
+
+static void wt_rcc_enable_clock(uintptr_t base,
+                                const whal_Stm32h5_Rcc_PeriphClk* clk)
+{
+    whal_Reg_Update((size_t)base, clk->regOffset, clk->enableMask,
+                    clk->enableMask);
+}
 
 static void wt_sau_set_region(uint32_t rnr,
                               uint32_t base,
@@ -399,7 +409,14 @@ static void wt_configure_uart_gpio_pin(uintptr_t gpio_base, uint32_t pin,
 
 static void wt_uart_gpio_init(void)
 {
-    WT_RCC_AHB2ENR |= WT_RCC_AHB2ENR_GPIOAEN | WT_RCC_AHB2ENR_GPIODEN;
+    static const whal_Stm32h5_Rcc_PeriphClk gpio_clocks[] = {
+        {WHAL_STM32H563_GPIOA_CLOCK},
+        {WHAL_STM32H563_GPIOD_CLOCK},
+    };
+
+    for (size_t i = 0u; i < sizeof(gpio_clocks) / sizeof(gpio_clocks[0]); ++i) {
+        wt_rcc_enable_clock(WT_RCC_BASE_S, &gpio_clocks[i]);
+    }
     (void)WT_RCC_AHB2ENR;
     WT_PWR_CR2 |= WT_PWR_CR2_IOSV;
 
@@ -412,13 +429,20 @@ static void wt_uart_gpio_init(void)
 
 void wt_platform_init(void)
 {
+    static const whal_Stm32h5_Rcc_PeriphClk uart_clocks[] = {
+        {WHAL_STM32H563_USART2_CLOCK},
+        {WHAL_STM32H563_USART3_CLOCK},
+    };
+
     wt_clock_init();
     WT_SCB_VTOR_S = WT_FLASH_S_BASE;
     wt_gtzc_init();
     wt_sau_init();
     /* Enable USART2/USART3 clocks in both security views before guests run. */
-    WT_RCC_APB1LENR |= (1u << 17) | (1u << 18);
-    WT_RCC_APB1LENR_NS |= (1u << 17) | (1u << 18);
+    for (size_t i = 0u; i < sizeof(uart_clocks) / sizeof(uart_clocks[0]); ++i) {
+        wt_rcc_enable_clock(WT_RCC_BASE_S, &uart_clocks[i]);
+        wt_rcc_enable_clock(WT_RCC_BASE_NS, &uart_clocks[i]);
+    }
     wt_uart_gpio_init();
     wt_platform_zero_guest_memory(WT_GUEST0_RAM_BASE, WT_GUEST_RAM_SIZE);
     wt_platform_zero_guest_memory(WT_GUEST1_RAM_BASE, WT_GUEST_RAM_SIZE);

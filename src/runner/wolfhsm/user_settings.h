@@ -144,7 +144,7 @@
  *
  * WARNING: the function below is a STUB that returns deterministic zeroes.
  * It will be replaced with a TRNG-backed implementation before any
- * production use.  See firmware/stm32h563/secure/rng_entropy.c (TBD).
+ * production use. See src/port/stm32h563/rng_entropy.c (TBD).
  * ---------------------------------------------------------------------- */
 #define HAVE_HASHDRBG
 

@@ -73,7 +73,7 @@ A real SoC port must replace `src/platform_stub.c` with Secure firmware that:
 
 ## STM32H563 bring-up status
 
-The repository now includes an initial `firmware/stm32h563/` port intended for
+The repository now includes an initial `tests/firmware/stm32h563/` port intended for
 execution under `m33mu`.
 
 What is implemented there:

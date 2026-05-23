@@ -36,7 +36,7 @@ SECTIONS {
 
   /* wolfHSM CMSE transport buffer: 512 B at GUEST_RAM_ORIGIN + 0x100.
    * NOLOAD — the secure side initialises this region via cmse_check_address_range.
-   * Matches WT_HSM_BUF_OFFSET / WT_HSM_BUF_SIZE in common/memory_map.h. */
+   * Matches WT_HSM_BUF_OFFSET / WT_HSM_BUF_SIZE in the STM32H563 port map. */
   .hsm_transport (ORIGIN(RAM) + 0x100) (NOLOAD) : {
     _hsm_transport_base = .;
     . += 0x200;

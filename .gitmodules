@@ -4,3 +4,6 @@
 [submodule "lib/wolfSSL"]
 	path = lib/wolfSSL
 	url = git@github.com:wolfSSL/wolfSSL.git
+[submodule "lib/wolfhal"]
+	path = lib/wolfhal
+	url = git@github.com:wolfSSL/wolfhal.git

@@ -3,10 +3,13 @@ CC := $(TOOLPREFIX)gcc
 OBJCOPY := $(TOOLPREFIX)objcopy
 SIZE := $(TOOLPREFIX)size
 M33MU ?= m33mu
+ROOT := ../../..
+PORT_DIR := $(ROOT)/src/port/stm32h563
+RUNNER_DIR := $(ROOT)/src/runner/wolfhsm
 
 CPU_FLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only
 CFLAGS_COMMON := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -O0 -g -Wall -Wextra
-CFLAGS_COMMON += -I../../include -I./common
+CFLAGS_COMMON += -I$(ROOT)/include -I$(PORT_DIR) -I$(ROOT)/lib/wolfhal
 WT_TIMESLICE_MS ?= 100
 EMU_TIMEOUT ?= 120
 CFLAGS_COMMON += -DWT_TIMESLICE_MS=$(WT_TIMESLICE_MS)
@@ -32,11 +35,11 @@ GUEST1_ELF := $(BUILD_DIR)/guest1.elf
 GUEST1_BIN := $(BUILD_DIR)/guest1.bin
 
 SECURE_SRCS := \
-	secure/ivt.c \
-	secure/platform_stm32h563.c \
-	secure/runtime.c \
-	../../src/monitor.c \
-	../../src/partitions.c
+	$(RUNNER_DIR)/ivt.c \
+	$(RUNNER_DIR)/runtime.c \
+	$(PORT_DIR)/platform_stm32h563.c \
+	$(ROOT)/src/monitor.c \
+	$(PORT_DIR)/partitions.c
 
 NONSECURE_SRCS := nonsecure/guest.c
 
@@ -52,8 +55,9 @@ all: $(SECURE_BIN) $(GUEST0_BIN) $(GUEST1_BIN)
 # ---------------------------------------------------------------------------
 ifeq ($(WT_HSM_DEMO),1)
 
-WOLFHSM_DIR := ../../lib/wolfHSM
-WOLFSSL_DIR := ../../lib/wolfSSL
+WOLFHSM_DIR := $(ROOT)/lib/wolfHSM
+WOLFSSL_DIR := $(ROOT)/lib/wolfSSL
+WOLFHAL_DIR := $(ROOT)/lib/wolfhal
 
 # wolfhsm/wh_settings.h picks up our settings via:
 #   #ifdef WOLFHSM_CFG
@@ -65,7 +69,7 @@ WOLFHSM_CFG_H       := $(BUILD_DIR)/wolfhsm_cfg.h
 WOLFHSM_GUEST_CFG_H := $(BUILD_DIR)/wolfhsm_guest_cfg.h
 
 HSM_INCLUDES        := -I$(WOLFHSM_DIR) -I$(WOLFSSL_DIR) -I$(BUILD_DIR)
-HSM_INCLUDES_SECURE := $(HSM_INCLUDES) -I$(abspath secure)
+HSM_INCLUDES_SECURE := $(HSM_INCLUDES) -I$(WOLFHAL_DIR) -I$(abspath $(RUNNER_DIR))
 HSM_INCLUDES_GUEST  := $(HSM_INCLUDES) -I$(abspath nonsecure)
 # WOLF_CRYPTO_CB: required by wolfHSM (wh_settings.h asserts it).
 # -UNO_CODING: user_settings.h defines NO_CODING but we compile coding.c.
@@ -84,7 +88,7 @@ HSM_DEFS_GUEST   := -DWOLFSSL_USER_SETTINGS -DWOLFHSM_CFG \
 # Switch secure ELF to -Os: wolfCrypt is too slow at -O0 for embedded use.
 SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -Wall -Wextra \
-    -I../../include -I./common \
+    -I$(ROOT)/include -I$(PORT_DIR) \
     -DWT_TIMESLICE_MS=$(WT_TIMESLICE_MS) \
     -DWT_SHARED_UART=$(WT_SHARED_UART) \
     -DWT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ) \
@@ -94,7 +98,7 @@ SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
 NONSECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -Wall -Wextra \
     -ffunction-sections -fdata-sections \
-    -I../../include -I./common \
+    -I$(ROOT)/include -I$(PORT_DIR) \
     -DWT_TIMESLICE_MS=$(WT_TIMESLICE_MS) \
     -DWT_SHARED_UART=$(WT_SHARED_UART) \
     -DWT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ) \
@@ -155,22 +159,22 @@ WOLFCRYPT_SECURE_SRCS := \
 
 # wolftrust sources always present for the HSM build
 WT_SECURE_EXTRA_SRCS := \
-    ../../src/arch/armv8m/cmse.c \
-    ../../src/arch/armv8m/coroutine_armv8m.c \
-    ../../src/sched/coroutine.c \
-    ../../src/sync/mutex.c
+    $(ROOT)/src/arch/armv8m/cmse.c \
+    $(ROOT)/src/arch/armv8m/coroutine_armv8m.c \
+    $(ROOT)/src/sched/coroutine.c \
+    $(ROOT)/src/sync/mutex.c
 
-# Wave 2G: rng_entropy.c — include only when the file exists
-WT_SECURE_EXTRA_SRCS += $(wildcard secure/rng_entropy.c)
+# Target entropy source — include only when the port provides it.
+WT_SECURE_EXTRA_SRCS += $(wildcard $(PORT_DIR)/rng_entropy.c)
 
 # libc stubs (memcpy/memset/memmove/memcmp/strlen/etc) — wolfCrypt needs them
 # and we build -nostdlib -fno-builtin.
-WT_SECURE_EXTRA_SRCS += $(wildcard secure/libc_stubs.c)
+WT_SECURE_EXTRA_SRCS += $(wildcard $(RUNNER_DIR)/libc_stubs.c)
 
 # Wave 3/4: services + cmse_transport — include only when present
 WT_SECURE_EXTRA_SRCS += \
-    $(wildcard ../../src/services/wolfhsm/*.c) \
-    $(wildcard ../../src/arch/armv8m/cmse_transport.c)
+    $(wildcard $(ROOT)/src/services/wolfhsm/*.c) \
+    $(wildcard $(ROOT)/src/arch/armv8m/cmse_transport.c)
 
 # ---- guest-side source lists ------------------------------------------------
 
@@ -242,7 +246,7 @@ ALL_GUEST_OBJS := \
 # the local file via other paths.
 
 $(WOLFHSM_CFG_H): | $(BUILD_DIR)
-	printf '#include "%s"\n' "$(abspath secure/wh_settings_local.h)" > $@
+	printf '#include "%s"\n' "$(abspath $(RUNNER_DIR)/wh_settings_local.h)" > $@
 
 # Wave 5 guest settings: if wh_settings_guest.h doesn't exist yet, generate
 # a placeholder with the minimum defines to satisfy the wolfHSM headers.
@@ -270,28 +274,34 @@ $(BUILD_DIR)/wh_sec_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
 $(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
 	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<
 
-# wolftrust arch/sched/sync/secure sources — no warning suppression
-$(BUILD_DIR)/wt_sec_%.o: ../../src/arch/armv8m/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+# wolftrust arch/sched/sync/runner/port sources — no warning suppression
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/armv8m/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/wt_sec_%.o: ../../src/sched/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sched/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/wt_sec_%.o: ../../src/sync/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sync/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/wt_sec_%.o: secure/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(PORT_DIR)/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 # Wave 3/4 services sources
-$(BUILD_DIR)/wt_sec_%.o: ../../src/services/wolfhsm/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/wolfhsm/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 # Secure base sources (SECURE_SRCS)
-$(BUILD_DIR)/sec_%.o: secure/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/sec_%.o: $(RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/sec_%.o: ../../src/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/sec_%.o: $(PORT_DIR)/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/sec_%.o: $(ROOT)/src/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 # Guest wolfHSM — warning suppression
@@ -327,9 +337,9 @@ ifeq ($(WT_HSM_DEMO),1)
 # link against it instead of hardcoding NSC addresses (wolfBoot pattern).
 SECURE_CMSE_IMPLIB := $(BUILD_DIR)/secure_cmse_implib.o
 
-$(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) secure/secure.ld | $(BUILD_DIR)
+$(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) $(RUNNER_DIR)/secure.ld | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) \
-		-Wl,-Tsecure/secure.ld \
+		-Wl,-T$(RUNNER_DIR)/secure.ld \
 		-Wl,--cmse-implib \
 		-Wl,--out-implib=$(SECURE_CMSE_IMPLIB) \
 		-o $(SECURE_ELF) $(ALL_SECURE_OBJS) -lgcc
@@ -354,9 +364,9 @@ $(GUEST1_ELF): $(ALL_GUEST_OBJS) $(SECURE_CMSE_IMPLIB) nonsecure/guest.ld | $(BU
 
 else
 
-$(SECURE_ELF): $(SECURE_SRCS) secure/secure.ld | $(BUILD_DIR)
+$(SECURE_ELF): $(SECURE_SRCS) $(RUNNER_DIR)/secure.ld | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) \
-		-Wl,-Tsecure/secure.ld \
+		-Wl,-T$(RUNNER_DIR)/secure.ld \
 		-o $@ $(SECURE_SRCS) -lgcc
 
 $(GUEST0_ELF): $(NONSECURE_SRCS) nonsecure/guest.ld | $(BUILD_DIR)

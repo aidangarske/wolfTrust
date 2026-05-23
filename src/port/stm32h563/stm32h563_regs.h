@@ -23,6 +23,7 @@
 #define WOLFTRUST_FW_STM32H563_REGS_H
 
 #include <stdint.h>
+#include <wolfHAL/platform/st/stm32h563xx.h>
 
 #define WT_SCB_VTOR_S            (*(volatile uint32_t*)0xE000ED08u)
 #define WT_SCB_VTOR_NS           (*(volatile uint32_t*)0xE002ED08u)
@@ -57,7 +58,7 @@
 #define WT_MPU_NS_MAIR0          (*(volatile uint32_t*)0xE002EDA4u)
 
 #define WT_RCC_BASE_S            0x54020C00u
-#define WT_RCC_BASE_NS           0x44020C00u
+#define WT_RCC_BASE_NS           WHAL_STM32H5_RCC_BASE
 #define WT_RCC_CR                (*(volatile uint32_t*)(WT_RCC_BASE_S + 0x00u))
 #define WT_RCC_CFGR1             (*(volatile uint32_t*)(WT_RCC_BASE_S + 0x1Cu))
 #define WT_RCC_CFGR2             (*(volatile uint32_t*)(WT_RCC_BASE_S + 0x20u))
@@ -123,8 +124,8 @@
 #define WT_PWR_VOSCR_SCALE0      (0x3u << 4)
 #define WT_PWR_VOSSR_VOSRDY      (1u << 3)
 
-#define WT_GPIOA_BASE_S          0x52020000u
-#define WT_GPIOD_BASE_S          0x52020C00u
+#define WT_GPIOA_BASE_S          (WHAL_STM32H563_GPIO_BASE + 0x10000000u)
+#define WT_GPIOD_BASE_S          (WT_GPIOA_BASE_S + 0x0C00u)
 #define WT_GPIO_MODER(base)      (*(volatile uint32_t*)((base) + 0x00u))
 #define WT_GPIO_OTYPER(base)     (*(volatile uint32_t*)((base) + 0x04u))
 #define WT_GPIO_OSPEEDR(base)    (*(volatile uint32_t*)((base) + 0x08u))
