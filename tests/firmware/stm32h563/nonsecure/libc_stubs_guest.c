@@ -25,7 +25,7 @@
  * just need a different basename so the Makefile's notdir-based object
  * naming does not collide with the secure compilation of the same file.
  */
-#include "../../../../src/runner/wolfhsm/libc_stubs.c"
+#include "../../../../src/services/wolfhsm/runner/libc_stubs.c"
 
 /* The secure-side libc_stubs.c omits memcpy/memset because runtime.c
  * (secure-only) already provides them. Guest images do not include

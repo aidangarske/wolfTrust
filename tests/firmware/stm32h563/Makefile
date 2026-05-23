@@ -5,7 +5,7 @@ SIZE := $(TOOLPREFIX)size
 M33MU ?= m33mu
 ROOT := ../../..
 PORT_DIR := $(ROOT)/src/port/stm32h563
-RUNNER_DIR := $(ROOT)/src/runner/wolfhsm
+WOLFHSM_RUNNER_DIR := $(ROOT)/src/services/wolfhsm/runner
 
 CPU_FLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only
 CFLAGS_COMMON := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -O0 -g -Wall -Wextra
@@ -40,8 +40,8 @@ GUEST1_ELF := $(BUILD_DIR)/guest1.elf
 GUEST1_BIN := $(BUILD_DIR)/guest1.bin
 
 SECURE_SRCS := \
-	$(RUNNER_DIR)/ivt.c \
-	$(RUNNER_DIR)/runtime.c \
+	$(WOLFHSM_RUNNER_DIR)/ivt.c \
+	$(WOLFHSM_RUNNER_DIR)/runtime.c \
 	$(PORT_DIR)/platform_stm32h563.c \
 	$(ROOT)/src/monitor.c \
 	$(PORT_DIR)/partitions.c
@@ -74,7 +74,7 @@ WOLFHSM_CFG_H       := $(BUILD_DIR)/wolfhsm_cfg.h
 WOLFHSM_GUEST_CFG_H := $(BUILD_DIR)/wolfhsm_guest_cfg.h
 
 HSM_INCLUDES        := -I$(WOLFHSM_DIR) -I$(WOLFSSL_DIR) -I$(BUILD_DIR)
-HSM_INCLUDES_SECURE := $(HSM_INCLUDES) -I$(WOLFHAL_DIR) -I$(abspath $(RUNNER_DIR))
+HSM_INCLUDES_SECURE := $(HSM_INCLUDES) -I$(WOLFHAL_DIR) -I$(abspath $(WOLFHSM_RUNNER_DIR))
 HSM_INCLUDES_GUEST  := $(HSM_INCLUDES) -I$(abspath nonsecure)
 # WOLF_CRYPTO_CB: required by wolfHSM (wh_settings.h asserts it).
 # -UNO_CODING: user_settings.h defines NO_CODING but we compile coding.c.
@@ -174,7 +174,7 @@ WT_SECURE_EXTRA_SRCS += $(wildcard $(PORT_DIR)/rng_entropy.c)
 
 # libc stubs (memcpy/memset/memmove/memcmp/strlen/etc) — wolfCrypt needs them
 # and we build -nostdlib -fno-builtin.
-WT_SECURE_EXTRA_SRCS += $(wildcard $(RUNNER_DIR)/libc_stubs.c)
+WT_SECURE_EXTRA_SRCS += $(wildcard $(WOLFHSM_RUNNER_DIR)/libc_stubs.c)
 
 # Wave 3/4: services + cmse_transport — include only when present
 WT_SECURE_EXTRA_SRCS += \
@@ -251,7 +251,7 @@ ALL_GUEST_OBJS := \
 # the local file via other paths.
 
 $(WOLFHSM_CFG_H): | $(BUILD_DIR)
-	printf '#include "%s"\n' "$(abspath $(RUNNER_DIR)/wh_settings_local.h)" > $@
+	printf '#include "%s"\n' "$(abspath $(WOLFHSM_RUNNER_DIR)/wh_settings_local.h)" > $@
 
 # Wave 5 guest settings: if wh_settings_guest.h doesn't exist yet, generate
 # a placeholder with the minimum defines to satisfy the wolfHSM headers.
@@ -289,7 +289,7 @@ $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sched/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STA
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sync/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/wt_sec_%.o: $(RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(PORT_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
@@ -300,7 +300,7 @@ $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/wolfhsm/%.c $(WOLFHSM_CFG_H) $(BUI
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 # Secure base sources (SECURE_SRCS)
-$(BUILD_DIR)/sec_%.o: $(RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(BUILD_DIR)/sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/sec_%.o: $(PORT_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
@@ -356,9 +356,9 @@ ifeq ($(WT_HSM_DEMO),1)
 # link against it instead of hardcoding NSC addresses (wolfBoot pattern).
 SECURE_CMSE_IMPLIB := $(BUILD_DIR)/secure_cmse_implib.o
 
-$(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) $(RUNNER_DIR)/secure.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) $(WOLFHSM_RUNNER_DIR)/secure.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) \
-		-Wl,-T$(RUNNER_DIR)/secure.ld \
+		-Wl,-T$(WOLFHSM_RUNNER_DIR)/secure.ld \
 		-Wl,--cmse-implib \
 		-Wl,--out-implib=$(SECURE_CMSE_IMPLIB) \
 		-o $(SECURE_ELF) $(ALL_SECURE_OBJS) -lgcc
@@ -383,9 +383,9 @@ $(GUEST1_ELF): $(ALL_GUEST_OBJS) $(SECURE_CMSE_IMPLIB) nonsecure/guest.ld $(BUIL
 
 else
 
-$(SECURE_ELF): $(SECURE_SRCS) $(RUNNER_DIR)/secure.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(SECURE_ELF): $(SECURE_SRCS) $(WOLFHSM_RUNNER_DIR)/secure.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) \
-		-Wl,-T$(RUNNER_DIR)/secure.ld \
+		-Wl,-T$(WOLFHSM_RUNNER_DIR)/secure.ld \
 		-o $@ $(SECURE_SRCS) -lgcc
 
 $(GUEST0_ELF): $(NONSECURE_SRCS) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)

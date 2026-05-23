@@ -23,7 +23,7 @@
  * wolfHSM build configuration for the wolfTrust STM32H563 non-secure (guest)
  * partition.
  *
- * PICKUP MECHANISM NOTE: see src/runner/wolfhsm/wh_settings_local.h for a full
+ * PICKUP MECHANISM NOTE: see src/services/wolfhsm/runner/wh_settings_local.h for a full
  * description
  * of the two options (symlink/copy as wolfhsm_cfg.h, or -include).  The same
  * mechanism applies here; only the role flips from server to client.
@@ -53,7 +53,7 @@
  * incorrectly and the protocol will desync.
  *
  * WARNING: any change to this value MUST also be applied to
- * src/runner/wolfhsm/wh_settings_local.h.
+ * src/services/wolfhsm/runner/wh_settings_local.h.
  *---------------------------------------------------------------------------*/
 #define WOLFHSM_CFG_COMM_DATA_LEN 248
 
@@ -87,7 +87,7 @@
  * correct way to exclude them.  No #undef is needed.
  *---------------------------------------------------------------------------*/
 
-/* Guest-side counterpart to src/runner/wolfhsm/wh_settings_local.h.
+/* Guest-side counterpart to src/services/wolfhsm/runner/wh_settings_local.h.
  * Any change to WOLFHSM_CFG_COMM_DATA_LEN MUST be applied to BOTH files. */
 
 #endif /* WOLFTRUST_NS_WH_SETTINGS_GUEST_H */
