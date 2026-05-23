@@ -25,5 +25,8 @@ firmware-stm32h563:
 run-stm32h563:
 	$(MAKE) -C tests/firmware/stm32h563 run
 
+run-stm32h563-tui:
+	$(MAKE) -C tests/firmware/stm32h563 run-tui
+
 run-stm32h563-uarts:
 	$(MAKE) -C tests/firmware/stm32h563 run-uarts

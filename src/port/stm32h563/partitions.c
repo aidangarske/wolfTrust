@@ -39,11 +39,7 @@
 #else
 #define WT_GUEST1_USART_BASE 0x40004800U
 #endif
-#ifdef WT_HSM_DEMO
-#define WT_GUEST_RESET_OFFSET 0x00000115U
-#else
-#define WT_GUEST_RESET_OFFSET 0x000002B1U
-#endif
+#define WT_GUEST_RESET_OFFSET 0x00000041U
 /* Initial restore runs from a Secure exception and returns to a Non-secure
  * Thread/MSP frame. ES must stay set because the exception was taken to Secure
  * state; clearing it trips INVPC on STM32H563 hardware. */

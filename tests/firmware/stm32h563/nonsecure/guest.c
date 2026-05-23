@@ -366,6 +366,7 @@ static void run_hsm_demo(void)
 
 #endif /* WT_HSM_DEMO */
 
+__attribute__((section(".reset")))
 void Reset_Handler(void)
 {
     if (g_mailbox.boot_count == 0u) {
@@ -379,11 +380,12 @@ void Reset_Handler(void)
         g_mailbox.virtual_ms = 0u;
         g_mailbox.lines_printed = 0u;
         g_next_print_ms = 1000u;
-        wt_systick_init();
 
 #ifdef WT_HSM_DEMO
         run_hsm_demo();
 #endif
+
+        wt_systick_init();
     }
 
     for (;;) {

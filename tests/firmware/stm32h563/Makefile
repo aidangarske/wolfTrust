@@ -13,9 +13,13 @@ CFLAGS_COMMON += -I$(ROOT)/include -I$(PORT_DIR) -I$(ROOT)/lib/wolfhal
 WT_TIMESLICE_MS ?= 100
 EMU_TIMEOUT ?= 120
 CFLAGS_COMMON += -DWT_TIMESLICE_MS=$(WT_TIMESLICE_MS)
-WT_SHARED_UART ?= 0
+WT_SHARED_UART ?= 3
 CFLAGS_COMMON += -DWT_SHARED_UART=$(WT_SHARED_UART)
-WT_GUEST_CORE_CLOCK_HZ ?= 240000000
+# Guest SysTick only runs while that guest is scheduled. With the current
+# two-guest round-robin demo each guest receives about half the 240 MHz
+# physical CPU time, so expose the effective virtual core clock to keep
+# guest timers aligned with wall time.
+WT_GUEST_CORE_CLOCK_HZ ?= 120000000
 WT_GUEST_UART_CLOCK_HZ ?= 120000000
 CFLAGS_COMMON += -DWT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ)
 CFLAGS_COMMON += -DWT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ)
@@ -27,6 +31,7 @@ BUILD_DIR := build
 
 SECURE_ELF := $(BUILD_DIR)/secure.elf
 SECURE_BIN := $(BUILD_DIR)/secure.bin
+BUILD_MODE_STAMP := $(BUILD_DIR)/build_mode.stamp
 
 GUEST0_ELF := $(BUILD_DIR)/guest0.elf
 GUEST0_BIN := $(BUILD_DIR)/guest0.bin
@@ -46,7 +51,7 @@ NONSECURE_SRCS := nonsecure/guest.c
 # ---------------------------------------------------------------------------
 # Default goal — declared first so it wins regardless of ifeq blocks below
 # ---------------------------------------------------------------------------
-.PHONY: all clean run run-uarts run-hsm run-hsm-uarts
+.PHONY: all clean run run-tui run-uarts run-hsm run-hsm-uarts FORCE
 all: $(SECURE_BIN) $(GUEST0_BIN) $(GUEST1_BIN)
 	@$(SIZE) $(SECURE_ELF) $(GUEST0_ELF) $(GUEST1_ELF)
 
@@ -267,58 +272,58 @@ $(WOLFHSM_GUEST_CFG_H): | $(BUILD_DIR)
 # ---- per-group compile rules ------------------------------------------------
 
 # wolfHSM sources — compiled with warning suppression
-$(BUILD_DIR)/wh_sec_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wh_sec_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<
 
 # wolfCrypt sources — compiled with warning suppression
-$(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<
 
 # wolftrust arch/sched/sync/runner/port sources — no warning suppression
-$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/armv8m/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/armv8m/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sched/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sched/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sync/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sync/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/wt_sec_%.o: $(RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/wt_sec_%.o: $(PORT_DIR)/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(PORT_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 # Wave 3/4 services sources
-$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/wolfhsm/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/wolfhsm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 # Secure base sources (SECURE_SRCS)
-$(BUILD_DIR)/sec_%.o: $(RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/sec_%.o: $(RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/sec_%.o: $(PORT_DIR)/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/sec_%.o: $(PORT_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/sec_%.o: $(ROOT)/src/%.c $(WOLFHSM_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/sec_%.o: $(ROOT)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 # Guest wolfHSM — warning suppression
-$(BUILD_DIR)/wh_guest_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_GUEST_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wh_guest_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(GUEST_LIB_CFLAGS) -c -o $@ $<
 
 # Guest wolfCrypt — warning suppression
-$(BUILD_DIR)/wc_guest_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_GUEST_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wc_guest_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(GUEST_LIB_CFLAGS) -c -o $@ $<
 
 # Guest base sources
-$(BUILD_DIR)/ns_%.o: nonsecure/%.c $(WOLFHSM_GUEST_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/ns_%.o: nonsecure/%.c $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(NONSECURE_CFLAGS) -c -o $@ $<
 
 # Wave 5: wolfhsm_client_glue.c lives in nonsecure/ but is listed under
 # WOLFHSM_GUEST_SRCS so it gets the wh_guest_ prefix and the guest lib flags.
-$(BUILD_DIR)/wh_guest_wolfhsm_client_glue.o: nonsecure/wolfhsm_client_glue.c $(WOLFHSM_GUEST_CFG_H) | $(BUILD_DIR)
+$(BUILD_DIR)/wh_guest_wolfhsm_client_glue.o: nonsecure/wolfhsm_client_glue.c $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(GUEST_LIB_CFLAGS) -c -o $@ $<
 
 endif  # WT_HSM_DEMO=1
@@ -330,6 +335,20 @@ endif  # WT_HSM_DEMO=1
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
 
+$(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
+	@tmp="$@.tmp"; \
+	printf '%s\n' \
+		'WT_HSM_DEMO=$(WT_HSM_DEMO)' \
+		'WT_SHARED_UART=$(WT_SHARED_UART)' \
+		'WT_TIMESLICE_MS=$(WT_TIMESLICE_MS)' \
+		'WT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ)' \
+		'WT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ)' > "$$tmp"; \
+	if test -f "$@" && cmp -s "$$tmp" "$@"; then \
+		rm -f "$$tmp"; \
+	else \
+		mv "$$tmp" "$@"; \
+	fi
+
 ifeq ($(WT_HSM_DEMO),1)
 
 # CMSE import library: secure link emits an object file containing weak
@@ -337,14 +356,14 @@ ifeq ($(WT_HSM_DEMO),1)
 # link against it instead of hardcoding NSC addresses (wolfBoot pattern).
 SECURE_CMSE_IMPLIB := $(BUILD_DIR)/secure_cmse_implib.o
 
-$(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) $(RUNNER_DIR)/secure.ld | $(BUILD_DIR)
+$(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) $(RUNNER_DIR)/secure.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) \
 		-Wl,-T$(RUNNER_DIR)/secure.ld \
 		-Wl,--cmse-implib \
 		-Wl,--out-implib=$(SECURE_CMSE_IMPLIB) \
 		-o $(SECURE_ELF) $(ALL_SECURE_OBJS) -lgcc
 
-$(GUEST0_ELF): $(ALL_GUEST_OBJS) $(SECURE_CMSE_IMPLIB) nonsecure/guest.ld | $(BUILD_DIR)
+$(GUEST0_ELF): $(ALL_GUEST_OBJS) $(SECURE_CMSE_IMPLIB) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(NONSECURE_CFLAGS) \
 		-DWT_GUEST_ID=0u \
 		-Wl,-Tnonsecure/guest.ld \
@@ -353,7 +372,7 @@ $(GUEST0_ELF): $(ALL_GUEST_OBJS) $(SECURE_CMSE_IMPLIB) nonsecure/guest.ld | $(BU
 		-Wl,--gc-sections \
 		-o $@ $(ALL_GUEST_OBJS) $(SECURE_CMSE_IMPLIB) -lgcc
 
-$(GUEST1_ELF): $(ALL_GUEST_OBJS) $(SECURE_CMSE_IMPLIB) nonsecure/guest.ld | $(BUILD_DIR)
+$(GUEST1_ELF): $(ALL_GUEST_OBJS) $(SECURE_CMSE_IMPLIB) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(NONSECURE_CFLAGS) \
 		-DWT_GUEST_ID=1u \
 		-Wl,-Tnonsecure/guest.ld \
@@ -364,12 +383,12 @@ $(GUEST1_ELF): $(ALL_GUEST_OBJS) $(SECURE_CMSE_IMPLIB) nonsecure/guest.ld | $(BU
 
 else
 
-$(SECURE_ELF): $(SECURE_SRCS) $(RUNNER_DIR)/secure.ld | $(BUILD_DIR)
+$(SECURE_ELF): $(SECURE_SRCS) $(RUNNER_DIR)/secure.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) \
 		-Wl,-T$(RUNNER_DIR)/secure.ld \
 		-o $@ $(SECURE_SRCS) -lgcc
 
-$(GUEST0_ELF): $(NONSECURE_SRCS) nonsecure/guest.ld | $(BUILD_DIR)
+$(GUEST0_ELF): $(NONSECURE_SRCS) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(NONSECURE_CFLAGS) \
 		-DWT_GUEST_ID=0u \
 		-Wl,-Tnonsecure/guest.ld \
@@ -377,7 +396,7 @@ $(GUEST0_ELF): $(NONSECURE_SRCS) nonsecure/guest.ld | $(BUILD_DIR)
 		-Wl,--defsym=GUEST_RAM_ORIGIN=0x20000000 \
 		-o $@ $(NONSECURE_SRCS) -lgcc
 
-$(GUEST1_ELF): $(NONSECURE_SRCS) nonsecure/guest.ld | $(BUILD_DIR)
+$(GUEST1_ELF): $(NONSECURE_SRCS) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(NONSECURE_CFLAGS) \
 		-DWT_GUEST_ID=1u \
 		-Wl,-Tnonsecure/guest.ld \
@@ -398,6 +417,10 @@ $(GUEST1_BIN): $(GUEST1_ELF)
 
 run: all
 	$(M33MU) --cpu stm32h563 --expect-bkpt 0x7f --timeout $(EMU_TIMEOUT) --quit-on-faults \
+		$(SECURE_BIN) $(GUEST0_BIN):0x18000 $(GUEST1_BIN):0x28000
+
+run-tui: all
+	$(M33MU) --cpu stm32h563 --tui --timeout $(EMU_TIMEOUT) \
 		$(SECURE_BIN) $(GUEST0_BIN):0x18000 $(GUEST1_BIN):0x28000
 
 run-uarts:
