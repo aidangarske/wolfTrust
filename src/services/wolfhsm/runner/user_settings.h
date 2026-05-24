@@ -44,12 +44,14 @@
 #define WOLFCRYPT_ONLY
 
 /* -------------------------------------------------------------------------
- * Static memory pool: no dynamic malloc/free.
- * The caller (wolftrust secure init) must supply the pool via
- * wolfSSL_CTX_load_static_memory() / wc_InitMemory() before any crypto.
- * WOLFSSL_NO_MALLOC tells wolfCrypt internal code never to call XMALLOC.
+ * No heap.
+ *
+ * The secure wolfHSM profile keeps server, NVM and crypto working state in
+ * static or stack-owned objects. NO_WOLFSSL_MEMORY avoids wolfSSL's allocator
+ * layer entirely, while WOLFSSL_NO_MALLOC makes any accidental XMALLOC path
+ * fail closed instead of requiring malloc/sbrk or a static heap arena.
  * ---------------------------------------------------------------------- */
-#define WOLFSSL_STATIC_MEMORY
+#define NO_WOLFSSL_MEMORY
 #define WOLFSSL_NO_MALLOC
 
 /* -------------------------------------------------------------------------
@@ -71,27 +73,23 @@
  * Compiler / ABI hints for ARM Cortex-M (32-bit, no FPU in use).
  * sizeof(long long) == 8 on all ARM-M targets; spell it out explicitly so
  * wolfCrypt's MP math layers don't have to probe the compiler.
- * WOLFSSL_ARMASM is intentionally NOT set: our build uses
- * -mgeneral-regs-only and the ARM ASM paths require NEON/FPU registers.
+ * ARMASM is a separate set of Thumb2 AES/SHA software assembly routines; it is
+ * selected by the architecture build flags, not here.
  * ---------------------------------------------------------------------- */
 #define SIZEOF_LONG_LONG 8
 
 /* -------------------------------------------------------------------------
- * Math backend: TFM (Tom's Fast Math).
+ * Math backend: SP Cortex-M.
  *
- * Without USE_FAST_MATH, wolfSSL's ECC code falls back to the Single
- * Precision (SP) math backend, which lives in sp_int.c / sp_c32.c — files
- * we deliberately do NOT link to keep the secure image small.  Forcing
- * USE_FAST_MATH makes ecc.c call into tfm.c instead (which IS linked).
- *
- * TFM_TIMING_RESISTANT switches TFM to a constant-time mod-exp ladder.
- * ECC_TIMING_RESISTANT enables wolfCrypt's ECC blinding/hardening path.
- * TFM_ECC256 enables the 256-bit specialised path.
+ * ARMv8-M builds link wolfCrypt's sp_cortexm.c and define
+ * WOLFSSL_SP_ARM_CORTEX_M_ASM from the Makefile. WOLFSSL_SP_SMALL avoids the
+ * larger generic MP temporaries that TFM needed on coroutine stacks.
  * ---------------------------------------------------------------------- */
-#define USE_FAST_MATH
-#define TFM_TIMING_RESISTANT
+#define WOLFSSL_SP_MATH
+#define WOLFSSL_SP_SMALL
+#define WOLFSSL_HAVE_SP_ECC
+#define WOLFSSL_SP_NO_DYN_STACK
 #define ECC_TIMING_RESISTANT
-#define TFM_ECC256
 
 /* -------------------------------------------------------------------------
  * ECC P-256 only.

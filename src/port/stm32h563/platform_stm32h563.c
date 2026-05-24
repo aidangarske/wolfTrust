@@ -129,6 +129,14 @@ static void wt_gtzc_init(void)
     WT_GTZC1_TZSC_SECCFGR1 &= ~(WT_GTZC_SECCFGR1_USART2SEC |
                                 WT_GTZC_SECCFGR1_USART3SEC);
 
+    /* Crypto peripherals are secure-owned. Do not clear these bits when the
+     * APB/AHB SAU windows are exposed to guests for other devices. STM32H563
+     * has HASH, RNG and PKA in this GTZC register; AES/SAES are not present on
+     * this line and future H5 derivatives should add their bits here. */
+    WT_GTZC1_TZSC_SECCFGR3 |= (WT_GTZC_SECCFGR3_HASHSEC |
+                               WT_GTZC_SECCFGR3_RNGSEC |
+                               WT_GTZC_SECCFGR3_PKASEC);
+
     for (i = 0; i < 4u; ++i) {
         WT_GTZC1_MPCBB2_SECCFGR[i] = 0xFFFFFFFFu;
     }

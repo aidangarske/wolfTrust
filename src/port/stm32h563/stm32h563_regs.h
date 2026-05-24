@@ -138,6 +138,7 @@
 
 #define WT_GTZC1_BASE_S          0x50032400u
 #define WT_GTZC1_TZSC_SECCFGR1   (*(volatile uint32_t *)(WT_GTZC1_BASE_S + 0x10u))
+#define WT_GTZC1_TZSC_SECCFGR3   (*(volatile uint32_t *)(WT_GTZC1_BASE_S + 0x18u))
 #define WT_GTZC1_MPCBB1_SECCFGR  ((volatile uint32_t *)(WT_GTZC1_BASE_S + 0x0800u + 0x100u))
 #define WT_GTZC1_MPCBB2_SECCFGR  ((volatile uint32_t *)(WT_GTZC1_BASE_S + 0x0C00u + 0x100u))
 #define WT_GTZC1_MPCBB3_SECCFGR  ((volatile uint32_t *)(WT_GTZC1_BASE_S + 0x1000u + 0x100u))
@@ -147,6 +148,9 @@
 #define WT_RCC_AHB2ENR_GPIODEN   (1u << 3)
 #define WT_GTZC_SECCFGR1_USART2SEC (1u << 13)
 #define WT_GTZC_SECCFGR1_USART3SEC (1u << 14)
+#define WT_GTZC_SECCFGR3_HASHSEC   (1u << 17)
+#define WT_GTZC_SECCFGR3_RNGSEC    (1u << 18)
+#define WT_GTZC_SECCFGR3_PKASEC    (1u << 20)
 
 #define WT_STM32H563_CORE_CLOCK_HZ 240000000u
 #define WT_STM32H563_APB1_CLOCK_HZ 120000000u

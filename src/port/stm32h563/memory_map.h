@@ -28,8 +28,8 @@
 #define WT_FLASH_NSC_END         0x0C0007FFu
 
 #define WT_FLASH_NS_BASE         0x08000000u
-#define WT_GUEST0_FLASH_BASE     0x08018000u
-#define WT_GUEST1_FLASH_BASE     0x08028000u
+#define WT_GUEST0_FLASH_BASE     0x08020000u
+#define WT_GUEST1_FLASH_BASE     0x08030000u
 #define WT_GUEST_FLASH_SIZE      0x00010000u
 
 /* Secure wolfHSM NVM store.

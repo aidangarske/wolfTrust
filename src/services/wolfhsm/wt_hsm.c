@@ -23,7 +23,6 @@
  * wolfHSM service module — Wave 3.
  *
  * Owns:
- *   - The wolfCrypt static-memory pool (WOLFSSL_STATIC_MEMORY path).
  *   - The shared flash-backed NVM context.
  *   - The shared NVM serialisation lock (callbacks in wt_hsm_lock.c).
  *   - Per-guest whServerContext instances driven by per-guest coroutines.
@@ -32,32 +31,16 @@
  *   - Transport implementation (Wave 4, cmse_transport.c).
  *   - Lock callback implementations (Wave 3B, wt_hsm_lock.c).
  *
- * Static-memory strategy:
- *   user_settings.h sets both WOLFSSL_STATIC_MEMORY and WOLFSSL_NO_MALLOC.
- *   With WOLFSSL_STATIC_MEMORY the wolfCrypt allocator dispatches through
- *   WOLFSSL_HEAP_HINT structs carved out of a caller-supplied buffer.
- *   wolfSSL_SetGlobalHeapHint() makes the pool the default for all
- *   XMALLOC(heap=NULL) calls, which covers every wolfCrypt internal
- *   allocation that does not carry an explicit heap hint.
- *
- *   wc_LoadStaticMemory() is called once with g_wolfcrypt_pool at boot;
- *   the resulting WOLFSSL_HEAP_HINT pointer is registered as the global
- *   hint.  wolfHSM's NVM layer uses XMALLOC only during Init; the wolfCrypt
- *   crypto layer keeps its working state on the stack or in caller-supplied
- *   structs (ecc_key, WC_RNG …) so the pool is sufficient.
- *
- *   If wh_NvmFlash_Init or wh_Server_Init internally allocate from the heap
- *   during initialisation they will draw from this pool.  In practice the
- *   wolfHSM NVM flash layer does not heap-allocate; the whNvmFlashContext
- *   and directory are stack/static structures.  Should a future wolfHSM
- *   version add dynamic allocation we will need to increase
- *   WT_HSM_WOLFCRYPT_POOL_BYTES accordingly.
+ * Heap strategy:
+ *   The secure profile defines NO_WOLFSSL_MEMORY + WOLFSSL_NO_MALLOC. There
+ *   is no malloc/sbrk path and no wolfCrypt static heap arena; accidental
+ *   XMALLOC users fail closed. The HSM server, NVM and crypto state used here
+ *   is static, stack-owned, or caller-provided.
  */
 
 /* wolfCrypt settings must come first. */
 #include "wolfssl/wolfcrypt/settings.h"
 #include "wolfssl/wolfcrypt/types.h"
-#include "wolfssl/wolfcrypt/memory.h"
 #include "wolfssl/wolfcrypt/wc_port.h"
 #include "wolfssl/wolfcrypt/random.h"
 #include "wolfssl/wolfcrypt/error-crypt.h"
@@ -84,23 +67,8 @@
 #include <stdbool.h>
 
 /* -------------------------------------------------------------------------
- * wolfCrypt static memory pool.
- *
- * Sized empirically: ECC P-256 keygen + sign with HashDRBG fits in ~16 KB.
- * We over-provision to 24 KB to give the bucketed allocator slack across
- * multiple concurrent per-guest operations.
- * ---------------------------------------------------------------------- */
-#define WT_HSM_WOLFCRYPT_POOL_BYTES (24u * 1024u)
-
-static uint8_t g_wolfcrypt_pool[WT_HSM_WOLFCRYPT_POOL_BYTES]
-    __attribute__((aligned(8)));
-
-/* One-time heap hint pointer populated by wc_LoadStaticMemory. */
-static WOLFSSL_HEAP_HINT *g_heap_hint = NULL;
-
-/* -------------------------------------------------------------------------
- * Per-coroutine secure stacks.  WT_CO_STACK_SIZE is sized for wolfCrypt TFM
- * ECC operations, which use deep temporary big-int frames on Cortex-M.
+ * Per-coroutine secure stacks. Target builds may override WT_CO_STACK_SIZE
+ * after measuring stack high-water marks for their HSM workload.
  * ---------------------------------------------------------------------- */
 static uint8_t g_co_stacks[WT_MAX_GUESTS][WT_CO_STACK_SIZE]
     __attribute__((aligned(8)));
@@ -165,33 +133,7 @@ int wt_hsm_init(void)
     }
 
     /* ------------------------------------------------------------------
-     * 2. Initialise wolfCrypt static memory pool.
-     *
-     * wc_LoadStaticMemory carves WOLFSSL_HEAP and WOLFSSL_HEAP_HINT
-     * structs from the front of g_wolfcrypt_pool, then partitions the
-     * remainder into bucketed free-lists according to WOLFMEM_BUCKETS /
-     * WOLFMEM_DIST defaults.  WOLFMEM_GENERAL means all allocations
-     * (not I/O-only) come from this pool.
-     *
-     * wolfSSL_SetGlobalHeapHint installs the resulting hint as the
-     * default for every XMALLOC(heap=NULL) call, which covers all
-     * wolfCrypt internal allocations that do not carry an explicit hint.
-     * With WOLFSSL_NO_MALLOC set, any allocation that misses both the
-     * per-call hint and the global hint returns NULL immediately instead
-     * of falling through to the system allocator.
-     * ---------------------------------------------------------------- */
-    rc = wc_LoadStaticMemory(&g_heap_hint,
-                             g_wolfcrypt_pool,
-                             (unsigned int)sizeof(g_wolfcrypt_pool),
-                             WOLFMEM_GENERAL,
-                             0 /* maxSz: no per-operation cap */);
-    if (rc != 0) {
-        return rc;
-    }
-    wolfSSL_SetGlobalHeapHint(g_heap_hint);
-
-    /* ------------------------------------------------------------------
-     * 3. Initialise the target flash backend.
+     * 2. Initialise the target flash backend.
      * ---------------------------------------------------------------- */
     rc = g_wt_hsm_flash_cb.Init(wt_hsm_flash_context(),
                                 wt_hsm_flash_config());
@@ -200,7 +142,7 @@ int wt_hsm_init(void)
     }
 
     /* ------------------------------------------------------------------
-     * 4. Initialise NVM flash-log layer.
+     * 3. Initialise NVM flash-log layer.
      *
      * whNvmFlashConfig wires the target flash callback table and context into
      * the flash-log NVM backend.
@@ -213,7 +155,7 @@ int wt_hsm_init(void)
     nvm_flash_cfg.config  = wt_hsm_flash_config();
 
     /* ------------------------------------------------------------------
-     * 5. Set up the NVM lock before calling wh_Nvm_Init.
+     * 4. Set up the NVM lock before calling wh_Nvm_Init.
      *
      * The lock must be initialised (via its init callback) before the
      * NVM context is fully wired, because wh_Nvm_Init may attempt to
@@ -227,7 +169,7 @@ int wt_hsm_init(void)
     g_nvm_lock_cfg.config  = NULL; /* no extra config needed by our callbacks */
 
     /* ------------------------------------------------------------------
-     * 6. Initialise the NVM context.
+     * 5. Initialise the NVM context.
      *
      * whNvmConfig.cb points to the flash-NVM callback table
      * (wh_NvmFlash_Init etc.), .context is the whNvmFlashContext, and
@@ -310,9 +252,8 @@ int wt_hsm_guest_init(wt_guest_id_t guest_id,
      * The whServerCryptoContext embeds WC_RNG rng[1].  We initialise it
      * with INVALID_DEVID so the server's RNG uses the local entropy source
      * (CUSTOM_RAND_GENERATE_BLOCK = wolftrust_rng_generate_block) rather
-     * than routing back through a HSM client callback.  The heap hint NULL
-     * is acceptable here: wolfCrypt will use the global heap hint that
-     * wt_hsm_init() registered with wolfSSL_SetGlobalHeapHint().
+     * than routing back through a HSM client callback. No heap hint is used:
+     * the secure wolfCrypt build has no heap allocator.
      * ---------------------------------------------------------------- */
     rc = wc_InitRng_ex(g->crypto.rng, NULL, INVALID_DEVID);
     if (rc != 0) {

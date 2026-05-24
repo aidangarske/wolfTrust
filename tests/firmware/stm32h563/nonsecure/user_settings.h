@@ -89,25 +89,24 @@
  * Compiler / ABI hints for ARM Cortex-M (32-bit, no FPU in use).
  * sizeof(long long) == 8 on all ARM-M targets; spell it out explicitly so
  * wolfCrypt's MP math layers don't have to probe the compiler.
- * WOLFSSL_ARMASM is intentionally NOT set: our build uses
- * -mgeneral-regs-only and the ARM ASM paths require NEON/FPU registers.
+ * ARMASM is a separate set of Thumb2 AES/SHA software assembly routines; it is
+ * selected by the architecture build flags, not here.
  * ---------------------------------------------------------------------- */
 #define SIZEOF_LONG_LONG 8
 
 /* -------------------------------------------------------------------------
- * Math backend: TFM (Tom's Fast Math).
+ * Math backend: SP Cortex-M.
  *
  * Must match the secure-side selection exactly so that the wolfCrypt API call
  * signatures (fp_int sizes, function prototypes) are identical on both sides.
- * USE_FAST_MATH makes ecc.c call into tfm.c instead of the SP math backend.
- * TFM_TIMING_RESISTANT switches TFM to a constant-time mod-exp ladder.
- * ECC_TIMING_RESISTANT enables wolfCrypt's ECC blinding/hardening path.
- * TFM_ECC256 enables the 256-bit specialised path.
+ * ARMv8-M builds link wolfCrypt's sp_cortexm.c and define
+ * WOLFSSL_SP_ARM_CORTEX_M_ASM from the Makefile.
  * ---------------------------------------------------------------------- */
-#define USE_FAST_MATH
-#define TFM_TIMING_RESISTANT
+#define WOLFSSL_SP_MATH
+#define WOLFSSL_SP_SMALL
+#define WOLFSSL_HAVE_SP_ECC
+#define WOLFSSL_SP_NO_DYN_STACK
 #define ECC_TIMING_RESISTANT
-#define TFM_ECC256
 
 /* -------------------------------------------------------------------------
  * ECC P-256 only.
