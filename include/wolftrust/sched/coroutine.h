@@ -25,9 +25,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Default per-coroutine stack size (bytes). wolfCrypt TFM ECC operations are
- * stack-heavy; P-256 sign/verify overflowed 32 KiB on STM32H563 hardware. */
-#define WT_CO_STACK_SIZE 65536u
+/* Default per-coroutine stack size (bytes). Target builds may override this
+ * after measuring stack high-water marks for their HSM workload. */
+#ifndef WT_CO_STACK_SIZE
+#define WT_CO_STACK_SIZE (32u * 1024u)
+#endif
 
 /* Coroutine lifecycle states. Internal scheduler state, exposed because
  * mutex/condvar code inspects it. */

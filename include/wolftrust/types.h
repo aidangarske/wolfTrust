@@ -26,7 +26,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define WT_MAX_GUESTS 4U
+#ifndef WT_MAX_GUESTS
+#define WT_MAX_GUESTS 2U
+#endif
 #define WT_MAX_IRQ_WORDS 8U
 #define WT_MAX_MEMORY_WINDOWS 8U
 #define WT_MAX_MPU_REGIONS 8U
