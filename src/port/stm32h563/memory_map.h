@@ -32,6 +32,17 @@
 #define WT_GUEST1_FLASH_BASE     0x08028000u
 #define WT_GUEST_FLASH_SIZE      0x00010000u
 
+/* Secure wolfHSM NVM store.
+ *
+ * Reserved at the end of internal flash bank 2. STM32H5 sectors are 8 KiB;
+ * wolfHSM's flash backend reports one sector as the partition size, and
+ * wh_nvm_flash uses two mirrored partitions, so reserve two sectors.
+ */
+#define WT_FLASH_SECTOR_SIZE       0x00002000u
+#define WT_HSM_NVM_FLASH_BASE_NS   0x081FC000u
+#define WT_HSM_NVM_FLASH_BASE_S    0x0C1FC000u
+#define WT_HSM_NVM_FLASH_SIZE      0x00004000u
+
 #define WT_RAM_NS_BASE           0x20000000u
 #define WT_GUEST0_RAM_BASE       0x20000000u
 #define WT_GUEST1_RAM_BASE       0x20004000u

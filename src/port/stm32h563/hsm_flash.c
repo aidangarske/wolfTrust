@@ -1,0 +1,440 @@
+/* hsm_flash.c
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ */
+
+#include "hsm_flash.h"
+
+#include "memory_map.h"
+#include "stm32h563_regs.h"
+#include "wolfhsm/wh_error.h"
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+
+#define WT_FLASH_KEYR          (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x08u))
+#define WT_FLASH_SR            (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x24u))
+#define WT_FLASH_CR            (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x2Cu))
+#define WT_FLASH_CCR           (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x34u))
+#define WT_FLASH_OPTSR_CUR     (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x50u))
+
+#define WT_FLASH_SR_BSY        (1u << 0)
+#define WT_FLASH_SR_DBNE       (1u << 3)
+#define WT_FLASH_SR_EOP        (1u << 16)
+#define WT_FLASH_SR_WRPE       (1u << 17)
+#define WT_FLASH_SR_PGSE       (1u << 18)
+#define WT_FLASH_SR_STRBE      (1u << 19)
+#define WT_FLASH_SR_INCE       (1u << 20)
+#define WT_FLASH_SR_OPTE       (1u << 21)
+#define WT_FLASH_SR_OPTWE      (1u << 22)
+#define WT_FLASH_SR_ALL_ERR    (WT_FLASH_SR_WRPE | WT_FLASH_SR_PGSE | \
+                                WT_FLASH_SR_STRBE | WT_FLASH_SR_INCE | \
+                                WT_FLASH_SR_OPTE | WT_FLASH_SR_OPTWE)
+
+#define WT_FLASH_CCR_CLR_ALL   (WT_FLASH_SR_DBNE | WT_FLASH_SR_EOP | \
+                                WT_FLASH_SR_WRPE | WT_FLASH_SR_PGSE | \
+                                WT_FLASH_SR_STRBE | WT_FLASH_SR_INCE | \
+                                WT_FLASH_SR_OPTE | WT_FLASH_SR_OPTWE)
+
+#define WT_FLASH_CR_LOCK       (1u << 0)
+#define WT_FLASH_CR_PG         (1u << 1)
+#define WT_FLASH_CR_SER        (1u << 2)
+#define WT_FLASH_CR_BER        (1u << 3)
+#define WT_FLASH_CR_STRT       (1u << 5)
+#define WT_FLASH_CR_PNB_SHIFT  6u
+#define WT_FLASH_CR_PNB_MASK   0x7Fu
+#define WT_FLASH_CR_MER        (1u << 15)
+#define WT_FLASH_CR_BKSEL      (1u << 31)
+
+#define WT_FLASH_KEY1          0x45670123u
+#define WT_FLASH_KEY2          0xCDEF89ABu
+#define WT_FLASH_BANK2_BASE_NS 0x08100000u
+#define WT_FLASH_TOP_NS        0x081FFFFFu
+#define WT_FLASH_BANK_SECTORS  128u
+#define WT_FLASH_SWAP_BANK     (1u << 31)
+
+typedef struct wt_hsm_flash_config {
+    uintptr_t base;
+    uint32_t size;
+    uint32_t sector_size;
+    uint32_t program_unit;
+} wt_hsm_flash_config_t;
+
+typedef struct wt_hsm_flash_context {
+    uintptr_t base;
+    uint32_t size;
+    uint32_t sector_size;
+    uint32_t program_unit;
+    bool write_locked;
+} wt_hsm_flash_context_t;
+
+static const wt_hsm_flash_config_t g_hsm_flash_cfg = {
+    .base = WT_HSM_NVM_FLASH_BASE_S,
+    .size = WT_HSM_NVM_FLASH_SIZE,
+    .sector_size = WT_FLASH_SECTOR_SIZE,
+    .program_unit = 16u,
+};
+
+static wt_hsm_flash_context_t g_hsm_flash_ctx;
+
+static void wt_flash_barrier(void)
+{
+    __asm__ volatile ("dsb 0xF" ::: "memory");
+    __asm__ volatile ("isb 0xF" ::: "memory");
+}
+
+static uintptr_t wt_flash_ns_addr(uintptr_t addr)
+{
+    return addr & ~0x04000000u;
+}
+
+static int wt_flash_range_ok(const wt_hsm_flash_context_t *ctx,
+                             uint32_t offset, uint32_t size)
+{
+    if (ctx == NULL || ctx->sector_size == 0u || ctx->program_unit == 0u) {
+        return 0;
+    }
+    if (offset > ctx->size) {
+        return 0;
+    }
+    if (size > ctx->size - offset) {
+        return 0;
+    }
+    return 1;
+}
+
+static void wt_flash_wait_complete(void)
+{
+    while ((WT_FLASH_SR & WT_FLASH_SR_BSY) != 0u) {
+    }
+    while ((WT_FLASH_SR & WT_FLASH_SR_DBNE) != 0u) {
+    }
+}
+
+static void wt_flash_clear_errors(void)
+{
+    WT_FLASH_CCR = WT_FLASH_CCR_CLR_ALL;
+}
+
+static int wt_flash_check_errors(void)
+{
+    if ((WT_FLASH_SR & WT_FLASH_SR_ALL_ERR) != 0u) {
+        wt_flash_clear_errors();
+        return WH_ERROR_ABORTED;
+    }
+    return WH_ERROR_OK;
+}
+
+static void wt_flash_unlock(void)
+{
+    wt_flash_wait_complete();
+    if ((WT_FLASH_CR & WT_FLASH_CR_LOCK) != 0u) {
+        WT_FLASH_KEYR = WT_FLASH_KEY1;
+        wt_flash_barrier();
+        WT_FLASH_KEYR = WT_FLASH_KEY2;
+        wt_flash_barrier();
+        while ((WT_FLASH_CR & WT_FLASH_CR_LOCK) != 0u) {
+        }
+    }
+}
+
+static void wt_flash_lock(void)
+{
+    wt_flash_wait_complete();
+    if ((WT_FLASH_CR & WT_FLASH_CR_LOCK) == 0u) {
+        WT_FLASH_CR |= WT_FLASH_CR_LOCK;
+    }
+}
+
+static int wt_hsm_flash_init(void *context, const void *config)
+{
+    wt_hsm_flash_context_t *ctx = (wt_hsm_flash_context_t *)context;
+    const wt_hsm_flash_config_t *cfg =
+        (const wt_hsm_flash_config_t *)config;
+
+    if (ctx == NULL || cfg == NULL || cfg->base == 0u || cfg->size == 0u ||
+        cfg->sector_size == 0u || cfg->program_unit == 0u ||
+        (cfg->size % cfg->sector_size) != 0u ||
+        (cfg->sector_size % cfg->program_unit) != 0u) {
+        return WH_ERROR_BADARGS;
+    }
+
+    ctx->base = cfg->base;
+    ctx->size = cfg->size;
+    ctx->sector_size = cfg->sector_size;
+    ctx->program_unit = cfg->program_unit;
+    ctx->write_locked = false;
+
+    return WH_ERROR_OK;
+}
+
+static int wt_hsm_flash_cleanup(void *context)
+{
+    if (context == NULL) {
+        return WH_ERROR_BADARGS;
+    }
+    wt_flash_lock();
+    return WH_ERROR_OK;
+}
+
+static uint32_t wt_hsm_flash_partition_size(void *context)
+{
+    wt_hsm_flash_context_t *ctx = (wt_hsm_flash_context_t *)context;
+
+    if (ctx == NULL) {
+        return 0u;
+    }
+    return ctx->sector_size;
+}
+
+static int wt_hsm_flash_write_lock(void *context, uint32_t offset,
+                                   uint32_t size)
+{
+    wt_hsm_flash_context_t *ctx = (wt_hsm_flash_context_t *)context;
+    (void)offset;
+    (void)size;
+
+    if (ctx == NULL) {
+        return WH_ERROR_BADARGS;
+    }
+    ctx->write_locked = true;
+    return WH_ERROR_OK;
+}
+
+static int wt_hsm_flash_write_unlock(void *context, uint32_t offset,
+                                     uint32_t size)
+{
+    wt_hsm_flash_context_t *ctx = (wt_hsm_flash_context_t *)context;
+    (void)offset;
+    (void)size;
+
+    if (ctx == NULL) {
+        return WH_ERROR_BADARGS;
+    }
+    ctx->write_locked = false;
+    return WH_ERROR_OK;
+}
+
+static int wt_hsm_flash_read(void *context, uint32_t offset, uint32_t size,
+                             uint8_t *data)
+{
+    wt_hsm_flash_context_t *ctx = (wt_hsm_flash_context_t *)context;
+
+    if (data == NULL && size != 0u) {
+        return WH_ERROR_BADARGS;
+    }
+    if (!wt_flash_range_ok(ctx, offset, size)) {
+        return WH_ERROR_BADARGS;
+    }
+    if (size != 0u) {
+        (void)memcpy(data, (const void *)(ctx->base + offset), size);
+    }
+    return WH_ERROR_OK;
+}
+
+static int wt_hsm_flash_program(void *context, uint32_t offset, uint32_t size,
+                                const uint8_t *data)
+{
+    wt_hsm_flash_context_t *ctx = (wt_hsm_flash_context_t *)context;
+    uint32_t written = 0u;
+    int ret = WH_ERROR_OK;
+
+    if (data == NULL && size != 0u) {
+        return WH_ERROR_BADARGS;
+    }
+    if (!wt_flash_range_ok(ctx, offset, size)) {
+        return WH_ERROR_BADARGS;
+    }
+    if ((size % 8u) != 0u) {
+        return WH_ERROR_BADARGS;
+    }
+    if (size != 0u && ctx->write_locked) {
+        return WH_ERROR_LOCKED;
+    }
+
+    wt_flash_unlock();
+    wt_flash_clear_errors();
+
+    while (written < size) {
+        uintptr_t dst = ctx->base + offset + written;
+        uintptr_t dst_aligned = dst & ~(uintptr_t)(ctx->program_unit - 1u);
+        uint32_t word[4];
+        uint8_t *word_bytes = (uint8_t *)word;
+        uint32_t chunk_off = (uint32_t)(dst - dst_aligned);
+        uint32_t chunk = ctx->program_unit - chunk_off;
+        volatile uint32_t *flash_word = (volatile uint32_t *)dst_aligned;
+
+        if (chunk > size - written) {
+            chunk = size - written;
+        }
+
+        (void)memcpy(word_bytes, (const void *)dst_aligned, sizeof(word));
+        (void)memcpy(word_bytes + chunk_off, data + written, chunk);
+
+        WT_FLASH_CR |= WT_FLASH_CR_PG;
+        flash_word[0] = word[0];
+        flash_word[1] = word[1];
+        flash_word[2] = word[2];
+        flash_word[3] = word[3];
+        wt_flash_barrier();
+        wt_flash_wait_complete();
+
+        if ((WT_FLASH_SR & WT_FLASH_SR_EOP) != 0u) {
+            WT_FLASH_SR = WT_FLASH_SR_EOP;
+        }
+        WT_FLASH_CR &= ~WT_FLASH_CR_PG;
+
+        ret = wt_flash_check_errors();
+        if (ret != WH_ERROR_OK) {
+            break;
+        }
+        written += chunk;
+    }
+
+    WT_FLASH_CR &= ~WT_FLASH_CR_PG;
+    wt_flash_lock();
+    return ret;
+}
+
+static int wt_hsm_flash_erase(void *context, uint32_t offset, uint32_t size)
+{
+    wt_hsm_flash_context_t *ctx = (wt_hsm_flash_context_t *)context;
+    uint32_t start;
+    uint32_t end;
+
+    if (!wt_flash_range_ok(ctx, offset, size)) {
+        return WH_ERROR_BADARGS;
+    }
+    if ((offset % ctx->sector_size) != 0u ||
+        (size % ctx->sector_size) != 0u) {
+        return WH_ERROR_BADARGS;
+    }
+    if (size != 0u && ctx->write_locked) {
+        return WH_ERROR_LOCKED;
+    }
+    if (size == 0u) {
+        return WH_ERROR_OK;
+    }
+
+    start = offset;
+    end = offset + size;
+
+    wt_flash_unlock();
+    wt_flash_clear_errors();
+
+    while (start < end) {
+        uintptr_t ns_addr = wt_flash_ns_addr(ctx->base + start);
+        uint32_t sector = (uint32_t)((ns_addr - WT_FLASH_NS_BASE) /
+                                     ctx->sector_size);
+        uint32_t bank = 0u;
+        uint32_t sector_in_bank = sector;
+        uint32_t cr;
+
+        if (ns_addr >= WT_FLASH_BANK2_BASE_NS && ns_addr <= WT_FLASH_TOP_NS) {
+            bank = 1u;
+            sector_in_bank = sector - WT_FLASH_BANK_SECTORS;
+        }
+        if ((WT_FLASH_OPTSR_CUR & WT_FLASH_SWAP_BANK) != 0u) {
+            bank ^= 1u;
+        }
+
+        cr = WT_FLASH_CR & ~((WT_FLASH_CR_PNB_MASK << WT_FLASH_CR_PNB_SHIFT) |
+                             WT_FLASH_CR_SER | WT_FLASH_CR_BER |
+                             WT_FLASH_CR_PG | WT_FLASH_CR_MER |
+                             WT_FLASH_CR_BKSEL);
+        cr |= (sector_in_bank << WT_FLASH_CR_PNB_SHIFT) |
+              WT_FLASH_CR_SER |
+              (bank != 0u ? WT_FLASH_CR_BKSEL : 0u);
+        WT_FLASH_CR = cr;
+        wt_flash_barrier();
+        WT_FLASH_CR |= WT_FLASH_CR_STRT;
+        wt_flash_wait_complete();
+
+        if (wt_flash_check_errors() != WH_ERROR_OK) {
+            WT_FLASH_CR &= ~WT_FLASH_CR_SER;
+            wt_flash_lock();
+            return WH_ERROR_ABORTED;
+        }
+        start += ctx->sector_size;
+    }
+
+    WT_FLASH_CR &= ~WT_FLASH_CR_SER;
+    wt_flash_lock();
+    return WH_ERROR_OK;
+}
+
+static int wt_hsm_flash_verify(void *context, uint32_t offset, uint32_t size,
+                               const uint8_t *data)
+{
+    wt_hsm_flash_context_t *ctx = (wt_hsm_flash_context_t *)context;
+
+    if (data == NULL && size != 0u) {
+        return WH_ERROR_BADARGS;
+    }
+    if (!wt_flash_range_ok(ctx, offset, size)) {
+        return WH_ERROR_BADARGS;
+    }
+    if (size != 0u &&
+        memcmp((const void *)(ctx->base + offset), data, size) != 0) {
+        return WH_ERROR_NOTVERIFIED;
+    }
+    return WH_ERROR_OK;
+}
+
+static int wt_hsm_flash_blank_check(void *context, uint32_t offset,
+                                    uint32_t size)
+{
+    wt_hsm_flash_context_t *ctx = (wt_hsm_flash_context_t *)context;
+    const uint8_t *p;
+
+    if (!wt_flash_range_ok(ctx, offset, size)) {
+        return WH_ERROR_BADARGS;
+    }
+    p = (const uint8_t *)(ctx->base + offset);
+    for (uint32_t i = 0u; i < size; i++) {
+        if (p[i] != 0xFFu) {
+            return WH_ERROR_NOTBLANK;
+        }
+    }
+    return WH_ERROR_OK;
+}
+
+const whFlashCb g_wt_hsm_flash_cb = {
+    .Init = wt_hsm_flash_init,
+    .Cleanup = wt_hsm_flash_cleanup,
+    .PartitionSize = wt_hsm_flash_partition_size,
+    .WriteLock = wt_hsm_flash_write_lock,
+    .WriteUnlock = wt_hsm_flash_write_unlock,
+    .Read = wt_hsm_flash_read,
+    .Program = wt_hsm_flash_program,
+    .Erase = wt_hsm_flash_erase,
+    .Verify = wt_hsm_flash_verify,
+    .BlankCheck = wt_hsm_flash_blank_check,
+};
+
+void *wt_hsm_flash_context(void)
+{
+    return &g_hsm_flash_ctx;
+}
+
+const void *wt_hsm_flash_config(void)
+{
+    return &g_hsm_flash_cfg;
+}

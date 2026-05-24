@@ -99,15 +99,13 @@
 #define WOLFHSM_CFG_SERVER_CUSTOMCB_COUNT 0
 
 /*---------------------------------------------------------------------------
- * NVM sizing for wh_flash_ramsim
+ * NVM sizing for the target flash backend
  *
  * WOLFHSM_CFG_NVM_OBJECT_COUNT controls the directory table size in
- * wh_nvm_flash.h.  WH_NVM_FLASH_LOG_PARTITION_SIZE controls the data region
- * embedded in whNvmFlashLogMemPartition (wh_nvm_flash_log.h); two partitions
- * are mirrored by the flash-log backend so total RAM footprint is 2 x 4 KB.
+ * wh_nvm_flash.h. The STM32H563 port reserves two 8 KiB internal-flash
+ * sectors for the mirrored wolfHSM NVM partitions.
  *---------------------------------------------------------------------------*/
 #define WOLFHSM_CFG_NVM_OBJECT_COUNT       8
-#define WH_NVM_FLASH_LOG_PARTITION_SIZE    (4 * 1024)
 
 /*---------------------------------------------------------------------------
  * Disabled extensions (opt-in, so omitting the define is sufficient)

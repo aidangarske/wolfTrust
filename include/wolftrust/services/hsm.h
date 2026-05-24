@@ -30,11 +30,10 @@
 #include "wolfhsm/wh_comm.h"
 
 /* Initialise the wolfHSM service: wolfCrypt static memory pool,
- * shared NVM (wh_flash_ramsim, volatile), shared lock, the per-guest
- * crypto contexts, but NOT the per-guest transport (that is wired by
- * wt_hsm_guest_init for each guest). Call once at boot, before
- * wt_hsm_guest_init. Returns 0 on success, negative on failure.
- * Failure is fatal — the caller should panic. */
+ * target-backed NVM, shared lock, the per-guest crypto contexts, but NOT
+ * the per-guest transport (that is wired by wt_hsm_guest_init for each
+ * guest). Call once at boot, before wt_hsm_guest_init. Returns 0 on
+ * success, negative on failure. Failure is fatal — the caller should panic. */
 int wt_hsm_init(void);
 
 /* Initialise the per-guest wolfHSM server context, transport, and

@@ -140,7 +140,9 @@ static void wt_gtzc_init(void)
 
 static void wt_sau_init(void)
 {
-    wt_sau_set_region(0u, WT_FLASH_NS_BASE, WT_FLASH_NS_BASE + 0x001FFFFFu, false);
+    wt_sau_set_region(0u, WT_GUEST0_FLASH_BASE,
+                      WT_GUEST1_FLASH_BASE + WT_GUEST_FLASH_SIZE - 1u,
+                      false);
     wt_sau_set_region(1u, WT_RAM_NS_BASE, WT_RAM_NS_BASE + 0x0009FFFFu, false);
     wt_sau_set_region(2u, WT_FLASH_NSC_BASE, WT_FLASH_NSC_END, true);
     wt_sau_set_region(3u, 0x40000000u, 0x4FFFFFFFu, false);

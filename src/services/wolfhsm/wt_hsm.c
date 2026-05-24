@@ -24,7 +24,7 @@
  *
  * Owns:
  *   - The wolfCrypt static-memory pool (WOLFSSL_STATIC_MEMORY path).
- *   - The shared RAM-backed NVM context (wh_flash_ramsim, volatile).
+ *   - The shared flash-backed NVM context.
  *   - The shared NVM serialisation lock (callbacks in wt_hsm_lock.c).
  *   - Per-guest whServerContext instances driven by per-guest coroutines.
  *
@@ -67,7 +67,6 @@
 #include "wolfhsm/wh_comm.h"
 #include "wolfhsm/wh_nvm.h"
 #include "wolfhsm/wh_nvm_flash.h"
-#include "wolfhsm/wh_flash_ramsim.h"
 #include "wolfhsm/wh_lock.h"
 #include "wolfhsm/wh_server.h"
 
@@ -76,6 +75,8 @@
 #include "wolftrust/sched/coroutine.h"
 #include "wolftrust/sync/mutex.h"
 #include "wolftrust/services/hsm.h"
+
+#include "hsm_flash.h"
 
 #include <string.h>
 #include <stddef.h>
@@ -96,19 +97,6 @@ static uint8_t g_wolfcrypt_pool[WT_HSM_WOLFCRYPT_POOL_BYTES]
 
 /* One-time heap hint pointer populated by wc_LoadStaticMemory. */
 static WOLFSSL_HEAP_HINT *g_heap_hint = NULL;
-
-/* -------------------------------------------------------------------------
- * NVM backing buffer for wh_flash_ramsim (volatile, lost on reset).
- *
- * wh_nvm_flash uses two mirrored partitions so the buffer is x2 the
- * logical partition size.  sectorSize must divide evenly into the total
- * and pageSize must equal sizeof(whFlashUnit) = 8 bytes (the flash log
- * programs one unit at a time).
- * ---------------------------------------------------------------------- */
-#define WT_HSM_NVM_PARTITION_BYTES (4u * 1024u)
-
-static uint8_t g_nvm_ramsim_buf[WT_HSM_NVM_PARTITION_BYTES * 2u]
-    __attribute__((aligned(4)));
 
 /* -------------------------------------------------------------------------
  * Per-coroutine secure stacks.  WT_CO_STACK_SIZE is sized for wolfCrypt TFM
@@ -139,11 +127,8 @@ static wt_hsm_guest_t g_guests[WT_MAX_GUESTS];
  * Shared NVM state (one instance, serialised by g_nvm_lock_mutex).
  * ---------------------------------------------------------------------- */
 static whNvmContext      g_nvm_ctx;
-static whFlashRamsimCtx  g_flash_ramsim_ctx;
 static whNvmFlashContext g_nvm_flash_ctx;
 
-/* Callback tables are const — match the pattern from the loopback test. */
-static const whFlashCb g_ramsim_cb[1]  = {WH_FLASH_RAMSIM_CB};
 static const whNvmCb   g_nvm_flash_cb[1] = {WH_NVM_FLASH_CB};
 
 /* -------------------------------------------------------------------------
@@ -168,7 +153,6 @@ int wt_hsm_init(void)
 {
     int rc;
 
-    whFlashRamsimCfg ramsim_cfg;
     whNvmFlashConfig nvm_flash_cfg;
     whNvmConfig      nvm_cfg;
 
@@ -207,26 +191,10 @@ int wt_hsm_init(void)
     wolfSSL_SetGlobalHeapHint(g_heap_hint);
 
     /* ------------------------------------------------------------------
-     * 3. Initialise wh_flash_ramsim.
-     *
-     * pageSize must equal sizeof(whFlashUnit) = 8: the NVM flash log
-     * programs exactly one unit at a time and the ramsim rejects writes
-     * whose size is not a multiple of pageSize.
+     * 3. Initialise the target flash backend.
      * ---------------------------------------------------------------- */
-    (void)memset(&g_flash_ramsim_ctx, 0, sizeof(g_flash_ramsim_ctx));
-    (void)memset(&ramsim_cfg, 0, sizeof(ramsim_cfg));
-
-    /* Pre-fill with erased-byte pattern so the NVM layer sees a blank store. */
-    (void)memset(g_nvm_ramsim_buf, 0xFF, sizeof(g_nvm_ramsim_buf));
-
-    ramsim_cfg.memory     = g_nvm_ramsim_buf;
-    ramsim_cfg.size       = (uint32_t)sizeof(g_nvm_ramsim_buf);
-    ramsim_cfg.sectorSize = 512u;
-    ramsim_cfg.pageSize   = 8u;   /* sizeof(whFlashUnit) */
-    ramsim_cfg.erasedByte = 0xFFu;
-    ramsim_cfg.initData   = NULL;
-
-    rc = whFlashRamsim_Init(&g_flash_ramsim_ctx, &ramsim_cfg);
+    rc = g_wt_hsm_flash_cb.Init(wt_hsm_flash_context(),
+                                wt_hsm_flash_config());
     if (rc != 0) {
         return rc;
     }
@@ -234,15 +202,15 @@ int wt_hsm_init(void)
     /* ------------------------------------------------------------------
      * 4. Initialise NVM flash-log layer.
      *
-     * whNvmFlashConfig wires the whFlash callback table (ramsim) and the
-     * ramsim context into the flash-log NVM backend.
+     * whNvmFlashConfig wires the target flash callback table and context into
+     * the flash-log NVM backend.
      * ---------------------------------------------------------------- */
     (void)memset(&g_nvm_flash_ctx, 0, sizeof(g_nvm_flash_ctx));
     (void)memset(&nvm_flash_cfg, 0, sizeof(nvm_flash_cfg));
 
-    nvm_flash_cfg.cb      = g_ramsim_cb;
-    nvm_flash_cfg.context = &g_flash_ramsim_ctx;
-    nvm_flash_cfg.config  = &ramsim_cfg;
+    nvm_flash_cfg.cb      = &g_wt_hsm_flash_cb;
+    nvm_flash_cfg.context = wt_hsm_flash_context();
+    nvm_flash_cfg.config  = wt_hsm_flash_config();
 
     /* ------------------------------------------------------------------
      * 5. Set up the NVM lock before calling wh_Nvm_Init.

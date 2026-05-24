@@ -136,7 +136,6 @@ WOLFHSM_SECURE_SRCS := \
     $(WOLFHSM_DIR)/src/wh_message_counter.c \
     $(WOLFHSM_DIR)/src/wh_nvm.c \
     $(WOLFHSM_DIR)/src/wh_nvm_flash.c \
-    $(WOLFHSM_DIR)/src/wh_flash_ramsim.c \
     $(WOLFHSM_DIR)/src/wh_flash_unit.c \
     $(WOLFHSM_DIR)/src/wh_server.c \
     $(WOLFHSM_DIR)/src/wh_server_crypto.c \
@@ -176,6 +175,7 @@ WT_SECURE_EXTRA_SRCS := \
 
 # Target entropy source — include only when the port provides it.
 WT_SECURE_EXTRA_SRCS += $(wildcard $(PORT_DIR)/rng_entropy.c)
+WT_SECURE_EXTRA_SRCS += $(wildcard $(PORT_DIR)/hsm_flash.c)
 WT_SECURE_EXTRA_SRCS += \
     $(WOLFHAL_DIR)/src/reg.c \
     $(WOLFHAL_DIR)/src/rng/rng.c \
