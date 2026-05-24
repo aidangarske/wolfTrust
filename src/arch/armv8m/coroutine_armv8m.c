@@ -20,30 +20,25 @@
  */
 
 /*
- * Cortex-M33 (secure mode, MSP-only) context switch.
+ * Cortex-M33 secure-side context switch.
  *
  * Compiled with: -mcpu=cortex-m33 -mthumb -mcmse -mgeneral-regs-only
- *                -ffreestanding -fno-builtin -nostdlib -O0
+ *                -ffreestanding -fno-builtin -nostdlib
  *
- * All coroutines and the bootstrap monitor share MSP_S.  PSP is never
- * touched.  This keeps the same scheduler callable from both Thread Mode
- * and Handler Mode (SysTick).
+ * Stack model:
+ *   - The bootstrap (monitor) context runs on MSP_S. It is identified by
+ *     stack_base == NULL.
+ *   - Every other coroutine runs on PSP_S with PSPLIM_S anchored at
+ *     stack_base + 4 (immediately above the stack canary). Hitting that
+ *     limit triggers UsageFault.STKOF which the platform fault handler
+ *     converts into a terminal WT_CO_FAULTED + an NS-visible
+ *     WH_ERROR_ABORTED response.
  *
- * Register frame saved/restored on each context's own MSP stack:
+ * wt_co_arch_switch toggles CONTROL.SPSEL on bootstrap↔coroutine
+ * transitions; coroutine↔coroutine stays on PSP_S.
  *
- *   SP+28 : LR (return address into caller / trampoline)
- *   SP+24 : r11
- *   SP+20 : r10
- *   SP+16 : r9
- *   SP+12 : r8
- *   SP+08 : r7
- *   SP+04 : r6
- *   SP+00 : r5   (r4 is the lowest, but we push {r4-r11,lr} in one insn,
- *                 so r4 ends up at SP+0 after the push)
+ * Saved frame on each context's own stack (descending):
  *
- * The actual push {r4-r11, lr} layout on a descending stack:
- *   before push, sp points above the frame.
- *   After push, sp = old_sp - 9*4:
  *     [sp+0]  = r4
  *     [sp+4]  = r5
  *     [sp+8]  = r6
@@ -65,9 +60,20 @@
 
 extern void wt_platform_panic(void);
 
-/* sp is the first field in struct wt_co — offset must be 0. */
-_Static_assert(offsetof(struct wt_co, sp) == 0,
-               "struct wt_co: sp must be the first field (offset 0)");
+/* Field offsets the inline asm depends on. Hard-coded so they expand at
+ * preprocessor time; the _Static_asserts catch any struct drift. */
+#define WT_CO_SP_OFFSET         0
+#define WT_CO_STACK_BASE_OFFSET 4
+
+_Static_assert(offsetof(struct wt_co, sp) == WT_CO_SP_OFFSET,
+               "struct wt_co: sp must be at offset 0");
+_Static_assert(offsetof(struct wt_co, stack_base) == WT_CO_STACK_BASE_OFFSET,
+               "struct wt_co: stack_base must be at offset 4");
+_Static_assert(sizeof(uintptr_t) == 4,
+               "wt_co struct layout assumes 32-bit pointers");
+
+#define WT_STR2(x) #x
+#define WT_STR(x)  WT_STR2(x)
 
 /* -------------------------------------------------------------------------
  * Trampoline — entered by the first pop {r4-r11,lr} + bx lr that lands
@@ -113,7 +119,6 @@ void wt_co_arch_init_stack(struct wt_co *co,
 {
     /* Start at the top of the caller-provided buffer (8-byte aligned). */
     uintptr_t sp = (uintptr_t)co->stack_base + co->stack_size;
-    /* Align down to 8 bytes just in case. */
     sp &= ~(uintptr_t)7u;
 
     uint32_t *frame = (uint32_t *)sp;
@@ -135,15 +140,14 @@ void wt_co_arch_init_stack(struct wt_co *co,
 /* -------------------------------------------------------------------------
  * wt_co_arch_switch(from, to)
  *
- * Arguments:  r0 = from (struct wt_co *), r1 = to (struct wt_co *)
+ *   r0 = from (struct wt_co *), r1 = to (struct wt_co *)
  *
- * If from == NULL (r0 == 0) the current MSP is not saved — used only on
- * the very first dispatch where there is no meaningful "from" context to
- * preserve.
+ * struct wt_co::sp is at offset 0; ::stack_base at +sizeof(uintptr_t).
+ * stack_base == NULL identifies the bootstrap context (MSP_S); any
+ * non-NULL value identifies a coroutine on PSP_S with PSPLIM_S =
+ * stack_base + 4.
  *
- * Since struct wt_co::sp is at offset 0:
- *   from->sp  =>  [r0 + #0]
- *   to->sp    =>  [r1 + #0]
+ * Both r2 and r3 are caller-clobbered and used freely below.
  * ---------------------------------------------------------------------- */
 
 __attribute__((naked))
@@ -151,22 +155,82 @@ void wt_co_arch_switch(struct wt_co *from __attribute__((unused)),
                        struct wt_co *to   __attribute__((unused)))
 {
     __asm__ volatile (
-        /* Save callee-saved registers and LR onto the current MSP stack. */
-        "push   {r4-r11, lr}            \n"
+        /* Push callee-saved regs + LR on whichever stack is currently
+         * active (MSP_S if we were in bootstrap, PSP_S if we were in
+         * a coroutine). */
+        "push   {r4-r11, lr}                                    \n"
 
-        /* If from == NULL skip saving the stack pointer. */
-        "cbz    r0, 1f                  \n"
+        /* If from == NULL skip saving SP (only on first dispatch). */
+        "cbz    r0, 1f                                          \n"
 
-        /* from->sp = sp  (struct wt_co::sp is at offset 0) */
-        "mrs    r2, msp                 \n"
-        "str    r2, [r0, #0]            \n"
+        /* from->stack_base: NULL → bootstrap on MSP_S, else PSP_S. */
+        "ldr    r2, [r0, #" WT_STR(WT_CO_STACK_BASE_OFFSET) "]  \n"
+        "cbz    r2, 2f                                          \n"
 
-        "1:                             \n"
-        /* sp = to->sp */
-        "ldr    r2, [r1, #0]            \n"
-        "msr    msp, r2                 \n"
+        /* Coroutine: save PSP_S into from->sp. */
+        "mrs    r3, psp                                         \n"
+        "str    r3, [r0, #0]                                    \n"
+        "b      1f                                              \n"
 
-        /* Restore callee-saved registers and return into `to`. */
-        "pop    {r4-r11, pc}            \n"
+        "2:                                                     \n"
+        /* Bootstrap: save MSP_S into from->sp. */
+        "mrs    r3, msp                                         \n"
+        "str    r3, [r0, #0]                                    \n"
+
+        "1:                                                     \n"
+        /* Load to->stack_base again to decide MSP_S vs PSP_S target. */
+        "ldr    r2, [r1, #" WT_STR(WT_CO_STACK_BASE_OFFSET) "]  \n"
+        "cbz    r2, 3f                                          \n"
+
+        /* Target is a coroutine. Set PSPLIM_S to stack_base + 4 (above
+         * the canary), load PSP_S = to->sp, ensure CONTROL.SPSEL=1 so
+         * thread mode uses PSP. */
+        "adds   r2, r2, #4                                      \n"
+        "msr    psplim, r2                                      \n"
+        "ldr    r3, [r1, #0]                                    \n"
+        "msr    psp, r3                                         \n"
+        "mrs    r2, control                                     \n"
+        "orrs   r2, r2, #2                                      \n"
+        "msr    control, r2                                     \n"
+        "isb    0xF                                             \n"
+        "b      4f                                              \n"
+
+        "3:                                                     \n"
+        /* Target is bootstrap. Restore MSP_S = to->sp, clear
+         * CONTROL.SPSEL so thread mode uses MSP, drop PSPLIM_S. */
+        "ldr    r3, [r1, #0]                                    \n"
+        "msr    msp, r3                                         \n"
+        "mrs    r2, control                                     \n"
+        "bics   r2, r2, #2                                      \n"
+        "msr    control, r2                                     \n"
+        "movs   r3, #0                                          \n"
+        "msr    psplim, r3                                      \n"
+        "isb    0xF                                             \n"
+
+        "4:                                                     \n"
+        /* Restore callee-saved regs from the now-active stack and
+         * return into `to`'s execution. */
+        "pop    {r4-r11, pc}                                    \n"
+    );
+}
+
+/* -------------------------------------------------------------------------
+ * wt_co_fault_recovery_thunk
+ *
+ * Invoked by the platform fault handler via a fabricated MSP_S
+ * exception frame after EXC_RETURN to Secure Thread MSP. At entry,
+ * MSP_S points to the bootstrap context's saved {r4-r11, lr} frame
+ * from when bootstrap last context-switched into the now-faulted
+ * coroutine. The pop unwinds it and returns into wt_co_arch_switch's
+ * caller (do_switch in coroutine.c), which proceeds as if the
+ * coroutine had voluntarily switched back. The scheduler then sees
+ * the FAULTED state and continues with the next runnable coroutine.
+ * ---------------------------------------------------------------------- */
+
+__attribute__((naked, noreturn))
+void wt_co_fault_recovery_thunk(void)
+{
+    __asm__ volatile (
+        "pop    {r4-r11, pc}                                    \n"
     );
 }

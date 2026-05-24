@@ -27,9 +27,42 @@
 
 #define WT_SCB_VTOR_S            (*(volatile uint32_t*)0xE000ED08u)
 #define WT_SCB_VTOR_NS           (*(volatile uint32_t*)0xE002ED08u)
+#define WT_SCB_CCR_S             (*(volatile uint32_t*)0xE000ED14u)
 #define WT_SCB_SHCSR_S           (*(volatile uint32_t*)0xE000ED24u)
+#define WT_SCB_CFSR_S            (*(volatile uint32_t*)0xE000ED28u)
+#define WT_SCB_MMFAR_S           (*(volatile uint32_t*)0xE000ED34u)
+#define WT_SCB_BFAR_S            (*(volatile uint32_t*)0xE000ED38u)
 #define WT_SCB_ICSR_NS           (*(volatile uint32_t*)0xE002ED04u)
 #define WT_SCB_ICSR_PENDSTCLR    (1u << 25)
+
+#define WT_SCB_SHCSR_MEMFAULTENA (1u << 16)
+#define WT_SCB_SHCSR_BUSFAULTENA (1u << 17)
+#define WT_SCB_SHCSR_USGFAULTENA (1u << 18)
+
+#define WT_SCB_CFSR_MMFSR_MASK   0x000000FFu
+#define WT_SCB_CFSR_BFSR_MASK    0x0000FF00u
+#define WT_SCB_CFSR_UFSR_MASK    0xFFFF0000u
+
+#define WT_SCB_CFSR_MMFSR_IACCVIOL    (1u << 0)
+#define WT_SCB_CFSR_MMFSR_DACCVIOL    (1u << 1)
+#define WT_SCB_CFSR_MMFSR_MUNSTKERR   (1u << 3)
+#define WT_SCB_CFSR_MMFSR_MSTKERR     (1u << 4)
+#define WT_SCB_CFSR_MMFSR_MLSPERR     (1u << 5)
+#define WT_SCB_CFSR_MMFSR_MMARVALID   (1u << 7)
+
+#define WT_SCB_CFSR_UFSR_STKOF        (1u << 20)  /* UFSR bit 4 lifted to CFSR bit 20 */
+
+#define WT_MPU_S_TYPE            (*(volatile uint32_t*)0xE000ED90u)
+#define WT_MPU_S_CTRL            (*(volatile uint32_t*)0xE000ED94u)
+#define WT_MPU_S_RNR             (*(volatile uint32_t*)0xE000ED98u)
+#define WT_MPU_S_RBAR            (*(volatile uint32_t*)0xE000ED9Cu)
+#define WT_MPU_S_RLAR            (*(volatile uint32_t*)0xE000EDA0u)
+#define WT_MPU_S_MAIR0           (*(volatile uint32_t*)0xE000EDC0u)
+#define WT_MPU_S_MAIR1           (*(volatile uint32_t*)0xE000EDC4u)
+
+#define WT_MPU_CTRL_ENABLE       (1u << 0)
+#define WT_MPU_CTRL_HFNMIENA     (1u << 1)
+#define WT_MPU_CTRL_PRIVDEFENA   (1u << 2)
 
 #define WT_NVIC_ISER0            (*(volatile uint32_t*)0xE000E100u)
 #define WT_NVIC_ISER1            (*(volatile uint32_t*)0xE000E104u)

@@ -32,11 +32,14 @@
 #endif
 
 /* Coroutine lifecycle states. Internal scheduler state, exposed because
- * mutex/condvar code inspects it. */
+ * mutex/condvar code inspects it. WT_CO_FAULTED is terminal: the
+ * coroutine took a Secure-side fault (MemManage / UsageFault including
+ * PSPLIM_S overflow) and was abandoned by the fault handler. */
 typedef enum wt_co_state {
     WT_CO_RUNNABLE = 0,
     WT_CO_RUNNING,
-    WT_CO_BLOCKED
+    WT_CO_BLOCKED,
+    WT_CO_FAULTED
 } wt_co_state_t;
 
 /* Forward declaration; full layout lives in src/sched/coroutine.c.
@@ -98,5 +101,23 @@ wt_co_state_t wt_co_state(const wt_co_t *co);
  * starving the guest scheduler. budget_iterations==0 returns 0
  * immediately. Calling from inside a coroutine is forbidden. */
 uint32_t wt_co_tick(uint32_t budget_iterations);
+
+/* Mark `co` as terminally FAULTED and remove it from the runqueue / any
+ * wait queue. Called from the Secure-side fault handler when a coroutine
+ * trips PSPLIM_S, MPU_S, or any UsageFault. After this returns, the
+ * coroutine never runs again and wt_co_wake on it is a no-op. The fault
+ * handler is responsible for unwinding back to the bootstrap context.
+ * Safe to call from handler mode; the scheduler is cooperative so there
+ * is no preemption to fence against. */
+void wt_co_mark_faulted(wt_co_t *co);
+
+/* Recovery thunk invoked by the fault handler's fabricated exception
+ * frame after EXC_RETURN. Pops the bootstrap's saved {r4-r11, lr} frame
+ * from MSP_S and resumes wt_co_arch_switch's caller (do_switch →
+ * wt_co_tick). Naked, noreturn. Architecture-specific (defined in
+ * src/arch/<arch>/coroutine_<arch>.c). Not part of the public coroutine
+ * API; declared here so the platform fault handler can take its
+ * address. */
+void wt_co_fault_recovery_thunk(void);
 
 #endif

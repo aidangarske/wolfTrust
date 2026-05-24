@@ -64,4 +64,16 @@ uint16_t wt_hsm_guest_client_id(wt_guest_id_t guest_id);
 struct wt_co;
 struct wt_co *wt_hsm_guest_coroutine(wt_guest_id_t guest_id);
 
+/* Reverse lookup: which guest owns `co`? Returns WT_MAX_GUESTS if `co`
+ * does not match any per-guest server coroutine. Used by the Secure
+ * fault dispatcher to map a faulted coroutine back to its NS client. */
+wt_guest_id_t wt_hsm_guest_for_coroutine(const struct wt_co *co);
+
+/* Signal a terminal Secure-side fault for guest_id: drops the NVM lock
+ * if the dying coroutine was holding it, writes a WH_ERROR_ABORTED
+ * fatal-response into the guest's transport, and clears the ready bit
+ * so subsequent NSC veneers reject HSM calls from this guest. Safe to
+ * call from handler mode. Returns WH_ERROR_OK on success. */
+int wt_hsm_signal_fault(wt_guest_id_t guest_id);
+
 #endif /* WOLFTRUST_SERVICES_HSM_H */

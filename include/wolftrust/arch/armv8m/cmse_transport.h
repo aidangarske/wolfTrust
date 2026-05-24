@@ -82,4 +82,15 @@ wt_cmse_transport_ctx_t *wt_cmse_transport_ctx_for(wt_guest_id_t guest_id);
 void wt_cmse_transport_cfg_for(wt_guest_id_t guest_id,
                                 wt_cmse_transport_cfg_t *out_cfg);
 
+/* Fabricate a wolfHSM error response in the guest's response slot to
+ * signal that the secure-side handler took a fatal fault while
+ * processing the pending request. Reads kind/seq from the request CSR
+ * (in NS RAM, secure alias), writes a whCommHeader with
+ * aux=WH_COMM_AUX_RESP_FATAL plus a whMessageComm_ErrorResponse body
+ * carrying WH_ERROR_ABORTED. DSBs, then increments the response notify
+ * counter. Safe to call from Secure handler mode (no locks, no
+ * coroutine yields). Returns WH_ERROR_OK on success, WH_ERROR_BADARGS
+ * if the guest has no live transport. */
+int wt_cmse_transport_signal_fault(wt_guest_id_t guest_id);
+
 #endif /* WOLFTRUST_ARCH_ARMV8M_CMSE_TRANSPORT_H */

@@ -255,8 +255,54 @@ void wt_co_wake(wt_co_t *co)
     if (co->state == WT_CO_RUNNABLE || co->state == WT_CO_RUNNING) {
         return; /* already active, nothing to do */
     }
+    if (co->state == WT_CO_FAULTED) {
+        return; /* terminal — never wake again */
+    }
     co->state = WT_CO_RUNNABLE;
     runqueue_enqueue(co);
+}
+
+void wt_co_mark_faulted(wt_co_t *co)
+{
+    struct wt_co **link;
+    struct wt_co  *node;
+
+    if (co == (wt_co_t *)0) {
+        return;
+    }
+
+    /* Unlink from the runqueue if present. The faulted coroutine is
+     * almost always WT_CO_RUNNING (we caught it mid-execution), so this
+     * walk is defensive — but cheap, and keeps the invariant simple. */
+    link = &g_runqueue_head;
+    while (*link != (struct wt_co *)0) {
+        node = *link;
+        if (node == co) {
+            *link = node->next_run;
+            if (g_runqueue_tail == node) {
+                /* Walk again to find the new tail. */
+                struct wt_co *tail = g_runqueue_head;
+                if (tail == (struct wt_co *)0) {
+                    g_runqueue_tail = (struct wt_co *)0;
+                } else {
+                    while (tail->next_run != (struct wt_co *)0) {
+                        tail = tail->next_run;
+                    }
+                    g_runqueue_tail = tail;
+                }
+            }
+            node->next_run = (struct wt_co *)0;
+            break;
+        }
+        link = &(*link)->next_run;
+    }
+
+    co->next_wait = (struct wt_co *)0;
+    co->state     = WT_CO_FAULTED;
+
+    if (g_co_current == co) {
+        g_co_current = &g_co_bootstrap;
+    }
 }
 
 wt_co_t *wt_co_current(void)

@@ -44,6 +44,23 @@
 #define WT_HSM_SUBMIT_BUDGET  8u
 #endif /* WT_ENGINE_HSM */
 
+/* Secure MPU attribute encodings. MPU_RBAR[2:1] = AP (access permissions),
+ * MPU_RBAR[0]  = XN (execute-never), MPU_RLAR[3:1] = AttrIndx (into MAIR). */
+#define WT_MPU_RBAR_XN       (1u << 0)
+#define WT_MPU_RBAR_AP_RW    (0u << 1)   /* privileged RW, no access from unpriv */
+#define WT_MPU_RBAR_AP_RWRW  (1u << 1)   /* RW from any priv level */
+#define WT_MPU_RBAR_AP_RO    (2u << 1)   /* privileged RO, no access from unpriv */
+#define WT_MPU_RBAR_AP_RORO  (3u << 1)   /* RO from any priv level */
+#define WT_MPU_RBAR_SH_INNER (3u << 3)
+
+#define WT_MPU_RLAR_EN       (1u << 0)
+#define WT_MPU_RLAR_ATTRIDX_NORMAL  (0u << 1)  /* MAIR[0] = normal memory */
+#define WT_MPU_RLAR_ATTRIDX_DEVICE  (1u << 1)  /* MAIR[1] = device memory */
+
+/* MAIR encodings: normal write-back/RA/WA inner+outer = 0xFF; device-nGnRE = 0x04. */
+#define WT_MPU_MAIR0_NORMAL_AT_0   0x000000FFu
+#define WT_MPU_MAIR0_DEVICE_AT_1   0x00000400u
+
 typedef struct wt_exception_frame {
     uint32_t r0;
     uint32_t r1;
@@ -155,6 +172,98 @@ static void wt_sau_init(void)
     wt_sau_set_region(2u, WT_FLASH_NSC_BASE, WT_FLASH_NSC_END, true);
     wt_sau_set_region(3u, 0x40000000u, 0x4FFFFFFFu, false);
     WT_SAU_CTRL = 1u;
+    wt_dsb();
+    wt_isb();
+}
+
+/* Program one secure MPU region. base/limit are inclusive 32-byte-aligned
+ * boundaries; `rbar_flags` carries XN/AP/SH, `rlar_flags` carries AttrIndx. */
+static void wt_mpu_s_set_region(uint32_t rnr, uintptr_t base,
+                                uintptr_t limit_inclusive,
+                                uint32_t rbar_flags, uint32_t rlar_flags)
+{
+    WT_MPU_S_RNR  = rnr;
+    WT_MPU_S_RBAR = ((uint32_t)base & 0xFFFFFFE0u) | rbar_flags;
+    WT_MPU_S_RLAR = (((uint32_t)limit_inclusive & 0xFFFFFFE0u)
+                    | rlar_flags | WT_MPU_RLAR_EN);
+}
+
+/* Secure-side MPU whitelist. PRIVDEFENA is OFF, so any access outside
+ * the listed regions traps (MemManage / SecureFault). This catches NULL
+ * pointer derefs, wild pointer writes, and stray peripheral accesses
+ * from inside wolfHSM / wolfCrypt coroutines. Stack overflow is caught
+ * separately via PSPLIM_S → UsageFault.STKOF. */
+static void wt_mpu_s_init(void)
+{
+    WT_MPU_S_CTRL = 0u;
+    wt_dsb();
+
+    /* MAIR0[7:0]   = Normal WB/RA/WA  (AttrIndx 0)
+     * MAIR0[15:8]  = Device nGnRE     (AttrIndx 1) */
+    WT_MPU_S_MAIR0 = WT_MPU_MAIR0_NORMAL_AT_0 | WT_MPU_MAIR0_DEVICE_AT_1;
+    WT_MPU_S_MAIR1 = 0u;
+
+    /* Region 0: secure flash bank 1 RX (image, NSC stubs, .text).
+     * The secure linker caps the image at 0x0C020000. */
+    wt_mpu_s_set_region(0u,
+        0x0C000000u, 0x0C01FFFFu,
+        WT_MPU_RBAR_AP_RO | WT_MPU_RBAR_SH_INNER,
+        WT_MPU_RLAR_ATTRIDX_NORMAL);
+
+    /* Region 1: secure flash bank 2 RW-NX. The wolfHSM NVM partition
+     * lives at 0x0C1FC000..0x0C1FFFFF and STM32H5 flash programming
+     * writes data words directly to the destination flash address with
+     * FLASH_CR.PG set (the FLASH controller intercepts the stores).
+     * The peripheral's own LOCK / PG gating is the real write barrier;
+     * MPU just needs to permit the addressed stores. */
+    wt_mpu_s_set_region(1u,
+        0x0C100000u, 0x0C1FFFFFu,
+        WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW | WT_MPU_RBAR_SH_INNER,
+        WT_MPU_RLAR_ATTRIDX_NORMAL);
+
+    /* Region 2: secure RAM RW-NX (.data/.bss/MSP_S + coroutine stacks). */
+    wt_mpu_s_set_region(2u,
+        WT_RAM_S_BASE, WT_RAM_S_BASE + WT_RAM_S_SIZE - 1u,
+        WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW | WT_MPU_RBAR_SH_INNER,
+        WT_MPU_RLAR_ATTRIDX_NORMAL);
+
+    /* Region 3: NS RAM RW-NX (guest mailboxes + HSM transport buffers).
+     * Secure code touches this through the 0x20000000 alias to copy
+     * guest requests/responses and to write fault-response CSRs. */
+    wt_mpu_s_set_region(3u,
+        WT_RAM_NS_BASE, WT_RAM_NS_BASE + 0x0001FFFFu,
+        WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW | WT_MPU_RBAR_SH_INNER,
+        WT_MPU_RLAR_ATTRIDX_NORMAL);
+
+    /* Region 4: NS flash R (so secure side can read guest image
+     * metadata if needed — current code does not, but the SAU window
+     * exists and we keep it consistent). XN to prevent stray Secure
+     * execution into NS code. */
+    wt_mpu_s_set_region(4u,
+        WT_FLASH_NS_BASE, WT_FLASH_NS_BASE + 0x001FFFFFu,
+        WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RO | WT_MPU_RBAR_SH_INNER,
+        WT_MPU_RLAR_ATTRIDX_NORMAL);
+
+    /* Region 5: SoC peripheral aperture (RCC, GTZC, GPIO, USART, FLASH
+     * controller, RNG, etc.) — both the 0x40000000 NS alias and the
+     * 0x50000000 secure alias fall in one 256 MiB block. */
+    wt_mpu_s_set_region(5u,
+        0x40000000u, 0x5FFFFFFFu,
+        WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW,
+        WT_MPU_RLAR_ATTRIDX_DEVICE);
+
+    /* Region 6: Cortex private peripheral bus (SCB, NVIC, SAU, MPU,
+     * SysTick — everything in the 0xE0000000..0xE00FFFFF window). */
+    wt_mpu_s_set_region(6u,
+        0xE0000000u, 0xE00FFFFFu,
+        WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW,
+        WT_MPU_RLAR_ATTRIDX_DEVICE);
+
+    /* Enable: PRIVDEFENA=0 (no implicit background region), HFNMIENA=1
+     * so MPU stays active during HardFault/NMI (matches what we want
+     * since our MemManage handler relies on the same region table). */
+    wt_dsb();
+    WT_MPU_S_CTRL = WT_MPU_CTRL_HFNMIENA | WT_MPU_CTRL_ENABLE;
     wt_dsb();
     wt_isb();
 }
@@ -453,6 +562,12 @@ void wt_platform_init(void)
     WT_SCB_VTOR_S = WT_FLASH_S_BASE;
     wt_gtzc_init();
     wt_sau_init();
+    wt_mpu_s_init();
+    /* Route MemManage and UsageFault to their own handlers (otherwise
+     * they escalate to HardFault and we lose the fault-status registers
+     * by the time we get the trap). STKOF on PSPLIM_S overflow surfaces
+     * as a UsageFault. */
+    WT_SCB_SHCSR_S |= WT_SCB_SHCSR_MEMFAULTENA | WT_SCB_SHCSR_USGFAULTENA;
     /* Enable USART2/USART3 clocks in both security views before guests run. */
     for (size_t i = 0u; i < sizeof(uart_clocks) / sizeof(uart_clocks[0]); ++i) {
         wt_rcc_enable_clock(WT_RCC_BASE_S, &uart_clocks[i]);
@@ -761,6 +876,108 @@ __attribute__((naked)) void SecureFault_Handler(void)
         "b wt_secure_fault_dispatch     \n"
     );
 }
+
+#ifdef WT_ENGINE_HSM
+/* -----------------------------------------------------------------------
+ * Secure-side coroutine fault path.
+ *
+ * MemManage and UsageFault can fire from within a wolfHSM coroutine when:
+ *   - PSPLIM_S is hit (UsageFault.STKOF) — coroutine stack overflow,
+ *   - MPU_S blocks a wild read/write (MemManage IACCVIOL/DACCVIOL),
+ *   - the coroutine executes an illegal instruction (UsageFault).
+ *
+ * Recovery model:
+ *   1. C dispatcher logs the fault, identifies the running coroutine
+ *      (g_co_current via wt_co_current), maps it back to a guest_id,
+ *      hands the NS client a WH_ERROR_ABORTED via wt_hsm_signal_fault,
+ *      drops any mutex held by the dying coroutine, and marks the
+ *      coroutine WT_CO_FAULTED.
+ *   2. The naked handler asm fabricates a Secure-Thread MSP exception
+ *      frame on MSP_S that targets wt_co_fault_recovery_thunk, then
+ *      EXC_RETURNs. Hardware lands in the thunk on MSP_S, the thunk
+ *      pops the bootstrap's saved {r4-r11, lr} frame, and execution
+ *      resumes inside wt_co_tick as if the coroutine had voluntarily
+ *      switched back. The scheduler picks up the next runnable
+ *      coroutine — the faulted one is no longer on the runqueue.
+ *
+ * If the fault fires while bootstrap (monitor) is running there is no
+ * coroutine to abandon and no saved frame to unwind to, so the C
+ * dispatcher panics.
+ * ----------------------------------------------------------------------- */
+static void wt_secure_coroutine_fault_dispatch(void) __attribute__((used));
+static void wt_secure_coroutine_fault_dispatch(void)
+{
+    uint32_t cfsr = WT_SCB_CFSR_S;
+
+    if ((cfsr & WT_SCB_CFSR_MMFSR_MMARVALID) != 0u) {
+        g_last_fault_address = WT_SCB_MMFAR_S;
+    }
+    /* Write-1-to-clear so the next fault is observable. */
+    WT_SCB_CFSR_S = cfsr;
+
+    wt_co_t *co = wt_co_current();
+    if (co == NULL) {
+        /* Bootstrap took the fault — no coroutine to abandon. */
+        wt_platform_panic();
+    }
+
+    wt_guest_id_t gid = wt_hsm_guest_for_coroutine(co);
+    if (gid < WT_MAX_GUESTS) {
+        (void)wt_hsm_signal_fault(gid);
+    }
+
+    wt_co_mark_faulted(co);
+}
+
+/* Shared tail for MemManage_Handler and UsageFault_Handler. Naked so
+ * we control the stack layout the EXC_RETURN unwinds through. */
+__attribute__((naked, used))
+static void wt_secure_coroutine_fault_entry(void)
+{
+    __asm volatile(
+        "bl     wt_secure_coroutine_fault_dispatch  \n"
+        /* Fabricate an 8-word exception frame on MSP_S whose PC field
+         * points at the recovery thunk. r0-r3, r12, lr are don't-care
+         * (the thunk's first instruction is `pop {r4-r11, pc}`). xPSR
+         * carries only the Thumb bit. */
+        "sub    sp, sp, #32                         \n"
+        "movs   r0, #0                              \n"
+        "str    r0, [sp, #0]                        \n"
+        "str    r0, [sp, #4]                        \n"
+        "str    r0, [sp, #8]                        \n"
+        "str    r0, [sp, #12]                       \n"
+        "str    r0, [sp, #16]                       \n"
+        "str    r0, [sp, #20]                       \n"
+        "movw   r0, #:lower16:wt_co_fault_recovery_thunk \n"
+        "movt   r0, #:upper16:wt_co_fault_recovery_thunk \n"
+        "str    r0, [sp, #24]                       \n"
+        "movw   r0, #0x0000                         \n"
+        "movt   r0, #0x0100                         \n"
+        "str    r0, [sp, #28]                       \n"
+        /* Drop PSPLIM_S — wt_co_arch_switch reinstalls it for the next
+         * coroutine. PSP_S itself is left pointing into the dead
+         * coroutine's stack; harmless because CONTROL.SPSEL=0 on
+         * return-to-Thread-MSP and arch_switch will overwrite PSP_S
+         * before re-enabling PSP. */
+        "movs   r0, #0                              \n"
+        "msr    psplim, r0                          \n"
+        /* EXC_RETURN = 0xFFFFFFF9: Secure Thread mode using MSP_S, no
+         * FP context. mvn of 6 builds the value with no literal pool. */
+        "mvn    lr, #6                              \n"
+        "bx     lr                                  \n"
+    );
+}
+
+__attribute__((naked)) void MemManage_Handler(void)
+{
+    __asm volatile("b wt_secure_coroutine_fault_entry \n");
+}
+
+__attribute__((naked)) void UsageFault_Handler(void)
+{
+    __asm volatile("b wt_secure_coroutine_fault_entry \n");
+}
+#endif /* WT_ENGINE_HSM */
 
 #ifdef WT_ENGINE_HSM
 

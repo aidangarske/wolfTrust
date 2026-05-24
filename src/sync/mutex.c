@@ -129,3 +129,30 @@ struct wt_co *wt_mutex_holder(const wt_mutex_t *m)
 {
     return m->holder;
 }
+
+void wt_mutex_release_if_holder(wt_mutex_t *m, struct wt_co *co)
+{
+    wt_co_t *next;
+
+    if (m == NULL || co == NULL || m->holder != co) {
+        return;
+    }
+
+    if (m->wait_head == NULL) {
+        m->holder = NULL;
+        return;
+    }
+
+    /* Hand the mutex to the next waiter, identical to wt_mutex_release
+     * but without the "holder == current" check that fails from handler
+     * mode (wt_co_current() returns the faulted coroutine which is no
+     * longer running). */
+    next            = m->wait_head;
+    m->wait_head    = next->next_wait;
+    if (m->wait_head == NULL)
+        m->wait_tail = NULL;
+    next->next_wait = NULL;
+
+    m->holder = next;
+    wt_co_wake(next);
+}

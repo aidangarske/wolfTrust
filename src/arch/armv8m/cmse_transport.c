@@ -62,6 +62,7 @@
 #include "wolfhsm/wh_settings.h"
 #include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_comm.h"
+#include "wolfhsm/wh_message_comm.h"
 #include "wolfhsm/wh_transport_mem.h"
 
 #include "wolftrust/arch/armv8m/cmse.h"
@@ -321,3 +322,72 @@ const whTransportServerCb wt_cmse_transport_cb = {
     .Send    = wt_cmse_transport_send,
     .Cleanup = wt_cmse_transport_cleanup,
 };
+
+/* ---------------------------------------------------------------------------
+ * wt_cmse_transport_signal_fault
+ *
+ * Synthesise a fatal-error response in the guest's response slot when
+ * the secure-side coroutine took an MPU / PSPLIM / UsageFault. Called
+ * from handler mode by the platform fault dispatcher.
+ *
+ * Layout written into the response slot (offsets are within
+ * resp_csr's data area, immediately after the 8-byte whTransportMemCsr
+ * header):
+ *
+ *   +0  whCommHeader { magic, kind, seq, aux=WH_COMM_AUX_RESP_FATAL }
+ *   +8  whMessageComm_ErrorResponse { return_code = WH_ERROR_ABORTED }
+ *
+ * kind/seq mirror the in-flight request (read from req_csr) so the
+ * client's normal response-matching logic still works.
+ *
+ * We deliberately avoid wh_Server_HandleRequestMessage and friends: the
+ * server context may be in an inconsistent state (the fault could have
+ * happened deep inside wolfCrypt with locks half-held). Writing the CSR
+ * directly is the only path that's guaranteed safe from a handler.
+ * ---------------------------------------------------------------------------*/
+int wt_cmse_transport_signal_fault(wt_guest_id_t guest_id)
+{
+    wt_cmse_transport_ctx_t   *ctx;
+    whCommHeader               hdr;
+    whMessageComm_ErrorResponse body;
+    uint8_t                   *resp_data;
+
+    if (guest_id >= (wt_guest_id_t)WT_MAX_GUESTS) {
+        return WH_ERROR_BADARGS;
+    }
+    ctx = &g_transport_ctx[guest_id];
+    if (ctx->req_csr == NULL || ctx->resp_csr == NULL) {
+        return WH_ERROR_BADARGS;
+    }
+
+    /* The pointers were validated against the guest's NS-RAM window at
+     * Init; we re-trust them here. cmse_check_address_range is not
+     * available from handler mode in any meaningful way (the NS MPU
+     * reflects whichever guest was last dispatched, which may not be
+     * the one whose coroutine just faulted). */
+
+    /* Mirror the request header so the client matches on seq. The
+     * request data area starts immediately after the request CSR. */
+    {
+        const whCommHeader *req_hdr = (const whCommHeader *)(ctx->req_csr + 1);
+        hdr.magic = WH_COMM_MAGIC_NATIVE;
+        hdr.kind  = req_hdr->kind;
+        hdr.seq   = req_hdr->seq;
+        hdr.aux   = WH_COMM_AUX_RESP_FATAL;
+    }
+    body.return_code = WH_ERROR_ABORTED;
+
+    resp_data = (uint8_t *)(ctx->resp_csr + 1);
+    memcpy(resp_data,                          &hdr,  sizeof(hdr));
+    memcpy(resp_data + sizeof(hdr),            &body, sizeof(body));
+
+    ctx->resp_csr->s.len = (uint16_t)(sizeof(hdr) + sizeof(body));
+
+    /* Full system DSB so the payload and length writes are visible
+     * before the notify bump that releases the client. */
+    __asm volatile("dsb sy" ::: "memory");
+
+    ctx->resp_csr->s.notify++;
+
+    return WH_ERROR_OK;
+}

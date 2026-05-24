@@ -70,4 +70,11 @@ bool wt_mutex_try_acquire(wt_mutex_t *m);
 /* Inspect holder for assertion/debug use. NULL if not held. */
 struct wt_co *wt_mutex_holder(const wt_mutex_t *m);
 
+/* Forcibly release `m` if `co` is currently the holder. Used by the
+ * fault path when a coroutine dies while holding a mutex — bypasses
+ * the "release-must-match-holder" check so the wait queue can drain.
+ * No-op if `m` is not held by `co`. Safe to call from handler mode:
+ * does not block, does not yield. */
+void wt_mutex_release_if_holder(wt_mutex_t *m, struct wt_co *co);
+
 #endif

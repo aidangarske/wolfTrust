@@ -58,6 +58,7 @@
 #include "wolftrust/sched/coroutine.h"
 #include "wolftrust/sync/mutex.h"
 #include "wolftrust/services/hsm.h"
+#include "wolftrust/arch/armv8m/cmse_transport.h"
 
 #include "hsm_flash.h"
 
@@ -359,4 +360,60 @@ struct wt_co *wt_hsm_guest_coroutine(wt_guest_id_t guest_id)
 {
     if (guest_id >= WT_MAX_GUESTS) return NULL;
     return g_guests[guest_id].coroutine;
+}
+
+/* =========================================================================
+ * wt_hsm_guest_for_coroutine
+ *
+ * Reverse lookup. Linear scan is fine: WT_MAX_GUESTS is small (currently 2)
+ * and this is only called from the Secure fault dispatcher.
+ * ====================================================================== */
+wt_guest_id_t wt_hsm_guest_for_coroutine(const struct wt_co *co)
+{
+    wt_guest_id_t gid;
+
+    if (co == NULL) return WT_MAX_GUESTS;
+
+    for (gid = 0; gid < WT_MAX_GUESTS; gid++) {
+        if (g_guests[gid].coroutine == co) {
+            return gid;
+        }
+    }
+    return WT_MAX_GUESTS;
+}
+
+/* =========================================================================
+ * wt_hsm_signal_fault
+ *
+ * Called from the Secure fault dispatcher after wt_co_mark_faulted has
+ * removed the coroutine from the scheduler. Drops any NVM lock the dying
+ * coroutine still held, writes a WH_ERROR_ABORTED fatal-response into
+ * the guest's transport so the NS client unblocks with a clean error,
+ * and clears the ready bit so future NSC veneers reject HSM calls from
+ * this guest.
+ *
+ * Idempotent: calling on an already-faulted guest is harmless.
+ * ====================================================================== */
+int wt_hsm_signal_fault(wt_guest_id_t guest_id)
+{
+    wt_hsm_guest_t *g;
+
+    if (guest_id >= WT_MAX_GUESTS) {
+        return WH_ERROR_BADARGS;
+    }
+    g = &g_guests[guest_id];
+
+    /* Force-release the NVM lock if the faulted coroutine was its holder.
+     * This is the only mutex in the secure-side wolfHSM service; if more
+     * are added later, this is the place to drop them all. */
+    if (g->coroutine != NULL) {
+        wt_mutex_release_if_holder(&g_nvm_lock_mutex, g->coroutine);
+    }
+
+    /* Tell the NS client. Failure here just means the transport was
+     * never wired (guest_id outside transport range) — still safe. */
+    (void)wt_cmse_transport_signal_fault(guest_id);
+
+    g->ready = false;
+    return WH_ERROR_OK;
 }
