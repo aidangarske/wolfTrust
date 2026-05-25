@@ -28,9 +28,15 @@
 #define WT_FLASH_NSC_END         0x0C0007FFu
 
 #define WT_FLASH_NS_BASE         0x08000000u
+#ifndef WT_GUEST0_FLASH_BASE
 #define WT_GUEST0_FLASH_BASE     0x08020000u
-#define WT_GUEST1_FLASH_BASE     0x08030000u
-#define WT_GUEST_FLASH_SIZE      0x00010000u
+#endif
+#ifndef WT_GUEST1_FLASH_BASE
+#define WT_GUEST1_FLASH_BASE     0x08040000u
+#endif
+#ifndef WT_GUEST_FLASH_SIZE
+#define WT_GUEST_FLASH_SIZE      0x00020000u
+#endif
 
 /* Secure wolfHSM NVM store.
  *
@@ -45,8 +51,8 @@
 
 #define WT_RAM_NS_BASE           0x20000000u
 #define WT_GUEST0_RAM_BASE       0x20000000u
-#define WT_GUEST1_RAM_BASE       0x20004000u
-#define WT_GUEST_RAM_SIZE        0x00004000u
+#define WT_GUEST1_RAM_BASE       0x20008000u
+#define WT_GUEST_RAM_SIZE        0x00008000u
 
 #define WT_RAM_S_BASE            0x30028000u
 #define WT_RAM_S_SIZE            0x00080000u

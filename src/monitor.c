@@ -250,14 +250,12 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
     g_scheduler.monotonic_ticks++;
     wt_platform_mask_all_guest_irqs();
 #ifdef WT_ENGINE_HSM
-    /* If SysTick interrupted a secure-side coroutine (mid-crypto), the
-     * trap frame represents the coroutine's state — not a guest's. Do
-     * NOT attempt guest scheduling here: the saved-context plumbing
-     * would corrupt the coroutine. Just return; guest scheduling
-     * resumes on the next SysTick after the coroutine yields. The
-     * coroutine itself is preserved because its MSP is intact and the
-     * hardware will pop the exception frame on return. */
-    if (wt_co_current() != (wt_co_t *)0) {
+    /* If SysTick interrupted secure-side HSM service code, the trap frame
+     * represents secure execution — not a guest. Do not attempt guest
+     * scheduling from that frame; return to the interrupted secure path and
+     * let scheduling resume when the veneer returns or yields. */
+    if (wt_platform_secure_service_active() ||
+        wt_co_current() != (wt_co_t *)0) {
         return;
     }
 #endif

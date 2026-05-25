@@ -41,16 +41,16 @@
  *
  * Supported primitives (API level — execution is on the secure side):
  *   - ECC P-256  (keygen, sign, verify, ECDH)
+ *   - AES-CBC
  *   - SHA-256
  *   - HMAC-SHA-256
  *   - HKDF
  *   - HashDRBG RNG  (delegated to HSM via crypto-cb; see RNG section below)
  *
  * RNG note: CUSTOM_RAND_GENERATE_BLOCK is mapped to wolftrust_guest_rng_stub,
- * defined in wolfhsm_client_glue.c.  This stub exists ONLY to satisfy
- * wolfCrypt's seed callback at link time.  In practice the guest's RNG calls
- * go through the crypto-cb device (wolfHSM client) which fetches randomness
- * from the secure-side HSM.  Direct use of the stub fails closed.
+ * defined in wolfhsm_client_glue.c.  After wolfhsm_guest_init() completes, the
+ * hook delegates to the secure-side HSM client so benchmark and seed paths use
+ * the same entropy source as crypto-cb RNG calls.  Before init it fails closed.
  */
 
 /* -------------------------------------------------------------------------
@@ -143,10 +143,11 @@
  * HAVE_HASHDRBG selects the wolfCrypt HashDRBG engine.  The DRBG requires
  * an entropy source supplied via CUSTOM_RAND_GENERATE_BLOCK.
  *
- * On the guest side, RNG calls travel through the crypto-cb device to the
- * secure-side HSM; the stub below exists only to satisfy the linker.  The
- * implementation in wolfhsm_client_glue.c fails closed if that direct path is
- * accidentally reached.
+ * On the guest side, RNG calls normally travel through the crypto-cb device to
+ * the secure-side HSM.  wolfCrypt can also invoke CUSTOM_RAND_GENERATE_BLOCK
+ * directly from benchmark/seed paths; the implementation in
+ * wolfhsm_client_glue.c forwards those requests to wolfHSM once the client is
+ * ready.
  * ---------------------------------------------------------------------- */
 #define HAVE_HASHDRBG
 
@@ -180,7 +181,6 @@ int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz);
 #define NO_RSA
 #define NO_DH
 #define NO_DSA
-#define NO_AES
 #define NO_DES3
 #define NO_MD5
 #define NO_PWDBASED

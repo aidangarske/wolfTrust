@@ -56,5 +56,8 @@ void wt_platform_log_fault(wt_guest_id_t guest_id,
 uintptr_t wt_platform_read_fault_address(void);
 void wt_platform_all_guests_faulted(void);
 void wt_platform_panic(void);
+#ifdef WT_ENGINE_HSM
+bool wt_platform_secure_service_active(void);
+#endif
 
 #endif

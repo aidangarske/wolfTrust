@@ -99,14 +99,18 @@ static wt_guest_context_t g_return_context __attribute__((used));
 static uint32_t g_live_r4_r11[8] __attribute__((used));
 static uintptr_t g_live_exc_return __attribute__((used));
 static uint32_t g_systick_reload;
-static uint32_t g_timeslice_ms;
 static uintptr_t g_secure_entry_sp __attribute__((used));
 static volatile uint32_t g_last_fault_address;
 static volatile uint32_t g_last_fault_pc;
 static volatile uint32_t g_switch_count;
-static volatile uint32_t g_virtual_ms;
 static volatile uint32_t g_active_guest;
+static volatile uint32_t g_secure_service_depth;
 static uint32_t g_ns_systick_csr[WT_MAX_GUESTS];
+
+#ifdef WT_ENGINE_HSM
+static void wt_secure_service_enter(void);
+static void wt_secure_service_exit(void);
+#endif
 
 static void wt_rcc_enable_clock(uintptr_t base,
                                 const whal_Stm32h5_Rcc_PeriphClk* clk)
@@ -135,11 +139,15 @@ static void wt_gtzc_init(void)
         WT_GTZC1_MPCBB1_SECCFGR[i] = 0xFFFFFFFFu;
     }
 
-    /* SRAM1 MPCBB blocks are 512 B. The two guest windows occupy the first
-     * 32 KiB of SRAM1 through the Non-secure alias at 0x20000000, while the
-     * Secure monitor .data/.bss starts above that physical window. */
+    /* SRAM1 MPCBB blocks are 512 B; each SECCFGR word covers 32 blocks
+     * (16 KiB). The two guest windows occupy the first 64 KiB of SRAM1
+     * through the Non-secure alias at 0x20000000 (32 KiB per guest after
+     * the bench-driven RAM bump), while the Secure monitor .data/.bss
+     * starts at 0x30028000, well above this NS region. */
     WT_GTZC1_MPCBB1_SECCFGR[0] = 0x00000000u;
     WT_GTZC1_MPCBB1_SECCFGR[1] = 0x00000000u;
+    WT_GTZC1_MPCBB1_SECCFGR[2] = 0x00000000u;
+    WT_GTZC1_MPCBB1_SECCFGR[3] = 0x00000000u;
 
     /* Guests own the UARTs. SAU makes the APB window non-secure, but
      * STM32H5 also gates peripheral security through GTZC/TZSC. */
@@ -227,9 +235,9 @@ static void wt_mpu_s_init(void)
         WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW | WT_MPU_RBAR_SH_INNER,
         WT_MPU_RLAR_ATTRIDX_NORMAL);
 
-    /* Region 3: NS RAM RW-NX (guest mailboxes + HSM transport buffers).
-     * Secure code touches this through the 0x20000000 alias to copy
-     * guest requests/responses and to write fault-response CSRs. */
+    /* Region 3: NS RAM RW-NX. Secure code touches this through the
+     * 0x20000000 alias to exchange HSM transport buffers with guests
+     * and to write fault-response CSRs. */
     wt_mpu_s_set_region(3u,
         WT_RAM_NS_BASE, WT_RAM_NS_BASE + 0x0001FFFFu,
         WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW | WT_MPU_RBAR_SH_INNER,
@@ -436,16 +444,6 @@ static void wt_exception_return_ns_msp(void)
     );
 }
 
-typedef struct wt_guest_mailbox {
-    volatile uint32_t boot_count;
-    volatile uint32_t heartbeat;
-    volatile uint32_t signature;
-    volatile uint32_t virtual_ms;
-    volatile uint32_t lines_printed;
-    volatile uint32_t next_print_ms;
-    volatile uint32_t run_token;
-} wt_guest_mailbox_t;
-
 static void wt_jump_to_ns(uint32_t msp_ns, uint32_t reset_addr)
     __attribute__((naked, noreturn));
 
@@ -462,27 +460,6 @@ static void wt_jump_to_ns(uint32_t msp_ns __attribute__((unused)),
     );
 }
 
-static void wt_maybe_finish_test(void)
-{
-    volatile wt_guest_mailbox_t* g0 = (volatile wt_guest_mailbox_t*)WT_GUEST0_RAM_BASE;
-    volatile wt_guest_mailbox_t* g1 = (volatile wt_guest_mailbox_t*)WT_GUEST1_RAM_BASE;
-
-    if (g_virtual_ms < 10000u) {
-        return;
-    }
-
-    if (g0->boot_count == 1u && g1->boot_count == 1u &&
-        g0->lines_printed >= 5u && g1->lines_printed >= 5u) {
-        __asm volatile("bkpt #0x7F");
-    }
-}
-
-static void wt_update_virtual_time(void)
-{
-    g_virtual_ms += g_timeslice_ms;
-    wt_maybe_finish_test();
-}
-
 static void wt_secure_systick_dispatch(const wt_trap_frame_t* frame)
     __attribute__((used));
 static void wt_secure_fault_dispatch(const wt_trap_frame_t* frame)
@@ -490,7 +467,6 @@ static void wt_secure_fault_dispatch(const wt_trap_frame_t* frame)
 
 static void wt_secure_systick_dispatch(const wt_trap_frame_t* frame)
 {
-    wt_update_virtual_time();
     wt_monitor_on_secure_timer(frame);
 }
 
@@ -578,8 +554,6 @@ void wt_platform_init(void)
     wt_platform_zero_guest_memory(WT_GUEST0_RAM_BASE, WT_GUEST_RAM_SIZE);
     wt_platform_zero_guest_memory(WT_GUEST1_RAM_BASE, WT_GUEST_RAM_SIZE);
     g_switch_count = 0u;
-    g_virtual_ms = 0u;
-    g_timeslice_ms = 0u;
 }
 
 /* WolfTrust_Yield uses the cmse_nonsecure_entry attribute (rather than the
@@ -599,10 +573,12 @@ void WolfTrust_Yield(void)
 #ifdef WT_ENGINE_HSM
 void WolfTrust_Yield_Impl(void)
 {
+    wt_secure_service_enter();
     /* No need to precheck g_active_guest — yield is harmless even if
      * the caller is in an invalid state; we just tick coroutines and
      * return. The next SysTick will steal CPU naturally. */
     (void)wt_co_tick(WT_HSM_YIELD_BUDGET);
+    wt_secure_service_exit();
 }
 #else
 void WolfTrust_Yield_Impl(void)
@@ -620,7 +596,6 @@ void wt_platform_start_secure_timer(uint32_t timeslice_ms)
         wt_platform_panic();
     }
 
-    g_timeslice_ms = timeslice_ms;
     reload = timeslice_ms * (WT_STM32H563_CORE_CLOCK_HZ / 1000u);
     g_systick_reload = reload;
 }
@@ -981,6 +956,24 @@ __attribute__((naked)) void UsageFault_Handler(void)
 
 #ifdef WT_ENGINE_HSM
 
+static void wt_secure_service_enter(void)
+{
+    g_secure_service_depth++;
+}
+
+static void wt_secure_service_exit(void)
+{
+    if (g_secure_service_depth == 0u) {
+        wt_platform_panic();
+    }
+    g_secure_service_depth--;
+}
+
+bool wt_platform_secure_service_active(void)
+{
+    return g_secure_service_depth != 0u;
+}
+
 /* Common preamble: validate the current guest is known and HSM-ready. */
 static int wt_hsm_veneer_precheck(void)
 {
@@ -998,9 +991,16 @@ int WolfTrust_HSM_Submit(uint16_t size)
 
 int WolfTrust_HSM_Submit_Impl(uint16_t size)
 {
-    int rc = wt_hsm_veneer_precheck();
-    if (rc != WH_ERROR_OK) return rc;
-    if (size == 0u || size > WOLFHSM_CFG_COMM_DATA_LEN) return WH_ERROR_BADARGS;
+    int rc;
+
+    wt_secure_service_enter();
+
+    rc = wt_hsm_veneer_precheck();
+    if (rc != WH_ERROR_OK) goto out;
+    if (size == 0u || size > WOLFHSM_CFG_COMM_DATA_LEN) {
+        rc = WH_ERROR_BADARGS;
+        goto out;
+    }
 
     /* The transport's Recv callback walks the request slot using
      * wt_cmse_check_ns_rw, so we don't need to copy here. We just
@@ -1010,7 +1010,11 @@ int WolfTrust_HSM_Submit_Impl(uint16_t size)
     wt_co_t *co = wt_hsm_guest_coroutine(g_active_guest);
     if (co != NULL) wt_co_wake(co);
     (void)wt_co_tick(WT_HSM_SUBMIT_BUDGET);
-    return WH_ERROR_OK;
+    rc = WH_ERROR_OK;
+
+out:
+    wt_secure_service_exit();
+    return rc;
 }
 
 int WolfTrust_HSM_Poll_Impl(uint16_t seq);
@@ -1022,10 +1026,14 @@ int WolfTrust_HSM_Poll(uint16_t seq)
 
 int WolfTrust_HSM_Poll_Impl(uint16_t seq)
 {
-    int rc = wt_hsm_veneer_precheck();
+    int rc;
     wt_co_t *co;
+    wt_cmse_transport_ctx_t *tx;
 
-    if (rc != WH_ERROR_OK) return rc;
+    wt_secure_service_enter();
+
+    rc = wt_hsm_veneer_precheck();
+    if (rc != WH_ERROR_OK) goto out;
 
     /* Poll is part of the active request/response handshake. Wake only the
      * current guest's HSM server so foreign guest buffers are never touched
@@ -1038,18 +1046,27 @@ int WolfTrust_HSM_Poll_Impl(uint16_t seq)
      * via the transport context (which already validated the pointer
      * at init). We do NOT trust `seq` for memory access — it is
      * compared against a value we read ourselves. */
-    wt_cmse_transport_ctx_t *tx = wt_cmse_transport_ctx_for(g_active_guest);
-    if (tx == NULL || tx->resp_csr == NULL) return WH_ERROR_NOTREADY;
+    tx = wt_cmse_transport_ctx_for(g_active_guest);
+    if (tx == NULL || tx->resp_csr == NULL) {
+        rc = WH_ERROR_NOTREADY;
+        goto out;
+    }
     if (!wt_cmse_check_ns_rw(tx->resp_csr, sizeof(*tx->resp_csr))) {
-        return WH_ERROR_ABORTED;
+        rc = WH_ERROR_ABORTED;
+        goto out;
     }
     /* Compare notify field with the seq we were given. The client uses
      * seq as a sequence-number lookup; mismatch means "response not yet
      * ready" (or "response is for a different request, retry"). */
     if (tx->resp_csr->s.notify == seq) {
-        return WH_ERROR_OK;
+        rc = WH_ERROR_OK;
+        goto out;
     }
-    return WH_ERROR_NOTREADY;
+    rc = WH_ERROR_NOTREADY;
+
+out:
+    wt_secure_service_exit();
+    return rc;
 }
 
 int WolfTrust_HSM_Cancel_Impl(uint16_t seq);
@@ -1061,14 +1078,22 @@ int WolfTrust_HSM_Cancel(uint16_t seq)
 
 int WolfTrust_HSM_Cancel_Impl(uint16_t seq)
 {
-    int rc = wt_hsm_veneer_precheck();
-    if (rc != WH_ERROR_OK) return rc;
+    int rc;
+
+    wt_secure_service_enter();
+
+    rc = wt_hsm_veneer_precheck();
+    if (rc != WH_ERROR_OK) goto out;
     (void)seq;
     /* TODO(future): tag the per-guest server with a cancel flag the
      * coroutine inspects between message-handler steps. For now,
      * cancel is a soft no-op — the request will run to completion
      * and the client can discard the response. */
-    return WH_ERROR_OK;
+    rc = WH_ERROR_OK;
+
+out:
+    wt_secure_service_exit();
+    return rc;
 }
 
 #endif /* WT_ENGINE_HSM */

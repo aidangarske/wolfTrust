@@ -13,12 +13,13 @@ CPU_FLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only
 CFLAGS_COMMON := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -O0 -g -Wall -Wextra
 CFLAGS_COMMON += -I$(ROOT)/include -I$(PORT_DIR) -I$(ROOT)/lib/wolfhal
 WT_TIMESLICE_MS ?= 100
-EMU_TIMEOUT ?= 120
+EMU_TIMEOUT ?= 300
 CFLAGS_COMMON += -DWT_TIMESLICE_MS=$(WT_TIMESLICE_MS)
 WT_MAX_GUESTS ?= 2
 WT_CO_STACK_SIZE ?= 24576
 WT_WOLFCRYPT_SP_ASM ?= 1
 WT_WOLFCRYPT_ARMASM ?= 1
+WT_WOLFCRYPT_STM32_HASH ?= 1
 CFLAGS_COMMON += -DWT_MAX_GUESTS=$(WT_MAX_GUESTS)
 CFLAGS_COMMON += -DWT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)
 WT_SHARED_UART ?= 3
@@ -33,12 +34,19 @@ CFLAGS_COMMON += -DWT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ)
 CFLAGS_COMMON += -DWT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ)
 WT_INSECURE_TEST_RNG ?= 0
 WT_GUEST0_FLASH_ORIGIN ?= 0x08020000
-WT_GUEST1_FLASH_ORIGIN ?= 0x08030000
+WT_GUEST1_FLASH_ORIGIN ?= 0x08040000
+WT_GUEST_FLASH_SIZE ?= 0x00020000
+WT_GUEST_RAM_SIZE ?= 0x00008000
 WT_GUEST0_EMU_OFFSET ?= 0x20000
-WT_GUEST1_EMU_OFFSET ?= 0x30000
+WT_GUEST1_EMU_OFFSET ?= 0x40000
+WT_GUEST_FLASH_LENGTH ?= $(WT_GUEST_FLASH_SIZE)
+WT_BENCH_MIN_RUNTIME_SEC ?= 0.0
+CFLAGS_COMMON += -DWT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_ORIGIN)u
+CFLAGS_COMMON += -DWT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_ORIGIN)u
+CFLAGS_COMMON += -DWT_GUEST_FLASH_SIZE=$(WT_GUEST_FLASH_SIZE)u
 
 SECURE_CFLAGS := $(CFLAGS_COMMON) -mcmse
-NONSECURE_CFLAGS := $(CFLAGS_COMMON)
+NONSECURE_CFLAGS := $(CFLAGS_COMMON) -mno-unaligned-access
 
 BUILD_DIR := build
 
@@ -77,6 +85,7 @@ ifeq ($(WT_ENGINE_HSM),1)
 WOLFHSM_DIR := $(ROOT)/lib/wolfHSM
 WOLFSSL_DIR := $(ROOT)/lib/wolfSSL
 WOLFHAL_DIR := $(ROOT)/lib/wolfhal
+WT_WOLFHSM_DEV_ID ?= -2
 
 # wolfhsm/wh_settings.h picks up our settings via:
 #   #ifdef WOLFHSM_CFG
@@ -119,6 +128,11 @@ HSM_DEFS_GUEST += -DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO \
     -DWOLFSSL_ARMASM_THUMB2
 endif
 endif
+ifeq ($(WT_WOLFCRYPT_STM32_HASH),1)
+HSM_DEFS_SECURE += -DWOLFSSL_STM32H5 -DSTM32_HASH \
+    -DNO_STM32_RNG -DNO_STM32_CRYPTO -DNO_STM32_HMAC \
+    -include $(abspath $(PORT_DIR)/wolfcrypt_stm32h563.h)
+endif
 ifeq ($(WT_INSECURE_TEST_RNG),1)
 HSM_DEFS_SECURE += -DWT_INSECURE_TEST_RNG=1
 endif
@@ -137,6 +151,7 @@ SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     $(HSM_INCLUDES_SECURE) $(HSM_DEFS_SECURE)
 NONSECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -Wall -Wextra \
+    -mno-unaligned-access \
     -ffunction-sections -fdata-sections \
     -I$(ROOT)/include -I$(PORT_DIR) \
     -DWT_TIMESLICE_MS=$(WT_TIMESLICE_MS) \
@@ -152,8 +167,22 @@ NONSECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
 HSM_LIB_CFLAGS   := $(SECURE_CFLAGS) \
     -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter \
     -Wno-type-limits
+HSM_WOLFHSM_CFLAGS := $(HSM_LIB_CFLAGS)
 GUEST_LIB_CFLAGS := $(NONSECURE_CFLAGS) \
     -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter
+GUEST_BENCH_CFLAGS := $(GUEST_LIB_CFLAGS) \
+    -DBENCH_EMBEDDED \
+    -DNO_MAIN_FUNCTION \
+    -DNO_STDIO_FILESYSTEM \
+    -DNO_SW_BENCH \
+    -DWOLFSSL_NO_FLOAT_FMT \
+    -DWOLFSSL_USER_CURRTIME \
+    -DBENCH_MIN_RUNTIME_SEC=$(WT_BENCH_MIN_RUNTIME_SEC) \
+    -DWC_USE_DEVID=$(WT_WOLFHSM_DEV_ID) \
+    -DXPRINTF=wt_benchmark_printf \
+    -DXSNPRINTF=wt_benchmark_snprintf \
+    -DXATOI=wt_benchmark_atoi \
+    -include $(abspath nonsecure/benchmark_hooks.h)
 
 # ---- secure-side source lists -----------------------------------------------
 
@@ -183,6 +212,7 @@ WOLFHSM_SECURE_SRCS := \
     $(WOLFHSM_DIR)/src/wh_log.c
 
 WOLFCRYPT_SECURE_SRCS := \
+    $(WOLFSSL_DIR)/wolfcrypt/src/aes.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/asn.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/coding.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/cryptocb.c \
@@ -204,6 +234,14 @@ WOLFCRYPT_SECURE_SRCS += \
     $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/thumb2-aes-asm_c.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c
 endif
+endif
+
+ifeq ($(WT_WOLFCRYPT_STM32_HASH),1)
+WOLFCRYPT_SECURE_SRCS += \
+    $(WOLFSSL_DIR)/wolfcrypt/src/port/st/stm32.c
+# wolfHSM's async SHA service serializes the software wc_Sha256 internals
+# across requests; STM32_HASH replaces that state with a hardware context.
+HSM_WOLFHSM_CFLAGS += -DNO_SHA256
 endif
 
 # wolftrust sources always present for the HSM build
@@ -248,6 +286,7 @@ WOLFHSM_GUEST_SRCS := \
     $(WOLFHSM_DIR)/src/wh_utils.c
 
 WOLFCRYPT_GUEST_SRCS := \
+    $(WOLFSSL_DIR)/wolfcrypt/src/aes.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/cryptocb.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/ecc.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/random.c \
@@ -256,12 +295,16 @@ WOLFCRYPT_GUEST_SRCS := \
     $(WOLFSSL_DIR)/wolfcrypt/src/coding.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/error.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/hash.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/hmac.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/memory.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/sha.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/sp_cortexm.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/sp_int.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/wolfmath.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/wc_port.c
+
+WOLFCRYPT_BENCH_GUEST_SRCS := \
+    $(WOLFSSL_DIR)/wolfcrypt/benchmark/benchmark.c
 
 ifeq ($(WT_WOLFCRYPT_ARMASM),1)
 ifeq ($(ARCH),armv8m)
@@ -277,6 +320,7 @@ WOLFHSM_GUEST_SRCS += $(wildcard nonsecure/wolfhsm_client_glue.c)
 # Guest-side libc stubs (memcpy/memset already inlined by gcc for guest.c,
 # but wolfCrypt sources need the full set).
 NONSECURE_SRCS += $(wildcard nonsecure/libc_stubs_guest.c)
+NONSECURE_COMMON_SRCS := $(filter-out nonsecure/guest.c,$(NONSECURE_SRCS))
 
 # ---- object lists -----------------------------------------------------------
 
@@ -285,9 +329,12 @@ HSM_WOLFHSM_SEC_OBJS    := $(patsubst %.c,$(BUILD_DIR)/wh_sec_%.o,$(notdir $(WOL
 HSM_WOLFCRYPT_SEC_OBJS  := $(patsubst %.c,$(BUILD_DIR)/wc_sec_%.o,$(notdir $(WOLFCRYPT_SECURE_SRCS)))
 HSM_WT_EXTRA_OBJS       := $(patsubst %.c,$(BUILD_DIR)/wt_sec_%.o,$(notdir $(WT_SECURE_EXTRA_SRCS)))
 
-HSM_NONSECURE_BASE_OBJS  := $(patsubst %.c,$(BUILD_DIR)/ns_%.o,$(notdir $(NONSECURE_SRCS)))
+HSM_NONSECURE_BASE_OBJS  := $(patsubst %.c,$(BUILD_DIR)/ns_%.o,$(notdir $(NONSECURE_COMMON_SRCS)))
 HSM_WOLFHSM_GUEST_OBJS   := $(patsubst %.c,$(BUILD_DIR)/wh_guest_%.o,$(notdir $(WOLFHSM_GUEST_SRCS)))
 HSM_WOLFCRYPT_GUEST_OBJS := $(patsubst %.c,$(BUILD_DIR)/wc_guest_%.o,$(notdir $(WOLFCRYPT_GUEST_SRCS)))
+HSM_WOLFCRYPT_BENCH_GUEST_OBJS := $(patsubst %.c,$(BUILD_DIR)/wc_bench_guest_%.o,$(notdir $(WOLFCRYPT_BENCH_GUEST_SRCS)))
+HSM_GUEST0_MAIN_OBJ      := $(BUILD_DIR)/ns_guest0_guest.o
+HSM_GUEST1_MAIN_OBJ      := $(BUILD_DIR)/ns_guest1_guest.o
 
 ALL_SECURE_OBJS := \
     $(HSM_SECURE_BASE_OBJS) \
@@ -295,10 +342,14 @@ ALL_SECURE_OBJS := \
     $(HSM_WOLFCRYPT_SEC_OBJS) \
     $(HSM_WT_EXTRA_OBJS)
 
-ALL_GUEST_OBJS := \
+ALL_GUEST_COMMON_OBJS := \
     $(HSM_NONSECURE_BASE_OBJS) \
     $(HSM_WOLFHSM_GUEST_OBJS) \
-    $(HSM_WOLFCRYPT_GUEST_OBJS)
+    $(HSM_WOLFCRYPT_GUEST_OBJS) \
+    $(HSM_WOLFCRYPT_BENCH_GUEST_OBJS)
+
+ALL_GUEST0_OBJS := $(HSM_GUEST0_MAIN_OBJ) $(ALL_GUEST_COMMON_OBJS)
+ALL_GUEST1_OBJS := $(HSM_GUEST1_MAIN_OBJ) $(ALL_GUEST_COMMON_OBJS)
 
 # ---- wolfhsm_cfg.h trampolines ----------------------------------------------
 # wh_settings.h does: #ifdef WOLFHSM_CFG / #include "wolfhsm_cfg.h" / #endif
@@ -330,13 +381,16 @@ $(WOLFHSM_GUEST_CFG_H): | $(BUILD_DIR)
 
 # wolfHSM sources — compiled with warning suppression
 $(BUILD_DIR)/wh_sec_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
-	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<
+	$(CC) $(HSM_WOLFHSM_CFLAGS) -c -o $@ $<
 
 # wolfCrypt sources — compiled with warning suppression
 $(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/st/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<
 
 # wolftrust arch/sched/sync/runner/port sources — no warning suppression
@@ -386,9 +440,18 @@ $(BUILD_DIR)/wc_guest_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_GUEST_CFG_
 $(BUILD_DIR)/wc_guest_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/%.c $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(GUEST_LIB_CFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/wc_bench_guest_%.o: $(WOLFSSL_DIR)/wolfcrypt/benchmark/%.c $(WOLFHSM_GUEST_CFG_H) nonsecure/benchmark_hooks.h $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(GUEST_BENCH_CFLAGS) -c -o $@ $<
+
 # Guest base sources
 $(BUILD_DIR)/ns_%.o: nonsecure/%.c $(PORT_HEADERS) $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(NONSECURE_CFLAGS) -c -o $@ $<
+
+$(HSM_GUEST0_MAIN_OBJ): nonsecure/guest.c $(PORT_HEADERS) $(WOLFHSM_GUEST_CFG_H) nonsecure/benchmark_hooks.h $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(NONSECURE_CFLAGS) -DWT_GUEST_ID=0u -c -o $@ $<
+
+$(HSM_GUEST1_MAIN_OBJ): nonsecure/guest.c $(PORT_HEADERS) $(WOLFHSM_GUEST_CFG_H) nonsecure/benchmark_hooks.h $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(NONSECURE_CFLAGS) -DWT_GUEST_ID=1u -c -o $@ $<
 
 # Wave 5: wolfhsm_client_glue.c lives in nonsecure/ but is listed under
 # WOLFHSM_GUEST_SRCS so it gets the wh_guest_ prefix and the guest lib flags.
@@ -414,9 +477,14 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
 		'WT_WOLFCRYPT_SP_ASM=$(WT_WOLFCRYPT_SP_ASM)' \
 		'WT_WOLFCRYPT_ARMASM=$(WT_WOLFCRYPT_ARMASM)' \
+		'WT_WOLFCRYPT_STM32_HASH=$(WT_WOLFCRYPT_STM32_HASH)' \
 		'WT_SHARED_UART=$(WT_SHARED_UART)' \
 		'WT_GUEST0_FLASH_ORIGIN=$(WT_GUEST0_FLASH_ORIGIN)' \
 		'WT_GUEST1_FLASH_ORIGIN=$(WT_GUEST1_FLASH_ORIGIN)' \
+		'WT_GUEST_FLASH_SIZE=$(WT_GUEST_FLASH_SIZE)' \
+		'WT_GUEST_FLASH_LENGTH=$(WT_GUEST_FLASH_LENGTH)' \
+		'WT_GUEST_RAM_SIZE=$(WT_GUEST_RAM_SIZE)' \
+		'WT_BENCH_MIN_RUNTIME_SEC=$(WT_BENCH_MIN_RUNTIME_SEC)' \
 		'WT_GUEST0_EMU_OFFSET=$(WT_GUEST0_EMU_OFFSET)' \
 		'WT_GUEST1_EMU_OFFSET=$(WT_GUEST1_EMU_OFFSET)' \
 		'WT_TIMESLICE_MS=$(WT_TIMESLICE_MS)' \
@@ -442,23 +510,25 @@ $(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) $(WOLFHSM_RUNNER_DIR)/
 		-Wl,--out-implib=$(SECURE_CMSE_IMPLIB) \
 		-o $(SECURE_ELF) $(ALL_SECURE_OBJS) -lgcc
 
-$(GUEST0_ELF): $(ALL_GUEST_OBJS) $(SECURE_CMSE_IMPLIB) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(GUEST0_ELF): $(ALL_GUEST0_OBJS) $(SECURE_CMSE_IMPLIB) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(NONSECURE_CFLAGS) \
-		-DWT_GUEST_ID=0u \
 		-Wl,-Tnonsecure/guest.ld \
 		-Wl,--defsym=GUEST_FLASH_ORIGIN=$(WT_GUEST0_FLASH_ORIGIN) \
+		-Wl,--defsym=GUEST_FLASH_LENGTH=$(WT_GUEST_FLASH_LENGTH) \
 		-Wl,--defsym=GUEST_RAM_ORIGIN=0x20000000 \
+		-Wl,--defsym=GUEST_RAM_LENGTH=$(WT_GUEST_RAM_SIZE) \
 		-Wl,--gc-sections \
-		-o $@ $(ALL_GUEST_OBJS) $(SECURE_CMSE_IMPLIB) -lgcc
+		-o $@ $(ALL_GUEST0_OBJS) $(SECURE_CMSE_IMPLIB) -lgcc
 
-$(GUEST1_ELF): $(ALL_GUEST_OBJS) $(SECURE_CMSE_IMPLIB) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(GUEST1_ELF): $(ALL_GUEST1_OBJS) $(SECURE_CMSE_IMPLIB) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(NONSECURE_CFLAGS) \
-		-DWT_GUEST_ID=1u \
 		-Wl,-Tnonsecure/guest.ld \
 		-Wl,--defsym=GUEST_FLASH_ORIGIN=$(WT_GUEST1_FLASH_ORIGIN) \
-		-Wl,--defsym=GUEST_RAM_ORIGIN=0x20004000 \
+		-Wl,--defsym=GUEST_FLASH_LENGTH=$(WT_GUEST_FLASH_LENGTH) \
+		-Wl,--defsym=GUEST_RAM_ORIGIN=0x20008000 \
+		-Wl,--defsym=GUEST_RAM_LENGTH=$(WT_GUEST_RAM_SIZE) \
 		-Wl,--gc-sections \
-		-o $@ $(ALL_GUEST_OBJS) $(SECURE_CMSE_IMPLIB) -lgcc
+		-o $@ $(ALL_GUEST1_OBJS) $(SECURE_CMSE_IMPLIB) -lgcc
 
 else
 
@@ -472,7 +542,9 @@ $(GUEST0_ELF): $(NONSECURE_SRCS) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUIL
 		-DWT_GUEST_ID=0u \
 		-Wl,-Tnonsecure/guest.ld \
 		-Wl,--defsym=GUEST_FLASH_ORIGIN=$(WT_GUEST0_FLASH_ORIGIN) \
+		-Wl,--defsym=GUEST_FLASH_LENGTH=$(WT_GUEST_FLASH_LENGTH) \
 		-Wl,--defsym=GUEST_RAM_ORIGIN=0x20000000 \
+		-Wl,--defsym=GUEST_RAM_LENGTH=$(WT_GUEST_RAM_SIZE) \
 		-o $@ $(NONSECURE_SRCS) -lgcc
 
 $(GUEST1_ELF): $(NONSECURE_SRCS) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
@@ -480,7 +552,9 @@ $(GUEST1_ELF): $(NONSECURE_SRCS) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUIL
 		-DWT_GUEST_ID=1u \
 		-Wl,-Tnonsecure/guest.ld \
 		-Wl,--defsym=GUEST_FLASH_ORIGIN=$(WT_GUEST1_FLASH_ORIGIN) \
-		-Wl,--defsym=GUEST_RAM_ORIGIN=0x20004000 \
+		-Wl,--defsym=GUEST_FLASH_LENGTH=$(WT_GUEST_FLASH_LENGTH) \
+		-Wl,--defsym=GUEST_RAM_ORIGIN=0x20008000 \
+		-Wl,--defsym=GUEST_RAM_LENGTH=$(WT_GUEST_RAM_SIZE) \
 		-o $@ $(NONSECURE_SRCS) -lgcc
 
 endif  # WT_ENGINE_HSM=1
@@ -496,7 +570,7 @@ $(GUEST1_BIN): $(GUEST1_ELF)
 
 run:
 	$(MAKE) WT_INSECURE_TEST_RNG=1 all
-	$(M33MU) --cpu stm32h563 --expect-bkpt 0x7f --timeout $(EMU_TIMEOUT) --quit-on-faults \
+	$(M33MU) --cpu stm32h563 --timeout $(EMU_TIMEOUT) --quit-on-faults \
 		$(SECURE_BIN) $(GUEST0_BIN):$(WT_GUEST0_EMU_OFFSET) $(GUEST1_BIN):$(WT_GUEST1_EMU_OFFSET)
 
 run-tui:
@@ -505,7 +579,7 @@ run-tui:
 		$(SECURE_BIN) $(GUEST0_BIN):$(WT_GUEST0_EMU_OFFSET) $(GUEST1_BIN):$(WT_GUEST1_EMU_OFFSET)
 
 run-uarts:
-	WT_ENGINE_HSM=$(WT_ENGINE_HSM) WT_INSECURE_TEST_RNG=1 WT_MAX_GUESTS=$(WT_MAX_GUESTS) WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE) WT_WOLFCRYPT_SP_ASM=$(WT_WOLFCRYPT_SP_ASM) WT_WOLFCRYPT_ARMASM=$(WT_WOLFCRYPT_ARMASM) WT_SHARED_UART=$(WT_SHARED_UART) WT_GUEST0_FLASH_ORIGIN=$(WT_GUEST0_FLASH_ORIGIN) WT_GUEST1_FLASH_ORIGIN=$(WT_GUEST1_FLASH_ORIGIN) WT_GUEST0_EMU_OFFSET=$(WT_GUEST0_EMU_OFFSET) WT_GUEST1_EMU_OFFSET=$(WT_GUEST1_EMU_OFFSET) EMU_TIMEOUT=$(EMU_TIMEOUT) M33MU="$(M33MU)" ./run_dual_uart_test.sh
+	WT_ENGINE_HSM=$(WT_ENGINE_HSM) WT_INSECURE_TEST_RNG=1 WT_MAX_GUESTS=$(WT_MAX_GUESTS) WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE) WT_WOLFCRYPT_SP_ASM=$(WT_WOLFCRYPT_SP_ASM) WT_WOLFCRYPT_ARMASM=$(WT_WOLFCRYPT_ARMASM) WT_WOLFCRYPT_STM32_HASH=$(WT_WOLFCRYPT_STM32_HASH) WT_SHARED_UART=$(WT_SHARED_UART) WT_GUEST0_FLASH_ORIGIN=$(WT_GUEST0_FLASH_ORIGIN) WT_GUEST1_FLASH_ORIGIN=$(WT_GUEST1_FLASH_ORIGIN) WT_GUEST_FLASH_SIZE=$(WT_GUEST_FLASH_SIZE) WT_GUEST_FLASH_LENGTH=$(WT_GUEST_FLASH_LENGTH) WT_GUEST_RAM_SIZE=$(WT_GUEST_RAM_SIZE) WT_BENCH_MIN_RUNTIME_SEC=$(WT_BENCH_MIN_RUNTIME_SEC) WT_GUEST0_EMU_OFFSET=$(WT_GUEST0_EMU_OFFSET) WT_GUEST1_EMU_OFFSET=$(WT_GUEST1_EMU_OFFSET) EMU_TIMEOUT=$(EMU_TIMEOUT) M33MU="$(M33MU)" ./run_dual_uart_test.sh
 
 run-hsm:
 	$(MAKE) WT_ENGINE_HSM=1 run

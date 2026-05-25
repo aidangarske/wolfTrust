@@ -70,8 +70,20 @@
 /* -------------------------------------------------------------------------
  * Per-coroutine secure stacks. Target builds may override WT_CO_STACK_SIZE
  * after measuring stack high-water marks for their HSM workload.
+ *
+ * Keep a guard area immediately below each descending stack.  Hardware PSPLIM
+ * should trap a real underflow before this area is used, but the guard prevents
+ * adjacent service metadata from being corrupted on emulators or during early
+ * bring-up when stack-limit handling is incomplete.
  * ---------------------------------------------------------------------- */
-static uint8_t g_co_stacks[WT_MAX_GUESTS][WT_CO_STACK_SIZE]
+#define WT_HSM_STACK_UNDERFLOW_GUARD_SIZE 256u
+
+typedef struct wt_hsm_stack_slot {
+    uint8_t guard[WT_HSM_STACK_UNDERFLOW_GUARD_SIZE];
+    uint8_t stack[WT_CO_STACK_SIZE];
+} wt_hsm_stack_slot_t;
+
+static wt_hsm_stack_slot_t g_co_stack_slots[WT_MAX_GUESTS]
     __attribute__((aligned(8)));
 
 /* -------------------------------------------------------------------------
@@ -311,7 +323,7 @@ int wt_hsm_guest_init(wt_guest_id_t guest_id,
     /* ------------------------------------------------------------------
      * 7. Create coroutine.
      * ---------------------------------------------------------------- */
-    g->coroutine = wt_co_create_blocked(g_co_stacks[guest_id],
+    g->coroutine = wt_co_create_blocked(g_co_stack_slots[guest_id].stack,
                                         WT_CO_STACK_SIZE,
                                         wt_hsm_coroutine_main,
                                         (void *)(uintptr_t)guest_id);

@@ -32,6 +32,7 @@
  *
  * Supported primitives:
  *   - ECC P-256  (keygen, sign, verify, ECDH)
+ *   - AES-CBC
  *   - SHA-256
  *   - HMAC-SHA-256  (required by wolfHSM HKDF paths)
  *   - HKDF          (required by wolfHSM key-derivation paths)
@@ -168,7 +169,6 @@ int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
 #define NO_RSA
 #define NO_DH
 #define NO_DSA
-#define NO_AES
 #define NO_DES3
 #define NO_MD5
 #define NO_PWDBASED

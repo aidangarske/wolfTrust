@@ -30,7 +30,8 @@
  *    registers wh_Client_CryptoCb as the wolfCrypt crypto-callback device
  *    so that wc_* calls are forwarded to the secure-side HSM.
  *  - wolftrust_guest_rng_stub(): the CUSTOM_RAND_GENERATE_BLOCK hook required
- *    by user_settings.h to satisfy wolfCrypt's seed path at link time.
+ *    by user_settings.h. Once the client is ready this delegates entropy
+ *    requests to the secure-side HSM.
  *
  * Buffer layout per guest (WT_HSM_BUF_SIZE = 512 bytes):
  *   +0x000   8 B   request  CSR  (whTransportMemCsr)
@@ -54,6 +55,7 @@
 #include "wolfhsm/wh_comm.h"
 #include "wolfhsm/wh_transport_mem.h"
 #include "wolfhsm/wh_client.h"
+#include "wolfhsm/wh_client_crypto.h"
 #include "wolfhsm/wh_client_cryptocb.h"
 
 #include "wolfssl/wolfcrypt/cryptocb.h"
@@ -242,6 +244,7 @@ static const whTransportClientCb g_guest_transport_cb = {
 static whClientContext    g_client_ctx;
 static whClientConfig     g_client_cfg;
 static whCommClientConfig g_comm_cfg;
+static int                g_client_ready;
 
 /* ---------------------------------------------------------------------------
  * Public API
@@ -255,6 +258,8 @@ static whCommClientConfig g_comm_cfg;
 int wolfhsm_guest_init(void)
 {
     int rc;
+
+    g_client_ready = 0;
 
     g_comm_cfg.transport_cb      = &g_guest_transport_cb;
     g_comm_cfg.transport_context = &g_guest_tx;
@@ -274,6 +279,8 @@ int wolfhsm_guest_init(void)
         return rc;
     }
 
+    g_client_ready = 1;
+
     return WH_ERROR_OK;
 }
 
@@ -287,18 +294,21 @@ whClientContext *wolfhsm_guest_client(void)
 /* ---------------------------------------------------------------------------
  * RNG stub — CUSTOM_RAND_GENERATE_BLOCK hook
  *
- * user_settings.h maps CUSTOM_RAND_GENERATE_BLOCK to this function.  In
- * normal operation, wc_RNG_GenerateBlock() is intercepted by the crypto-cb
- * device and fulfilled by the secure-side HSM, so this stub is never reached.
- *
- * It exists solely to satisfy wolfCrypt's early-init seed path at link time.
- * Direct use fails closed so guest-side RNG cannot silently bypass the HSM.
+ * user_settings.h maps CUSTOM_RAND_GENERATE_BLOCK to this function.  Some
+ * wolfCrypt paths still call the entropy hook directly even when the crypto-cb
+ * device is selected, so delegate to the same secure-side wolfHSM client after
+ * wolfhsm_guest_init() has completed.  Before init, fail closed.
  * ---------------------------------------------------------------------------*/
 int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz)
 {
-    (void)output;
-    (void)sz;
-    return -1;
+    if (output == NULL && sz != 0u) {
+        return WH_ERROR_BADARGS;
+    }
+    if (g_client_ready == 0) {
+        return -1;
+    }
+
+    return wh_Client_RngGenerate(&g_client_ctx, output, sz);
 }
 
 /* ---------------------------------------------------------------------------
@@ -307,8 +317,8 @@ int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz)
  * wolfCrypt's random.c compiles PollAndReSeed() regardless of
  * CUSTOM_RAND_GENERATE_BLOCK; that function references wc_GenerateSeed to
  * reseed the DRBG.  In normal HSM-delegated operation the code path is never
- * reached, but the linker requires the symbol.  This stub delegates to the
- * same LCG as wolftrust_guest_rng_stub.
+ * reached, but the linker requires the symbol.  Delegate to the same HSM-backed
+ * hook used by CUSTOM_RAND_GENERATE_BLOCK.
  *
  * Signature matches wolfSSL's wolfssl/wolfcrypt/random.h: OS_Seed is a
  * typedef struct, byte is uint8_t, word32 is uint32_t.
@@ -330,10 +340,12 @@ int wc_GenerateSeed(OS_Seed *os, byte *output, word32 sz)
  * stubs sufficient for the crypto-cb delegation path where actual computation
  * stays in the secure world and the guest only formats request messages.
  *
- * Pool size: 16 KB is sufficient for ECC/DRBG scratch in the delegation
- * path; adjust upward if wc_* init calls fail with MEMORY_E.
+ * Pool size: 3 KiB covers the cryptocb-delegation path (DRBG state, small
+ * key formatting buffers). Larger values starve the NS stack — 8 KiB used
+ * up half of the guest's 16 KiB RAM and crashed the wolfCrypt benchmark
+ * with a wild-PC fault from stack overflow.
  * ---------------------------------------------------------------------------*/
-#define WT_HEAP_POOL_SZ (8u * 1024u)
+#define WT_HEAP_POOL_SZ (3u * 1024u)
 
 static uint8_t  s_heap_pool[WT_HEAP_POOL_SZ];
 static uint32_t s_heap_offset = 0u;

@@ -46,9 +46,36 @@ static uint32_t g_co_count;
  * Runqueue helpers
  * ---------------------------------------------------------------------- */
 
+static bool is_valid_co_pointer(const struct wt_co *co)
+{
+    uint32_t i;
+
+    if (co == &g_co_bootstrap) {
+        return true;
+    }
+
+    for (i = 0u; i < WT_CO_MAX; i++) {
+        if (co == &g_co_table[i]) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static void runqueue_enqueue(struct wt_co *co)
 {
+    if (!is_valid_co_pointer(co) || co == &g_co_bootstrap) {
+        wt_platform_panic();
+        return;
+    }
+
     co->next_run = (struct wt_co *)0;
+    if (g_runqueue_tail != (struct wt_co *)0 &&
+        !is_valid_co_pointer(g_runqueue_tail)) {
+        wt_platform_panic();
+        return;
+    }
     if (g_runqueue_tail != (struct wt_co *)0) {
         g_runqueue_tail->next_run = co;
     } else {
@@ -60,8 +87,17 @@ static void runqueue_enqueue(struct wt_co *co)
 static struct wt_co *runqueue_dequeue(void)
 {
     struct wt_co *co = g_runqueue_head;
+    if (co != (struct wt_co *)0 && !is_valid_co_pointer(co)) {
+        g_runqueue_head = (struct wt_co *)0;
+        g_runqueue_tail = (struct wt_co *)0;
+        return (struct wt_co *)0;
+    }
     if (co != (struct wt_co *)0) {
         g_runqueue_head = co->next_run;
+        if (g_runqueue_head != (struct wt_co *)0 &&
+            !is_valid_co_pointer(g_runqueue_head)) {
+            g_runqueue_head = (struct wt_co *)0;
+        }
         if (g_runqueue_head == (struct wt_co *)0) {
             g_runqueue_tail = (struct wt_co *)0;
         }
@@ -90,6 +126,13 @@ static void check_canary(struct wt_co *co)
 
 static void do_switch(struct wt_co *from, struct wt_co *to)
 {
+    if (!is_valid_co_pointer(from)) {
+        wt_platform_panic();
+    }
+    if (to == (struct wt_co *)0 || !is_valid_co_pointer(to)) {
+        to = &g_co_bootstrap;
+    }
+
     check_canary(from);
     g_co_current = to;
     to->state = WT_CO_RUNNING;
@@ -250,6 +293,10 @@ void wt_co_block(void)
 void wt_co_wake(wt_co_t *co)
 {
     if (co == (wt_co_t *)0) {
+        return;
+    }
+    if (!is_valid_co_pointer(co) || co == (wt_co_t *)&g_co_bootstrap) {
+        wt_platform_panic();
         return;
     }
     if (co->state == WT_CO_RUNNABLE || co->state == WT_CO_RUNNING) {
