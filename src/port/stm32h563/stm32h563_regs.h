@@ -34,6 +34,7 @@
 #define WT_SCB_BFAR_S            (*(volatile uint32_t*)0xE000ED38u)
 #define WT_SCB_ICSR_NS           (*(volatile uint32_t*)0xE002ED04u)
 #define WT_SCB_ICSR_PENDSTCLR    (1u << 25)
+#define WT_SCB_ICSR_PENDSTSET    (1u << 26)
 
 #define WT_SCB_SHCSR_MEMFAULTENA (1u << 16)
 #define WT_SCB_SHCSR_BUSFAULTENA (1u << 17)
@@ -199,6 +200,7 @@
 #define WT_SYST_CSR_ENABLE       (1u << 0)
 #define WT_SYST_CSR_TICKINT      (1u << 1)
 #define WT_SYST_CSR_CLKSOURCE    (1u << 2)
+#define WT_SYST_CSR_COUNTFLAG    (1u << 16)
 
 static inline void wt_dsb(void)
 {

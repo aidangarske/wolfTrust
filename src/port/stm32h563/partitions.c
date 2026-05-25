@@ -25,7 +25,7 @@
 #include <string.h>
 
 #ifndef WT_TIMESLICE_MS
-#define WT_TIMESLICE_MS 100U
+#define WT_TIMESLICE_MS 2U
 #endif
 
 #define WT_USART_REGION_SIZE 0x00000400U

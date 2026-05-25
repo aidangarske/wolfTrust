@@ -12,7 +12,7 @@ PORT_HEADERS := $(wildcard $(PORT_DIR)/*.h)
 CPU_FLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only
 CFLAGS_COMMON := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -O0 -g -Wall -Wextra
 CFLAGS_COMMON += -I$(ROOT)/include -I$(PORT_DIR) -I$(ROOT)/lib/wolfhal
-WT_TIMESLICE_MS ?= 100
+WT_TIMESLICE_MS ?= 2
 EMU_TIMEOUT ?= 300
 CFLAGS_COMMON += -DWT_TIMESLICE_MS=$(WT_TIMESLICE_MS)
 WT_MAX_GUESTS ?= 2
@@ -24,11 +24,9 @@ CFLAGS_COMMON += -DWT_MAX_GUESTS=$(WT_MAX_GUESTS)
 CFLAGS_COMMON += -DWT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)
 WT_SHARED_UART ?= 3
 CFLAGS_COMMON += -DWT_SHARED_UART=$(WT_SHARED_UART)
-# Guest SysTick only runs while that guest is scheduled. With the current
-# two-guest round-robin firmware test each guest receives about half the 240 MHz
-# physical CPU time, so expose the effective virtual core clock to keep
-# guest timers aligned with wall time.
-WT_GUEST_CORE_CLOCK_HZ ?= 120000000
+# Guests see virtual SysTick elapsed time from the monitor while still using
+# the target core clock when programming SysTick.
+WT_GUEST_CORE_CLOCK_HZ ?= 240000000
 WT_GUEST_UART_CLOCK_HZ ?= 120000000
 CFLAGS_COMMON += -DWT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ)
 CFLAGS_COMMON += -DWT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ)

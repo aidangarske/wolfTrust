@@ -99,13 +99,28 @@ static wt_guest_context_t g_return_context __attribute__((used));
 static uint32_t g_live_r4_r11[8] __attribute__((used));
 static uintptr_t g_live_exc_return __attribute__((used));
 static uint32_t g_systick_reload;
+static uint64_t g_secure_wall_cycles;
 static uintptr_t g_secure_entry_sp __attribute__((used));
 static volatile uint32_t g_last_fault_address;
 static volatile uint32_t g_last_fault_pc;
 static volatile uint32_t g_switch_count;
 static volatile uint32_t g_active_guest;
 static volatile uint32_t g_secure_service_depth;
-static uint32_t g_ns_systick_csr[WT_MAX_GUESTS];
+
+typedef struct wt_virtual_systick {
+    uint32_t csr;
+    uint32_t rvr;
+    uint32_t cvr;
+    uint64_t last_accounted_cycles;
+    uint32_t owed_ticks;
+    uint8_t pending;
+    uint32_t accrued_ticks;
+    uint32_t injected_ticks;
+    uint32_t coalesced_ticks;
+    uint32_t max_owed_ticks;
+} wt_virtual_systick_t;
+
+static wt_virtual_systick_t g_guest_systick[WT_MAX_GUESTS];
 
 #ifdef WT_ENGINE_HSM
 static void wt_secure_service_enter(void);
@@ -467,6 +482,7 @@ static void wt_secure_fault_dispatch(const wt_trap_frame_t* frame)
 
 static void wt_secure_systick_dispatch(const wt_trap_frame_t* frame)
 {
+    g_secure_wall_cycles += g_systick_reload;
     wt_monitor_on_secure_timer(frame);
 }
 
@@ -554,6 +570,7 @@ void wt_platform_init(void)
     wt_platform_zero_guest_memory(WT_GUEST0_RAM_BASE, WT_GUEST_RAM_SIZE);
     wt_platform_zero_guest_memory(WT_GUEST1_RAM_BASE, WT_GUEST_RAM_SIZE);
     g_switch_count = 0u;
+    g_active_guest = UINT32_MAX;
 }
 
 /* WolfTrust_Yield uses the cmse_nonsecure_entry attribute (rather than the
@@ -660,31 +677,184 @@ void wt_platform_program_ns_mpu(const wt_mpu_region_t* regions, size_t count)
     wt_program_ns_mpu_regions(regions, count);
 }
 
+static uint32_t wt_virtual_systick_period(const wt_virtual_systick_t* systick)
+{
+    return (systick->rvr & 0x00FFFFFFu) + 1u;
+}
+
+static bool wt_virtual_systick_active(const wt_virtual_systick_t* systick)
+{
+    return (systick->csr & WT_SYST_CSR_ENABLE) != 0u;
+}
+
+static bool wt_virtual_systick_irq_enabled(const wt_virtual_systick_t* systick)
+{
+    return (systick->csr & (WT_SYST_CSR_ENABLE | WT_SYST_CSR_TICKINT)) ==
+           (WT_SYST_CSR_ENABLE | WT_SYST_CSR_TICKINT);
+}
+
+static void wt_virtual_systick_note_consumed(wt_virtual_systick_t* systick,
+                                             bool hw_pending)
+{
+    if (systick->pending && !hw_pending) {
+        if (systick->owed_ticks > 0u) {
+            systick->owed_ticks--;
+        }
+        systick->pending = 0u;
+    }
+}
+
+static void wt_virtual_systick_save_departing(void)
+{
+    wt_virtual_systick_t* systick;
+    uint32_t csr;
+    bool hw_pending;
+
+    if (g_active_guest >= WT_MAX_GUESTS) {
+        WT_SYST_NS_CSR = 0u;
+        WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSTCLR;
+        return;
+    }
+
+    systick = &g_guest_systick[g_active_guest];
+    csr = WT_SYST_NS_CSR;
+    hw_pending = (WT_SCB_ICSR_NS & WT_SCB_ICSR_PENDSTSET) != 0u;
+
+    wt_virtual_systick_note_consumed(systick, hw_pending);
+    systick->csr = csr;
+    systick->rvr = WT_SYST_NS_RVR;
+    systick->cvr = WT_SYST_NS_CVR;
+    systick->last_accounted_cycles = g_secure_wall_cycles;
+
+    if (!systick->pending && hw_pending && wt_virtual_systick_irq_enabled(systick)) {
+        systick->owed_ticks++;
+        systick->pending = 1u;
+        systick->accrued_ticks++;
+        if (systick->owed_ticks > systick->max_owed_ticks) {
+            systick->max_owed_ticks = systick->owed_ticks;
+        }
+    }
+
+    WT_SYST_NS_CSR = 0u;
+    WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSTCLR;
+}
+
+static void wt_virtual_systick_account_elapsed(wt_virtual_systick_t* systick)
+{
+    uint64_t elapsed;
+    uint32_t period;
+    uint32_t remaining;
+    uint64_t ticks;
+    uint64_t rem;
+
+    if (systick->last_accounted_cycles == 0u) {
+        systick->last_accounted_cycles = g_secure_wall_cycles;
+        return;
+    }
+
+    elapsed = g_secure_wall_cycles - systick->last_accounted_cycles;
+    systick->last_accounted_cycles = g_secure_wall_cycles;
+    if (!wt_virtual_systick_active(systick) || elapsed == 0u) {
+        return;
+    }
+
+    period = wt_virtual_systick_period(systick);
+    remaining = (systick->cvr == 0u || systick->cvr >= period) ? period :
+                (systick->cvr + 1u);
+
+    if (elapsed < remaining) {
+        systick->cvr = remaining - (uint32_t)elapsed - 1u;
+        return;
+    }
+
+    elapsed -= remaining;
+    ticks = 1u + (elapsed / period);
+    rem = elapsed % period;
+    systick->cvr = (uint32_t)(period - rem - 1u);
+
+    if (ticks > (uint64_t)(UINT32_MAX - systick->owed_ticks)) {
+        systick->owed_ticks = UINT32_MAX;
+    }
+    else {
+        systick->owed_ticks += (uint32_t)ticks;
+    }
+
+    if (ticks > (uint64_t)(UINT32_MAX - systick->accrued_ticks)) {
+        systick->accrued_ticks = UINT32_MAX;
+    }
+    else {
+        systick->accrued_ticks += (uint32_t)ticks;
+    }
+
+    if (systick->owed_ticks > systick->max_owed_ticks) {
+        systick->max_owed_ticks = systick->owed_ticks;
+    }
+}
+
+static void wt_virtual_systick_restore_arriving(wt_guest_id_t guest_id)
+{
+    wt_virtual_systick_t* systick;
+
+    WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSTCLR;
+    if (guest_id >= WT_MAX_GUESTS) {
+        return;
+    }
+
+    systick = &g_guest_systick[guest_id];
+    wt_virtual_systick_account_elapsed(systick);
+
+    WT_SYST_NS_CSR = 0u;
+    WT_SYST_NS_RVR = systick->rvr;
+    WT_SYST_NS_CVR = 0u;
+    if (wt_virtual_systick_active(systick)) {
+        WT_SYST_NS_CSR = systick->csr & ~WT_SYST_CSR_COUNTFLAG;
+    }
+
+    if (systick->owed_ticks > 0u && wt_virtual_systick_irq_enabled(systick)) {
+        if (!systick->pending) {
+            WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSTSET;
+            systick->pending = 1u;
+            systick->injected_ticks++;
+        }
+        else {
+            systick->coalesced_ticks++;
+            WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSTSET;
+        }
+    }
+}
+
+static void wt_virtual_systick_reset(wt_guest_id_t guest_id)
+{
+    wt_virtual_systick_t* systick;
+
+    if (guest_id >= WT_MAX_GUESTS) {
+        return;
+    }
+    systick = &g_guest_systick[guest_id];
+    systick->csr = 0u;
+    systick->rvr = 0u;
+    systick->cvr = 0u;
+    systick->last_accounted_cycles = g_secure_wall_cycles;
+    systick->owed_ticks = 0u;
+    systick->pending = 0u;
+    systick->accrued_ticks = 0u;
+    systick->injected_ticks = 0u;
+    systick->coalesced_ticks = 0u;
+    systick->max_owed_ticks = 0u;
+}
+
 void wt_platform_prepare_guest_return(wt_guest_id_t guest_id,
                                       const wt_guest_context_t* context)
 {
-    uint32_t csr;
-
     if (context == NULL) {
         return;
     }
 
-    /* Stop the departing guest's NS SysTick and save its settings */
-    csr = WT_SYST_NS_CSR;
-    if (g_active_guest < WT_MAX_GUESTS) {
-        g_ns_systick_csr[g_active_guest] = csr;
-    }
-    WT_SYST_NS_CSR = 0u;
+    wt_virtual_systick_save_departing();
 
     WT_SCB_VTOR_NS = (uint32_t)context->vector_table_ns;
     g_active_guest = guest_id;
-    WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSTCLR;
-
-    /* Restart the arriving guest's NS SysTick from a clean 1ms countdown */
-    if (guest_id < WT_MAX_GUESTS && (g_ns_systick_csr[guest_id] & WT_SYST_CSR_ENABLE)) {
-        WT_SYST_NS_CVR = 0u;
-        WT_SYST_NS_CSR = g_ns_systick_csr[guest_id];
-    }
+    wt_virtual_systick_restore_arriving(guest_id);
 }
 
 void wt_platform_capture_guest_context(wt_guest_context_t* context,
@@ -756,6 +926,12 @@ void wt_platform_zero_guest_memory(uintptr_t base, size_t size)
     for (i = 0; i < words; ++i) {
         ptr[i] = 0u;
     }
+    if (base == WT_GUEST0_RAM_BASE && size >= WT_GUEST_RAM_SIZE) {
+        wt_virtual_systick_reset(0u);
+    }
+    else if (base == WT_GUEST1_RAM_BASE && size >= WT_GUEST_RAM_SIZE) {
+        wt_virtual_systick_reset(1u);
+    }
 }
 
 void wt_platform_log_fault(wt_guest_id_t guest_id,
@@ -808,7 +984,6 @@ void Reset_Handler(void)
     }
 
     wt_monitor_init();
-    g_active_guest = 0u;
 #ifdef WT_ENGINE_HSM
     /* Bring up the secure-side wolfHSM service before dispatching guests:
      *  1. coroutine scheduler (provides the bootstrap context)

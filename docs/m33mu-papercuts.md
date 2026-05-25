@@ -94,3 +94,12 @@ Treat these as emulator fidelity gaps until each has a reduced reproducer.
   enough RNG readiness/data-register behavior for that production path, so the
   firmware UART run targets build with an explicit `WT_INSECURE_TEST_RNG=1`
   fallback until a reduced STM32H5 RNG model/test exists.
+- STM32H563 unaligned data access trapping needs a reduced hardware comparison.
+  Hardware trapped into the secure default handler with the stacked PC first in
+  the guest `AES_set_encrypt_key` ARMASM path when the 128-bit test key landed
+  at an unaligned flash address (`0x0802de96`), and then in `bench_hmac_sha256`
+  when compiler-generated word loads copied an unaligned local byte constant.
+  `m33mu` let both images run. wolfTrust now word-aligns the explicit guest
+  AES benchmark buffers/constants and builds the non-secure firmware with
+  `-mno-unaligned-access`, but `m33mu` should model the STM32H5 unaligned-access
+  trap behavior when the target keeps `UNALIGN_TRP` enabled.
