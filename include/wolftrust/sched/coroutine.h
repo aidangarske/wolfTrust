@@ -57,7 +57,7 @@ void wt_co_init(void);
 /* Create a new coroutine with `stack` (caller-provided, must be
  * WT_CO_STACK_SIZE bytes, 8-byte aligned) running `entry(arg)`. The new
  * coroutine starts in WT_CO_RUNNABLE state but does not run until
- * wt_co_tick or wt_co_yield gives it CPU. Returns the handle, or NULL
+ * wt_co_tick gives it CPU. Returns the handle, or NULL
  * if the runqueue is full (compile-time maximum, see implementation).
  * Safe to call from monitor init context only; not from inside a
  * coroutine (single-threaded init phase). */
@@ -65,12 +65,6 @@ wt_co_t *wt_co_create(uint8_t *stack, size_t stack_size,
                        wt_co_entry_fn entry, void *arg);
 wt_co_t *wt_co_create_blocked(uint8_t *stack, size_t stack_size,
                               wt_co_entry_fn entry, void *arg);
-
-/* Voluntarily relinquish CPU. Current coroutine stays RUNNABLE and goes
- * to the back of the runqueue. Returns when the scheduler picks this
- * coroutine again. Safe to call from any coroutine including the
- * bootstrap context. */
-void wt_co_yield(void);
 
 /* Mark the current coroutine BLOCKED and switch away. Returns only when
  * some other code path calls wt_co_wake on this coroutine. Used by
@@ -82,7 +76,7 @@ void wt_co_block(void);
  * bootstrap, or from an interrupt handler (callers must guarantee
  * single-threaded access — secure side is single-core). No-op if `co`
  * is already RUNNABLE or RUNNING. Does NOT switch — the woken
- * coroutine runs the next time wt_co_tick/yield picks it. */
+ * coroutine runs the next time wt_co_tick picks it. */
 void wt_co_wake(wt_co_t *co);
 
 /* Return handle of currently executing coroutine, or NULL if running

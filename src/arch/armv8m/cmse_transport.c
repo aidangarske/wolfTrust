@@ -67,6 +67,7 @@
 
 #include "wolftrust/arch/armv8m/cmse.h"
 #include "wolftrust/arch/armv8m/cmse_transport.h"
+#include "wolftrust/monitor.h"
 #include "wolftrust/partition.h"
 
 #include "memory_map.h"  /* WT_HSM_BUF_SIZE */
@@ -309,6 +310,7 @@ static int wt_cmse_transport_send(void *ctx_void, uint16_t data_size,
 
     /* Increment notify to signal the guest that a response is ready. */
     ctx->resp_csr->s.notify++;
+    wt_monitor_hsm_response_ready(ctx->guest_id);
 
     return WH_ERROR_OK;
 }
@@ -327,7 +329,7 @@ const whTransportServerCb wt_cmse_transport_cb = {
  * wt_cmse_transport_signal_fault
  *
  * Synthesise a fatal-error response in the guest's response slot when
- * the secure-side coroutine took an MPU / PSPLIM / UsageFault. Called
+ * the secure-side tasklet took an MPU / PSPLIM / UsageFault. Called
  * from handler mode by the platform fault dispatcher.
  *
  * Layout written into the response slot (offsets are within
@@ -388,6 +390,7 @@ int wt_cmse_transport_signal_fault(wt_guest_id_t guest_id)
     __asm volatile("dsb sy" ::: "memory");
 
     ctx->resp_csr->s.notify++;
+    wt_monitor_hsm_response_ready(guest_id);
 
     return WH_ERROR_OK;
 }

@@ -37,11 +37,11 @@
 int wt_hsm_init(void);
 
 /* Initialise the per-guest wolfHSM server context, transport, and
- * coroutine. `transport_cb` and `transport_ctx` come from the Wave 4
- * CMSE transport module. After this call the guest's coroutine is
- * RUNNABLE and the next wt_co_tick will start it. Safe to call only
- * from monitor init (before scheduler starts). Returns 0 on success,
- * negative on failure. */
+ * tasklet. `transport_cb` and `transport_ctx` come from the CMSE transport
+ * module. The tasklet starts blocked and is run by monitor-owned CMSE service
+ * entry points when a guest has pending HSM work. Safe to call only from
+ * monitor init (before scheduler starts). Returns 0 on success, negative on
+ * failure. */
 int wt_hsm_guest_init(wt_guest_id_t guest_id,
                       const whTransportServerCb *transport_cb,
                       void *transport_ctx,
@@ -57,20 +57,19 @@ bool wt_hsm_guest_ready(wt_guest_id_t guest_id);
  * guest_id + 1 (0 is reserved). */
 uint16_t wt_hsm_guest_client_id(wt_guest_id_t guest_id);
 
-/* Return the coroutine handle for guest_id, or NULL if guest_id is out of
+/* Return the tasklet handle for guest_id, or NULL if guest_id is out of
  * range or the guest has not yet been initialised via wt_hsm_guest_init.
- * Used by NSC veneers to wake the per-guest wolfHSM coroutine before ticking
- * the scheduler. */
+ * Used by the monitor to wake per-guest wolfHSM service work. */
 struct wt_co;
-struct wt_co *wt_hsm_guest_coroutine(wt_guest_id_t guest_id);
+struct wt_co *wt_hsm_guest_tasklet(wt_guest_id_t guest_id);
 
 /* Reverse lookup: which guest owns `co`? Returns WT_MAX_GUESTS if `co`
- * does not match any per-guest server coroutine. Used by the Secure
- * fault dispatcher to map a faulted coroutine back to its NS client. */
+ * does not match any per-guest server tasklet. Used by the Secure
+ * fault dispatcher to map a faulted tasklet back to its NS client. */
 wt_guest_id_t wt_hsm_guest_for_coroutine(const struct wt_co *co);
 
 /* Signal a terminal Secure-side fault for guest_id: drops the NVM lock
- * if the dying coroutine was holding it, writes a WH_ERROR_ABORTED
+ * if the dying tasklet was holding it, writes a WH_ERROR_ABORTED
  * fatal-response into the guest's transport, and clears the ready bit
  * so subsequent NSC veneers reject HSM calls from this guest. Safe to
  * call from handler mode. Returns WH_ERROR_OK on success. */

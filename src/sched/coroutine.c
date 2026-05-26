@@ -241,32 +241,6 @@ wt_co_t *wt_co_create_blocked(uint8_t *stack, size_t stack_size,
     return wt_co_create_common(stack, stack_size, entry, arg, WT_CO_BLOCKED);
 }
 
-void wt_co_yield(void)
-{
-    struct wt_co *from;
-    struct wt_co *to;
-
-    from = g_co_current;
-
-    if (from == &g_co_bootstrap) {
-        /* Bootstrap yielding: just drain one budget tick. */
-        wt_co_tick(1u);
-        return;
-    }
-
-    /* Enqueue self at the tail and mark RUNNABLE. */
-    from->state = WT_CO_RUNNABLE;
-    runqueue_enqueue(from);
-
-    /* Pick next runnable, or fall back to bootstrap. */
-    to = runqueue_dequeue();
-    if (to == (struct wt_co *)0) {
-        to = &g_co_bootstrap;
-    }
-
-    do_switch(from, to);
-}
-
 void wt_co_block(void)
 {
     struct wt_co *from;
@@ -392,7 +366,7 @@ uint32_t wt_co_tick(uint32_t budget_iterations)
         }
 
         do_switch(from, to);
-        /* Execution resumes here after `to` yields or blocks back to
+        /* Execution resumes here after `to` blocks back to
          * bootstrap. g_co_current has been restored to &g_co_bootstrap
          * by the time we return (do_switch updated it before switching
          * in, and when bootstrap is switched back in it restores itself). */

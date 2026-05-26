@@ -36,12 +36,11 @@
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/arch/armv8m/cmse.h"
 #include "wolftrust/arch/armv8m/cmse_transport.h"
-#include "wolftrust/sched/coroutine.h"
+#include "wolftrust/sched/tasklet.h"
 #include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_transport_mem.h"
 
-#define WT_HSM_YIELD_BUDGET  16u
-#define WT_HSM_SUBMIT_BUDGET  8u
+#define WT_HSM_SUBMIT_BUDGET 8u
 #endif /* WT_ENGINE_HSM */
 
 /* Secure MPU attribute encodings. MPU_RBAR[2:1] = AP (access permissions),
@@ -573,38 +572,6 @@ void wt_platform_init(void)
     g_active_guest = UINT32_MAX;
 }
 
-/* WolfTrust_Yield uses the cmse_nonsecure_entry attribute (rather than the
- * older naked-sg-tail-call pattern) so the compiler generates an
- * __acle_se_WolfTrust_Yield wrapper that clears scratch registers
- * (r1-r3, r12, CPSR_fs) before BXNS. Without this, values left in r1/r2
- * by wt_co_tick → wt_co_arch_switch (notably a secure-RAM coroutine
- * SP) would leak to the non-secure caller (Wave 4C audit finding). */
-void WolfTrust_Yield_Impl(void);
-
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
-void WolfTrust_Yield(void)
-{
-    WolfTrust_Yield_Impl();
-}
-
-#ifdef WT_ENGINE_HSM
-void WolfTrust_Yield_Impl(void)
-{
-    wt_secure_service_enter();
-    /* No need to precheck g_active_guest — yield is harmless even if
-     * the caller is in an invalid state; we just tick coroutines and
-     * return. The next SysTick will steal CPU naturally. */
-    (void)wt_co_tick(WT_HSM_YIELD_BUDGET);
-    wt_secure_service_exit();
-}
-#else
-void WolfTrust_Yield_Impl(void)
-{
-    __asm volatile("bkpt #0x70");
-    wt_platform_panic();
-}
-#endif
-
 void wt_platform_start_secure_timer(uint32_t timeslice_ms)
 {
     uint32_t reload;
@@ -986,11 +953,11 @@ void Reset_Handler(void)
     wt_monitor_init();
 #ifdef WT_ENGINE_HSM
     /* Bring up the secure-side wolfHSM service before dispatching guests:
-     *  1. coroutine scheduler (provides the bootstrap context)
+     *  1. tasklet scheduler (provides the bootstrap context)
      *  2. shared wolfCrypt + NVM + lock
-     *  3. one transport + server context + coroutine per guest
+     *  3. one transport + server context + tasklet per guest
      * Any failure here is fatal because guests require this engine. */
-    wt_co_init();
+    wt_tasklet_init();
     if (wt_hsm_init() != 0) wt_platform_panic();
     for (wt_guest_id_t gid = 0u; gid < WT_MAX_GUESTS; gid++) {
         const wt_guest_config_t *configs;
@@ -1029,29 +996,29 @@ __attribute__((naked)) void SecureFault_Handler(void)
 
 #ifdef WT_ENGINE_HSM
 /* -----------------------------------------------------------------------
- * Secure-side coroutine fault path.
+ * Secure-side tasklet fault path.
  *
- * MemManage and UsageFault can fire from within a wolfHSM coroutine when:
- *   - PSPLIM_S is hit (UsageFault.STKOF) — coroutine stack overflow,
+ * MemManage and UsageFault can fire from within a wolfHSM tasklet when:
+ *   - PSPLIM_S is hit (UsageFault.STKOF) — tasklet stack overflow,
  *   - MPU_S blocks a wild read/write (MemManage IACCVIOL/DACCVIOL),
- *   - the coroutine executes an illegal instruction (UsageFault).
+ *   - the tasklet executes an illegal instruction (UsageFault).
  *
  * Recovery model:
- *   1. C dispatcher logs the fault, identifies the running coroutine
- *      (g_co_current via wt_co_current), maps it back to a guest_id,
+ *   1. C dispatcher logs the fault, identifies the running tasklet
+ *      (g_tasklet_current via wt_tasklet_current), maps it back to a guest_id,
  *      hands the NS client a WH_ERROR_ABORTED via wt_hsm_signal_fault,
- *      drops any mutex held by the dying coroutine, and marks the
- *      coroutine WT_CO_FAULTED.
+ *      drops any mutex held by the dying tasklet, and marks the
+ *      tasklet WT_TASKLET_FAULTED.
  *   2. The naked handler asm fabricates a Secure-Thread MSP exception
  *      frame on MSP_S that targets wt_co_fault_recovery_thunk, then
  *      EXC_RETURNs. Hardware lands in the thunk on MSP_S, the thunk
  *      pops the bootstrap's saved {r4-r11, lr} frame, and execution
- *      resumes inside wt_co_tick as if the coroutine had voluntarily
- *      switched back. The scheduler picks up the next runnable
- *      coroutine — the faulted one is no longer on the runqueue.
+ *      resumes inside wt_tasklet_run as if the tasklet had switched
+ *      back. The scheduler picks up the next runnable tasklet — the
+ *      faulted one is no longer on the runqueue.
  *
  * If the fault fires while bootstrap (monitor) is running there is no
- * coroutine to abandon and no saved frame to unwind to, so the C
+ * tasklet to abandon and no saved frame to unwind to, so the C
  * dispatcher panics.
  * ----------------------------------------------------------------------- */
 static void wt_secure_coroutine_fault_dispatch(void) __attribute__((used));
@@ -1065,18 +1032,18 @@ static void wt_secure_coroutine_fault_dispatch(void)
     /* Write-1-to-clear so the next fault is observable. */
     WT_SCB_CFSR_S = cfsr;
 
-    wt_co_t *co = wt_co_current();
-    if (co == NULL) {
-        /* Bootstrap took the fault — no coroutine to abandon. */
+    wt_tasklet_t *tasklet = wt_tasklet_current();
+    if (tasklet == NULL) {
+        /* Bootstrap took the fault — no tasklet to abandon. */
         wt_platform_panic();
     }
 
-    wt_guest_id_t gid = wt_hsm_guest_for_coroutine(co);
+    wt_guest_id_t gid = wt_hsm_guest_for_coroutine(tasklet);
     if (gid < WT_MAX_GUESTS) {
         (void)wt_hsm_signal_fault(gid);
     }
 
-    wt_co_mark_faulted(co);
+    wt_tasklet_mark_faulted(tasklet);
 }
 
 /* Shared tail for MemManage_Handler and UsageFault_Handler. Naked so
@@ -1105,8 +1072,8 @@ static void wt_secure_coroutine_fault_entry(void)
         "movt   r0, #0x0100                         \n"
         "str    r0, [sp, #28]                       \n"
         /* Drop PSPLIM_S — wt_co_arch_switch reinstalls it for the next
-         * coroutine. PSP_S itself is left pointing into the dead
-         * coroutine's stack; harmless because CONTROL.SPSEL=0 on
+         * tasklet. PSP_S itself is left pointing into the dead
+         * tasklet's stack; harmless because CONTROL.SPSEL=0 on
          * return-to-Thread-MSP and arch_switch will overwrite PSP_S
          * before re-enabling PSP. */
         "movs   r0, #0                              \n"
@@ -1177,14 +1144,15 @@ int WolfTrust_HSM_Submit_Impl(uint16_t size)
         goto out;
     }
 
-    /* The transport's Recv callback walks the request slot using
-     * wt_cmse_check_ns_rw, so we don't need to copy here. We just
-     * need to give the coroutine some CPU so it can pick the request
-     * up and process it. The size argument is informational — we do
-     * not trust it for memory access, only for early validation. */
-    wt_co_t *co = wt_hsm_guest_coroutine(g_active_guest);
-    if (co != NULL) wt_co_wake(co);
-    (void)wt_co_tick(WT_HSM_SUBMIT_BUDGET);
+    /* Mark this guest blocked on HSM work, then run the per-guest tasklet
+     * from this secure thread-mode veneer. The SysTick monitor will skip the
+     * guest if the request is still outstanding when its slice expires. */
+    wt_monitor_hsm_request_pending(g_active_guest);
+    wt_tasklet_t *tasklet = wt_hsm_guest_tasklet(g_active_guest);
+    if (tasklet != NULL) {
+        wt_tasklet_wake(tasklet);
+    }
+    (void)wt_tasklet_run(WT_HSM_SUBMIT_BUDGET);
     rc = WH_ERROR_OK;
 
 out:
@@ -1202,7 +1170,6 @@ int WolfTrust_HSM_Poll(uint16_t seq)
 int WolfTrust_HSM_Poll_Impl(uint16_t seq)
 {
     int rc;
-    wt_co_t *co;
     wt_cmse_transport_ctx_t *tx;
 
     wt_secure_service_enter();
@@ -1210,12 +1177,13 @@ int WolfTrust_HSM_Poll_Impl(uint16_t seq)
     rc = wt_hsm_veneer_precheck();
     if (rc != WH_ERROR_OK) goto out;
 
-    /* Poll is part of the active request/response handshake. Wake only the
-     * current guest's HSM server so foreign guest buffers are never touched
-     * while this guest's NS MPU window is active. */
-    co = wt_hsm_guest_coroutine(g_active_guest);
-    if (co != NULL) wt_co_wake(co);
-    (void)wt_co_tick(WT_HSM_SUBMIT_BUDGET);
+    {
+        wt_tasklet_t *tasklet = wt_hsm_guest_tasklet(g_active_guest);
+        if (tasklet != NULL) {
+            wt_tasklet_wake(tasklet);
+        }
+        (void)wt_tasklet_run(WT_HSM_SUBMIT_BUDGET);
+    }
 
     /* Read the response notify counter from the guest's NS buffer
      * via the transport context (which already validated the pointer

@@ -41,7 +41,8 @@ void wt_monitor_on_guest_fault(const wt_trap_frame_t* frame,
 const wt_scheduler_state_t* wt_monitor_state(void);
 
 #ifdef WT_ENGINE_HSM
-void wt_monitor_on_yield(const wt_trap_frame_t* frame);
+void wt_monitor_hsm_request_pending(wt_guest_id_t guest_id);
+void wt_monitor_hsm_response_ready(wt_guest_id_t guest_id);
 #endif
 
 #endif

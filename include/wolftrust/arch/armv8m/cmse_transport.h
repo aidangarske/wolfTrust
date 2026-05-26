@@ -89,7 +89,7 @@ void wt_cmse_transport_cfg_for(wt_guest_id_t guest_id,
  * aux=WH_COMM_AUX_RESP_FATAL plus a whMessageComm_ErrorResponse body
  * carrying WH_ERROR_ABORTED. DSBs, then increments the response notify
  * counter. Safe to call from Secure handler mode (no locks, no
- * coroutine yields). Returns WH_ERROR_OK on success, WH_ERROR_BADARGS
+ * tasklet faults). Returns WH_ERROR_OK on success, WH_ERROR_BADARGS
  * if the guest has no live transport. */
 int wt_cmse_transport_signal_fault(wt_guest_id_t guest_id);
 

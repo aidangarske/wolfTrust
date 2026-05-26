@@ -74,7 +74,7 @@ struct wt_co *wt_mutex_holder(const wt_mutex_t *m);
  * fault path when a coroutine dies while holding a mutex — bypasses
  * the "release-must-match-holder" check so the wait queue can drain.
  * No-op if `m` is not held by `co`. Safe to call from handler mode:
- * does not block, does not yield. */
+ * does not block or reschedule. */
 void wt_mutex_release_if_holder(wt_mutex_t *m, struct wt_co *co);
 
 #endif

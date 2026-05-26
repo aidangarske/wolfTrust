@@ -24,8 +24,8 @@
 #include <stdbool.h>
 
 #ifdef WT_ENGINE_HSM
-#include "wolftrust/sched/coroutine.h"
-#define WT_HSM_TICK_BUDGET 4u
+#include "wolftrust/sched/tasklet.h"
+#include "wolftrust/services/hsm.h"
 #endif
 
 static wt_scheduler_state_t g_scheduler;
@@ -141,15 +141,20 @@ static void wt_dispatch_guest(wt_guest_id_t guest_id)
 static void wt_save_running_guest(const wt_trap_frame_t* frame)
 {
     wt_guest_runtime_t* current;
+    wt_guest_state_t state;
 
     if (g_scheduler.guest_count == 0U) {
         return;
     }
 
     current = wt_guest_runtime(g_scheduler.current_guest);
-    if (current != NULL && current->state == WT_GUEST_RUNNING) {
+    if (current != NULL &&
+        (current->state == WT_GUEST_RUNNING ||
+         current->state == WT_GUEST_WAITING_HSM)) {
+        state = current->state;
         wt_platform_capture_guest_context(&current->context, frame);
-        current->state = WT_GUEST_READY;
+        current->state = (state == WT_GUEST_WAITING_HSM) ?
+                         WT_GUEST_WAITING_HSM : WT_GUEST_READY;
     }
 }
 
@@ -204,6 +209,7 @@ static void wt_schedule_next_guest(void)
 
     next_guest = wt_find_next_runnable((g_scheduler.current_guest + 1U) %
                                        g_scheduler.guest_count);
+
     if (next_guest >= g_scheduler.guest_count) {
         wt_platform_all_guests_faulted();
     }
@@ -253,36 +259,42 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
     /* If SysTick interrupted secure-side HSM service code, the trap frame
      * represents secure execution — not a guest. Do not attempt guest
      * scheduling from that frame; return to the interrupted secure path and
-     * let scheduling resume when the veneer returns or yields. */
+     * let scheduling resume when the veneer returns. */
     if (wt_platform_secure_service_active() ||
-        wt_co_current() != (wt_co_t *)0) {
+        wt_tasklet_current() != (wt_tasklet_t *)0) {
         return;
     }
 #endif
     wt_save_running_guest(frame);
     wt_tick_restart_backoff();
-    /* NOTE: coroutines run only inside NSC veneers, not from this
-     * SysTick handler.  Mixing handler-mode wt_co_tick with secure-side
-     * MSP swapping has subtle re-entry races. v1 keeps the boundaries
-     * clean: SysTick rotates guests, NSC entries drive coroutines. */
     wt_schedule_next_guest();
 }
 
 #ifdef WT_ENGINE_HSM
-/* Called from the NSC yield veneer when a guest voluntarily relinquishes
- * its slice (typically because its wolfHSM client got WH_ERROR_NOTREADY
- * and chose to wait rather than spin). Captures the guest context like
- * a timer tick, runs a SLIGHTLY larger coroutine slice (because we
- * KNOW the calling guest has nothing better to do), then dispatches
- * the next runnable guest. */
-void wt_monitor_on_yield(const wt_trap_frame_t* frame)
+void wt_monitor_hsm_request_pending(wt_guest_id_t guest_id)
 {
-    wt_platform_mask_all_guest_irqs();
-    wt_save_running_guest(frame);
-    /* Larger budget than the periodic tick: the guest explicitly told
-     * us it is waiting on HSM work. Push more progress through. */
-    (void)wt_co_tick(WT_HSM_TICK_BUDGET * 4u);
-    wt_schedule_next_guest();
+    wt_guest_runtime_t* runtime = wt_guest_runtime(guest_id);
+
+    if (runtime == NULL ||
+        runtime->state == WT_GUEST_FAULTED ||
+        runtime->state == WT_GUEST_RESTARTING) {
+        return;
+    }
+
+    runtime->state = WT_GUEST_WAITING_HSM;
+}
+
+void wt_monitor_hsm_response_ready(wt_guest_id_t guest_id)
+{
+    wt_guest_runtime_t* runtime = wt_guest_runtime(guest_id);
+
+    if (runtime == NULL) {
+        return;
+    }
+    if (runtime->state == WT_GUEST_WAITING_HSM) {
+        runtime->state = (guest_id == g_scheduler.current_guest) ?
+                         WT_GUEST_RUNNING : WT_GUEST_READY;
+    }
 }
 #endif
 

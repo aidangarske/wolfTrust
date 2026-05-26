@@ -89,7 +89,6 @@ extern uint32_t _hsm_transport_base;
 extern int  WolfTrust_HSM_Submit(uint16_t size);
 extern int  WolfTrust_HSM_Poll  (uint16_t seq);
 extern int  WolfTrust_HSM_Cancel(uint16_t seq);
-extern void WolfTrust_Yield     (void);
 
 /* ---------------------------------------------------------------------------
  * Transport context
@@ -162,7 +161,7 @@ static int guest_tx_cleanup(void *ctx_v)
  *  2. Write the payload length into req_csr->s.len.
  *  3. Issue a DSB to ensure the payload is visible before the notify signal.
  *  4. Increment req_csr->s.notify to signal a new request.
- *  5. Call WolfTrust_HSM_Submit() to yield the CPU to the secure coroutine. */
+ *  5. Call WolfTrust_HSM_Submit() to hand the request to the monitor. */
 static int guest_tx_send(void *ctx_v, uint16_t data_size, const void *data)
 {
     wt_guest_transport_ctx_t *ctx = (wt_guest_transport_ctx_t *)ctx_v;
@@ -183,16 +182,15 @@ static int guest_tx_send(void *ctx_v, uint16_t data_size, const void *data)
     __asm volatile("dsb sy" ::: "memory");
     ctx->req_csr->s.notify++;
 
-    /* Cross the CMSE boundary — wake the secure coroutine so it can pick
-     * up the request immediately.  The return value reflects the monitor's
-     * acceptance status. */
+    /* Cross the CMSE boundary. The monitor marks this guest waiting and runs
+     * the secure HSM tasklet from the CMSE service path. */
     return WolfTrust_HSM_Submit(data_size);
 }
 
 /* Receive a response from the secure monitor.
  *
  * Protocol:
- *  1. Call WolfTrust_HSM_Poll() to give the secure coroutine a tick.
+ *  1. Call WolfTrust_HSM_Poll() to query monitor-visible response state.
  *  2. Compare the full 8-byte response CSR against last_resp_notify.
  *  3. On change, validate the length and copy the data out.
  *  4. Update last_resp_notify so the next call does not re-deliver. */
@@ -207,7 +205,7 @@ static int guest_tx_recv(void *ctx_v, uint16_t *out_size, void *data)
         return WH_ERROR_BADARGS;
     }
 
-    /* Give the secure side another tick before we check for a response. */
+    /* Query the monitor before checking for a response. */
     (void)WolfTrust_HSM_Poll(0);
 
     /* Read the full 8-byte CSR atomically as a single 64-bit load. */

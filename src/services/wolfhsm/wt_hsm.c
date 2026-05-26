@@ -25,7 +25,7 @@
  * Owns:
  *   - The shared flash-backed NVM context.
  *   - The shared NVM serialisation lock (callbacks in wt_hsm_lock.c).
- *   - Per-guest whServerContext instances driven by per-guest coroutines.
+ *   - Per-guest whServerContext instances driven by per-guest tasklets.
  *
  * What this file does NOT own:
  *   - Transport implementation (Wave 4, cmse_transport.c).
@@ -55,7 +55,7 @@
 
 /* wolfTrust headers. */
 #include "wolftrust/types.h"
-#include "wolftrust/sched/coroutine.h"
+#include "wolftrust/sched/tasklet.h"
 #include "wolftrust/sync/mutex.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/arch/armv8m/cmse_transport.h"
@@ -68,7 +68,7 @@
 #include <stdbool.h>
 
 /* -------------------------------------------------------------------------
- * Per-coroutine secure stacks. Target builds may override WT_CO_STACK_SIZE
+ * Per-tasklet secure stacks. Target builds may override WT_CO_STACK_SIZE
  * after measuring stack high-water marks for their HSM workload.
  *
  * Keep a guard area immediately below each descending stack.  Hardware PSPLIM
@@ -98,7 +98,7 @@ typedef struct wt_hsm_guest {
     const void               *transport_cfg;
     whCommServerConfig        comm_cfg;
     whServerConfig            server_cfg;
-    wt_co_t                  *coroutine;
+    wt_tasklet_t             *tasklet;
     bool                      ready;
 } wt_hsm_guest_t;
 
@@ -123,9 +123,9 @@ static whLockConfig g_nvm_lock_cfg;
 extern const whLockCb g_wt_hsm_lock_cb; /* defined in wt_hsm_lock.c */
 
 /* -------------------------------------------------------------------------
- * Forward declaration — coroutine body defined below.
+ * Forward declaration — tasklet body defined below.
  * ---------------------------------------------------------------------- */
-static void wt_hsm_coroutine_main(void *arg);
+static void wt_hsm_tasklet_main(void *arg);
 
 /* =========================================================================
  * wt_hsm_init
@@ -209,13 +209,13 @@ int wt_hsm_init(void)
 }
 
 /* =========================================================================
- * wt_hsm_coroutine_main
+ * wt_hsm_tasklet_main
  *
- * Runs indefinitely inside a per-guest coroutine.  Calls
- * wh_Server_HandleRequestMessage once per iteration and yields if no
+ * Runs indefinitely inside a per-guest tasklet.  Calls
+ * wh_Server_HandleRequestMessage once per iteration and blocks if no
  * request is pending (WH_ERROR_NOTREADY) or on unexpected errors.
  * ====================================================================== */
-static void wt_hsm_coroutine_main(void *arg)
+static void wt_hsm_tasklet_main(void *arg)
 {
     wt_guest_id_t   gid = (wt_guest_id_t)(uintptr_t)arg;
     wt_hsm_guest_t *g   = &g_guests[gid];
@@ -223,11 +223,11 @@ static void wt_hsm_coroutine_main(void *arg)
     for (;;) {
         int rc = wh_Server_HandleRequestMessage(&g->server);
         if (rc == WH_ERROR_NOTREADY) {
-            wt_co_block();
+            wt_tasklet_block();
         }
         else if (rc != WH_ERROR_OK) {
             /* TODO: forward error to secure log buffer when available. */
-            wt_co_block();
+            wt_tasklet_block();
         }
     }
 }
@@ -321,13 +321,13 @@ int wt_hsm_guest_init(wt_guest_id_t guest_id,
     }
 
     /* ------------------------------------------------------------------
-     * 7. Create coroutine.
+     * 7. Create tasklet.
      * ---------------------------------------------------------------- */
-    g->coroutine = wt_co_create_blocked(g_co_stack_slots[guest_id].stack,
-                                        WT_CO_STACK_SIZE,
-                                        wt_hsm_coroutine_main,
-                                        (void *)(uintptr_t)guest_id);
-    if (g->coroutine == NULL) {
+    g->tasklet = wt_tasklet_create_blocked(g_co_stack_slots[guest_id].stack,
+                                           WT_CO_STACK_SIZE,
+                                           wt_hsm_tasklet_main,
+                                           (void *)(uintptr_t)guest_id);
+    if (g->tasklet == NULL) {
         wh_Server_Cleanup(&g->server);
         wc_FreeRng(g->crypto.rng);
         return WH_ERROR_ABORTED;
@@ -362,16 +362,16 @@ uint16_t wt_hsm_guest_client_id(wt_guest_id_t guest_id)
 }
 
 /* =========================================================================
- * wt_hsm_guest_coroutine
+ * wt_hsm_guest_tasklet
  *
- * Returns the coroutine handle for the given guest so NSC veneers can
- * wake it before calling wt_co_tick.  Returns NULL for unknown guests or
+ * Returns the tasklet handle for the given guest so the monitor can wake it
+ * at epoch boundaries.  Returns NULL for unknown guests or
  * guests that have not yet been initialised.
  * ====================================================================== */
-struct wt_co *wt_hsm_guest_coroutine(wt_guest_id_t guest_id)
+struct wt_co *wt_hsm_guest_tasklet(wt_guest_id_t guest_id)
 {
     if (guest_id >= WT_MAX_GUESTS) return NULL;
-    return g_guests[guest_id].coroutine;
+    return g_guests[guest_id].tasklet;
 }
 
 /* =========================================================================
@@ -387,7 +387,7 @@ wt_guest_id_t wt_hsm_guest_for_coroutine(const struct wt_co *co)
     if (co == NULL) return WT_MAX_GUESTS;
 
     for (gid = 0; gid < WT_MAX_GUESTS; gid++) {
-        if (g_guests[gid].coroutine == co) {
+        if (g_guests[gid].tasklet == co) {
             return gid;
         }
     }
@@ -397,9 +397,9 @@ wt_guest_id_t wt_hsm_guest_for_coroutine(const struct wt_co *co)
 /* =========================================================================
  * wt_hsm_signal_fault
  *
- * Called from the Secure fault dispatcher after wt_co_mark_faulted has
- * removed the coroutine from the scheduler. Drops any NVM lock the dying
- * coroutine still held, writes a WH_ERROR_ABORTED fatal-response into
+ * Called from the Secure fault dispatcher after wt_tasklet_mark_faulted has
+ * removed the tasklet from the scheduler. Drops any NVM lock the dying
+ * tasklet still held, writes a WH_ERROR_ABORTED fatal-response into
  * the guest's transport so the NS client unblocks with a clean error,
  * and clears the ready bit so future NSC veneers reject HSM calls from
  * this guest.
@@ -415,11 +415,11 @@ int wt_hsm_signal_fault(wt_guest_id_t guest_id)
     }
     g = &g_guests[guest_id];
 
-    /* Force-release the NVM lock if the faulted coroutine was its holder.
+    /* Force-release the NVM lock if the faulted tasklet was its holder.
      * This is the only mutex in the secure-side wolfHSM service; if more
      * are added later, this is the place to drop them all. */
-    if (g->coroutine != NULL) {
-        wt_mutex_release_if_holder(&g_nvm_lock_mutex, g->coroutine);
+    if (g->tasklet != NULL) {
+        wt_mutex_release_if_holder(&g_nvm_lock_mutex, g->tasklet);
     }
 
     /* Tell the NS client. Failure here just means the transport was

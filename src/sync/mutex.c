@@ -25,13 +25,13 @@
 /* NOTE ON ATOMICITY
  * -----------------
  * The secure side runs on a single core with cooperative scheduling.
- * The only point at which control can transfer to another coroutine is an
- * explicit wt_co_block() or wt_co_yield() call.  There are no such calls
+ * The only point at which control can transfer to another tasklet is an
+ * explicit blocking call. There are no such calls
  * between the holder-NULL check and the holder assignment in acquire, nor
  * between the holder check and the wake in release, so both operations are
  * logically atomic with respect to other coroutines.
  *
- * SysTick / interrupt handlers that call wt_co_tick() run from the bootstrap
+ * SysTick / interrupt handlers that run tasklets run from the bootstrap
  * context (id == 0 / wt_co_current() == NULL).  The API contract forbids
  * bootstrap code from holding mutexes, so no interrupt can be a mutex
  * participant.  Do NOT add a critical section (PRIMASK / BASEPRI disable)

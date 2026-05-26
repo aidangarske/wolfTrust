@@ -46,6 +46,7 @@ typedef enum wt_guest_state {
     WT_GUEST_STOPPED = 0,
     WT_GUEST_READY,
     WT_GUEST_RUNNING,
+    WT_GUEST_WAITING_HSM,
     WT_GUEST_FAULTED,
     WT_GUEST_RESTARTING
 } wt_guest_state_t;

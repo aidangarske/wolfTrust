@@ -47,9 +47,7 @@ bool wt_cmse_check_in_guest_ns_ram(wt_guest_id_t guest_id,
 
 /* Convenience macro for an NSC veneer. Generates a naked function in the
  * .gnu.sgstubs section that emits a Secure Gateway (sg) instruction then
- * branches to the implementation symbol. Use exactly like the existing
- * `WolfTrust_Yield` veneer in the target port.
- * which is the established pattern in this project. */
+ * branches to the implementation symbol. */
 #define WT_NSC_VENEER(name, impl_sym)                                \
     __attribute__((naked, section(".gnu.sgstubs")))                  \
     void name(void)                                                  \
