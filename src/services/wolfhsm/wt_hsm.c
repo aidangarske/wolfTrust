@@ -67,6 +67,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef WOLFHSM_CFG_THREADSAFE
+#error "wolfTrust requires WOLFHSM_CFG_THREADSAFE for shared wolfHSM state"
+#endif
+
 /* -------------------------------------------------------------------------
  * Per-tasklet secure stacks. Target builds may override WT_CO_STACK_SIZE
  * after measuring stack high-water marks for their HSM workload.
@@ -187,8 +191,8 @@ int wt_hsm_init(void)
      * whNvmConfig.cb points to the flash-NVM callback table
      * (wh_NvmFlash_Init etc.), .context is the whNvmFlashContext, and
      * .config is the whNvmFlashConfig passed through to wh_NvmFlash_Init.
-     * The lockConfig field activates the embedded whLock for thread-safe
-     * builds (WOLFHSM_CFG_THREADSAFE is defined in wh_settings_local.h).
+     * The lockConfig field is mandatory in wolfTrust because multiple
+     * per-guest tasklets share one wolfHSM NVM context.
      * ---------------------------------------------------------------- */
     (void)memset(&g_nvm_ctx, 0, sizeof(g_nvm_ctx));
     (void)memset(&nvm_cfg, 0, sizeof(nvm_cfg));
@@ -196,9 +200,7 @@ int wt_hsm_init(void)
     nvm_cfg.cb       = (whNvmCb *)g_nvm_flash_cb;
     nvm_cfg.context  = &g_nvm_flash_ctx;
     nvm_cfg.config   = &nvm_flash_cfg;
-#ifdef WOLFHSM_CFG_THREADSAFE
     nvm_cfg.lockConfig = &g_nvm_lock_cfg;
-#endif
 
     rc = wh_Nvm_Init(&g_nvm_ctx, &nvm_cfg);
     if (rc != WH_ERROR_OK) {

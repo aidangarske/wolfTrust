@@ -82,6 +82,8 @@ _Static_assert(WOLFHSM_CFG_COMM_DATA_LEN <=
 
 #define WT_HSM_SLOT_DATA_BYTES \
     ((WT_HSM_BUF_SIZE / 2u) - sizeof(whTransportMemCsr))
+#define WT_HSM_SLOT_TOTAL_BYTES \
+    (sizeof(whTransportMemCsr) + WT_HSM_SLOT_DATA_BYTES)
 
 /* ---------------------------------------------------------------------------
  * Static per-guest context pool
@@ -242,7 +244,7 @@ static int wt_cmse_transport_recv(void *ctx_void, uint16_t *out_size,
     }
 
     /* Re-validate the NS buffer on every call — cheap and future-proof. */
-    if (!wt_cmse_check_ns_rw(ctx->req_csr, sizeof(*ctx->req_csr))) {
+    if (!wt_cmse_check_ns_rw(ctx->req_csr, WT_HSM_SLOT_TOTAL_BYTES)) {
         return WH_ERROR_ABORTED;
     }
 
@@ -294,7 +296,7 @@ static int wt_cmse_transport_send(void *ctx_void, uint16_t data_size,
         return WH_ERROR_NOTREADY;
     }
 
-    if (!wt_cmse_check_ns_rw(ctx->resp_csr, sizeof(*ctx->resp_csr))) {
+    if (!wt_cmse_check_ns_rw(ctx->resp_csr, WT_HSM_SLOT_TOTAL_BYTES)) {
         return WH_ERROR_ABORTED;
     }
 

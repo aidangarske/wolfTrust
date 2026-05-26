@@ -34,7 +34,7 @@ static wt_guest_id_t g_pending_tasklet_guest;
 static bool g_pending_tasklet_guest_valid;
 #endif
 
-static void wt_schedule_next_guest(void);
+static void wt_schedule_next_guest(void) __attribute__((noreturn));
 #ifdef WT_ENGINE_HSM
 static void wt_dispatch_hsm_tasklet(wt_guest_id_t guest_id);
 #endif
@@ -74,6 +74,7 @@ static bool wt_hsm_tasklet_runnable(wt_guest_id_t guest_id)
 }
 
 #ifdef WT_ENGINE_HSM
+static void wt_resume_pending_tasklet_guest(void) __attribute__((noreturn));
 static void wt_resume_pending_tasklet_guest(void)
 {
     wt_guest_id_t guest_id;

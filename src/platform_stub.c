@@ -99,11 +99,13 @@ bool wt_platform_in_handler_mode(void)
     return false;
 }
 
-void wt_platform_return_to_secure_thread(void (*entry)(void))
+void wt_platform_return_to_secure_thread(
+    void (*entry)(void) __attribute__((noreturn)))
 {
     if (entry != NULL) {
         entry();
     }
+    wt_platform_panic();
 }
 
 void wt_platform_zero_guest_memory(uintptr_t base, size_t size)

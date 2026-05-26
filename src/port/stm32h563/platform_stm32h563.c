@@ -77,6 +77,9 @@ typedef struct wt_exception_frame {
 #define WT_GUEST_CONTEXT_MSP_NS_OFFSET     36U
 #define WT_GUEST_CONTEXT_CONTROL_NS_OFFSET 44U
 #define WT_GUEST_CONTEXT_EXC_RETURN_OFFSET 48U
+#define WT_EXC_RETURN_MODE_THREAD          0x08u
+#define WT_EXC_RETURN_RETURN_TO_NONSECURE  0x00u
+#define WT_EXC_RETURN_SECURITY_MASK        0x40u
 
 _Static_assert(WT_GUEST_CONTEXT_PSP_NS_OFFSET == 32U, "unexpected psp_ns offset");
 _Static_assert(WT_GUEST_CONTEXT_MSP_NS_OFFSET == 36U, "unexpected msp_ns offset");
@@ -106,7 +109,7 @@ static volatile uint32_t g_active_guest;
 static volatile uint32_t g_secure_service_depth;
 static volatile uint32_t g_hsm_wait_skip_count;
 static volatile uint32_t g_tasklet_fault_count;
-static void (*g_secure_thread_resume_entry)(void);
+static void (*g_secure_thread_resume_entry)(void) __attribute__((noreturn));
 
 typedef struct wt_virtual_systick {
     uint32_t csr;
@@ -395,7 +398,7 @@ static uint32_t wt_read_ipsr(void)
 __attribute__((noreturn, used))
 void wt_secure_thread_resume_trampoline(void)
 {
-    void (*entry)(void) = g_secure_thread_resume_entry;
+    void (*entry)(void) __attribute__((noreturn)) = g_secure_thread_resume_entry;
 
     if (entry == NULL) {
         wt_platform_panic();
@@ -403,6 +406,7 @@ void wt_secure_thread_resume_trampoline(void)
 
     entry();
     wt_platform_panic();
+    __builtin_unreachable();
 }
 
 bool wt_platform_in_handler_mode(void)
@@ -412,10 +416,13 @@ bool wt_platform_in_handler_mode(void)
 
 bool wt_platform_ns_thread_mode_trap(void)
 {
-    return (g_live_exc_return & 0x8u) != 0u;
+    return (g_live_exc_return &
+            (WT_EXC_RETURN_MODE_THREAD | WT_EXC_RETURN_SECURITY_MASK)) ==
+           (WT_EXC_RETURN_MODE_THREAD | WT_EXC_RETURN_RETURN_TO_NONSECURE);
 }
 
-void wt_platform_return_to_secure_thread(void (*entry)(void))
+void wt_platform_return_to_secure_thread(
+    void (*entry)(void) __attribute__((noreturn)))
 {
     if (entry == NULL || wt_read_ipsr() == 0u) {
         wt_platform_panic();
