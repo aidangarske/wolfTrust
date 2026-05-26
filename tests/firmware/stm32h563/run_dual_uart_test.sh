@@ -3,6 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 BUILD_DIR="$SCRIPT_DIR/build"
+SECURE_BIN="${SECURE_BIN:-$SCRIPT_DIR/../../../build/wolftrust.bin}"
 LOG_FILE=$(mktemp)
 EMU_CMD="${M33MU:-m33mu}"
 EMU_TIMEOUT="${EMU_TIMEOUT:-300}"
@@ -52,7 +53,7 @@ make -C "$SCRIPT_DIR" WT_ENGINE_HSM="$WT_ENGINE_HSM" \
     WT_SHARED_UART="$WT_SHARED_UART" all >/dev/null
 
 stdbuf -oL -eL "$EMU_CMD" --cpu stm32h563 --timeout "$EMU_TIMEOUT" --quit-on-faults \
-    "$BUILD_DIR/secure.bin" "$BUILD_DIR/guest0.bin:$WT_GUEST0_EMU_OFFSET" "$BUILD_DIR/guest1.bin:$WT_GUEST1_EMU_OFFSET" \
+    "$SECURE_BIN" "$BUILD_DIR/guest0.bin:$WT_GUEST0_EMU_OFFSET" "$BUILD_DIR/guest1.bin:$WT_GUEST1_EMU_OFFSET" \
     >"$LOG_FILE" 2>&1 &
 EMU_PID=$!
 

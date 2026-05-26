@@ -1,0 +1,238 @@
+TOOLPREFIX ?= arm-none-eabi-
+CC := $(TOOLPREFIX)gcc
+OBJCOPY := $(TOOLPREFIX)objcopy
+SIZE := $(TOOLPREFIX)size
+
+ROOT := .
+PORT_DIR := $(ROOT)/src/port/stm32h563
+WOLFHSM_RUNNER_DIR := $(ROOT)/src/services/wolfhsm/runner
+WOLFHSM_DIR := $(ROOT)/lib/wolfHSM
+WOLFSSL_DIR := $(ROOT)/lib/wolfSSL
+WOLFHAL_DIR := $(ROOT)/lib/wolfhal
+
+BUILD_DIR ?= build
+SECURE_ELF := $(BUILD_DIR)/wolftrust.elf
+SECURE_BIN := $(BUILD_DIR)/wolftrust.bin
+SECURE_CMSE_IMPLIB := $(BUILD_DIR)/secure_cmse_implib.o
+BUILD_MODE_STAMP := $(BUILD_DIR)/secure_build_mode.stamp
+WOLFHSM_CFG_H := $(BUILD_DIR)/wolfhsm_cfg.h
+
+PORT_HEADERS := $(wildcard $(PORT_DIR)/*.h)
+
+CPU_FLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only
+WT_TIMESLICE_MS ?= 2
+WT_MAX_GUESTS ?= 2
+WT_CO_STACK_SIZE ?= 24576
+WT_SHARED_UART ?= 3
+WT_GUEST_CORE_CLOCK_HZ ?= 240000000
+WT_GUEST_UART_CLOCK_HZ ?= 120000000
+WT_WOLFCRYPT_SP_ASM ?= 1
+WT_WOLFCRYPT_ARMASM ?= 1
+WT_WOLFCRYPT_STM32_HASH ?= 1
+WT_ENGINE_HSM ?= 1
+
+HSM_INCLUDES := -I$(WOLFHSM_DIR) -I$(WOLFSSL_DIR) -I$(BUILD_DIR)
+HSM_INCLUDES_SECURE := $(HSM_INCLUDES) -I$(WOLFHAL_DIR) -I$(abspath $(WOLFHSM_RUNNER_DIR))
+HSM_DEFS_SECURE := -DWOLFSSL_USER_SETTINGS -DWOLFHSM_CFG \
+    -DWOLF_CRYPTO_CB -UNO_CODING \
+    -DWC_RESEED_INTERVAL=1000000 -DWT_ENGINE_HSM=$(WT_ENGINE_HSM)
+
+ifeq ($(WT_WOLFCRYPT_SP_ASM),1)
+HSM_DEFS_SECURE += -DWOLFSSL_SP_ASM -DWOLFSSL_SP_ARM_CORTEX_M_ASM \
+    -DWOLFSSL_ARM_ARCH=8
+endif
+ifeq ($(WT_WOLFCRYPT_ARMASM),1)
+HSM_DEFS_SECURE += -DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO \
+    -DWOLFSSL_ARMASM_INLINE -DWOLFSSL_ARMASM_NO_NEON \
+    -DWOLFSSL_ARMASM_THUMB2
+endif
+ifeq ($(WT_WOLFCRYPT_STM32_HASH),1)
+HSM_DEFS_SECURE += -DWOLFSSL_STM32H5 -DSTM32_HASH \
+    -DNO_STM32_RNG -DNO_STM32_CRYPTO -DNO_STM32_HMAC \
+    -include $(abspath $(PORT_DIR)/wolfcrypt_stm32h563.h)
+endif
+
+SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
+    -Wall -Wextra \
+    -I$(ROOT)/include -I$(PORT_DIR) \
+    -DWT_TIMESLICE_MS=$(WT_TIMESLICE_MS) \
+    -DWT_MAX_GUESTS=$(WT_MAX_GUESTS) \
+    -DWT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE) \
+    -DWT_SHARED_UART=$(WT_SHARED_UART) \
+    -DWT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ) \
+    -DWT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ) \
+    -DWHAL_CFG_STM32H5_RNG_DIRECT_API_MAPPING \
+    -mcmse \
+    $(HSM_INCLUDES_SECURE) $(HSM_DEFS_SECURE)
+
+HSM_LIB_CFLAGS := $(SECURE_CFLAGS) \
+    -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter \
+    -Wno-type-limits
+HSM_WOLFHSM_CFLAGS := $(HSM_LIB_CFLAGS)
+
+SECURE_SRCS := \
+    $(WOLFHSM_RUNNER_DIR)/ivt.c \
+    $(WOLFHSM_RUNNER_DIR)/runtime.c \
+    $(PORT_DIR)/platform_stm32h563.c \
+    $(ROOT)/src/monitor.c \
+    $(PORT_DIR)/partitions.c
+
+WOLFHSM_SECURE_SRCS := \
+    $(WOLFHSM_DIR)/src/wh_client.c \
+    $(WOLFHSM_DIR)/src/wh_comm.c \
+    $(WOLFHSM_DIR)/src/wh_message_comm.c \
+    $(WOLFHSM_DIR)/src/wh_message_crypto.c \
+    $(WOLFHSM_DIR)/src/wh_message_keystore.c \
+    $(WOLFHSM_DIR)/src/wh_message_nvm.c \
+    $(WOLFHSM_DIR)/src/wh_message_customcb.c \
+    $(WOLFHSM_DIR)/src/wh_message_counter.c \
+    $(WOLFHSM_DIR)/src/wh_nvm.c \
+    $(WOLFHSM_DIR)/src/wh_nvm_flash.c \
+    $(WOLFHSM_DIR)/src/wh_flash_unit.c \
+    $(WOLFHSM_DIR)/src/wh_server.c \
+    $(WOLFHSM_DIR)/src/wh_server_crypto.c \
+    $(WOLFHSM_DIR)/src/wh_server_keystore.c \
+    $(WOLFHSM_DIR)/src/wh_server_nvm.c \
+    $(WOLFHSM_DIR)/src/wh_server_customcb.c \
+    $(WOLFHSM_DIR)/src/wh_server_counter.c \
+    $(WOLFHSM_DIR)/src/wh_transport_mem.c \
+    $(WOLFHSM_DIR)/src/wh_lock.c \
+    $(WOLFHSM_DIR)/src/wh_utils.c \
+    $(WOLFHSM_DIR)/src/wh_crypto.c \
+    $(WOLFHSM_DIR)/src/wh_keyid.c \
+    $(WOLFHSM_DIR)/src/wh_log.c
+
+WOLFCRYPT_SECURE_SRCS := \
+    $(WOLFSSL_DIR)/wolfcrypt/src/aes.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/asn.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/coding.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/cryptocb.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/ecc.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/error.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/hash.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/hmac.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/logging.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/random.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/sha256.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/sp_cortexm.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/sp_int.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/wolfmath.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/wc_port.c
+
+ifeq ($(WT_WOLFCRYPT_ARMASM),1)
+WOLFCRYPT_SECURE_SRCS += \
+    $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/thumb2-aes-asm_c.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c
+endif
+
+ifeq ($(WT_WOLFCRYPT_STM32_HASH),1)
+WOLFCRYPT_SECURE_SRCS += $(WOLFSSL_DIR)/wolfcrypt/src/port/st/stm32.c
+HSM_WOLFHSM_CFLAGS += -DNO_SHA256
+endif
+
+WT_SECURE_EXTRA_SRCS := \
+    $(ROOT)/src/arch/armv8m/cmse.c \
+    $(ROOT)/src/arch/armv8m/coroutine_armv8m.c \
+    $(ROOT)/src/sched/coroutine.c \
+    $(ROOT)/src/sync/mutex.c \
+    $(wildcard $(PORT_DIR)/rng_entropy.c) \
+    $(wildcard $(PORT_DIR)/hsm_flash.c) \
+    $(WOLFHAL_DIR)/src/reg.c \
+    $(WOLFHAL_DIR)/src/rng/stm32h5_rng.c \
+    $(wildcard $(WOLFHSM_RUNNER_DIR)/libc_stubs.c) \
+    $(wildcard $(ROOT)/src/services/wolfhsm/*.c) \
+    $(wildcard $(ROOT)/src/arch/armv8m/cmse_transport.c)
+
+HSM_SECURE_BASE_OBJS := $(patsubst %.c,$(BUILD_DIR)/sec_%.o,$(notdir $(SECURE_SRCS)))
+HSM_WOLFHSM_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/wh_sec_%.o,$(notdir $(WOLFHSM_SECURE_SRCS)))
+HSM_WOLFCRYPT_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/wc_sec_%.o,$(notdir $(WOLFCRYPT_SECURE_SRCS)))
+HSM_WT_EXTRA_OBJS := $(patsubst %.c,$(BUILD_DIR)/wt_sec_%.o,$(notdir $(WT_SECURE_EXTRA_SRCS)))
+
+ALL_SECURE_OBJS := \
+    $(HSM_SECURE_BASE_OBJS) \
+    $(HSM_WOLFHSM_SEC_OBJS) \
+    $(HSM_WOLFCRYPT_SEC_OBJS) \
+    $(HSM_WT_EXTRA_OBJS)
+
+$(BUILD_DIR):
+	@mkdir -p $(BUILD_DIR)
+
+$(WOLFHSM_CFG_H): | $(BUILD_DIR)
+	printf '#include "%s"\n' "$(abspath $(WOLFHSM_RUNNER_DIR)/wh_settings_local.h)" > $@
+
+$(BUILD_MODE_STAMP): | $(BUILD_DIR)
+	@tmp="$@.tmp"; \
+	printf '%s\n' \
+		'ARCH=$(ARCH)' \
+		'TARGET=$(TARGET)' \
+		'WT_ENGINE_HSM=$(WT_ENGINE_HSM)' \
+		'WT_MAX_GUESTS=$(WT_MAX_GUESTS)' \
+		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
+		'WT_WOLFCRYPT_SP_ASM=$(WT_WOLFCRYPT_SP_ASM)' \
+		'WT_WOLFCRYPT_ARMASM=$(WT_WOLFCRYPT_ARMASM)' \
+		'WT_WOLFCRYPT_STM32_HASH=$(WT_WOLFCRYPT_STM32_HASH)' \
+		'WT_SHARED_UART=$(WT_SHARED_UART)' \
+		'WT_TIMESLICE_MS=$(WT_TIMESLICE_MS)' \
+		'WT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ)' \
+		'WT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ)' > "$$tmp"; \
+	if test -f "$@" && cmp -s "$$tmp" "$@"; then \
+		rm -f "$$tmp"; \
+	else \
+		mv "$$tmp" "$@"; \
+	fi
+
+$(BUILD_DIR)/wh_sec_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_WOLFHSM_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/st/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/armv8m/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sched/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sync/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(PORT_DIR)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(WOLFHAL_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(WOLFHAL_DIR)/src/rng/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/wolfhsm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/sec_%.o: $(PORT_DIR)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/sec_%.o: $(ROOT)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) $(WOLFHSM_RUNNER_DIR)/secure.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) \
+		-Wl,-T$(WOLFHSM_RUNNER_DIR)/secure.ld \
+		-Wl,--cmse-implib \
+		-Wl,--out-implib=$(SECURE_CMSE_IMPLIB) \
+		-o $(SECURE_ELF) $(ALL_SECURE_OBJS) -lgcc
+
+$(SECURE_BIN): $(SECURE_ELF)
+	$(OBJCOPY) -O binary $< $@
+

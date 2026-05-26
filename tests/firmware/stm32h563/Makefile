@@ -7,6 +7,7 @@ ROOT := ../../..
 PORT_DIR := $(ROOT)/src/port/stm32h563
 WOLFHSM_RUNNER_DIR := $(ROOT)/src/services/wolfhsm/runner
 ARCH ?= armv8m
+TARGET ?= stm32h563
 PORT_HEADERS := $(wildcard $(PORT_DIR)/*.h)
 
 CPU_FLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only
@@ -46,9 +47,11 @@ SECURE_CFLAGS := $(CFLAGS_COMMON) -mcmse
 NONSECURE_CFLAGS := $(CFLAGS_COMMON) -mno-unaligned-access
 
 BUILD_DIR := build
+TOP_BUILD_DIR := $(ROOT)/build
 
-SECURE_ELF := $(BUILD_DIR)/secure.elf
-SECURE_BIN := $(BUILD_DIR)/secure.bin
+SECURE_ELF := $(TOP_BUILD_DIR)/wolftrust.elf
+SECURE_BIN := $(TOP_BUILD_DIR)/wolftrust.bin
+SECURE_CMSE_IMPLIB := $(TOP_BUILD_DIR)/secure_cmse_implib.o
 BUILD_MODE_STAMP := $(BUILD_DIR)/build_mode.stamp
 
 GUEST0_ELF := $(BUILD_DIR)/guest0.elf
@@ -488,19 +491,34 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		mv "$$tmp" "$@"; \
 	fi
 
+TOPLEVEL_SECURE_MAKE_VARS := \
+	ARCH=$(ARCH) \
+	TARGET=$(TARGET) \
+	TOOLPREFIX=$(TOOLPREFIX) \
+	WT_ENGINE_HSM=$(WT_ENGINE_HSM) \
+	WT_TIMESLICE_MS=$(WT_TIMESLICE_MS) \
+	WT_MAX_GUESTS=$(WT_MAX_GUESTS) \
+	WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE) \
+	WT_WOLFCRYPT_SP_ASM=$(WT_WOLFCRYPT_SP_ASM) \
+	WT_WOLFCRYPT_ARMASM=$(WT_WOLFCRYPT_ARMASM) \
+	WT_WOLFCRYPT_STM32_HASH=$(WT_WOLFCRYPT_STM32_HASH) \
+	WT_SHARED_UART=$(WT_SHARED_UART) \
+	WT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ) \
+	WT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ)
+TOPLEVEL_SECURE_ELF_TARGET := build/wolftrust.elf
+TOPLEVEL_SECURE_BIN_TARGET := build/wolftrust.bin
+TOPLEVEL_SECURE_CMSE_TARGET := build/secure_cmse_implib.o
+
+$(SECURE_BIN): FORCE
+	$(MAKE) -C $(ROOT) $(TOPLEVEL_SECURE_MAKE_VARS) $(TOPLEVEL_SECURE_BIN_TARGET)
+
+$(SECURE_ELF): FORCE
+	$(MAKE) -C $(ROOT) $(TOPLEVEL_SECURE_MAKE_VARS) $(TOPLEVEL_SECURE_ELF_TARGET)
+
+$(SECURE_CMSE_IMPLIB): FORCE
+	$(MAKE) -C $(ROOT) $(TOPLEVEL_SECURE_MAKE_VARS) $(TOPLEVEL_SECURE_CMSE_TARGET)
+
 ifeq ($(WT_ENGINE_HSM),1)
-
-# CMSE import library: secure link emits an object file containing weak
-# symbols at the resolved addresses of every cmse_nonsecure_entry. Guests
-# link against it instead of hardcoding NSC addresses (wolfBoot pattern).
-SECURE_CMSE_IMPLIB := $(BUILD_DIR)/secure_cmse_implib.o
-
-$(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) $(WOLFHSM_RUNNER_DIR)/secure.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
-	$(CC) $(SECURE_CFLAGS) \
-		-Wl,-T$(WOLFHSM_RUNNER_DIR)/secure.ld \
-		-Wl,--cmse-implib \
-		-Wl,--out-implib=$(SECURE_CMSE_IMPLIB) \
-		-o $(SECURE_ELF) $(ALL_SECURE_OBJS) -lgcc
 
 $(GUEST0_ELF): $(ALL_GUEST0_OBJS) $(SECURE_CMSE_IMPLIB) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(NONSECURE_CFLAGS) \
@@ -524,11 +542,6 @@ $(GUEST1_ELF): $(ALL_GUEST1_OBJS) $(SECURE_CMSE_IMPLIB) nonsecure/guest.ld $(BUI
 
 else
 
-$(SECURE_ELF): $(SECURE_SRCS) $(WOLFHSM_RUNNER_DIR)/secure.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
-	$(CC) $(SECURE_CFLAGS) \
-		-Wl,-T$(WOLFHSM_RUNNER_DIR)/secure.ld \
-		-o $@ $(SECURE_SRCS) -lgcc
-
 $(GUEST0_ELF): $(NONSECURE_SRCS) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(NONSECURE_CFLAGS) \
 		-DWT_GUEST_ID=0u \
@@ -550,9 +563,6 @@ $(GUEST1_ELF): $(NONSECURE_SRCS) nonsecure/guest.ld $(BUILD_MODE_STAMP) | $(BUIL
 		-o $@ $(NONSECURE_SRCS) -lgcc
 
 endif  # WT_ENGINE_HSM=1
-
-$(SECURE_BIN): $(SECURE_ELF)
-	$(OBJCOPY) -O binary $< $@
 
 $(GUEST0_BIN): $(GUEST0_ELF)
 	$(OBJCOPY) -O binary $< $@

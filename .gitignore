@@ -1,4 +1,5 @@
 # Build outputs
+/build/
 tests/firmware/stm32h563/build/
 *.o
 /wolftrust
