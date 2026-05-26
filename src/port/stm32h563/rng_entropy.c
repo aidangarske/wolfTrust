@@ -28,15 +28,12 @@
 #include <wolfHAL/rng/stm32h5_rng.h>
 #include <wolfHAL/timeout.h>
 
+#include "board.h"
+
 /* Prototype matches the declaration in user_settings.h (CUSTOM_RAND_GENERATE_BLOCK). */
 int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
 
-#ifdef WT_INSECURE_TEST_RNG
-static uint32_t s_test_rng_state = 0xA5A5A5A5u;
-#else
 static bool s_rng_ready;
-#endif
-
 static uint32_t s_rng_timeout_tick;
 
 static uint32_t wt_rng_timeout_tick(void)
@@ -50,38 +47,14 @@ whal_Timeout g_whalTimeout = {
     .GetTick = wt_rng_timeout_tick,
 };
 
-#ifdef WT_INSECURE_TEST_RNG
-static int wt_insecure_test_rng_generate(unsigned char *output, unsigned int sz)
-{
-    while (sz != 0u) {
-        unsigned int n = sz < 4u ? sz : 4u;
-
-        s_test_rng_state = (s_test_rng_state * 1103515245u) + 12345u;
-        for (unsigned int i = 0u; i < n; ++i) {
-            *output++ = (unsigned char)(s_test_rng_state >> (8u * i));
-        }
-        sz -= n;
-    }
-
-    return 0;
-}
-#endif
-
 int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz)
 {
-#ifndef WT_INSECURE_TEST_RNG
-    whal_Rng *rng = (whal_Rng *)&whal_Stm32h5_Rng_Dev;
-#endif
-
     if (output == NULL && sz != 0u) {
         return -1;
     }
 
-#ifdef WT_INSECURE_TEST_RNG
-    return wt_insecure_test_rng_generate(output, sz);
-#else
     if (!s_rng_ready) {
-        if (whal_Rng_Init(rng) != WHAL_SUCCESS) {
+        if (whal_Rng_Init(BOARD_RNG_DEV) != WHAL_SUCCESS) {
             return -1;
         }
         s_rng_ready = true;
@@ -91,10 +64,9 @@ int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz)
         return 0;
     }
 
-    if (whal_Rng_Generate(rng, output, (size_t)sz) == WHAL_SUCCESS) {
+    if (whal_Rng_Generate(BOARD_RNG_DEV, output, (size_t)sz) == WHAL_SUCCESS) {
         return 0;
     }
 
     return -1;
-#endif
 }
