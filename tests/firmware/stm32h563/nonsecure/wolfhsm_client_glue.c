@@ -211,6 +211,9 @@ static int guest_tx_recv(void *ctx_v, uint16_t *out_size, void *data)
     /* Read the full 8-byte CSR atomically as a single 64-bit load. */
     cur = ctx->resp_csr->u64;
     if (cur == ctx->last_resp_notify) {
+        /* Let the monitor hand this guest's slot to its HSM tasklet or a
+         * peer guest instead of hot-spinning in back-to-back NSC polls. */
+        __asm volatile("wfi");
         return WH_ERROR_NOTREADY;
     }
 
@@ -271,12 +274,6 @@ int wolfhsm_guest_init(void)
         return rc;
     }
 
-    rc = wc_CryptoCb_RegisterDevice(WH_DEV_ID, wh_Client_CryptoCb,
-                                    &g_client_ctx);
-    if (rc != 0) {
-        return rc;
-    }
-
     g_client_ready = 1;
 
     return WH_ERROR_OK;
@@ -299,6 +296,7 @@ whClientContext *wolfhsm_guest_client(void)
  * ---------------------------------------------------------------------------*/
 int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz)
 {
+
     if (output == NULL && sz != 0u) {
         return WH_ERROR_BADARGS;
     }

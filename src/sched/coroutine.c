@@ -25,15 +25,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Static coroutine table; slot 0 is reserved for g_co_bootstrap. */
+/* Static coroutine table; slot 0 is reserved for the implicit bootstrap. */
 static struct wt_co g_co_table[WT_CO_MAX];
 
 /* Implicit bootstrap (monitor) context — never on the runqueue. */
-static struct wt_co g_co_bootstrap;
+struct wt_co g_wt_co_bootstrap;
 
-/* Currently executing coroutine. Points to &g_co_bootstrap while the
+/* Currently executing coroutine. Points to &g_wt_co_bootstrap while the
  * monitor is running.  Updated by the C scheduler before every switch. */
-static struct wt_co *g_co_current;
+struct wt_co *g_wt_co_current;
 
 /* FIFO runqueue of RUNNABLE coroutines. */
 static struct wt_co *g_runqueue_head;
@@ -50,7 +50,7 @@ static bool is_valid_co_pointer(const struct wt_co *co)
 {
     uint32_t i;
 
-    if (co == &g_co_bootstrap) {
+    if (co == &g_wt_co_bootstrap) {
         return true;
     }
 
@@ -65,7 +65,7 @@ static bool is_valid_co_pointer(const struct wt_co *co)
 
 static void runqueue_enqueue(struct wt_co *co)
 {
-    if (!is_valid_co_pointer(co) || co == &g_co_bootstrap) {
+    if (!is_valid_co_pointer(co) || co == &g_wt_co_bootstrap) {
         wt_platform_panic();
         return;
     }
@@ -124,20 +124,50 @@ static void check_canary(struct wt_co *co)
  * Switch helper: validate canary, update state bookkeeping, call arch.
  * ---------------------------------------------------------------------- */
 
-static void do_switch(struct wt_co *from, struct wt_co *to)
+static void do_switch(struct wt_co *to)
 {
-    if (!is_valid_co_pointer(from)) {
-        wt_platform_panic();
-    }
     if (to == (struct wt_co *)0 || !is_valid_co_pointer(to)) {
-        to = &g_co_bootstrap;
+        to = &g_wt_co_bootstrap;
     }
 
-    check_canary(from);
-    g_co_current = to;
+    check_canary(&g_wt_co_bootstrap);
+    g_wt_co_current = to;
     to->state = WT_CO_RUNNING;
-    wt_co_arch_switch(from, to);
-    /* Execution resumes here when `from` is switched back in. */
+    wt_co_arch_enter(to);
+    /* Execution resumes here when `to` blocks or faults back to bootstrap. */
+}
+
+static void runqueue_unlink(struct wt_co *co)
+{
+    struct wt_co **link;
+    struct wt_co *node;
+
+    if (co == (struct wt_co *)0) {
+        return;
+    }
+
+    link = &g_runqueue_head;
+    while (*link != (struct wt_co *)0) {
+        node = *link;
+        if (node == co) {
+            *link = node->next_run;
+            if (g_runqueue_tail == node) {
+                struct wt_co *tail = g_runqueue_head;
+
+                if (tail == (struct wt_co *)0) {
+                    g_runqueue_tail = (struct wt_co *)0;
+                } else {
+                    while (tail->next_run != (struct wt_co *)0) {
+                        tail = tail->next_run;
+                    }
+                    g_runqueue_tail = tail;
+                }
+            }
+            node->next_run = (struct wt_co *)0;
+            return;
+        }
+        link = &(*link)->next_run;
+    }
 }
 
 /* -------------------------------------------------------------------------
@@ -161,17 +191,17 @@ void wt_co_init(void)
         co->next_wait  = (struct wt_co *)0;
     }
 
-    g_co_bootstrap.sp         = 0u;
-    g_co_bootstrap.stack_base = (uint8_t *)0;
-    g_co_bootstrap.stack_size = 0u;
-    g_co_bootstrap.entry      = (wt_co_entry_fn)0;
-    g_co_bootstrap.arg        = (void *)0;
-    g_co_bootstrap.state      = WT_CO_RUNNING;
-    g_co_bootstrap.id         = 0u;
-    g_co_bootstrap.next_run   = (struct wt_co *)0;
-    g_co_bootstrap.next_wait  = (struct wt_co *)0;
+    g_wt_co_bootstrap.sp         = 0u;
+    g_wt_co_bootstrap.stack_base = (uint8_t *)0;
+    g_wt_co_bootstrap.stack_size = 0u;
+    g_wt_co_bootstrap.entry      = (wt_co_entry_fn)0;
+    g_wt_co_bootstrap.arg        = (void *)0;
+    g_wt_co_bootstrap.state      = WT_CO_RUNNING;
+    g_wt_co_bootstrap.id         = 0u;
+    g_wt_co_bootstrap.next_run   = (struct wt_co *)0;
+    g_wt_co_bootstrap.next_wait  = (struct wt_co *)0;
 
-    g_co_current      = &g_co_bootstrap;
+    g_wt_co_current   = &g_wt_co_bootstrap;
     g_runqueue_head   = (struct wt_co *)0;
     g_runqueue_tail   = (struct wt_co *)0;
     g_co_count        = 1u; /* bootstrap counts as slot 0 */
@@ -244,24 +274,16 @@ wt_co_t *wt_co_create_blocked(uint8_t *stack, size_t stack_size,
 void wt_co_block(void)
 {
     struct wt_co *from;
-    struct wt_co *to;
 
-    from = g_co_current;
+    from = g_wt_co_current;
 
-    if (from == &g_co_bootstrap) {
+    if (from == &g_wt_co_bootstrap) {
         /* Blocking the bootstrap would deadlock the monitor. */
         wt_platform_panic();
     }
 
     from->state = WT_CO_BLOCKED;
-    /* Do NOT enqueue — coroutine disappears from the runqueue. */
-
-    to = runqueue_dequeue();
-    if (to == (struct wt_co *)0) {
-        to = &g_co_bootstrap;
-    }
-
-    do_switch(from, to);
+    wt_co_arch_leave();
 }
 
 void wt_co_wake(wt_co_t *co)
@@ -269,7 +291,7 @@ void wt_co_wake(wt_co_t *co)
     if (co == (wt_co_t *)0) {
         return;
     }
-    if (!is_valid_co_pointer(co) || co == (wt_co_t *)&g_co_bootstrap) {
+    if (!is_valid_co_pointer(co) || co == (wt_co_t *)&g_wt_co_bootstrap) {
         wt_platform_panic();
         return;
     }
@@ -321,17 +343,17 @@ void wt_co_mark_faulted(wt_co_t *co)
     co->next_wait = (struct wt_co *)0;
     co->state     = WT_CO_FAULTED;
 
-    if (g_co_current == co) {
-        g_co_current = &g_co_bootstrap;
+    if (g_wt_co_current == co) {
+        g_wt_co_current = &g_wt_co_bootstrap;
     }
 }
 
 wt_co_t *wt_co_current(void)
 {
-    if (g_co_current == &g_co_bootstrap) {
+    if (g_wt_co_current == &g_wt_co_bootstrap) {
         return (wt_co_t *)0;
     }
-    return (wt_co_t *)g_co_current;
+    return (wt_co_t *)g_wt_co_current;
 }
 
 wt_co_state_t wt_co_state(const wt_co_t *co)
@@ -339,13 +361,34 @@ wt_co_state_t wt_co_state(const wt_co_t *co)
     return co->state;
 }
 
+uint32_t wt_co_run(wt_co_t *co)
+{
+    if (co == (wt_co_t *)0) {
+        return 0u;
+    }
+
+    if (g_wt_co_current != &g_wt_co_bootstrap) {
+        return 0u;
+    }
+    if (!is_valid_co_pointer(co) || co == (wt_co_t *)&g_wt_co_bootstrap) {
+        wt_platform_panic();
+        return 0u;
+    }
+    if (co->state != WT_CO_RUNNABLE) {
+        return 0u;
+    }
+
+    runqueue_unlink((struct wt_co *)co);
+    do_switch((struct wt_co *)co);
+    return 1u;
+}
+
 uint32_t wt_co_tick(uint32_t budget_iterations)
 {
     uint32_t      switches = 0u;
     struct wt_co *to;
-    struct wt_co *from;
 
-    if (g_co_current != &g_co_bootstrap) {
+    if (g_wt_co_current != &g_wt_co_bootstrap) {
         /* Called recursively (e.g. an interrupt handler called us
          * while a coroutine was mid-switch). Treat as a no-op rather
          * than panicking; the in-flight coroutine continues when the
@@ -357,21 +400,32 @@ uint32_t wt_co_tick(uint32_t budget_iterations)
         return 0u;
     }
 
-    from = &g_co_bootstrap;
-
     while (switches < budget_iterations) {
         to = runqueue_dequeue();
         if (to == (struct wt_co *)0) {
             break; /* runqueue empty */
         }
 
-        do_switch(from, to);
-        /* Execution resumes here after `to` blocks back to
-         * bootstrap. g_co_current has been restored to &g_co_bootstrap
-         * by the time we return (do_switch updated it before switching
-         * in, and when bootstrap is switched back in it restores itself). */
+        do_switch(to);
         switches++;
     }
 
     return switches;
+}
+
+bool wt_co_request_preempt(void)
+{
+    struct wt_co *current = g_wt_co_current;
+
+    if (current == &g_wt_co_bootstrap || current == (struct wt_co *)0) {
+        return false;
+    }
+    if (current->state != WT_CO_RUNNING) {
+        return false;
+    }
+
+    current->state = WT_CO_RUNNABLE;
+    g_wt_co_pendsv_target = (struct wt_co *)0;
+    wt_co_arch_request_preempt();
+    return true;
 }

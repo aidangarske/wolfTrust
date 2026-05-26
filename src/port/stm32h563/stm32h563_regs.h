@@ -28,13 +28,19 @@
 #define WT_SCB_VTOR_S            (*(volatile uint32_t*)0xE000ED08u)
 #define WT_SCB_VTOR_NS           (*(volatile uint32_t*)0xE002ED08u)
 #define WT_SCB_CCR_S             (*(volatile uint32_t*)0xE000ED14u)
+#define WT_SCB_SHPR3_S           (*(volatile uint32_t*)0xE000ED20u)
 #define WT_SCB_SHCSR_S           (*(volatile uint32_t*)0xE000ED24u)
 #define WT_SCB_CFSR_S            (*(volatile uint32_t*)0xE000ED28u)
 #define WT_SCB_MMFAR_S           (*(volatile uint32_t*)0xE000ED34u)
 #define WT_SCB_BFAR_S            (*(volatile uint32_t*)0xE000ED38u)
+#define WT_SCB_ICSR_S            (*(volatile uint32_t*)0xE000ED04u)
 #define WT_SCB_ICSR_NS           (*(volatile uint32_t*)0xE002ED04u)
+#define WT_SCB_ICSR_PENDSVCLR    (1u << 27)
+#define WT_SCB_ICSR_PENDSVSET    (1u << 28)
 #define WT_SCB_ICSR_PENDSTCLR    (1u << 25)
 #define WT_SCB_ICSR_PENDSTSET    (1u << 26)
+
+#define WT_SCB_SHPR3_PENDSV_SHIFT 16u
 
 #define WT_SCB_SHCSR_MEMFAULTENA (1u << 16)
 #define WT_SCB_SHCSR_BUSFAULTENA (1u << 17)

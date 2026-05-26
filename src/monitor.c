@@ -29,6 +29,15 @@
 #endif
 
 static wt_scheduler_state_t g_scheduler;
+#ifdef WT_ENGINE_HSM
+static wt_guest_id_t g_pending_tasklet_guest;
+static bool g_pending_tasklet_guest_valid;
+#endif
+
+static void wt_schedule_next_guest(void);
+#ifdef WT_ENGINE_HSM
+static void wt_dispatch_hsm_tasklet(wt_guest_id_t guest_id);
+#endif
 
 static wt_guest_runtime_t* wt_guest_runtime(wt_guest_id_t guest_id)
 {
@@ -48,7 +57,40 @@ static const wt_guest_config_t* wt_guest_config(wt_guest_id_t guest_id)
     return &g_scheduler.configs[guest_id];
 }
 
-static wt_guest_id_t wt_find_next_runnable(wt_guest_id_t start)
+static bool wt_hsm_tasklet_runnable(wt_guest_id_t guest_id)
+{
+#ifdef WT_ENGINE_HSM
+    wt_tasklet_t *tasklet = wt_hsm_guest_tasklet(guest_id);
+
+    if (tasklet == NULL) {
+        return false;
+    }
+
+    return wt_tasklet_state(tasklet) == WT_TASKLET_RUNNABLE;
+#else
+    (void)guest_id;
+    return false;
+#endif
+}
+
+#ifdef WT_ENGINE_HSM
+static void wt_resume_pending_tasklet_guest(void)
+{
+    wt_guest_id_t guest_id;
+
+    if (!g_pending_tasklet_guest_valid) {
+        wt_platform_panic();
+    }
+
+    guest_id = g_pending_tasklet_guest;
+    g_pending_tasklet_guest_valid = false;
+    wt_dispatch_hsm_tasklet(guest_id);
+    wt_schedule_next_guest();
+}
+#endif
+
+static wt_guest_id_t wt_find_next_runnable(wt_guest_id_t start,
+                                           wt_scheduler_rep_t *rep)
 {
     size_t attempts;
 
@@ -62,8 +104,23 @@ static wt_guest_id_t wt_find_next_runnable(wt_guest_id_t start)
         if (runtime->remaining_delay_ticks > 0U) {
             continue;
         }
+        if (runtime->state == WT_GUEST_WAITING_HSM) {
+#ifdef WT_ENGINE_HSM
+            if (wt_hsm_tasklet_runnable(candidate)) {
+                if (rep != NULL) {
+                    *rep = WT_SCHED_REP_HSM;
+                }
+                return candidate;
+            }
+            wt_platform_note_hsm_wait_skip(candidate);
+#endif
+            continue;
+        }
         if (runtime->state == WT_GUEST_READY ||
             runtime->state == WT_GUEST_RUNNING) {
+            if (rep != NULL) {
+                *rep = WT_SCHED_REP_NS;
+            }
             return candidate;
         }
     }
@@ -133,10 +190,36 @@ static void wt_dispatch_guest(wt_guest_id_t guest_id)
     wt_apply_partition(guest_id);
     runtime->state = WT_GUEST_RUNNING;
     g_scheduler.current_guest = guest_id;
+    g_scheduler.current_rep = WT_SCHED_REP_NS;
     wt_platform_start_secure_timer(config->timeslice_ms);
     wt_platform_prepare_guest_return(guest_id, &runtime->context);
     wt_platform_restore_guest_context(&runtime->context);
 }
+
+#ifdef WT_ENGINE_HSM
+static void wt_dispatch_hsm_tasklet(wt_guest_id_t guest_id)
+{
+    const wt_guest_config_t* config = wt_guest_config(guest_id);
+    wt_guest_runtime_t* runtime = wt_guest_runtime(guest_id);
+    wt_tasklet_t *tasklet;
+
+    if (config == NULL || runtime == NULL ||
+        runtime->state != WT_GUEST_WAITING_HSM) {
+        wt_platform_panic();
+    }
+
+    tasklet = wt_hsm_guest_tasklet(guest_id);
+    if (tasklet == NULL) {
+        wt_platform_panic();
+    }
+
+    wt_apply_partition(guest_id);
+    g_scheduler.current_guest = guest_id;
+    g_scheduler.current_rep = WT_SCHED_REP_HSM;
+    wt_platform_start_secure_timer(config->timeslice_ms);
+    (void)wt_tasklet_resume(tasklet);
+}
+#endif
 
 static void wt_save_running_guest(const wt_trap_frame_t* frame)
 {
@@ -144,6 +227,10 @@ static void wt_save_running_guest(const wt_trap_frame_t* frame)
     wt_guest_state_t state;
 
     if (g_scheduler.guest_count == 0U) {
+        return;
+    }
+
+    if (g_scheduler.current_rep != WT_SCHED_REP_NS) {
         return;
     }
 
@@ -206,16 +293,37 @@ static void wt_restart_guest(wt_guest_id_t guest_id, wt_fault_reason_t reason)
 static void wt_schedule_next_guest(void)
 {
     wt_guest_id_t next_guest;
+    wt_scheduler_rep_t rep = WT_SCHED_REP_NS;
 
-    next_guest = wt_find_next_runnable((g_scheduler.current_guest + 1U) %
-                                       g_scheduler.guest_count);
-
-    if (next_guest >= g_scheduler.guest_count) {
+    if (g_scheduler.guest_count == 0U) {
         wt_platform_all_guests_faulted();
     }
 
-    wt_platform_quarantine_pending_irqs(&g_scheduler.configs[next_guest].irq_mask);
-    wt_dispatch_guest(next_guest);
+    for (;;) {
+        next_guest = wt_find_next_runnable((g_scheduler.current_guest + 1U) %
+                                           g_scheduler.guest_count,
+                                           &rep);
+
+        if (next_guest >= g_scheduler.guest_count) {
+            wt_platform_all_guests_faulted();
+        }
+
+        wt_platform_quarantine_pending_irqs(&g_scheduler.configs[next_guest].irq_mask);
+        if (rep == WT_SCHED_REP_NS) {
+            wt_dispatch_guest(next_guest);
+        }
+#ifdef WT_ENGINE_HSM
+        else {
+            if (wt_platform_in_handler_mode()) {
+                g_pending_tasklet_guest = next_guest;
+                g_pending_tasklet_guest_valid = true;
+                wt_platform_return_to_secure_thread(wt_resume_pending_tasklet_guest);
+            }
+
+            wt_dispatch_hsm_tasklet(next_guest);
+        }
+#endif
+    }
 }
 
 void wt_monitor_init(void)
@@ -229,7 +337,12 @@ void wt_monitor_init(void)
     g_scheduler.runtime = wt_partitions_runtime_table(&count);
     g_scheduler.guest_count = count;
     g_scheduler.current_guest = 0U;
+    g_scheduler.current_rep = WT_SCHED_REP_NS;
     g_scheduler.monotonic_ticks = 0U;
+#ifdef WT_ENGINE_HSM
+    g_pending_tasklet_guest = 0U;
+    g_pending_tasklet_guest_valid = false;
+#endif
 
     for (i = 0; i < count; ++i) {
         g_scheduler.runtime[i].restart_count = 0U;
@@ -243,7 +356,7 @@ void wt_monitor_start(void)
     wt_guest_id_t next_guest;
 
     wt_platform_mask_all_guest_irqs();
-    next_guest = wt_find_next_runnable(0U);
+    next_guest = wt_find_next_runnable(0U, NULL);
     if (next_guest >= g_scheduler.guest_count) {
         wt_platform_all_guests_faulted();
     }
@@ -256,15 +369,25 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
     g_scheduler.monotonic_ticks++;
     wt_platform_mask_all_guest_irqs();
 #ifdef WT_ENGINE_HSM
-    /* If SysTick interrupted secure-side HSM service code, the trap frame
-     * represents secure execution — not a guest. Do not attempt guest
-     * scheduling from that frame; return to the interrupted secure path and
-     * let scheduling resume when the veneer returns. */
-    if (wt_platform_secure_service_active() ||
-        wt_tasklet_current() != (wt_tasklet_t *)0) {
+    if (wt_tasklet_current() != (wt_tasklet_t *)0) {
+        wt_guest_id_t tasklet_guest =
+            wt_hsm_guest_for_tasklet(wt_tasklet_current());
+
+        wt_tick_restart_backoff();
+        if (tasklet_guest >= g_scheduler.guest_count ||
+            g_scheduler.runtime[tasklet_guest].state == WT_GUEST_WAITING_HSM) {
+            (void)wt_tasklet_request_preempt();
+        }
+        return;
+    }
+    if (wt_platform_secure_service_active()) {
         return;
     }
 #endif
+    if (!wt_platform_ns_thread_mode_trap()) {
+        wt_tick_restart_backoff();
+        return;
+    }
     wt_save_running_guest(frame);
     wt_tick_restart_backoff();
     wt_schedule_next_guest();
@@ -292,8 +415,7 @@ void wt_monitor_hsm_response_ready(wt_guest_id_t guest_id)
         return;
     }
     if (runtime->state == WT_GUEST_WAITING_HSM) {
-        runtime->state = (guest_id == g_scheduler.current_guest) ?
-                         WT_GUEST_RUNNING : WT_GUEST_READY;
+        runtime->state = WT_GUEST_READY;
     }
 }
 #endif

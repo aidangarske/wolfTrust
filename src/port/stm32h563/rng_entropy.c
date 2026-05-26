@@ -31,9 +31,10 @@
 /* Prototype matches the declaration in user_settings.h (CUSTOM_RAND_GENERATE_BLOCK). */
 int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
 
-static bool s_rng_ready;
 #ifdef WT_INSECURE_TEST_RNG
 static uint32_t s_test_rng_state = 0xA5A5A5A5u;
+#else
+static bool s_rng_ready;
 #endif
 
 static uint32_t s_rng_timeout_tick;
@@ -68,19 +69,20 @@ static int wt_insecure_test_rng_generate(unsigned char *output, unsigned int sz)
 
 int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz)
 {
+#ifndef WT_INSECURE_TEST_RNG
     whal_Rng *rng = (whal_Rng *)&whal_Stm32h5_Rng_Dev;
+#endif
 
     if (output == NULL && sz != 0u) {
         return -1;
     }
 
+#ifdef WT_INSECURE_TEST_RNG
+    return wt_insecure_test_rng_generate(output, sz);
+#else
     if (!s_rng_ready) {
         if (whal_Rng_Init(rng) != WHAL_SUCCESS) {
-#ifdef WT_INSECURE_TEST_RNG
-            return wt_insecure_test_rng_generate(output, sz);
-#else
             return -1;
-#endif
         }
         s_rng_ready = true;
     }
@@ -93,9 +95,6 @@ int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz)
         return 0;
     }
 
-#ifdef WT_INSECURE_TEST_RNG
-    return wt_insecure_test_rng_generate(output, sz);
-#else
     return -1;
 #endif
 }

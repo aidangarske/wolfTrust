@@ -22,6 +22,7 @@
 #ifndef WOLFTRUST_SCHED_COROUTINE_H
 #define WOLFTRUST_SCHED_COROUTINE_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -87,6 +88,11 @@ wt_co_t *wt_co_current(void);
  * decisions in user code. */
 wt_co_state_t wt_co_state(const wt_co_t *co);
 
+/* Run one specific runnable coroutine from the bootstrap context.
+ * Returns 1 if `co` ran and switched back, 0 if `co` was NULL, not
+ * runnable, or the caller was not in the bootstrap context. */
+uint32_t wt_co_run(wt_co_t *co);
+
 /* Run the coroutine scheduler from the bootstrap context for at most
  * `budget_iterations` switches OR until no coroutine is RUNNABLE,
  * whichever comes first. Returns the number of switches actually
@@ -95,6 +101,12 @@ wt_co_state_t wt_co_state(const wt_co_t *co);
  * starving the guest scheduler. budget_iterations==0 returns 0
  * immediately. Calling from inside a coroutine is forbidden. */
 uint32_t wt_co_tick(uint32_t budget_iterations);
+
+/* Request preemption of the currently running coroutine from handler
+ * mode. The interrupted coroutine becomes RUNNABLE again and Secure
+ * PendSV returns execution to the bootstrap context. Returns false if
+ * no coroutine is currently running. */
+bool wt_co_request_preempt(void);
 
 /* Mark `co` as terminally FAULTED and remove it from the runqueue / any
  * wait queue. Called from the Secure-side fault handler when a coroutine

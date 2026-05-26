@@ -1051,12 +1051,16 @@ void Reset_Handler(void)
 
 #ifdef WT_ENGINE_HSM
         run_hsm_selftest();
-#endif
-
+#else
         wt_systick_init();
+#endif
     }
 
     for (;;) {
+#ifdef WT_ENGINE_HSM
+        __asm volatile("nop");
+#else
         __asm volatile("wfi");
+#endif
     }
 }

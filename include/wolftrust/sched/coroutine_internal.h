@@ -58,16 +58,22 @@ struct wt_co {
     struct wt_co *next_wait;
 };
 
-/* Architecture hook. Saves callee-saved regs + LR on `from`'s stack,
- * stores resulting SP into from->sp, loads to->sp into MSP, restores
- * callee-saved regs + LR, returns into `to`'s execution. Must be a
- * naked function. If `from` is NULL (only on the very first dispatch),
- * the current MSP is not saved. */
-void wt_co_arch_switch(struct wt_co *from, struct wt_co *to);
+/* Exposed to the ARMv8-M exception-based switch path. */
+extern struct wt_co  g_wt_co_bootstrap;
+extern struct wt_co *g_wt_co_current;
+extern struct wt_co *g_wt_co_pendsv_target;
+
+/* Architecture hooks. The ARMv8-M port enters tasklets through
+ * SVC-triggered Secure PendSV, then tasklets block back to bootstrap by
+ * restoring the saved MSP_S bootstrap frame directly. Each call returns
+ * only after control is back on the bootstrap MSP_S stack. */
+void wt_co_arch_enter(struct wt_co *to);
+void wt_co_arch_leave(void);
+void wt_co_arch_request_preempt(void);
 
 /* Architecture hook. Initialise `co`'s stack so that a subsequent
- * wt_co_arch_switch(NULL, co) (or any other from->co) returns into
- * `entry(arg)`. Sets co->sp to the prepared top-of-stack. Coroutine
+ * wt_co_arch_enter(co) returns into `entry(arg)`. Sets co->sp to the
+ * prepared top-of-stack. Coroutine
  * must never return from `entry`; if it does, wt_platform_panic is
  * invoked via a trampoline frame the arch code installs at the
  * bottom of the saved frame. */

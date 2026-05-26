@@ -375,19 +375,19 @@ struct wt_co *wt_hsm_guest_tasklet(wt_guest_id_t guest_id)
 }
 
 /* =========================================================================
- * wt_hsm_guest_for_coroutine
+ * wt_hsm_guest_for_tasklet
  *
  * Reverse lookup. Linear scan is fine: WT_MAX_GUESTS is small (currently 2)
  * and this is only called from the Secure fault dispatcher.
  * ====================================================================== */
-wt_guest_id_t wt_hsm_guest_for_coroutine(const struct wt_co *co)
+wt_guest_id_t wt_hsm_guest_for_tasklet(const struct wt_co *tasklet)
 {
     wt_guest_id_t gid;
 
-    if (co == NULL) return WT_MAX_GUESTS;
+    if (tasklet == NULL) return WT_MAX_GUESTS;
 
     for (gid = 0; gid < WT_MAX_GUESTS; gid++) {
-        if (g_guests[gid].tasklet == co) {
+        if (g_guests[gid].tasklet == tasklet) {
             return gid;
         }
     }

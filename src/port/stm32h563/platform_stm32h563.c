@@ -40,7 +40,6 @@
 #include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_transport_mem.h"
 
-#define WT_HSM_SUBMIT_BUDGET 8u
 #endif /* WT_ENGINE_HSM */
 
 /* Secure MPU attribute encodings. MPU_RBAR[2:1] = AP (access permissions),
@@ -105,6 +104,9 @@ static volatile uint32_t g_last_fault_pc;
 static volatile uint32_t g_switch_count;
 static volatile uint32_t g_active_guest;
 static volatile uint32_t g_secure_service_depth;
+static volatile uint32_t g_hsm_wait_skip_count;
+static volatile uint32_t g_tasklet_fault_count;
+static void (*g_secure_thread_resume_entry)(void);
 
 typedef struct wt_virtual_systick {
     uint32_t csr;
@@ -390,6 +392,61 @@ static uint32_t wt_read_ipsr(void)
     return value;
 }
 
+__attribute__((noreturn, used))
+void wt_secure_thread_resume_trampoline(void)
+{
+    void (*entry)(void) = g_secure_thread_resume_entry;
+
+    if (entry == NULL) {
+        wt_platform_panic();
+    }
+
+    entry();
+    wt_platform_panic();
+}
+
+bool wt_platform_in_handler_mode(void)
+{
+    return wt_read_ipsr() != 0u;
+}
+
+bool wt_platform_ns_thread_mode_trap(void)
+{
+    return (g_live_exc_return & 0x8u) != 0u;
+}
+
+void wt_platform_return_to_secure_thread(void (*entry)(void))
+{
+    if (entry == NULL || wt_read_ipsr() == 0u) {
+        wt_platform_panic();
+    }
+
+    g_secure_thread_resume_entry = entry;
+
+    __asm volatile(
+        "sub    sp, sp, #32                  \n"
+        "movs   r1, #0                       \n"
+        "str    r1, [sp, #0]                 \n"
+        "str    r1, [sp, #4]                 \n"
+        "str    r1, [sp, #8]                 \n"
+        "str    r1, [sp, #12]                \n"
+        "str    r1, [sp, #16]                \n"
+        "str    r1, [sp, #20]                \n"
+        "movw   r1, #:lower16:wt_secure_thread_resume_trampoline \n"
+        "movt   r1, #:upper16:wt_secure_thread_resume_trampoline \n"
+        "str    r1, [sp, #24]                \n"
+        "movw   r1, #0x0000                  \n"
+        "movt   r1, #0x0100                  \n"
+        "str    r1, [sp, #28]                \n"
+        "mvn    lr, #6                       \n"
+        "bx     lr                           \n"
+        :
+        : "r"(entry)
+        : "memory", "r1");
+
+    __builtin_unreachable();
+}
+
 static void wt_program_ns_mpu_region(uintptr_t base, size_t size, uint32_t attributes)
 {
     uint32_t rbar = (uint32_t)(base & 0xFFFFFFE0u);
@@ -559,6 +616,10 @@ void wt_platform_init(void)
      * by the time we get the trap). STKOF on PSPLIM_S overflow surfaces
      * as a UsageFault. */
     WT_SCB_SHCSR_S |= WT_SCB_SHCSR_MEMFAULTENA | WT_SCB_SHCSR_USGFAULTENA;
+#ifdef WT_ENGINE_HSM
+    WT_SCB_SHPR3_S |= (0xFFu << WT_SCB_SHPR3_PENDSV_SHIFT);
+    WT_SCB_ICSR_S = WT_SCB_ICSR_PENDSVCLR;
+#endif
     /* Enable USART2/USART3 clocks in both security views before guests run. */
     for (size_t i = 0u; i < sizeof(uart_clocks) / sizeof(uart_clocks[0]); ++i) {
         wt_rcc_enable_clock(WT_RCC_BASE_S, &uart_clocks[i]);
@@ -570,6 +631,9 @@ void wt_platform_init(void)
     wt_platform_zero_guest_memory(WT_GUEST1_RAM_BASE, WT_GUEST_RAM_SIZE);
     g_switch_count = 0u;
     g_active_guest = UINT32_MAX;
+    g_secure_service_depth = 0u;
+    g_hsm_wait_skip_count = 0u;
+    g_tasklet_fault_count = 0u;
 }
 
 void wt_platform_start_secure_timer(uint32_t timeslice_ms)
@@ -1012,17 +1076,18 @@ __attribute__((naked)) void SecureFault_Handler(void)
  *   2. The naked handler asm fabricates a Secure-Thread MSP exception
  *      frame on MSP_S that targets wt_co_fault_recovery_thunk, then
  *      EXC_RETURNs. Hardware lands in the thunk on MSP_S, the thunk
- *      pops the bootstrap's saved {r4-r11, lr} frame, and execution
- *      resumes inside wt_tasklet_run as if the tasklet had switched
- *      back. The scheduler picks up the next runnable tasklet — the
- *      faulted one is no longer on the runqueue.
+ *      drops the bootstrap's saved r4-r11 frame, returns through the
+ *      preserved bootstrap exception frame, and execution resumes
+ *      inside wt_tasklet_run as if the tasklet had switched back. The
+ *      scheduler picks up the next runnable tasklet — the faulted one
+ *      is no longer on the runqueue.
  *
  * If the fault fires while bootstrap (monitor) is running there is no
  * tasklet to abandon and no saved frame to unwind to, so the C
  * dispatcher panics.
  * ----------------------------------------------------------------------- */
-static void wt_secure_coroutine_fault_dispatch(void) __attribute__((used));
-static void wt_secure_coroutine_fault_dispatch(void)
+static void wt_secure_tasklet_fault_dispatch(void) __attribute__((used));
+static void wt_secure_tasklet_fault_dispatch(void)
 {
     uint32_t cfsr = WT_SCB_CFSR_S;
 
@@ -1038,7 +1103,9 @@ static void wt_secure_coroutine_fault_dispatch(void)
         wt_platform_panic();
     }
 
-    wt_guest_id_t gid = wt_hsm_guest_for_coroutine(tasklet);
+    g_tasklet_fault_count++;
+
+    wt_guest_id_t gid = wt_hsm_guest_for_tasklet(tasklet);
     if (gid < WT_MAX_GUESTS) {
         (void)wt_hsm_signal_fault(gid);
     }
@@ -1049,10 +1116,10 @@ static void wt_secure_coroutine_fault_dispatch(void)
 /* Shared tail for MemManage_Handler and UsageFault_Handler. Naked so
  * we control the stack layout the EXC_RETURN unwinds through. */
 __attribute__((naked, used))
-static void wt_secure_coroutine_fault_entry(void)
+static void wt_secure_tasklet_fault_entry(void)
 {
     __asm volatile(
-        "bl     wt_secure_coroutine_fault_dispatch  \n"
+        "bl     wt_secure_tasklet_fault_dispatch    \n"
         /* Fabricate an 8-word exception frame on MSP_S whose PC field
          * points at the recovery thunk. r0-r3, r12, lr are don't-care
          * (the thunk's first instruction is `pop {r4-r11, pc}`). xPSR
@@ -1087,12 +1154,12 @@ static void wt_secure_coroutine_fault_entry(void)
 
 __attribute__((naked)) void MemManage_Handler(void)
 {
-    __asm volatile("b wt_secure_coroutine_fault_entry \n");
+    __asm volatile("b wt_secure_tasklet_fault_entry \n");
 }
 
 __attribute__((naked)) void UsageFault_Handler(void)
 {
-    __asm volatile("b wt_secure_coroutine_fault_entry \n");
+    __asm volatile("b wt_secure_tasklet_fault_entry \n");
 }
 #endif /* WT_ENGINE_HSM */
 
@@ -1114,6 +1181,12 @@ static void wt_secure_service_exit(void)
 bool wt_platform_secure_service_active(void)
 {
     return g_secure_service_depth != 0u;
+}
+
+void wt_platform_note_hsm_wait_skip(wt_guest_id_t guest_id)
+{
+    (void)guest_id;
+    g_hsm_wait_skip_count++;
 }
 
 /* Common preamble: validate the current guest is known and HSM-ready. */
@@ -1144,15 +1217,13 @@ int WolfTrust_HSM_Submit_Impl(uint16_t size)
         goto out;
     }
 
-    /* Mark this guest blocked on HSM work, then run the per-guest tasklet
-     * from this secure thread-mode veneer. The SysTick monitor will skip the
-     * guest if the request is still outstanding when its slice expires. */
+    /* Mark this guest blocked on HSM work and wake its secure tasklet.
+     * The monitor owns tasklet scheduling after this point. */
     wt_monitor_hsm_request_pending(g_active_guest);
     wt_tasklet_t *tasklet = wt_hsm_guest_tasklet(g_active_guest);
     if (tasklet != NULL) {
         wt_tasklet_wake(tasklet);
     }
-    (void)wt_tasklet_run(WT_HSM_SUBMIT_BUDGET);
     rc = WH_ERROR_OK;
 
 out:
@@ -1176,14 +1247,6 @@ int WolfTrust_HSM_Poll_Impl(uint16_t seq)
 
     rc = wt_hsm_veneer_precheck();
     if (rc != WH_ERROR_OK) goto out;
-
-    {
-        wt_tasklet_t *tasklet = wt_hsm_guest_tasklet(g_active_guest);
-        if (tasklet != NULL) {
-            wt_tasklet_wake(tasklet);
-        }
-        (void)wt_tasklet_run(WT_HSM_SUBMIT_BUDGET);
-    }
 
     /* Read the response notify counter from the guest's NS buffer
      * via the transport context (which already validated the pointer

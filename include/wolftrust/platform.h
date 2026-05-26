@@ -48,6 +48,9 @@ void wt_platform_prepare_guest_return(wt_guest_id_t guest_id,
 void wt_platform_capture_guest_context(wt_guest_context_t* context,
                                        const wt_trap_frame_t* frame);
 void wt_platform_restore_guest_context(wt_guest_context_t* context);
+bool wt_platform_in_handler_mode(void);
+bool wt_platform_ns_thread_mode_trap(void);
+void wt_platform_return_to_secure_thread(void (*entry)(void));
 void wt_platform_zero_guest_memory(uintptr_t base, size_t size);
 void wt_platform_log_fault(wt_guest_id_t guest_id,
                            wt_fault_reason_t reason,
@@ -58,6 +61,7 @@ void wt_platform_all_guests_faulted(void);
 void wt_platform_panic(void);
 #ifdef WT_ENGINE_HSM
 bool wt_platform_secure_service_active(void);
+void wt_platform_note_hsm_wait_skip(wt_guest_id_t guest_id);
 #endif
 
 #endif

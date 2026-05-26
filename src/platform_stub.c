@@ -94,6 +94,18 @@ void wt_platform_restore_guest_context(wt_guest_context_t* context)
     (void)context;
 }
 
+bool wt_platform_in_handler_mode(void)
+{
+    return false;
+}
+
+void wt_platform_return_to_secure_thread(void (*entry)(void))
+{
+    if (entry != NULL) {
+        entry();
+    }
+}
+
 void wt_platform_zero_guest_memory(uintptr_t base, size_t size)
 {
     (void)base;
@@ -127,3 +139,10 @@ void wt_platform_panic(void)
     for (;;) {
     }
 }
+
+#ifdef WT_ENGINE_HSM
+void wt_platform_note_hsm_wait_skip(wt_guest_id_t guest_id)
+{
+    (void)guest_id;
+}
+#endif

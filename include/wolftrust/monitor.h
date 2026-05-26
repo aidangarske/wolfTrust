@@ -25,11 +25,17 @@
 #include "wolftrust/partition.h"
 #include "wolftrust/platform.h"
 
+typedef enum wt_scheduler_rep {
+    WT_SCHED_REP_NS = 0,
+    WT_SCHED_REP_HSM
+} wt_scheduler_rep_t;
+
 typedef struct wt_scheduler_state {
     const wt_guest_config_t* configs;
     wt_guest_runtime_t* runtime;
     size_t guest_count;
     wt_guest_id_t current_guest;
+    wt_scheduler_rep_t current_rep;
     uint32_t monotonic_ticks;
 } wt_scheduler_state_t;
 

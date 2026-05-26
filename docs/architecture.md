@@ -17,8 +17,8 @@ were preempted.
 Alongside guest scheduling the Secure side hosts a wolfHSM server, exposed to
 guests through ARMv8-M Non-secure Callable (NSC) veneers. The crypto/keystore
 service shares the Secure exception model with the monitor but runs in its own
-cooperative coroutine context, so HSM work never executes on the SysTick
-handler's stack and never blocks guest preemption.
+secure tasklet context entered through Secure PendSV, so HSM work never
+executes on the SysTick handler's stack and never blocks guest preemption.
 
 ## Why this is a separation kernel, not a generic hypervisor
 
@@ -40,10 +40,10 @@ MMU-based OSes.
   `platform.h`, `types.h`, plus `arch/armv8m/`, `sched/`, `services/`, `sync/`).
 - `src/monitor.c` — generic scheduler core, fault path, NSC yield hook.
 - `src/arch/armv8m/` — ARMv8-M specific code: CMSE helpers (`cmse.c`),
-  CMSE-validated wolfHSM transport (`cmse_transport.c`), coroutine context
-  switch (`coroutine_armv8m.c`).
-- `src/sched/coroutine.c` — cooperative coroutine runqueue used by the
-  Secure-side HSM service.
+  CMSE-validated wolfHSM transport (`cmse_transport.c`), Secure PendSV tasklet
+  switch path (`coroutine_armv8m.c`).
+- `src/sched/coroutine.c` — Secure-side tasklet runqueue used by the
+  wolfHSM service.
 - `src/sync/mutex.c` — sleep mutex on top of the coroutine scheduler. Used to
   serialise shared NVM access between per-guest HSM coroutines.
 - `src/services/wolfhsm/` — per-guest wolfHSM server context, NVM lock callback
@@ -79,10 +79,10 @@ The code in `src/monitor.c` implements this sequence; the STM32H563 port binds
 to the SoC's exception return path.
 
 `wt_monitor_on_secure_timer` deliberately skips guest save/dispatch when the
-frame belongs to a Secure-side HSM coroutine (`wt_co_current() != NULL`): the
+frame belongs to a Secure-side HSM tasklet (`wt_co_current() != NULL`): the
 hardware exception frame will unwind naturally, and guest scheduling resumes on
-the next tick after the coroutine yields. Mixing handler-mode coroutine
-switching with NS context capture would corrupt either side.
+the next tick after the tasklet blocks back to bootstrap. Mixing handler-mode
+tasklet switching with NS context capture would corrupt either side.
 
 ## Guest ABI
 
@@ -112,16 +112,12 @@ by a sleep mutex (`wt_mutex_t`) plugged into wolfHSM's `whLockCb` vtable.
 On STM32H563 the NVM backend (`src/port/stm32h563/hsm_flash.c`) writes two
 mirrored 8 KiB sectors at the end of internal flash bank 2.
 
-Each per-guest server runs inside a cooperative coroutine. Coroutines yield
-when wolfHSM returns `WH_ERROR_NOTREADY`, when the NVM mutex is contended, or
-explicitly via the guest-facing yield veneer. Coroutines are ticked only from
-NSC entry handlers, never from SysTick — the monitor keeps the boundaries
-clean: SysTick rotates guests; NSC entries drive HSM work.
-
-A guest can voluntarily relinquish its slice via the yield NSC veneer
-(`wt_monitor_on_yield`), which captures the guest context, runs a larger
-coroutine slice (since the calling guest has explicitly said it has nothing
-better to do), and then dispatches the next runnable guest.
+Each per-guest server runs inside a Secure tasklet. Tasklets are entered from
+NSC submit/poll veneers through `SVC -> Secure PendSV -> exception return`,
+then block back to bootstrap when wolfHSM returns `WH_ERROR_NOTREADY` or when
+the NVM mutex path sleeps. SysTick can preempt a running tasklet, but it never
+tries to schedule guests from that secure frame; it simply resumes the tasklet
+until bootstrap regains control.
 
 Per-guest RNG state inside the server uses `INVALID_DEVID` so it pulls
 directly from the platform entropy source (`wolftrust_rng_generate_block`)
