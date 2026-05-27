@@ -17,3 +17,6 @@
 [submodule "lib/wolfPKCS11"]
 	path = lib/wolfPKCS11
 	url = git@github.com:wolfSSL/wolfPKCS11.git
+[submodule "lib/wolfIP"]
+	path = lib/wolfIP
+	url = git@github.com:wolfSSL/wolfip.git
