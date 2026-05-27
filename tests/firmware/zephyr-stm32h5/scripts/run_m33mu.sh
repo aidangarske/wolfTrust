@@ -76,23 +76,48 @@ case "$MODE" in
     # checks a build that boots but never runs would exit cleanly on
     # timeout and look like a pass. EMU_TIMEOUT must allow for at least
     # one guest1 heartbeat cycle (~5 emulated seconds).
+    # Common needles — the secure side + Zephyr guest0_psa boot + PSA chain
+    # are the same regardless of which guest1 variant is loaded.
+    NEEDLES_COMMON="\
+*** Booting Zephyr OS|\
+wolfHSM client up; devId=0x5748534d registered|\
+wolfPSA up; default devId=0x5748534d|\
+wolfTrust TEE client initialized|\
+tee impl_id=0x57545254|\
+tee_invoke_func(cancel) rc=0 ret=0x0|\
+psa_generate_random st=0|\
+psa_hash_compute(SHA-256) st=0|\
+psa_cipher_encrypt(AES-CTR) st=0"
+
+    # Per-guest1 needles. WT_RUNNER_PROFILE picks which set to assert.
+    case "${WT_RUNNER_PROFILE:-baremetal}" in
+    freertos)
+        NEEDLES_GUEST1="\
+freertos_guest1: alive|\
+freertos_guest1: wolfHSM client up; devId=0x5748534d|\
+freertos_guest1: C_Initialize rv=0|\
+freertos_guest1: C_OpenSession rv=0|\
+freertos_guest1: C_Digest(SHA-256) rv=0|\
+freertos_guest1: heartbeat 0"
+        ;;
+    *)
+        NEEDLES_GUEST1="\
+guest1: alive|\
+guest1: heartbeat 0"
+        ;;
+    esac
+
     missing=
-    for needle in \
-        '*** Booting Zephyr OS' \
-        'wolfHSM client up; devId=0x5748534d registered' \
-        'wolfPSA up; default devId=0x5748534d' \
-        'wolfTrust TEE client initialized' \
-        'tee impl_id=0x57545254' \
-        'tee_invoke_func(cancel) rc=0 ret=0x0' \
-        'psa_generate_random st=0' \
-        'psa_hash_compute(SHA-256) st=0' \
-        'psa_cipher_encrypt(AES-CTR) st=0' \
-        'guest1: alive' \
-        'guest1: heartbeat 0'; do
+    IFS='|'
+    set -f
+    for needle in $NEEDLES_COMMON $NEEDLES_GUEST1; do
+        [ -n "$needle" ] || continue
         if ! grep -Fq "$needle" "$CLEAN_LOG"; then
             missing="${missing}${missing:+, }${needle}"
         fi
     done
+    set +f
+    unset IFS
     rm -f "$CLEAN_LOG"
     if [ -n "$missing" ]; then
         echo "missing expected output: $missing" >&2

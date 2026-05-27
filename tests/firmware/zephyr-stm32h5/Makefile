@@ -63,8 +63,13 @@ GUEST1_LDFLAGS := \
     -Wl,--defsym=GUEST_RAM_LENGTH=$(WT_GUEST_RAM_SIZE) \
     -Wl,--gc-sections
 
+FREERTOS_DIR        ?= $(CURDIR)/.workspace/freertos
+FREERTOS_GUEST1_DIR := $(CURDIR)/apps/freertos_guest1
+FREERTOS_GUEST1_BIN := $(CURDIR)/build/freertos_guest1/freertos_guest1.bin
+
 .PHONY: all clone workspace patch secure build-guest0 build-guest0-psa \
-        build-guest1 run run-uarts run-tui clean
+        build-guest1 freertos-workspace build-freertos-guest1 \
+        run run-uarts run-tui zephyr-freertos-uarts clean
 
 all: build-guest0-psa build-guest1
 
@@ -119,6 +124,31 @@ $(GUEST1_ELF): $(GUEST1_DIR)/guest1.c $(GUEST1_DIR)/guest1.ld | $(GUEST1_BUILD_D
 
 $(GUEST1_BIN): $(GUEST1_ELF)
 	$(GUEST_OBJCOPY) -O binary $< $@
+
+# ---- FreeRTOS guest1 variant ----------------------------------------------
+# Clones FreeRTOS on demand into the gitignored .workspace/ subtree, builds
+# a Cortex-M33-NTZ NS image with FreeRTOS + wolfPKCS11 + wolfHSM client
+# + wolfCrypt, and pairs it with the existing PSA-driven Zephyr guest0_psa
+# for an end-to-end "two NS guests, two different crypto APIs, one secure
+# wolfHSM" demo. lib/wolfPKCS11 is a wolftrust submodule.
+
+freertos-workspace:
+	"$(SCRIPT_DIR)/clone_freertos.sh"
+
+build-freertos-guest1: freertos-workspace secure
+	SECURE_CMSE_IMPLIB="$(SECURE_CMSE_IMPLIB)" \
+	FREERTOS_DIR="$(FREERTOS_DIR)" \
+	"$(SCRIPT_DIR)/build_freertos_guest.sh"
+
+zephyr-freertos-uarts: build-guest0-psa build-freertos-guest1
+	EMU_TIMEOUT="$(EMU_TIMEOUT)" M33MU="$(M33MU)" \
+	SECURE_BIN="$(SECURE_BIN)" \
+	GUEST0_BIN="$(GUEST0_BIN)" GUEST1_BIN="$(FREERTOS_GUEST1_BIN)" \
+	WT_GUEST0_EMU_OFFSET="$(WT_GUEST0_EMU_OFFSET)" \
+	WT_GUEST1_EMU_OFFSET="$(WT_GUEST1_EMU_OFFSET)" \
+	WT_SHARED_UART="$(WT_SHARED_UART)" \
+	WT_RUNNER_PROFILE=freertos \
+	"$(SCRIPT_DIR)/run_m33mu.sh" --uarts
 
 run: all
 	EMU_TIMEOUT="$(EMU_TIMEOUT)" M33MU="$(M33MU)" \
