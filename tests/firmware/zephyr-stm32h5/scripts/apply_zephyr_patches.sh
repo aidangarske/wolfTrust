@@ -13,11 +13,13 @@ if [ ! -d "$ZEPHYR_TREE/.git" ]; then
 fi
 
 for patch in "$PATCH_DIR"/*.patch; do
-    if git -C "$ZEPHYR_TREE" apply --check "$patch" >/dev/null 2>&1; then
-        git -C "$ZEPHYR_TREE" apply "$patch"
+    # --recount lets us hand-edit patch bodies without keeping the @@ -x,y +x,z @@
+    # hunk-size headers exactly in sync with the diff content.
+    if git -C "$ZEPHYR_TREE" apply --recount --check "$patch" >/dev/null 2>&1; then
+        git -C "$ZEPHYR_TREE" apply --recount "$patch"
         continue
     fi
-    if git -C "$ZEPHYR_TREE" apply --reverse --check "$patch" >/dev/null 2>&1; then
+    if git -C "$ZEPHYR_TREE" apply --recount --reverse --check "$patch" >/dev/null 2>&1; then
         continue
     fi
     echo "failed to apply patch: $patch" >&2

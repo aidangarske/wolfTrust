@@ -46,5 +46,5 @@ export ZEPHYR_BASE
     -b "$BOARD" \
     "$APP_DIR" \
     -- \
-    -DZEPHYR_EXTRA_MODULES="$MODULE_DIR;$ROOT/lib/wolfSSL" \
+    -DZEPHYR_EXTRA_MODULES="$MODULE_DIR/wolftrust-tee;$MODULE_DIR/wolfhsm-client;$ROOT/lib/wolfSSL" \
     -DWOLFTRUST_CMSE_IMPLIB="$SECURE_CMSE_IMPLIB"

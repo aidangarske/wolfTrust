@@ -64,12 +64,25 @@ index 000000000000..a1a1a1a1a1a1
 +		sw0 = &user_button;
 +		watchdog0 = &iwdg;
 +	};
++
++	/* wolfTrust's secure side pins the CMSE/HSM transport CSR for
++	 * guest-a at WT_GUEST0_HSM_BUF_BASE = 0x20000100, size 0x200.
++	 * We expose it to the NS image as a dedicated linker memory region
++	 * so the wolfHSM client can address it via DT_REG_ADDR(node) and
++	 * we can keep Zephyr's general allocator off the same bytes by
++	 * starting &sram1 above the carved-out window. */
++	wolftrust_hsm_transport: memory@20000100 {
++		compatible = "zephyr,memory-region", "mmio-sram";
++		reg = <0x20000100 0x200>;
++		zephyr,memory-region = "WOLFTRUST_HSM_TRANSPORT";
++	};
 +};
 +
-+/* wolfTrust hands the NS world a 32 KiB SRAM1 window at 0x20000000,
-+ * matching the guest-a memory window in src/port/stm32h563/partitions.c. */
++/* wolfTrust grants guest-a 32 KiB of SRAM1 at 0x20000000, but we cede
++ * the first 1 KiB to the secure side: the HSM transport CSR sits there.
++ * Zephyr's RAM (.data/.bss/heap/stacks) starts 1 KiB in. */
 +&sram1 {
-+	reg = <0x20000000 DT_SIZE_K(32)>;
++	reg = <0x20000400 DT_SIZE_K(31)>;
 +};
 +
 +/* wolfTrust occupies secure flash 0x08000000..0x0801FFFF (128 KiB).
@@ -133,9 +146,10 @@ index 000000000000..c3c3c3c3c3c3
 +# wolfTrust is the TEE, not TF-M.
 +CONFIG_BUILD_WITH_TFM=n
 +
-+# Reflect the NS RAM window granted by wolfTrust guest-a.
-+CONFIG_SRAM_BASE_ADDRESS=0x20000000
-+CONFIG_SRAM_SIZE=32
++# Reflect the NS RAM window granted by wolfTrust guest-a, minus the
++# first 1 KiB carved out for the WOLFTRUST_HSM_TRANSPORT region.
++CONFIG_SRAM_BASE_ADDRESS=0x20000400
++CONFIG_SRAM_SIZE=31
 diff --git a/soc/st/stm32/Kconfig.defconfig b/soc/st/stm32/Kconfig.defconfig
 index c8757e283fde..4f66fd9fb769 100644
 --- a/soc/st/stm32/Kconfig.defconfig
