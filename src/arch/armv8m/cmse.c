@@ -114,3 +114,46 @@ bool wt_cmse_check_in_guest_ns_ram(wt_guest_id_t guest_id,
 
     return false;
 }
+
+bool wt_cmse_check_in_guest_ns_addr(wt_guest_id_t guest_id,
+                                    const void *ptr,
+                                    size_t size)
+{
+    const wt_guest_config_t *configs;
+    size_t count;
+    size_t i;
+    const wt_guest_config_t *cfg = NULL;
+    uintptr_t addr;
+    uintptr_t end;
+    uintptr_t win_end;
+
+    if (ptr == NULL || size == 0 || size > 0x10000) {
+        return false;
+    }
+    configs = wt_partitions_config_table(&count);
+    if (guest_id >= (wt_guest_id_t)count) {
+        return false;
+    }
+    for (i = 0; i < count; ++i) {
+        if (configs[i].guest_id == guest_id) {
+            cfg = &configs[i];
+            break;
+        }
+    }
+    if (cfg == NULL) return false;
+
+    addr = (uintptr_t)ptr;
+    if (addr > UINTPTR_MAX - size) return false;
+    end = addr + size;
+
+    for (i = 0; i < cfg->memory_window_count; ++i) {
+        const wt_memory_window_t *w = &cfg->memory_windows[i];
+        uint32_t attr = w->attributes;
+        if (!(attr & WT_MEM_ATTR_READ)) continue;
+        if (attr & WT_MEM_ATTR_DEVICE) continue;
+        if (w->base > UINTPTR_MAX - w->size) continue;
+        win_end = w->base + w->size;
+        if (addr >= w->base && end <= win_end) return true;
+    }
+    return false;
+}

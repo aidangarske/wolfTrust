@@ -45,6 +45,14 @@ bool wt_cmse_check_in_guest_ns_ram(wt_guest_id_t guest_id,
                                    const void *ptr,
                                    size_t size);
 
+/* Same as wt_cmse_check_in_guest_ns_ram but also accepts read-only/exec
+ * windows (the guest's flash). Use for veneer inputs the guest may
+ * legitimately pass from .rodata. The window must still belong to the
+ * caller guest — cross-guest reads remain forbidden. */
+bool wt_cmse_check_in_guest_ns_addr(wt_guest_id_t guest_id,
+                                    const void *ptr,
+                                    size_t size);
+
 /* Convenience macro for an NSC veneer. Generates a naked function in the
  * .gnu.sgstubs section that emits a Secure Gateway (sg) instruction then
  * branches to the implementation symbol. */

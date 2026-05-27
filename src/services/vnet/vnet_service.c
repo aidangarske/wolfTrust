@@ -56,15 +56,6 @@ void wt_vnet_service_init(void)
     wt_platform_configure_ns_irq((uint32_t)WT_VNET_RX_IRQ);
 }
 
-void wt_vnet_service_augment_irq_mask(wt_irq_mask_t *mask)
-{
-    uint32_t word = (uint32_t)WT_VNET_RX_IRQ >> 5;
-    uint32_t bit  = (uint32_t)WT_VNET_RX_IRQ & 31u;
-    if (mask == NULL) return;
-    if (word >= WT_MAX_IRQ_WORDS) return;
-    mask->words[word] |= (1u << bit);
-}
-
 void wt_vnet_service_refresh_irq(wt_guest_id_t guest_id)
 {
     bool pending;
@@ -119,8 +110,10 @@ static int do_set_mac(const uint8_t *ns_mac6, uint32_t flags)
     if (rc != WT_VNET_OK) return rc;
     if (ns_mac6 == NULL) return WT_VNET_E_BADARG;
     if (!wt_cmse_check_ns_ro(ns_mac6, VNET_MAC_LEN)) return WT_VNET_E_ACCESS;
-    if (!wt_cmse_check_in_guest_ns_ram((wt_guest_id_t)vm, ns_mac6,
-                                       VNET_MAC_LEN)) {
+    /* Use the addr variant — the MAC may legitimately live in the
+     * guest's flash (.rodata) rather than its RAM window. */
+    if (!wt_cmse_check_in_guest_ns_addr((wt_guest_id_t)vm, ns_mac6,
+                                        VNET_MAC_LEN)) {
         return WT_VNET_E_ACCESS;
     }
     memcpy(mac.b, ns_mac6, VNET_MAC_LEN);
@@ -139,7 +132,9 @@ static int do_tx(const void *ns_frame, uint16_t len, uint32_t flags)
         return WT_VNET_E_FRAME_LEN;
     }
     if (!wt_cmse_check_ns_ro(ns_frame, len)) return WT_VNET_E_ACCESS;
-    if (!wt_cmse_check_in_guest_ns_ram((wt_guest_id_t)vm, ns_frame, len)) {
+    /* TX buffers may live in either RAM (typical, wolfIP socket FIFOs)
+     * or flash (a static literal — unusual but valid). */
+    if (!wt_cmse_check_in_guest_ns_addr((wt_guest_id_t)vm, ns_frame, len)) {
         return WT_VNET_E_ACCESS;
     }
     memcpy(scratch, ns_frame, len);

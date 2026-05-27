@@ -1038,16 +1038,13 @@ void wt_platform_configure_ns_irq(uint32_t irq)
     uint32_t word = irq >> 5;
     uint32_t bit  = irq & 31u;
     if (word >= WT_MAX_IRQ_WORDS) return;
-    /* ITNS only has a secure alias; mark this IRQ as NS-targeted. */
+    /* ITNS only has a secure alias; mark this IRQ as NS-targeted.
+     * Do NOT enable in NVIC ISER here — that comes from the per-guest
+     * partition irq_mask when the monitor dispatches a guest that
+     * actually wants to receive this IRQ. */
     {
         volatile uint32_t *itns = (volatile uint32_t *)0xE000E380u;
         itns[word] |= (1u << bit);
-    }
-    /* Enable in NVIC (secure alias is fine — it writes through to the
-     * unified enable bit; NS-targeted IRQs fire in NS context). */
-    {
-        volatile uint32_t *iser = (volatile uint32_t *)0xE000E100u;
-        iser[word] = (1u << bit);
     }
 }
 

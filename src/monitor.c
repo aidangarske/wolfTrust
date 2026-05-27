@@ -179,15 +179,12 @@ static void wt_apply_partition(wt_guest_id_t guest_id)
                                        config->memory_window_count);
     wt_platform_program_ns_mpu(config->mpu_regions,
                                config->mpu_region_count);
-#ifdef CONFIG_VNET
-    {
-        wt_irq_mask_t mask = config->irq_mask;
-        wt_vnet_service_augment_irq_mask(&mask);
-        wt_platform_apply_irq_mask(&mask);
-    }
-#else
+    /* Per-guest irq_mask is authoritative. Guests that want IRQ-driven
+     * VNET RX must list WT_VNET_RX_IRQ in their partition config; the
+     * dispatch-time reflection in wt_vnet_service_refresh_irq still
+     * maintains the pending bit either way, so poll-only guests work
+     * via vnet_rx_poll without touching the NVIC. */
     wt_platform_apply_irq_mask(&config->irq_mask);
-#endif
 }
 
 static void wt_dispatch_guest(wt_guest_id_t guest_id)
