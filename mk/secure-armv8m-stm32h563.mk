@@ -31,6 +31,18 @@ WT_WOLFCRYPT_ARMASM ?= 1
 WT_WOLFCRYPT_STM32_HASH ?= 1
 WT_ENGINE_HSM ?= 1
 
+# Virtual-Ethernet (VNET) subsystem. Off until Wave 2 lands a working
+# core. Host-side unit tests under tests/host/vnet/ build regardless;
+# this switch only gates linking the dataplane and NSC veneers into
+# the secure image.
+CONFIG_VNET ?= n
+WT_VNET_POOL_SLOTS ?= 8
+WT_VNET_FRAME_MAX ?= 1536
+WT_VNET_RX_QUEUE_DEPTH ?= 8
+WT_VNET_RX_IRQ ?= 130
+WT_VNET_TIMEOUT_TICKS ?= 500
+WT_VNET_UNKNOWN_UCAST_FLOOD ?= 0
+
 HSM_INCLUDES := -I$(WOLFHSM_DIR) -I$(WOLFSSL_DIR) -I$(BUILD_DIR)
 HSM_INCLUDES_SECURE := $(HSM_INCLUDES) -I$(WOLFHAL_DIR) -I$(abspath $(WOLFHSM_RUNNER_DIR))
 HSM_DEFS_SECURE := -DWOLFSSL_USER_SETTINGS -DWOLFHSM_CFG \
@@ -64,6 +76,16 @@ SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -DWHAL_CFG_STM32H5_RNG_DIRECT_API_MAPPING \
     -mcmse \
     $(HSM_INCLUDES_SECURE) $(HSM_DEFS_SECURE)
+
+ifeq ($(CONFIG_VNET),y)
+SECURE_CFLAGS += -DCONFIG_VNET=1 \
+    -DWT_VNET_POOL_SLOTS=$(WT_VNET_POOL_SLOTS) \
+    -DWT_VNET_FRAME_MAX=$(WT_VNET_FRAME_MAX) \
+    -DWT_VNET_RX_QUEUE_DEPTH=$(WT_VNET_RX_QUEUE_DEPTH) \
+    -DWT_VNET_RX_IRQ=$(WT_VNET_RX_IRQ) \
+    -DWT_VNET_TIMEOUT_TICKS=$(WT_VNET_TIMEOUT_TICKS) \
+    -DWT_VNET_UNKNOWN_UCAST_FLOOD=$(WT_VNET_UNKNOWN_UCAST_FLOOD)
+endif
 
 HSM_LIB_CFLAGS := $(SECURE_CFLAGS) \
     -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter \
