@@ -80,9 +80,12 @@ $(PATCH_STAMP): $(wildcard $(CURDIR)/patches/zephyr/*.patch) $(SCRIPT_DIR)/apply
 	@mkdir -p "$(dir $@)"
 	@touch "$@"
 
-# Force-rebuild wolfTrust with this demo's guest count.
+# Force-rebuild wolfTrust with this demo's guest count. We delete the root
+# build dir directly instead of `$(MAKE) -C $(ROOT) clean`, because that
+# clean target also wipes tests/firmware/stm32h563/build/ — a peer baremetal
+# test suite with its own generated headers that we have no business touching.
 secure:
-	$(MAKE) -C "$(ROOT)" clean
+	rm -rf "$(TOP_BUILD_DIR)"
 	WT_MAX_GUESTS="$(WT_MAX_GUESTS)" $(MAKE) -C "$(ROOT)" build/wolftrust.bin build/secure_cmse_implib.o
 
 build-guest0: patch secure

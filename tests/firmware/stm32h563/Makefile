@@ -436,22 +436,27 @@ $(BUILD_DIR)/wc_guest_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_GUEST_CFG_
 $(BUILD_DIR)/wc_guest_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/%.c $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(GUEST_LIB_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/wc_bench_guest_%.o: $(WOLFSSL_DIR)/wolfcrypt/benchmark/%.c $(WOLFHSM_GUEST_CFG_H) nonsecure/benchmark_hooks.h $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+# Guest compiles pull in wh_settings.h which does `#include "wolfhsm_cfg.h"`
+# under -DWOLFHSM_CFG, so the *secure* config header has to exist on the
+# include path even though the guest also consumes wh_settings_guest.h.
+# Listing both as prereqs makes the rules safe under parallel make and
+# after a clean of the build dir.
+$(BUILD_DIR)/wc_bench_guest_%.o: $(WOLFSSL_DIR)/wolfcrypt/benchmark/%.c $(WOLFHSM_CFG_H) $(WOLFHSM_GUEST_CFG_H) nonsecure/benchmark_hooks.h $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(GUEST_BENCH_CFLAGS) -c -o $@ $<
 
 # Guest base sources
-$(BUILD_DIR)/ns_%.o: nonsecure/%.c $(PORT_HEADERS) $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(BUILD_DIR)/ns_%.o: nonsecure/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(NONSECURE_CFLAGS) -c -o $@ $<
 
-$(HSM_GUEST0_MAIN_OBJ): nonsecure/guest.c $(PORT_HEADERS) $(WOLFHSM_GUEST_CFG_H) nonsecure/benchmark_hooks.h $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(HSM_GUEST0_MAIN_OBJ): nonsecure/guest.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(WOLFHSM_GUEST_CFG_H) nonsecure/benchmark_hooks.h $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(NONSECURE_CFLAGS) -DWT_GUEST_ID=0u -c -o $@ $<
 
-$(HSM_GUEST1_MAIN_OBJ): nonsecure/guest.c $(PORT_HEADERS) $(WOLFHSM_GUEST_CFG_H) nonsecure/benchmark_hooks.h $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(HSM_GUEST1_MAIN_OBJ): nonsecure/guest.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(WOLFHSM_GUEST_CFG_H) nonsecure/benchmark_hooks.h $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(NONSECURE_CFLAGS) -DWT_GUEST_ID=1u -c -o $@ $<
 
 # Wave 5: wolfhsm_client_glue.c lives in nonsecure/ but is listed under
 # WOLFHSM_GUEST_SRCS so it gets the wh_guest_ prefix and the guest lib flags.
-$(BUILD_DIR)/wh_guest_wolfhsm_client_glue.o: nonsecure/wolfhsm_client_glue.c $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(BUILD_DIR)/wh_guest_wolfhsm_client_glue.o: nonsecure/wolfhsm_client_glue.c $(WOLFHSM_CFG_H) $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(GUEST_LIB_CFLAGS) -c -o $@ $<
 
 endif  # WT_ENGINE_HSM=1
