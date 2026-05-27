@@ -140,9 +140,9 @@ int vnet_switch_assign_mac(vnet_switch_t *sw, uint32_t vm_id,
     return WT_VNET_OK;
 }
 
-static int try_deliver_one(vnet_switch_t *sw, uint32_t dst_vm,
-                           vnet_vnic_t *dst, uint16_t slot, uint16_t gen,
-                           uint16_t len, uint32_t src_vm)
+static int try_deliver_one(vnet_switch_t *sw, vnet_vnic_t *dst,
+                           uint16_t slot, uint16_t gen, uint16_t len,
+                           uint32_t src_vm)
 {
     vnet_rx_desc_t desc;
     int rc;
@@ -263,7 +263,7 @@ int vnet_switch_tx(vnet_switch_t *sw, uint32_t src_vm,
         if (dst_vm != VNET_FDB_NO_VM && dst_vm != src_vm) {
             vnet_vnic_t *dst = vnic_of(sw, dst_vm);
             if (dst != NULL &&
-                try_deliver_one(sw, dst_vm, dst, slot, gen,
+                try_deliver_one(sw, dst, slot, gen,
                                 len, src_vm) == WT_VNET_OK) {
                 deliveries++;
             }
@@ -271,7 +271,7 @@ int vnet_switch_tx(vnet_switch_t *sw, uint32_t src_vm,
             uint32_t i;
             for (i = 0U; i < sw->nvm; ++i) {
                 if (i == src_vm) continue;
-                if (try_deliver_one(sw, i, &sw->vnics[i], slot, gen,
+                if (try_deliver_one(sw, &sw->vnics[i], slot, gen,
                                     len, src_vm) == WT_VNET_OK) {
                     deliveries++;
                 }
@@ -281,7 +281,7 @@ int vnet_switch_tx(vnet_switch_t *sw, uint32_t src_vm,
         uint32_t i;
         for (i = 0U; i < sw->nvm; ++i) {
             if (i == src_vm) continue;
-            if (try_deliver_one(sw, i, &sw->vnics[i], slot, gen,
+            if (try_deliver_one(sw, &sw->vnics[i], slot, gen,
                                 len, src_vm) == WT_VNET_OK) {
                 deliveries++;
             }

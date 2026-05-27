@@ -1028,6 +1028,11 @@ void wt_platform_panic(void)
     }
 }
 
+uint32_t wt_platform_active_guest_id(void)
+{
+    return g_active_guest;
+}
+
 void Reset_Handler(void)
 {
     extern uint32_t _sidata;

@@ -65,4 +65,9 @@ bool wt_platform_secure_service_active(void);
 void wt_platform_note_hsm_wait_skip(wt_guest_id_t guest_id);
 #endif
 
+/* Returns the guest id whose context is currently active on the NS side,
+ * or UINT32_MAX if no guest is running (boot, secure service, etc.).
+ * Veneers must use this — never trust a guest-supplied VM id. */
+uint32_t wt_platform_active_guest_id(void);
+
 #endif

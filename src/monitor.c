@@ -27,6 +27,9 @@
 #include "wolftrust/sched/tasklet.h"
 #include "wolftrust/services/hsm.h"
 #endif
+#ifdef CONFIG_VNET
+#include "wolftrust/services/vnet_service.h"
+#endif
 
 static wt_scheduler_state_t g_scheduler;
 #ifdef WT_ENGINE_HSM
@@ -343,6 +346,9 @@ void wt_monitor_init(void)
 #ifdef WT_ENGINE_HSM
     g_pending_tasklet_guest = 0U;
     g_pending_tasklet_guest_valid = false;
+#endif
+#ifdef CONFIG_VNET
+    wt_vnet_service_init();
 #endif
 
     for (i = 0; i < count; ++i) {

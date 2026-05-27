@@ -24,6 +24,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "wolftrust/vnet/vnet_abi.h"
 #include "wolftrust/vnet/vnet_config.h"
 #include "wolftrust/vnet/vnet_mac.h"
 #include "wolftrust/vnet/vnet_pool.h"
@@ -49,23 +50,6 @@ typedef struct vnet_switch {
     bool         unknown_unicast_flood;
     vnet_stats_t global_stats;
 } vnet_switch_t;
-
-typedef struct vnet_info {
-    uint32_t   abi_version;
-    uint32_t   features;
-    uint16_t   mtu;
-    int16_t    rx_irq;
-    vnet_mac_t default_mac;
-    bool       mac_set;
-} vnet_info_t;
-
-typedef struct vnet_rx_meta {
-    uint16_t token_slot;
-    uint16_t token_gen;
-    uint16_t len;
-    uint16_t flags;
-    uint32_t src_vm;
-} vnet_rx_meta_t;
 
 /* All storage is caller-owned and must outlive sw.
  *
