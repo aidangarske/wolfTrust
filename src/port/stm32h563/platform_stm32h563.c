@@ -1033,6 +1033,38 @@ uint32_t wt_platform_active_guest_id(void)
     return g_active_guest;
 }
 
+void wt_platform_configure_ns_irq(uint32_t irq)
+{
+    uint32_t word = irq >> 5;
+    uint32_t bit  = irq & 31u;
+    if (word >= WT_MAX_IRQ_WORDS) return;
+    /* ITNS only has a secure alias; mark this IRQ as NS-targeted. */
+    {
+        volatile uint32_t *itns = (volatile uint32_t *)0xE000E380u;
+        itns[word] |= (1u << bit);
+    }
+    /* Enable in NVIC (secure alias is fine — it writes through to the
+     * unified enable bit; NS-targeted IRQs fire in NS context). */
+    {
+        volatile uint32_t *iser = (volatile uint32_t *)0xE000E100u;
+        iser[word] = (1u << bit);
+    }
+}
+
+void wt_platform_set_ns_irq_pending(uint32_t irq, bool asserted)
+{
+    uint32_t word = irq >> 5;
+    uint32_t bit  = irq & 31u;
+    if (word >= WT_MAX_IRQ_WORDS) return;
+    if (asserted) {
+        volatile uint32_t *ispr_ns = (volatile uint32_t *)0xE002E200u;
+        ispr_ns[word] = (1u << bit);
+    } else {
+        volatile uint32_t *icpr_ns = (volatile uint32_t *)0xE002E280u;
+        icpr_ns[word] = (1u << bit);
+    }
+}
+
 void Reset_Handler(void)
 {
     extern uint32_t _sidata;

@@ -70,4 +70,13 @@ void wt_platform_note_hsm_wait_skip(wt_guest_id_t guest_id);
  * Veneers must use this — never trust a guest-supplied VM id. */
 uint32_t wt_platform_active_guest_id(void);
 
+/* Mark an NVIC IRQ as targeting the non-secure world (ITNS bit) AND
+ * enable it in the NVIC. Called once at boot for each synthetic vIRQ
+ * the monitor wants to be deliverable to guests. */
+void wt_platform_configure_ns_irq(uint32_t irq);
+
+/* Assert (asserted=true) or deassert (asserted=false) an NS-targeted
+ * IRQ via the NS alias of NVIC ISPR/ICPR. Idempotent. */
+void wt_platform_set_ns_irq_pending(uint32_t irq, bool asserted);
+
 #endif

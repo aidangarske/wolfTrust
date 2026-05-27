@@ -179,7 +179,15 @@ static void wt_apply_partition(wt_guest_id_t guest_id)
                                        config->memory_window_count);
     wt_platform_program_ns_mpu(config->mpu_regions,
                                config->mpu_region_count);
+#ifdef CONFIG_VNET
+    {
+        wt_irq_mask_t mask = config->irq_mask;
+        wt_vnet_service_augment_irq_mask(&mask);
+        wt_platform_apply_irq_mask(&mask);
+    }
+#else
     wt_platform_apply_irq_mask(&config->irq_mask);
+#endif
 }
 
 static void wt_dispatch_guest(wt_guest_id_t guest_id)
@@ -195,6 +203,9 @@ static void wt_dispatch_guest(wt_guest_id_t guest_id)
     runtime->state = WT_GUEST_RUNNING;
     g_scheduler.current_guest = guest_id;
     g_scheduler.current_rep = WT_SCHED_REP_NS;
+#ifdef CONFIG_VNET
+    wt_vnet_service_refresh_irq(guest_id);
+#endif
     wt_platform_start_secure_timer(config->timeslice_ms);
     wt_platform_prepare_guest_return(guest_id, &runtime->context);
     wt_platform_restore_guest_context(&runtime->context);

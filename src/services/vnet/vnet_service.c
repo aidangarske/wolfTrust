@@ -53,6 +53,25 @@ void wt_vnet_service_init(void)
                          (bool)(WT_VNET_UNKNOWN_UCAST_FLOOD != 0)) == WT_VNET_OK) {
         g_switch_ready = true;
     }
+    wt_platform_configure_ns_irq((uint32_t)WT_VNET_RX_IRQ);
+}
+
+void wt_vnet_service_augment_irq_mask(wt_irq_mask_t *mask)
+{
+    uint32_t word = (uint32_t)WT_VNET_RX_IRQ >> 5;
+    uint32_t bit  = (uint32_t)WT_VNET_RX_IRQ & 31u;
+    if (mask == NULL) return;
+    if (word >= WT_MAX_IRQ_WORDS) return;
+    mask->words[word] |= (1u << bit);
+}
+
+void wt_vnet_service_refresh_irq(wt_guest_id_t guest_id)
+{
+    bool pending;
+    if (!g_switch_ready) return;
+    if ((uint32_t)guest_id >= (uint32_t)WT_MAX_GUESTS) return;
+    pending = vnet_switch_irq_pending(&g_switch, (uint32_t)guest_id);
+    wt_platform_set_ns_irq_pending((uint32_t)WT_VNET_RX_IRQ, pending);
 }
 
 static uint32_t now_tick(void)
