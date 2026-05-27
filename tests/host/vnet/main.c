@@ -32,6 +32,7 @@ int main(void)
     rc |= run_pool_tests();
     rc |= run_ring_tests();
     rc |= run_fdb_tests();
+    rc |= run_switch_tests();
 
     fprintf(stderr, "\nvnet host tests: %d checks passed, %d failed\n",
             g_test_pass, g_test_fail);

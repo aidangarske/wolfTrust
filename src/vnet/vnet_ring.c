@@ -55,6 +55,16 @@ int vnet_ring_pop(vnet_ring_t *r, vnet_rx_desc_t *out)
     return WT_VNET_OK;
 }
 
+int vnet_ring_drop_head(vnet_ring_t *r)
+{
+    if (r == NULL) return WT_VNET_E_BADARG;
+    if (r->buf == NULL || r->capacity == 0U) return WT_VNET_E_NOTREADY;
+    if (r->count == 0U) return WT_VNET_E_EMPTY;
+    r->tail = (uint16_t)((r->tail + 1U) % r->capacity);
+    r->count = (uint16_t)(r->count - 1U);
+    return WT_VNET_OK;
+}
+
 int vnet_ring_peek(const vnet_ring_t *r, vnet_rx_desc_t *out)
 {
     if (r == NULL || out == NULL) return WT_VNET_E_BADARG;

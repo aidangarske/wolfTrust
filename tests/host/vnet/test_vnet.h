@@ -53,5 +53,6 @@ int run_mac_tests(void);
 int run_pool_tests(void);
 int run_ring_tests(void);
 int run_fdb_tests(void);
+int run_switch_tests(void);
 
 #endif

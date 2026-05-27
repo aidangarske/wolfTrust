@@ -26,17 +26,19 @@ CFLAGS := -O0 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initiali
     -I$(ROOT)/include
 
 VNET_SRCS := \
-    $(ROOT)/src/vnet/vnet_mac.c   \
-    $(ROOT)/src/vnet/vnet_pool.c  \
-    $(ROOT)/src/vnet/vnet_ring.c  \
-    $(ROOT)/src/vnet/vnet_fdb.c
+    $(ROOT)/src/vnet/vnet_mac.c    \
+    $(ROOT)/src/vnet/vnet_pool.c   \
+    $(ROOT)/src/vnet/vnet_ring.c   \
+    $(ROOT)/src/vnet/vnet_fdb.c    \
+    $(ROOT)/src/vnet/vnet_switch.c
 
 TEST_SRCS := \
-    main.c       \
-    test_mac.c   \
-    test_pool.c  \
-    test_ring.c  \
-    test_fdb.c
+    main.c        \
+    test_mac.c    \
+    test_pool.c   \
+    test_ring.c   \
+    test_fdb.c    \
+    test_switch.c
 
 VNET_OBJS := $(patsubst %.c,vnet_%.o,$(notdir $(VNET_SRCS)))
 TEST_OBJS := $(patsubst %.c,%.o,$(notdir $(TEST_SRCS)))

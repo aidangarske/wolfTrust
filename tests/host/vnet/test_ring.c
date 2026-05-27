@@ -135,6 +135,29 @@ static int test_ring_wraparound(void)
     return 0;
 }
 
+static int test_ring_drop_head(void)
+{
+    vnet_ring_t r;
+    vnet_rx_desc_t out;
+    vnet_ring_init(&r, g_buf, RING_N);
+
+    T_EQ_INT(vnet_ring_drop_head(&r), WT_VNET_E_EMPTY);
+
+    vnet_ring_push(&r, &(vnet_rx_desc_t){.slot=1});
+    vnet_ring_push(&r, &(vnet_rx_desc_t){.slot=2});
+    vnet_ring_push(&r, &(vnet_rx_desc_t){.slot=3});
+
+    T_EQ_INT(vnet_ring_drop_head(&r), WT_VNET_OK);
+    T_EQ_INT(vnet_ring_count(&r), 2);
+    T_EQ_INT(vnet_ring_peek(&r, &out), WT_VNET_OK);
+    T_EQ_INT(out.slot, 2);
+    T_EQ_INT(vnet_ring_drop_head(&r), WT_VNET_OK);
+    T_EQ_INT(vnet_ring_pop(&r, &out), WT_VNET_OK);
+    T_EQ_INT(out.slot, 3);
+    T_EQ_INT(vnet_ring_drop_head(&r), WT_VNET_E_EMPTY);
+    return 0;
+}
+
 int run_ring_tests(void)
 {
     int rc = 0;
@@ -143,5 +166,6 @@ int run_ring_tests(void)
     rc |= test_ring_fifo_order();
     rc |= test_ring_peek_does_not_consume();
     rc |= test_ring_wraparound();
+    rc |= test_ring_drop_head();
     return rc;
 }

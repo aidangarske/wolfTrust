@@ -44,6 +44,7 @@ typedef struct vnet_ring {
 void vnet_ring_init(vnet_ring_t *r, vnet_rx_desc_t *storage, uint16_t capacity);
 int  vnet_ring_push(vnet_ring_t *r, const vnet_rx_desc_t *desc);
 int  vnet_ring_pop(vnet_ring_t *r, vnet_rx_desc_t *out);
+int  vnet_ring_drop_head(vnet_ring_t *r);
 int  vnet_ring_peek(const vnet_ring_t *r, vnet_rx_desc_t *out);
 uint16_t vnet_ring_count(const vnet_ring_t *r);
 bool     vnet_ring_empty(const vnet_ring_t *r);
