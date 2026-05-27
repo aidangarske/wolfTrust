@@ -14,3 +14,6 @@
 	# Tracking a personal fork until the runtime-devid hook
 	# (wolfPSA_SetDefaultDevID / wolfPSA_GetDefaultDevID) lands upstream
 	# in wolfSSL/wolfPSA. Re-point at upstream once it's merged.
+[submodule "lib/wolfPKCS11"]
+	path = lib/wolfPKCS11
+	url = git@github.com:wolfSSL/wolfPKCS11.git
