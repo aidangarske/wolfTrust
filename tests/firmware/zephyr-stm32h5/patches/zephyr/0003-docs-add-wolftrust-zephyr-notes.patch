@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000003 Mon Sep 17 00:00:00 2001
+From: Codex <codex@example.com>
+Date: Tue, 26 May 2026 00:00:02 +0000
+Subject: [PATCH 3/3] docs: add wolfTrust Zephyr STM32H5 integration notes
+
+---
+ doc/develop/wolftrust-stm32h5-zephyr.rst | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+ create mode 100644 doc/develop/wolftrust-stm32h5-zephyr.rst
+
+diff --git a/doc/develop/wolftrust-stm32h5-zephyr.rst b/doc/develop/wolftrust-stm32h5-zephyr.rst
+new file mode 100644
+index 000000000000..444444444444
+--- /dev/null
++++ b/doc/develop/wolftrust-stm32h5-zephyr.rst
+@@ -0,0 +1,18 @@
++wolfTrust STM32H5 Zephyr notes
++##############################
++
++This tree is carried by wolfTrust's in-repo patch series for the
++``tests/firmware/zephyr-stm32h5`` workflow.
++
++The intended non-secure target is ``nucleo_h563zi/ns`` with:
++
++* no TF-M handoff
++* the non-secure image linked into the wolfTrust guest flash slots
++* the non-secure RAM region carved to a single guest window
++* a devicetree node describing the wolfTrust TEE provider
++
++The first consumer is a pair of local NS guest applications:
++
++* guest0: active wolfTrust client
++* guest1: passive supervisor sidecar
++
++Further driver integration is carried by wolfTrust's Zephyr extra-module.
+-- 
+2.39.5

@@ -1,0 +1,50 @@
+#!/bin/sh
+set -eu
+
+if [ $# -ne 1 ]; then
+    echo "usage: $0 guest0|guest1" >&2
+    exit 2
+fi
+
+APP_NAME=$1
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SUBTREE_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+ROOT=$(CDPATH= cd -- "$SUBTREE_DIR/../../.." && pwd)
+WORKSPACE="${ZEPHYR_WORKSPACE:-$SUBTREE_DIR/.workspace/zephyrproject}"
+WEST_BIN="${WEST_BIN:-$SUBTREE_DIR/.venv/bin/west}"
+ZEPHYR_BASE="$WORKSPACE/zephyr"
+APP_DIR="$SUBTREE_DIR/apps/$APP_NAME"
+BUILD_DIR="$SUBTREE_DIR/build/$APP_NAME"
+MODULE_DIR="$SUBTREE_DIR/module"
+BOARD="${ZEPHYR_BOARD:-nucleo_h563zi/stm32h563xx/ns}"
+SECURE_BIN="${SECURE_BIN:-$ROOT/build/wolftrust.bin}"
+SECURE_CMSE_IMPLIB="${SECURE_CMSE_IMPLIB:-$ROOT/build/secure_cmse_implib.o}"
+
+if [ ! -d "$APP_DIR" ]; then
+    echo "unknown guest app: $APP_NAME" >&2
+    exit 2
+fi
+
+make -C "$ROOT" build/wolftrust.bin build/secure_cmse_implib.o
+
+if [ ! -d "$ZEPHYR_BASE" ]; then
+    echo "missing Zephyr workspace: $ZEPHYR_BASE" >&2
+    exit 1
+fi
+
+if [ ! -f "$SECURE_BIN" ] || [ ! -f "$SECURE_CMSE_IMPLIB" ]; then
+    echo "missing secure build artifacts under $ROOT/build" >&2
+    exit 1
+fi
+
+mkdir -p "$BUILD_DIR"
+
+export ZEPHYR_BASE
+
+"$WEST_BIN" build -p auto \
+    -d "$BUILD_DIR" \
+    -b "$BOARD" \
+    "$APP_DIR" \
+    -- \
+    -DZEPHYR_EXTRA_MODULES="$MODULE_DIR;$ROOT/lib/wolfSSL" \
+    -DWOLFTRUST_CMSE_IMPLIB="$SECURE_CMSE_IMPLIB"

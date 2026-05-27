@@ -1,0 +1,19 @@
+menuconfig WOLFTRUST_ZEPHYR
+	bool "wolfTrust CMSE client glue"
+	depends on ARM
+	help
+	  Build the non-secure wolfTrust client glue used by the Zephyr STM32H563
+	  guest apps in this subtree.
+
+if WOLFTRUST_ZEPHYR
+
+config WOLFTRUST_TEE_DRIVER
+	bool "wolfTrust Zephyr TEE driver"
+	depends on TEE
+	default y if DT_HAS_WOLFSSL_WOLFTRUST_TEE_ENABLED
+	help
+	  Expose the wolfTrust secure side through Zephyr's standard tee
+	  subsystem. The driver dispatches tee_invoke_func calls to CMSE
+	  veneers into wolfTrust.
+
+endif # WOLFTRUST_ZEPHYR

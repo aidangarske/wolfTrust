@@ -1,0 +1,5 @@
+.venv/
+.workspace/
+build/
+*.log
+stm32h563_OTP.bin
