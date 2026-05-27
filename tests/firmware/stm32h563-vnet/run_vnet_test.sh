@@ -22,13 +22,18 @@ RC_FILE=$(mktemp)
 trap 'rm -f "$LOG_FILE" "$RC_FILE"' EXIT INT TERM
 
 set +e
+# m33mu emits a [TZ_WARN] line on every secure->NS branch whose target
+# differs from VTOR_NS[1] — i.e. on every dispatch after the first.
+# It's benign chatter that drowns the actual UART traffic; filter it
+# out of the live stream but keep the raw log untouched in case a
+# real fault needs investigating.
 ( stdbuf -oL -eL "$EMU_CMD" --cpu stm32h563 --timeout "$EMU_TIMEOUT" \
       --uart-stdout --quit-on-faults \
       "$SECURE_BIN" \
       "$GUEST0_BIN:$WT_GUEST0_EMU_OFFSET" \
       "$GUEST1_BIN:$WT_GUEST1_EMU_OFFSET" 2>&1
   echo $? >"$RC_FILE"
-) | tee "$LOG_FILE"
+) | tee "$LOG_FILE" | grep --line-buffered -vE '^\[TZ_WARN\]' || true
 set -e
 EMU_STATUS=$(cat "$RC_FILE")
 
