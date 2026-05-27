@@ -526,6 +526,15 @@ static void wt_exception_return_ns_msp(void)
         "msr psp_ns, r1                 \n"
         "ldr r1, [r0, #" WT_ASM_STR(WT_GUEST_CONTEXT_MSP_NS_OFFSET) "] \n"
         "msr msp_ns, r1                 \n"
+        /* PSPLIM_NS / MSPLIM_NS aren't captured per guest yet, so clear
+         * them on every dispatch to keep a guest that programs them
+         * (e.g. FreeRTOS's ARM_CM33_NTZ port, which writes PSPLIM to the
+         * task stack's lower bound on every PendSV) from STKOF-faulting
+         * a peer guest whose PSP_NS legitimately sits outside the first
+         * guest's stack window. Per-guest save/restore is a follow-up. */
+        "mov r1, #0                     \n"
+        "msr psplim_ns, r1              \n"
+        "msr msplim_ns, r1              \n"
         "ldr r1, [r0, #" WT_ASM_STR(WT_GUEST_CONTEXT_CONTROL_NS_OFFSET) "] \n"
         "msr control_ns, r1             \n"
         "ldr lr, [r0, #" WT_ASM_STR(WT_GUEST_CONTEXT_EXC_RETURN_OFFSET) "] \n"
@@ -544,6 +553,11 @@ static void wt_jump_to_ns(uint32_t msp_ns __attribute__((unused)),
         "bics r1, r1, #1    \n"
         "movs r2, #0        \n"
         "msr control_ns, r2 \n"
+        /* See wt_exception_return_ns_msp — clear PSPLIM_NS / MSPLIM_NS
+         * before the first BXNS so a guest that programs them later
+         * doesn't inherit a stale value from the previous guest. */
+        "msr psplim_ns, r2  \n"
+        "msr msplim_ns, r2  \n"
         "isb 0xF            \n"
         "bxns r1            \n"
     );
