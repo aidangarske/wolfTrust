@@ -39,7 +39,6 @@
 #else
 #define WT_GUEST1_USART_BASE 0x40004800U
 #endif
-#define WT_GUEST_RESET_OFFSET 0x00000041U
 /* Initial restore runs from a Secure exception and returns to a Non-secure
  * Thread/MSP frame. ES must stay set because the exception was taken to Secure
  * state; clearing it trips INVPC on STM32H563 hardware. */
@@ -49,7 +48,6 @@ static const wt_guest_config_t g_partition_configs[] = {
     {
         .guest_id = 0U,
         .name = "guest-a",
-        .entry_point = WT_GUEST0_FLASH_BASE + WT_GUEST_RESET_OFFSET,
         .vector_table = WT_GUEST0_FLASH_BASE,
         .initial_psp_ns = 0x00000000U,
         .initial_msp_ns = 0x20008000U,
@@ -85,10 +83,10 @@ static const wt_guest_config_t g_partition_configs[] = {
         .timeslice_ms = WT_TIMESLICE_MS,
         .hsm_transport = { .base = WT_GUEST0_HSM_BUF_BASE, .size = WT_HSM_BUF_SIZE }
     },
+#if WT_MAX_GUESTS > 1
     {
         .guest_id = 1U,
         .name = "guest-b",
-        .entry_point = WT_GUEST1_FLASH_BASE + WT_GUEST_RESET_OFFSET,
         .vector_table = WT_GUEST1_FLASH_BASE,
         .initial_psp_ns = 0x00000000U,
         .initial_msp_ns = 0x20010000U,
@@ -121,6 +119,7 @@ static const wt_guest_config_t g_partition_configs[] = {
         .timeslice_ms = WT_TIMESLICE_MS,
         .hsm_transport = { .base = WT_GUEST1_HSM_BUF_BASE, .size = WT_HSM_BUF_SIZE }
     }
+#endif
 };
 
 static wt_guest_runtime_t g_partition_runtime[
@@ -164,7 +163,14 @@ void wt_partition_reset_runtime(const wt_guest_config_t* config,
     runtime->context.psp_ns = config->initial_psp_ns;
     runtime->context.msp_ns = config->initial_msp_ns;
     runtime->context.vector_table_ns = config->vector_table;
-    runtime->context.pc = config->entry_point;
+    /* Reset PC is the guest's reset-handler pointer at vector[1]; the slot
+     * already carries the Thumb bit. wt_jump_to_ns strips it before BXNS.
+     * Read via the Secure alias of the underlying flash bank — on m33mu
+     * a Secure-side read of the 0x08... NS alias returns zero, so we
+     * remap to 0x0C... (secure-MPU region 7 covers the guest images). */
+    runtime->context.pc =
+        ((const uint32_t*)((config->vector_table & ~WT_FLASH_NS_BASE) |
+                           WT_FLASH_S_BASE))[1];
     runtime->context.lr = 0U;
     runtime->context.xpsr = 0x01000000U;
     runtime->context.exc_return = WT_EXC_RETURN_NS_THREAD_MSP_FROM_SECURE;

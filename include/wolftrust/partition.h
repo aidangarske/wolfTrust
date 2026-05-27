@@ -37,7 +37,6 @@ typedef struct wt_hsm_transport_window {
 typedef struct wt_guest_config {
     wt_guest_id_t guest_id;
     char name[WT_MAX_NAME_LEN];
-    uintptr_t entry_point;
     uintptr_t vector_table;
     uintptr_t initial_psp_ns;
     uintptr_t initial_msp_ns;

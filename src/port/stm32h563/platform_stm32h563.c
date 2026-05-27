@@ -286,6 +286,17 @@ static void wt_mpu_s_init(void)
         WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW,
         WT_MPU_RLAR_ATTRIDX_DEVICE);
 
+    /* Region 7: Secure alias of guest flash images (0x0C020000..0x0C0FFFFF).
+     * RO-XN — the Secure side only reads guest reset vectors and metadata
+     * from here; never executes guest code in Secure state. The 0x08...
+     * NS alias is reachable too (region 4), but on at least one emulator
+     * the Secure-side read of that NS alias returns zero, so we keep this
+     * Secure alias window for reliable access. */
+    wt_mpu_s_set_region(7u,
+        0x0C020000u, 0x0C0FFFFFu,
+        WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RO | WT_MPU_RBAR_SH_INNER,
+        WT_MPU_RLAR_ATTRIDX_NORMAL);
+
     /* Enable: PRIVDEFENA=0 (no implicit background region), HFNMIENA=1
      * so MPU stays active during HardFault/NMI (matches what we want
      * since our MemManage handler relies on the same region table). */
