@@ -2,7 +2,7 @@
 set -eu
 
 if [ $# -ne 1 ]; then
-    echo "usage: $0 guest0|guest1" >&2
+    echo "usage: $0 guest0|guest0_psa|guest1" >&2
     exit 2
 fi
 
@@ -46,5 +46,5 @@ export ZEPHYR_BASE
     -b "$BOARD" \
     "$APP_DIR" \
     -- \
-    -DZEPHYR_EXTRA_MODULES="$MODULE_DIR/wolftrust-tee;$MODULE_DIR/wolfhsm-client;$ROOT/lib/wolfSSL" \
+    -DZEPHYR_EXTRA_MODULES="$MODULE_DIR/wolftrust-tee;$MODULE_DIR/wolfhsm-client;$MODULE_DIR/wolfpsa;$ROOT/lib/wolfSSL" \
     -DWOLFTRUST_CMSE_IMPLIB="$SECURE_CMSE_IMPLIB"

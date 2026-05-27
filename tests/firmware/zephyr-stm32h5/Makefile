@@ -38,7 +38,11 @@ GUEST_OBJCOPY ?= arm-none-eabi-objcopy
 
 SECURE_BIN         := $(TOP_BUILD_DIR)/wolftrust.bin
 SECURE_CMSE_IMPLIB := $(TOP_BUILD_DIR)/secure_cmse_implib.o
-GUEST0_BIN         := $(CURDIR)/build/guest0/zephyr/zephyr.bin
+# guest0_psa is the headline NS app for this port — it exercises both the
+# legacy TEE driver path AND the PSA Crypto chain (wolfPSA → wolfHSM client
+# → CMSE) in one image. The TEE-only `guest0` app is still buildable via
+# `make build-guest0` for diagnostic purposes.
+GUEST0_BIN         := $(CURDIR)/build/guest0_psa/zephyr/zephyr.bin
 GUEST1_DIR         := $(CURDIR)/apps/guest1
 GUEST1_BUILD_DIR   := $(CURDIR)/build/guest1
 GUEST1_ELF         := $(GUEST1_BUILD_DIR)/guest1.elf
@@ -59,10 +63,10 @@ GUEST1_LDFLAGS := \
     -Wl,--defsym=GUEST_RAM_LENGTH=$(WT_GUEST_RAM_SIZE) \
     -Wl,--gc-sections
 
-.PHONY: all clone workspace patch secure build-guest0 build-guest1 \
-        run run-uarts run-tui clean
+.PHONY: all clone workspace patch secure build-guest0 build-guest0-psa \
+        build-guest1 run run-uarts run-tui clean
 
-all: build-guest0 build-guest1
+all: build-guest0-psa build-guest1
 
 clone workspace:
 	ZEPHYR_TAG="$(ZEPHYR_TAG)" WEST_PYTHON="$(WEST_PYTHON)" WEST_BIN="$(WEST_BIN)" \
@@ -95,6 +99,14 @@ build-guest0: patch secure
 	SECURE_BIN="$(SECURE_BIN)" SECURE_CMSE_IMPLIB="$(SECURE_CMSE_IMPLIB)" \
 	WT_SHARED_UART="$(WT_SHARED_UART)" \
 	"$(SCRIPT_DIR)/build_guest.sh" guest0
+
+build-guest0-psa: patch secure
+	ZEPHYR_TAG="$(ZEPHYR_TAG)" ZEPHYR_WORKSPACE="$(ZEPHYR_WORKSPACE)" \
+	WEST_PYTHON="$(WEST_PYTHON)" WEST_BIN="$(WEST_BIN)" \
+	ZEPHYR_BOARD="$(ZEPHYR_BOARD)" \
+	SECURE_BIN="$(SECURE_BIN)" SECURE_CMSE_IMPLIB="$(SECURE_CMSE_IMPLIB)" \
+	WT_SHARED_UART="$(WT_SHARED_UART)" \
+	"$(SCRIPT_DIR)/build_guest.sh" guest0_psa
 
 build-guest1: $(GUEST1_BIN)
 

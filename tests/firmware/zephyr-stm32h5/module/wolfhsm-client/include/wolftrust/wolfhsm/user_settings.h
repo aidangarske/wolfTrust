@@ -33,6 +33,11 @@
 #define NO_ECC384
 #define NO_ECC521
 
+/* AES-CTR counter mode (needed by wolfPSA's PSA_ALG_CTR path). The
+ * secure-side wolfHSM crypto_cb already serves CTR via the same
+ * wc_AesCtrEncrypt code path it uses for CBC. */
+#define WOLFSSL_AES_COUNTER
+
 /* SHA-256 only. */
 #define NO_SHA
 
