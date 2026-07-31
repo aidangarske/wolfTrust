@@ -926,6 +926,7 @@ void wt_platform_capture_guest_context(wt_guest_context_t* context,
                                        const wt_trap_frame_t* frame)
 {
     wt_exception_frame_t* stacked;
+    uintptr_t stacked_addr;
 
     if (context == NULL || frame == NULL) {
         wt_platform_panic();
@@ -933,7 +934,16 @@ void wt_platform_capture_guest_context(wt_guest_context_t* context,
 
     stacked = (wt_exception_frame_t*)frame;
     context->psp_ns = wt_read_psp_ns();
-    context->msp_ns = (uintptr_t)stacked;
+    stacked_addr = (uintptr_t)stacked;
+    /* A SecureFault can be raised before the NS exception frame exists (for
+     * example, on a failed first BXNS). Preserve the configured guest MSP
+     * in that case; replacing it with zero would make the recovery path
+     * fabricate a frame at 0xffffffe0 and fault recursively. */
+    if (stacked_addr >= WT_RAM_NS_BASE &&
+        stacked_addr <= (WT_RAM_NS_BASE + 0x00020000u -
+                         sizeof(wt_exception_frame_t))) {
+        context->msp_ns = stacked_addr;
+    }
     context->control_ns = wt_read_control_ns();
     context->exc_return = g_live_exc_return;
     context->r4_r11[0] = g_live_r4_r11[0];
