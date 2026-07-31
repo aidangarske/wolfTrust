@@ -169,8 +169,7 @@ void wt_partition_reset_runtime(const wt_guest_config_t* config,
      * a Secure-side read of the 0x08... NS alias returns zero, so we
      * remap to 0x0C... (secure-MPU region 7 covers the guest images). */
     runtime->context.pc =
-        ((const uint32_t*)((config->vector_table & ~WT_FLASH_NS_BASE) |
-                           WT_FLASH_S_BASE))[1];
+        ((const uint32_t*)WT_FLASH_TO_S_ALIAS(config->vector_table))[1];
     runtime->context.lr = 0U;
     runtime->context.xpsr = 0x01000000U;
     runtime->context.exc_return = WT_EXC_RETURN_NS_THREAD_MSP_FROM_SECURE;

@@ -38,6 +38,9 @@
 #define WT_FLASH_NSC_END         (WT_FLASH_NSC_BASE + 0x000003FFu)
 
 #define WT_FLASH_NS_BASE         0x08000000u
+#define WT_FLASH_S_ALIAS_BASE    0x0C000000u
+#define WT_FLASH_TO_S_ALIAS(address) \
+    ((address) - WT_FLASH_NS_BASE + WT_FLASH_S_ALIAS_BASE)
 #ifndef WT_GUEST0_FLASH_BASE
 #define WT_GUEST0_FLASH_BASE     0x08020000u
 #endif

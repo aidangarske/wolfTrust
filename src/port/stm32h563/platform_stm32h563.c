@@ -292,8 +292,8 @@ static void wt_mpu_s_init(void)
      * the Secure-side read of that NS alias returns zero, so we keep this
      * Secure alias window for reliable access. */
     wt_mpu_s_set_region(7u,
-        WT_FLASH_S_BASE + WT_FLASH_S_SIZE,
-        WT_FLASH_S_BASE + WT_FLASH_S_SIZE + 0x000DFFFFu,
+        WT_FLASH_TO_S_ALIAS(WT_GUEST0_FLASH_BASE),
+        WT_FLASH_TO_S_ALIAS(WT_GUEST1_FLASH_BASE + WT_GUEST_FLASH_SIZE - 1u),
         WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RO | WT_MPU_RBAR_SH_INNER,
         WT_MPU_RLAR_ATTRIDX_NORMAL);
 

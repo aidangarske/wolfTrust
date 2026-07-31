@@ -1,0 +1,14 @@
+&flash0 {
+	/delete-node/ partitions;
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		slot0_ns_partition: partition@80000 {
+			label = "image-0-nonsecure";
+			reg = <0x00080000 DT_SIZE_K(128)>;
+		};
+	};
+};

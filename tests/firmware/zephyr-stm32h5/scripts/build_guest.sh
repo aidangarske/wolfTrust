@@ -19,6 +19,7 @@ MODULE_DIR="$SUBTREE_DIR/module"
 BOARD="${ZEPHYR_BOARD:-nucleo_h563zi/stm32h563xx/ns}"
 SECURE_BIN="${SECURE_BIN:-$ROOT/build/wolftrust.bin}"
 SECURE_CMSE_IMPLIB="${SECURE_CMSE_IMPLIB:-$ROOT/build/secure_cmse_implib.o}"
+WT_ZEPHYR_DTC_OVERLAY_FILE="${WT_ZEPHYR_DTC_OVERLAY_FILE:-}"
 
 if [ ! -d "$APP_DIR" ]; then
     echo "unknown guest app: $APP_NAME" >&2
@@ -41,10 +42,20 @@ mkdir -p "$BUILD_DIR"
 
 export ZEPHYR_BASE
 
+set -- \
+    "-DZEPHYR_EXTRA_MODULES=$MODULE_DIR/wolftrust-tee;$MODULE_DIR/wolfhsm-client;$MODULE_DIR/wolfpsa;$ROOT/lib/wolfSSL" \
+    "-DWOLFTRUST_CMSE_IMPLIB=$SECURE_CMSE_IMPLIB"
+
+if [ -n "$WT_ZEPHYR_DTC_OVERLAY_FILE" ]; then
+    case "$WT_ZEPHYR_DTC_OVERLAY_FILE" in
+        /*) ;;
+        *) WT_ZEPHYR_DTC_OVERLAY_FILE="$SUBTREE_DIR/$WT_ZEPHYR_DTC_OVERLAY_FILE" ;;
+    esac
+    set -- "$@" "-DEXTRA_DTC_OVERLAY_FILE=$WT_ZEPHYR_DTC_OVERLAY_FILE"
+fi
+
 "$WEST_BIN" build -p auto \
     -d "$BUILD_DIR" \
     -b "$BOARD" \
     "$APP_DIR" \
-    -- \
-    -DZEPHYR_EXTRA_MODULES="$MODULE_DIR/wolftrust-tee;$MODULE_DIR/wolfhsm-client;$MODULE_DIR/wolfpsa;$ROOT/lib/wolfSSL" \
-    -DWOLFTRUST_CMSE_IMPLIB="$SECURE_CMSE_IMPLIB"
+    -- "$@"
