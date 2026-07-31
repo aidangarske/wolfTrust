@@ -160,7 +160,9 @@ jobs:
       WOLFBOOT_REF: 82bb676681dbee46403a6c6613eef5b3ca46e647
       CROSS_COMPILE: /usr/local/bin/arm-none-eabi-
       ZEPHYR_TOOLCHAIN_VARIANT: cross-compile
-      WT_SECURE_FLASH_BASE: 0x0C020000
+      # wolfBoot's secure H5 image occupies 0x0C000000..0x0C05E020;
+      # place wolfTrust at the first 128-KiB-aligned free slot.
+      WT_SECURE_FLASH_BASE: 0x0C060000
       WT_SECURE_FLASH_SIZE: 0x00020000
       WT_SECURE_IMAGE_HEADER_SIZE: 0x400
       WT_MAX_GUESTS: 2
@@ -214,9 +216,9 @@ jobs:
         run: |
           set -o pipefail
           m33mu wolfBoot/wolfboot.bin \
-            build/wolftrust_v1_signed.bin:0x20000 \
-            tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0x40000 \
-            tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0x60000 \
+            build/wolftrust_v1_signed.bin:0x60000 \
+            tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0x80000 \
+            tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xA0000 \
             --uart-stdout --quit-on-faults --timeout 600 \
             | tee "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "wolfTrust TEE client initialized" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
