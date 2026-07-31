@@ -157,7 +157,7 @@ jobs:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
     env:
       # wolfBoot fork branch containing the H5 secure-app handoff.
-      WOLFBOOT_REF: b2ed05f2
+      WOLFBOOT_REF: 82bb6766
       WT_SECURE_FLASH_BASE: 0x0C020000
       WT_SECURE_FLASH_SIZE: 0x00020000
       WT_SECURE_IMAGE_HEADER_SIZE: 0x400
