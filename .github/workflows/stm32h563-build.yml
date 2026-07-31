@@ -214,13 +214,23 @@ jobs:
 
       - name: Boot the authenticated wolfBoot → wolfTrust → guests chain
         run: |
-          set -o pipefail
-          m33mu wolfBoot/wolfboot.bin \
-            build/wolftrust_v1_signed.bin:0x60000 \
-            tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0x80000 \
-            tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xA0000 \
-            --uart-stdout --quit-on-faults --timeout 600 \
+          set +e
+          rc_file=$(mktemp)
+          ( m33mu wolfBoot/wolfboot.bin \
+              build/wolftrust_v1_signed.bin:0x60000 \
+              tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0x80000 \
+              tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xA0000 \
+              --uart-stdout --quit-on-faults --timeout 600; \
+            echo $? > "$rc_file" ) \
             | tee "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          emu_status=$(cat "$rc_file")
+          rm -f "$rc_file"
+          echo "wolfBoot/wolfTrust M33MU exit status: $emu_status"
+          echo "Secure runtime fault address resolution:"
+          arm-none-eabi-addr2line -f -C -e build/wolftrust.elf \
+            0x0c061180 0x0c061177 0x0c061749 0x0c060c01 || true
+          set -e
+          test "$emu_status" -eq 0
           grep -Fq "wolfTrust TEE client initialized" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "psa_cipher_encrypt(SHA-256)" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log" || \
             grep -Fq "psa_cipher_encrypt(AES-CTR)" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
