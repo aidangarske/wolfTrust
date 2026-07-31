@@ -22,7 +22,8 @@
 ENTRY(Reset_Handler)
 
 MEMORY {
-  FLASH (rx) : ORIGIN = 0x0C000000, LENGTH = 128K
+  FLASH (rx) : ORIGIN = (WT_SECURE_FLASH_ORIGIN + WT_SECURE_IMAGE_HEADER_SIZE),
+               LENGTH = (WT_SECURE_FLASH_SIZE - WT_SECURE_IMAGE_HEADER_SIZE)
   /* SRAM1 has Secure and Non-secure aliases to the same physical memory.
    * The first 32 KiB are assigned to the two guests through the 0x20000000
    * Non-secure alias, so keep secure .data/.bss above that physical window. */
@@ -33,11 +34,11 @@ _estack = ORIGIN(RAM) + LENGTH(RAM);
 _sidata = LOADADDR(.data);
 
 SECTIONS {
-  .vectors 0x0C000000 : {
+  .vectors (WT_SECURE_FLASH_ORIGIN + WT_SECURE_IMAGE_HEADER_SIZE) : {
     KEEP(*(.vectors))
   } > FLASH
 
-  .gnu.sgstubs 0x0C000400 : {
+  .gnu.sgstubs (WT_SECURE_FLASH_ORIGIN + WT_SECURE_IMAGE_HEADER_SIZE + 0x400) : {
     *(.gnu.sgstubs)
     *(.gnu.sgstubs*)
   } > FLASH
@@ -46,7 +47,7 @@ SECTIONS {
     KEEP(*(.nsc*))
   } > FLASH
 
-  .text 0x0C000800 : {
+  .text (WT_SECURE_FLASH_ORIGIN + WT_SECURE_IMAGE_HEADER_SIZE + 0x800) : {
     *(.text*)
     *(.rodata*)
     *(.ARM.extab* .gnu.linkonce.armextab.*)
@@ -56,7 +57,10 @@ SECTIONS {
     *(.eh_frame)
   } > FLASH
 
-  ASSERT(. <= 0x0C020000, "secure image overflows secure flash region")
+  ASSERT(WT_SECURE_IMAGE_HEADER_SIZE < WT_SECURE_FLASH_SIZE,
+         "secure image header consumes secure flash region")
+  ASSERT(. <= (WT_SECURE_FLASH_ORIGIN + WT_SECURE_FLASH_SIZE),
+         "secure image overflows secure flash region")
   ASSERT(SIZEOF(.gnu.sgstubs) + SIZEOF(.nsc) <= 0x400, "NSC window overflow")
 
   .data : {

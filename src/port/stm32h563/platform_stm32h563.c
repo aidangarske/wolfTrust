@@ -230,10 +230,9 @@ static void wt_mpu_s_init(void)
     WT_MPU_S_MAIR0 = WT_MPU_MAIR0_NORMAL_AT_0 | WT_MPU_MAIR0_DEVICE_AT_1;
     WT_MPU_S_MAIR1 = 0u;
 
-    /* Region 0: secure flash bank 1 RX (image, NSC stubs, .text).
-     * The secure linker caps the image at 0x0C020000. */
+    /* Region 0: secure flash RX (image, NSC stubs, .text). */
     wt_mpu_s_set_region(0u,
-        0x0C000000u, 0x0C01FFFFu,
+        WT_FLASH_S_BASE, WT_FLASH_S_BASE + WT_FLASH_S_SIZE - 1u,
         WT_MPU_RBAR_AP_RO | WT_MPU_RBAR_SH_INNER,
         WT_MPU_RLAR_ATTRIDX_NORMAL);
 
@@ -286,14 +285,15 @@ static void wt_mpu_s_init(void)
         WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW,
         WT_MPU_RLAR_ATTRIDX_DEVICE);
 
-    /* Region 7: Secure alias of guest flash images (0x0C020000..0x0C0FFFFF).
+    /* Region 7: Secure alias of guest flash images.
      * RO-XN — the Secure side only reads guest reset vectors and metadata
      * from here; never executes guest code in Secure state. The 0x08...
      * NS alias is reachable too (region 4), but on at least one emulator
      * the Secure-side read of that NS alias returns zero, so we keep this
      * Secure alias window for reliable access. */
     wt_mpu_s_set_region(7u,
-        0x0C020000u, 0x0C0FFFFFu,
+        WT_FLASH_S_BASE + WT_FLASH_S_SIZE,
+        WT_FLASH_S_BASE + WT_FLASH_S_SIZE + 0x000DFFFFu,
         WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RO | WT_MPU_RBAR_SH_INNER,
         WT_MPU_RLAR_ATTRIDX_NORMAL);
 

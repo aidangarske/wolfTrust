@@ -148,3 +148,76 @@ jobs:
           REBOOT_TIMEOUT: 30
         run: |
           ./test-app/emu-test-apps/test.sh
+
+  wolfboot-wolftrust-m33mu:
+    name: wolfBoot + wolfTrust secure handoff
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    env:
+      # wolfBoot fork branch containing the H5 secure-app handoff.
+      WOLFBOOT_REF: b2ed05f2
+      WT_SECURE_FLASH_BASE: 0x0C020000
+      WT_SECURE_FLASH_SIZE: 0x00020000
+      WT_SECURE_IMAGE_HEADER_SIZE: 0x400
+      WT_MAX_GUESTS: 2
+      ZEPHYR_BOARD: nucleo_h563zi/stm32h563xx/ns
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: Initialize wolfTrust dependencies
+        run: git submodule update --init --single-branch
+
+      - name: Prepare Zephyr and FreeRTOS workspaces
+        working-directory: tests/firmware/zephyr-stm32h5
+        run: make clone
+
+      - name: Fetch secure-app wolfBoot
+        run: |
+          git clone --no-checkout https://github.com/aidangarske/wolfBoot.git wolfBoot
+          git -C wolfBoot fetch --depth 1 origin "$WOLFBOOT_REF"
+          git -C wolfBoot checkout --detach "$WOLFBOOT_REF"
+          git -C wolfBoot submodule update --init --single-branch
+
+      - name: Build wolfBoot secure first stage
+        working-directory: wolfBoot
+        run: |
+          cp config/examples/stm32h5-tz-wolftrust.config .config
+          make -j2 keytools wolfboot.bin wolfboot_signing_private_key.der
+
+      - name: Build relocated wolfTrust and both guests
+        run: |
+          make build/wolftrust.bin build/secure_cmse_implib.o
+          make -C tests/firmware/zephyr-stm32h5 \
+            build-guest0-psa build-freertos-guest1
+
+      - name: Sign wolfTrust secure runtime
+        working-directory: wolfBoot
+        run: |
+          IMAGE_HEADER_SIZE=1024 \
+          WOLFBOOT_PARTITION_SIZE=0x20000 \
+          WOLFBOOT_SECTOR_SIZE=0x2000 \
+            ./tools/keytools/sign --ecc256 \
+              "$GITHUB_WORKSPACE/build/wolftrust.bin" \
+              wolfboot_signing_private_key.der 1
+          test -s "$GITHUB_WORKSPACE/build/wolftrust_v1_signed.bin"
+
+      - name: Boot the authenticated wolfBoot → wolfTrust → guests chain
+        run: |
+          set -o pipefail
+          m33mu wolfBoot/wolfboot.bin \
+            build/wolftrust_v1_signed.bin:0x20000 \
+            tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0x40000 \
+            tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0x60000 \
+            --uart-stdout --quit-on-faults --timeout 600 \
+            | tee "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          grep -Fq "wolfTrust TEE client initialized" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          grep -Fq "psa_cipher_encrypt(SHA-256)" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log" || \
+            grep -Fq "psa_cipher_encrypt(AES-CTR)" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          grep -Fq "freertos_guest1: C_Digest(SHA-256) rv=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
