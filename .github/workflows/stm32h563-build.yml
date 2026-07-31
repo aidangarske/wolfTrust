@@ -89,3 +89,49 @@ jobs:
           make -C tests/firmware/zephyr-stm32h5 \
             EMU_TIMEOUT=300 \
             zephyr-freertos-uarts
+
+  wolfboot-m33mu:
+    name: wolfBoot (${{ matrix.config.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: stm32h5-tz-psa
+            board: nucleo_h563zi/stm32h563xx/ns
+    timeout-minutes: 20
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    env:
+      WOLFBOOT_REF: 0a8ad18e51ae247a71b140dabe5bb8dfef38419a
+      ZEPHYR_BOARD: ${{ matrix.config.board }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: Fetch pinned wolfBoot and dependencies
+        run: |
+          git clone --no-checkout https://github.com/wolfSSL/wolfBoot.git wolfBoot
+          git -C wolfBoot fetch --depth 1 origin "$WOLFBOOT_REF"
+          git -C wolfBoot checkout --detach "$WOLFBOOT_REF"
+          git -C wolfBoot submodule update --init --single-branch
+
+      - name: Build signed STM32H5 TrustZone wolfBoot image
+        working-directory: wolfBoot
+        run: |
+          cp "config/examples/${{ matrix.config.name }}.config" .config
+          make -j2
+
+      - name: Boot signed image under M33MU
+        working-directory: wolfBoot
+        run: |
+          m33mu wolfboot.bin \
+            test-app/image_v1_signed.bin:0x60000 \
+            --uart-stdout --expect-bkpt 0x7f --timeout 600 \
+            | tee "$RUNNER_TEMP/wolfboot-m33mu.log"
+          grep -q "\\[BKPT\\] imm=0x7f" "$RUNNER_TEMP/wolfboot-m33mu.log"
+          grep -q "\\[EXPECT BKPT\\] Success" "$RUNNER_TEMP/wolfboot-m33mu.log"
