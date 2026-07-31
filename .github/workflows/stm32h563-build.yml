@@ -165,6 +165,9 @@ jobs:
       WT_SECURE_FLASH_BASE: 0x0C060000
       WT_SECURE_FLASH_SIZE: 0x00020000
       WT_SECURE_IMAGE_HEADER_SIZE: 0x400
+      WT_GUEST0_FLASH_BASE: 0x08080000
+      WT_GUEST1_FLASH_BASE: 0x080A0000
+      WT_ZEPHYR_DTC_OVERLAY_FILE: boards/wolfboot-stm32h563.overlay
       WT_MAX_GUESTS: 2
       ZEPHYR_BOARD: nucleo_h563zi/stm32h563xx/ns
     steps:
@@ -214,6 +217,23 @@ jobs:
 
       - name: Boot the authenticated wolfBoot → wolfTrust → guests chain
         run: |
+          echo "Guest vector tables (SP, reset PC):"
+          od -An -tx4 -N8 tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin
+          od -An -tx4 -N8 tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin
+          guest0_entry=$(arm-none-eabi-readelf -h \
+            tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.elf \
+            | awk '/Entry point address:/ { print $4 }')
+          guest1_entry=$(arm-none-eabi-readelf -h \
+            tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.elf \
+            | awk '/Entry point address:/ { print $4 }')
+          case "$guest0_entry" in
+            0x808*) ;;
+            *) echo "Zephyr entry $guest0_entry is outside 0x08080000 slot" >&2; exit 1 ;;
+          esac
+          case "$guest1_entry" in
+            0x80a*) ;;
+            *) echo "FreeRTOS entry $guest1_entry is outside 0x080A0000 slot" >&2; exit 1 ;;
+          esac
           set +e
           rc_file=$(mktemp)
           ( m33mu wolfBoot/wolfboot.bin \
@@ -226,14 +246,14 @@ jobs:
           emu_status=$(cat "$rc_file")
           rm -f "$rc_file"
           echo "wolfBoot/wolfTrust M33MU exit status: $emu_status"
-          echo "Secure runtime fault address resolution:"
-          arm-none-eabi-addr2line -f -C -e build/wolftrust.elf \
-            0x0c061180 0x0c061177 0x0c061749 0x0c060c01 || true
           set -e
           if [ "$emu_status" -ne 0 ] && [ "$emu_status" -ne 127 ]; then
             exit "$emu_status"
           fi
+          if grep -Eq '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)' \
+              "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"; then
+            exit 1
+          fi
           grep -Fq "wolfTrust TEE client initialized" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "psa_cipher_encrypt(SHA-256)" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log" || \
-            grep -Fq "psa_cipher_encrypt(AES-CTR)" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          grep -Fq "psa_cipher_encrypt(AES-CTR) st=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "freertos_guest1: C_Digest(SHA-256) rv=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
