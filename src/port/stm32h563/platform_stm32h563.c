@@ -639,7 +639,9 @@ void wt_platform_init(void)
         {WHAL_STM32H563_RNG_CLOCK};
 
     wt_clock_init();
-    WT_SCB_VTOR_S = WT_FLASH_S_BASE;
+    /* The signed wolfBoot handoff reserves the manifest header at the slot
+     * base; the Secure vector table begins at the image base after it. */
+    WT_SCB_VTOR_S = WT_FLASH_IMAGE_BASE;
     wt_gtzc_init();
     wt_sau_init();
     wt_mpu_s_init();
