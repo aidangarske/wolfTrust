@@ -157,7 +157,7 @@ jobs:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
     env:
       # wolfBoot fork branch containing the H5 secure-app handoff.
-      WOLFBOOT_REF: c83898d2bb868d9116798ff9c906de4560925459
+      WOLFBOOT_REF: 97c1b58dcde9ba706ae99be524ee2e59acdad24d
       CROSS_COMPILE: /usr/local/bin/arm-none-eabi-
       ZEPHYR_TOOLCHAIN_VARIANT: cross-compile
       # wolfBoot's secure H5 image occupies 0x0C000000..0x0C05E020;
