@@ -49,6 +49,7 @@ if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
     WOLFSSL_SP_ASM
     WOLFSSL_SP_ARM_CORTEX_M_ASM
     WOLFSSL_ARM_ARCH=8
+    WOLFSSL_ECDSA_DETERMINISTIC_K
     WOLFSSL_ARMASM
     WOLFSSL_ARMASM_NO_HW_CRYPTO
     WOLFSSL_ARMASM_INLINE
@@ -99,6 +100,7 @@ if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/hash.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/hmac.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/memory.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/pwdbased.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sha.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_cortexm.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_int.c
@@ -140,6 +142,7 @@ if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/hash.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/hmac.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/memory.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/pwdbased.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sha.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_cortexm.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_int.c

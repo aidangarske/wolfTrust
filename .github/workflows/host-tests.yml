@@ -1,0 +1,254 @@
+name: Host tests
+
+on:
+  push:
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    uses: ./.github/workflows/_resolve-wolfssl.yml
+
+  host-vnet:
+    name: wolfTrust VNET host tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - run: make -C tests/host/vnet run
+
+  host-wolfhsm:
+    name: wolfHSM loopback host tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - run: make -C tests/host/wolfhsm_loopback run
+
+  unit-tests:
+    name: Host unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Run VNET unit tests
+        run: make -C tests/host/vnet clean run
+      - name: Run wolfHSM loopback tests
+        run: make -C tests/host/wolfhsm_loopback clean run
+
+  compiler-matrix:
+    name: ${{ matrix.name }} host tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: GCC 12
+            package: gcc-12
+            cc: gcc-12
+          - name: GCC 13
+            package: gcc-13
+            cc: gcc-13
+          - name: GCC 14
+            package: gcc-14
+            cc: gcc-14
+          - name: GCC 15
+            package: gcc-15
+            cc: gcc-15
+          - name: Clang 17
+            package: clang-17
+            cc: clang-17
+          - name: Clang 18
+            package: clang-18
+            cc: clang-18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Install compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends software-properties-common
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ${{ matrix.package }}
+      - name: Run VNET unit tests
+        run: make -C tests/host/vnet clean run CC=${{ matrix.cc }}
+      - name: Run wolfHSM loopback tests
+        run: make -C tests/host/wolfhsm_loopback clean run CC=${{ matrix.cc }}
+
+  sanitizers:
+    name: ASan and UBSan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Run sanitized unit and loopback tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: |
+          make -C tests/host/vnet clean run CC=clang \
+            EXTRA_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            EXTRA_LDFLAGS="-fsanitize=address,undefined"
+          make -C tests/host/wolfhsm_loopback clean run CC=clang \
+            EXTRA_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            EXTRA_LDFLAGS="-fsanitize=address,undefined"
+
+  valgrind:
+    name: Valgrind host tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends valgrind
+      - name: Build host tests
+        run: |
+          make -C tests/host/vnet clean all
+          make -C tests/host/wolfhsm_loopback clean all
+      - name: Run VNET under Valgrind
+        run: valgrind --error-exitcode=1 --leak-check=full tests/host/vnet/test_vnet
+      - name: Run wolfHSM loopback under Valgrind
+        run: valgrind --error-exitcode=1 --leak-check=full tests/host/wolfhsm_loopback/test_loopback
+
+  cross-compile:
+    name: Cortex-M33 cross-compilation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init \
+            lib/wolfHSM lib/wolfPKCS11 lib/wolfPSA lib/wolfSSL lib/wolfhal
+      - name: Install Arm GCC toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
+      - name: Build STM32H563 firmware
+        run: make -C tests/firmware/stm32h563 all TOOLPREFIX=arm-none-eabi-
+
+  host-wolfpsa:
+    name: wolfPSA host tests (${{ matrix.name }})
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Select wolfSSL ref
+        if: matrix.ref != 'pinned'
+        run: |
+          git -C lib/wolfSSL fetch --no-tags origin "${{ matrix.ref }}"
+          git -C lib/wolfSSL checkout --detach FETCH_HEAD
+      - name: Build wolfSSL and wolfPSA
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends automake libtool
+          cd lib/wolfSSL
+          ./autogen.sh
+          ./configure --enable-shared --enable-psa --enable-pkcallbacks \
+            --with-psa-include="$GITHUB_WORKSPACE/lib/wolfPSA/wolfpsa" \
+            --disable-examples --disable-benchmark --disable-crypttests \
+            --prefix="$GITHUB_WORKSPACE/.deps/wolfssl"
+          make -j2
+          make install
+          cd ../wolfPSA
+          make WOLFSSL_PATH=../wolfSSL PSA_INCLUDE=wolfpsa -j2
+          make -C test \
+            WOLFSSL_PATH=../wolfSSL \
+            WOLFSSL_BUILD_DIR="$GITHUB_WORKSPACE/.deps/wolfssl/lib" \
+            CPPFLAGS="-DHAVE_CONFIG_H -DWOLFSSL_HAVE_PSA -DHAVE_PK_CALLBACKS \
+              -I../wolfSSL -I../wolfSSL/wolfssl \
+              -I$GITHUB_WORKSPACE/.deps/wolfssl/lib \
+              -I$GITHUB_WORKSPACE/.deps/wolfssl/include \
+              -I.. -I../wolfpsa -I../src -I../test/psa_server" \
+            psa_api_test psa_crypto_init_test
+          ./test/psa_api_test
+          ./test/psa_crypto_init_test
+
+  host-wolfpkcs11:
+    name: wolfPKCS11 host tests (${{ matrix.name }})
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Select wolfSSL ref
+        if: matrix.ref != 'pinned'
+        run: |
+          git -C lib/wolfSSL fetch --no-tags origin "${{ matrix.ref }}"
+          git -C lib/wolfSSL checkout --detach FETCH_HEAD
+      - name: Build and test wolfPKCS11
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends automake libtool
+          cd lib/wolfSSL
+          ./autogen.sh
+          ./configure --enable-shared \
+            --enable-aescfb --enable-rsapss --enable-keygen \
+            --enable-pwdbased --enable-scrypt \
+            C_EXTRA_FLAGS="-DWOLFSSL_PUBLIC_MP -DWC_RSA_DIRECT"
+          make -j2
+          cd ../wolfPKCS11
+          ./autogen.sh
+          ./configure --enable-singlethreaded --disable-dh \
+            CPPFLAGS="-I$GITHUB_WORKSPACE/lib/wolfSSL" \
+            LDFLAGS="-L$GITHUB_WORKSPACE/lib/wolfSSL/src/.libs -Wl,-rpath,$GITHUB_WORKSPACE/lib/wolfSSL/src/.libs" \
+            CFLAGS="-DWOLFSSL_WOLFHSM_DEVID=0x5748534d"
+          make -j2 test

@@ -24,6 +24,7 @@ CC := gcc
 CFLAGS := -O0 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
     -I. \
     -I$(ROOT)/include
+CFLAGS += $(EXTRA_CFLAGS)
 
 VNET_SRCS := \
     $(ROOT)/src/vnet/vnet_mac.c    \
@@ -54,7 +55,7 @@ vnet_%.o: $(ROOT)/src/vnet/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 test_vnet: $(VNET_OBJS) $(TEST_OBJS)
-	$(CC) $(CFLAGS) -o $@ $(VNET_OBJS) $(TEST_OBJS)
+	$(CC) $(CFLAGS) $(EXTRA_LDFLAGS) -o $@ $(VNET_OBJS) $(TEST_OBJS)
 
 run: test_vnet
 	./test_vnet

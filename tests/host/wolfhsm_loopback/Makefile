@@ -43,6 +43,7 @@ CFLAGS := \
     -I$(WOLFHSM) \
     -I$(WOLFSSL) \
     -O0 -g -Wall -Wno-unused-function -Wno-unused-parameter
+CFLAGS += $(EXTRA_CFLAGS)
 
 # ---------------------------------------------------------------------------
 # Source lists (full paths; flat object output with a prefix to avoid
@@ -134,7 +135,7 @@ wc_%.o: $(WOLFSSL)/wolfcrypt/src/%.c
 all: test_loopback
 
 test_loopback: $(ALL_OBJS)
-	$(CC) $(CFLAGS) -o $@ $(ALL_OBJS) -lm
+	$(CC) $(CFLAGS) $(EXTRA_LDFLAGS) -o $@ $(ALL_OBJS) -lm
 
 run: test_loopback
 	./test_loopback

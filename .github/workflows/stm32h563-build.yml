@@ -1,0 +1,91 @@
+name: STM32H563 M33MU guest tests
+
+on:
+  push:
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zephyr-m33mu:
+    name: Zephyr guest (${{ matrix.config.board }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - board: nucleo_h563zi/stm32h563xx/ns
+            shared_uart: 3
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    env:
+      CROSS_COMPILE: /usr/local/bin/arm-none-eabi-
+      ZEPHYR_TOOLCHAIN_VARIANT: cross-compile
+      ZEPHYR_BOARD: ${{ matrix.config.board }}
+      WT_SHARED_UART: ${{ matrix.config.shared_uart }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: Initialize firmware dependencies
+        run: |
+          git submodule update --init \
+            lib/wolfHSM \
+            lib/wolfPKCS11 \
+            lib/wolfPSA \
+            lib/wolfSSL \
+            lib/wolfhal
+
+      - name: Boot and test Zephyr guest
+        run: |
+          make -C tests/firmware/zephyr-stm32h5 \
+            EMU_TIMEOUT=300 \
+            run-uarts
+
+  freertos-m33mu:
+    name: FreeRTOS guest (${{ matrix.config.board }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - board: nucleo_h563zi/stm32h563xx/ns
+            shared_uart: 3
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    env:
+      CROSS_COMPILE: /usr/local/bin/arm-none-eabi-
+      ZEPHYR_TOOLCHAIN_VARIANT: cross-compile
+      ZEPHYR_BOARD: ${{ matrix.config.board }}
+      WT_SHARED_UART: ${{ matrix.config.shared_uart }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: Initialize firmware dependencies
+        run: |
+          git submodule update --init \
+            lib/wolfHSM \
+            lib/wolfPKCS11 \
+            lib/wolfPSA \
+            lib/wolfSSL \
+            lib/wolfhal
+
+      - name: Boot and test FreeRTOS guest
+        run: |
+          make -C tests/firmware/zephyr-stm32h5 \
+            EMU_TIMEOUT=300 \
+            zephyr-freertos-uarts

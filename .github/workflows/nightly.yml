@@ -1,0 +1,17 @@
+name: Nightly dependency validation
+
+on:
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  host:
+    uses: ./.github/workflows/host-tests.yml
+
+  m33mu:
+    uses: ./.github/workflows/stm32h563-build.yml

@@ -487,6 +487,7 @@ int main(void)
     /* === Cleanup =========================================================== */
     wh_Client_Cleanup(client);
     wh_Server_Cleanup(server);
+    wc_FreeRng(crypto_ctx.rng);
     wh_Nvm_Cleanup(&nvm_ctx);
     wolfCrypt_Cleanup();
 

@@ -63,6 +63,7 @@ static int setup_switch(vnet_switch_t *sw, bool flood)
 static void build_frame(uint8_t *buf, const vnet_mac_t *dst,
                         const vnet_mac_t *src, uint16_t payload_seed)
 {
+    (void)memset(buf, 0, 64U);
     memcpy(&buf[0], dst->b, VNET_MAC_LEN);
     memcpy(&buf[6], src->b, VNET_MAC_LEN);
     buf[12] = 0x08;

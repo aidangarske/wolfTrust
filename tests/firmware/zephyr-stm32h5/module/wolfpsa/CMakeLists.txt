@@ -36,6 +36,8 @@ if(CONFIG_WOLFPSA)
     WOLFSSL_PSA_ENGINE
     # Suppress the POSIX key-storage backend; psa_store_stub.c covers the API.
     WOLFPSA_CUSTOM_STORE
+    # Zephyr has no process environment or stderr-backed trace sink.
+    WOLFPSA_NO_TRACE
   )
 
   zephyr_library_named(wolftrust_wolfpsa)

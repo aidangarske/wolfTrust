@@ -9,14 +9,10 @@
 	url = git@github.com:wolfSSL/wolfhal.git
 [submodule "lib/wolfPSA"]
 	path = lib/wolfPSA
-	url = git@github.com:danielinux/wolfpsa.git
-	branch = runtime-devid
-	# Tracking a personal fork until the runtime-devid hook
-	# (wolfPSA_SetDefaultDevID / wolfPSA_GetDefaultDevID) lands upstream
-	# in wolfSSL/wolfPSA. Re-point at upstream once it's merged.
+	url = https://github.com/aidangarske/wolfPSA.git
 [submodule "lib/wolfPKCS11"]
 	path = lib/wolfPKCS11
-	url = git@github.com:wolfSSL/wolfPKCS11.git
+	url = https://github.com/aidangarske/wolfPKCS11.git
 [submodule "lib/wolfIP"]
 	path = lib/wolfIP
 	url = git@github.com:wolfSSL/wolfip.git
