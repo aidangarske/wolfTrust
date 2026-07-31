@@ -31,6 +31,12 @@ WT_WOLFCRYPT_ARMASM ?= 1
 WT_WOLFCRYPT_STM32_HASH ?= 1
 WT_ENGINE_HSM ?= 1
 
+# Secure runtime placement. The default preserves the standalone image;
+# the wolfBoot handoff build relocates it to 0x0C020000.
+WT_SECURE_FLASH_BASE ?= 0x0C000000
+WT_SECURE_FLASH_SIZE ?= 0x00020000
+WT_SECURE_IMAGE_HEADER_SIZE ?= 0
+
 # Virtual-Ethernet (VNET) subsystem. Off until Wave 2 lands a working
 # core. Host-side unit tests under tests/host/vnet/ build regardless;
 # this switch only gates linking the dataplane and NSC veneers into
@@ -73,6 +79,9 @@ SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -DWT_SHARED_UART=$(WT_SHARED_UART) \
     -DWT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ) \
     -DWT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ) \
+    -DWT_SECURE_FLASH_BASE=$(WT_SECURE_FLASH_BASE) \
+    -DWT_SECURE_FLASH_SIZE=$(WT_SECURE_FLASH_SIZE) \
+    -DWT_SECURE_IMAGE_HEADER_SIZE=$(WT_SECURE_IMAGE_HEADER_SIZE) \
     -DWHAL_CFG_STM32H5_RNG_DIRECT_API_MAPPING \
     -mcmse \
     $(HSM_INCLUDES_SECURE) $(HSM_DEFS_SECURE)
@@ -197,6 +206,9 @@ $(BUILD_MODE_STAMP): | $(BUILD_DIR)
 	printf '%s\n' \
 		'ARCH=$(ARCH)' \
 		'TARGET=$(TARGET)' \
+		'WT_SECURE_FLASH_BASE=$(WT_SECURE_FLASH_BASE)' \
+		'WT_SECURE_FLASH_SIZE=$(WT_SECURE_FLASH_SIZE)' \
+		'WT_SECURE_IMAGE_HEADER_SIZE=$(WT_SECURE_IMAGE_HEADER_SIZE)' \
 		'WT_ENGINE_HSM=$(WT_ENGINE_HSM)' \
 		'WT_MAX_GUESTS=$(WT_MAX_GUESTS)' \
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
@@ -267,10 +279,12 @@ $(BUILD_DIR)/sec_%.o: $(ROOT)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(B
 $(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) $(WOLFHSM_RUNNER_DIR)/secure.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) \
 		-Wl,-T$(WOLFHSM_RUNNER_DIR)/secure.ld \
+		-Wl,--defsym=WT_SECURE_FLASH_ORIGIN=$(WT_SECURE_FLASH_BASE) \
+		-Wl,--defsym=WT_SECURE_FLASH_SIZE=$(WT_SECURE_FLASH_SIZE) \
+		-Wl,--defsym=WT_SECURE_IMAGE_HEADER_SIZE=$(WT_SECURE_IMAGE_HEADER_SIZE) \
 		-Wl,--cmse-implib \
 		-Wl,--out-implib=$(SECURE_CMSE_IMPLIB) \
 		-o $(SECURE_ELF) $(ALL_SECURE_OBJS) -lgcc
 
 $(SECURE_BIN): $(SECURE_ELF)
 	$(OBJCOPY) -O binary $< $@
-
