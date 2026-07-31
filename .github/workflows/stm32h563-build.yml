@@ -103,7 +103,9 @@ jobs:
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
     env:
-      WOLFBOOT_REF: 0a8ad18e51ae247a71b140dabe5bb8dfef38419a
+      # wolfBoot PR #831: wolfCOSE-backed PSA/DICE attestation integration.
+      # Keep this pinned until the PR is merged, then move to upstream master.
+      WOLFBOOT_REF: 9b9ca53454732c5385de764bfcfd192335c997a2
       ZEPHYR_BOARD: ${{ matrix.config.board }}
     steps:
       - uses: actions/checkout@v4
