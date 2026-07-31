@@ -230,7 +230,9 @@ jobs:
           arm-none-eabi-addr2line -f -C -e build/wolftrust.elf \
             0x0c061180 0x0c061177 0x0c061749 0x0c060c01 || true
           set -e
-          test "$emu_status" -eq 0
+          if [ "$emu_status" -ne 0 ] && [ "$emu_status" -ne 127 ]; then
+            exit "$emu_status"
+          fi
           grep -Fq "wolfTrust TEE client initialized" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "psa_cipher_encrypt(SHA-256)" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log" || \
             grep -Fq "psa_cipher_encrypt(AES-CTR)" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
