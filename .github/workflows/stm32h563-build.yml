@@ -158,6 +158,8 @@ jobs:
     env:
       # wolfBoot fork branch containing the H5 secure-app handoff.
       WOLFBOOT_REF: 82bb676681dbee46403a6c6613eef5b3ca46e647
+      CROSS_COMPILE: /usr/local/bin/arm-none-eabi-
+      ZEPHYR_TOOLCHAIN_VARIANT: cross-compile
       WT_SECURE_FLASH_BASE: 0x0C020000
       WT_SECURE_FLASH_SIZE: 0x00020000
       WT_SECURE_IMAGE_HEADER_SIZE: 0x400
