@@ -12,86 +12,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  zephyr-m33mu:
-    name: Zephyr guest (${{ matrix.config.board }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        config:
-          - board: nucleo_h563zi/stm32h563xx/ns
-            shared_uart: 3
-    container:
-      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
-    env:
-      CROSS_COMPILE: /usr/local/bin/arm-none-eabi-
-      ZEPHYR_TOOLCHAIN_VARIANT: cross-compile
-      ZEPHYR_BOARD: ${{ matrix.config.board }}
-      WT_SHARED_UART: ${{ matrix.config.shared_uart }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Trust the checked-out workspace
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git config --global url."https://github.com/".insteadOf git@github.com:
-
-      - name: Initialize firmware dependencies
-        run: |
-          git submodule update --init \
-            lib/wolfCOSE \
-            lib/wolfHSM \
-            lib/wolfPKCS11 \
-            lib/wolfPSA \
-            lib/wolfSSL \
-            lib/wolfhal
-
-      - name: Boot and test Zephyr guest
-        run: |
-          make -C tests/firmware/zephyr-stm32h5 \
-            EMU_TIMEOUT=300 \
-            run-uarts
-
-  freertos-m33mu:
-    name: FreeRTOS guest (${{ matrix.config.board }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        config:
-          - board: nucleo_h563zi/stm32h563xx/ns
-            shared_uart: 3
-    container:
-      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
-    env:
-      CROSS_COMPILE: /usr/local/bin/arm-none-eabi-
-      ZEPHYR_TOOLCHAIN_VARIANT: cross-compile
-      ZEPHYR_BOARD: ${{ matrix.config.board }}
-      WT_SHARED_UART: ${{ matrix.config.shared_uart }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Trust the checked-out workspace
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git config --global url."https://github.com/".insteadOf git@github.com:
-
-      - name: Initialize firmware dependencies
-        run: |
-          git submodule update --init \
-            lib/wolfCOSE \
-            lib/wolfHSM \
-            lib/wolfPKCS11 \
-            lib/wolfPSA \
-            lib/wolfSSL \
-            lib/wolfhal
-
-      - name: Boot and test FreeRTOS guest
-        run: |
-          make -C tests/firmware/zephyr-stm32h5 \
-            EMU_TIMEOUT=300 \
-            zephyr-freertos-uarts
-
   wolfboot-m33mu:
     name: wolfBoot (${{ matrix.config.name }})
     runs-on: ubuntu-latest
@@ -152,8 +72,12 @@ jobs:
           ./test-app/emu-test-apps/test.sh
 
   wolfboot-wolftrust-m33mu:
-    name: wolfBoot + wolfTrust secure handoff
+    name: wolfBoot + wolfTrust + ${{ matrix.guest }} lifecycle
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        guest: [zephyr, freertos]
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
@@ -172,6 +96,7 @@ jobs:
       WT_ZEPHYR_DTC_OVERLAY_FILE: boards/wolfboot-stm32h563.overlay
       WT_MAX_GUESTS: 2
       ZEPHYR_BOARD: nucleo_h563zi/stm32h563xx/ns
+      WT_TEST_GUEST: ${{ matrix.guest }}
     steps:
       - uses: actions/checkout@v4
 
@@ -273,4 +198,15 @@ jobs:
           grep -Fq "wolfTrust attestation: wolfCOSE COSE_Sign1 signed by wolfHSM" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "wolfTrust attestation: COSE_Sign1 verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "attestation verify=0 challenge=ok identity=ok lifecycle=0x3000 measurement=ok cose=ES256" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "freertos_guest1: C_Digest(SHA-256) rv=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          if [ "$WT_TEST_GUEST" = "zephyr" ]; then
+            grep -Fq "psa_generate_random st=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+            grep -Fq "psa_hash_compute(SHA-256) KAT verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+            grep -Fq "psa_cipher_encrypt(AES-CTR) st=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          else
+            grep -Fq "freertos_guest1: wolfHSM client up; devId=0x5748534d" \
+              "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+            grep -Fq "freertos_guest1: C_Initialize rv=0" \
+              "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+            grep -Fq "freertos_guest1: C_Digest(SHA-256) rv=0" \
+              "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          fi
