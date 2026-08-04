@@ -10,7 +10,7 @@ endif
 .DEFAULT_GOAL := all
 
 .PHONY: all clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
-        test-vnet-host run-stm32h563-vnet
+        test-vnet-host test-wolfcose-host run-stm32h563-vnet
 
 all: $(SECURE_BIN) $(SECURE_ELF)
 	@$(SIZE) $(SECURE_ELF)
@@ -20,9 +20,13 @@ clean:
 	$(MAKE) -C tests/firmware/stm32h563 clean
 	$(MAKE) -C tests/firmware/stm32h563-vnet clean
 	$(MAKE) -C tests/host/vnet clean
+	$(MAKE) -C tests/host/wolfcose clean
 
 test-vnet-host:
 	$(MAKE) -C tests/host/vnet run
+
+test-wolfcose-host:
+	$(MAKE) -C tests/host/wolfcose run
 
 run-stm32h563-vnet:
 	$(MAKE) -C tests/firmware/stm32h563-vnet ARCH=$(ARCH) TARGET=$(TARGET) run

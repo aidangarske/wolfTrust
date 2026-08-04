@@ -2,7 +2,7 @@ name: Host tests
 
 on:
   push:
-    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci]
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -39,6 +39,42 @@ jobs:
           git config --global url."https://github.com/".insteadOf git@github.com:
           git submodule update --init --recursive
       - run: make -C tests/host/wolfhsm_loopback run
+
+  host-wolfcose:
+    name: wolfCOSE integration (${{ matrix.name }})
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init lib/wolfCOSE lib/wolfSSL
+      - name: Select wolfSSL ref
+        if: matrix.ref != 'pinned'
+        run: |
+          git -C lib/wolfSSL fetch --no-tags origin "${{ matrix.ref }}"
+          git -C lib/wolfSSL checkout --detach FETCH_HEAD
+      - name: Build wolfSSL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends automake libtool
+          cd lib/wolfSSL
+          ./autogen.sh
+          ./configure --enable-cryptonly --enable-ecc \
+            --disable-shared --enable-static \
+            --prefix="$GITHUB_WORKSPACE/.deps/wolfssl"
+          make -j2
+          make install
+      - name: Test wolfTrust wolfCOSE integration
+        run: |
+          make -C tests/host/wolfcose clean run \
+            WOLFSSL_PREFIX="$GITHUB_WORKSPACE/.deps/wolfssl"
 
   unit-tests:
     name: Host unit tests

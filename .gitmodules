@@ -16,3 +16,6 @@
 [submodule "lib/wolfIP"]
 	path = lib/wolfIP
 	url = git@github.com:wolfSSL/wolfip.git
+[submodule "lib/wolfCOSE"]
+	path = lib/wolfCOSE
+	url = https://github.com/aidangarske/wolfCOSE.git

@@ -1,5 +1,11 @@
 # Architecture Notes
 
+The clean-room policy and normative requirements for the TF-M replacement
+work are maintained in [clean-room-development.md](clean-room-development.md)
+and [requirements/](requirements/README.md). The architecture described below
+is the currently implemented static Non-secure guest monitor and is the base
+from which the independently specified Secure Partition Manager is developed.
+
 ## Model
 
 WolfTrust is a Secure monitor for ARMv8-M systems such as Cortex-M33. It is
