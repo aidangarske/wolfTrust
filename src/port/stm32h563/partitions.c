@@ -15,8 +15,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
 #include "wolftrust/partition.h"
@@ -126,6 +125,37 @@ static wt_guest_runtime_t g_partition_runtime[
     sizeof(g_partition_configs) / sizeof(g_partition_configs[0])
 ];
 
+static bool wt_guest_reset_handler_valid(const wt_guest_config_t* config,
+                                         uintptr_t resetHandler)
+{
+    uintptr_t entry = resetHandler & ~(uintptr_t)1u;
+
+    return ((resetHandler & 1u) != 0u) &&
+           (entry >= config->vector_table) &&
+           (entry < (config->vector_table + WT_GUEST_FLASH_SIZE));
+}
+
+static uintptr_t wt_guest_reset_handler(const wt_guest_config_t* config)
+{
+    uintptr_t resetHandler;
+
+    resetHandler =
+        ((const uint32_t*)WT_FLASH_TO_S_ALIAS(config->vector_table))[1];
+    if (!wt_guest_reset_handler_valid(config, resetHandler)) {
+        /* M33MU requires the Secure alias, while STM32H563 hardware returns
+         * zero for CPU reads of Non-secure flash through that alias. Secure
+         * software is permitted to read the Non-secure alias, so fall back
+         * only after rejecting the first value as an invalid guest entry. */
+        resetHandler = ((const uint32_t*)config->vector_table)[1];
+    }
+
+    if (!wt_guest_reset_handler_valid(config, resetHandler)) {
+        return 0u;
+    }
+
+    return resetHandler;
+}
+
 const wt_guest_config_t* wt_partitions_config_table(size_t* count)
 {
     if (count != NULL) {
@@ -168,8 +198,7 @@ void wt_partition_reset_runtime(const wt_guest_config_t* config,
      * Read via the Secure alias of the underlying flash bank — on m33mu
      * a Secure-side read of the 0x08... NS alias returns zero, so we
      * remap to 0x0C... (secure-MPU region 7 covers the guest images). */
-    runtime->context.pc =
-        ((const uint32_t*)WT_FLASH_TO_S_ALIAS(config->vector_table))[1];
+    runtime->context.pc = wt_guest_reset_handler(config);
     runtime->context.lr = 0U;
     runtime->context.xpsr = 0x01000000U;
     runtime->context.exc_return = WT_EXC_RETURN_NS_THREAD_MSP_FROM_SECURE;

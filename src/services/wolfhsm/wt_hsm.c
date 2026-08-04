@@ -15,8 +15,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
 /*
@@ -44,6 +43,7 @@
 #include "wolfssl/wolfcrypt/wc_port.h"
 #include "wolfssl/wolfcrypt/random.h"
 #include "wolfssl/wolfcrypt/error-crypt.h"
+#include "wolfssl/wolfcrypt/ecc.h"
 
 /* wolfHSM headers. */
 #include "wolfhsm/wh_error.h"
@@ -52,6 +52,12 @@
 #include "wolfhsm/wh_nvm_flash.h"
 #include "wolfhsm/wh_lock.h"
 #include "wolfhsm/wh_server.h"
+#include "wolfhsm/wh_server_crypto.h"
+#include "wolfhsm/wh_server_keystore.h"
+#include "wolfhsm/wh_keyid.h"
+#include "wolfhsm/wh_message_crypto.h"
+#include "wolfhsm/wh_message_keystore.h"
+#include "wolfhsm/wh_crypto.h"
 
 /* wolfTrust headers. */
 #include "wolftrust/types.h"
@@ -107,6 +113,18 @@ typedef struct wt_hsm_guest {
 } wt_hsm_guest_t;
 
 static wt_hsm_guest_t g_guests[WT_MAX_GUESTS];
+
+#define WT_HSM_ATTEST_KEY_ID 0xF0u
+#define WT_HSM_ATTEST_PUBLIC_KEY_SIZE 65u
+
+static whServerContext g_attest_server;
+static whServerCryptoContext g_attest_crypto;
+static whCommServerConfig g_attest_comm_cfg;
+static whServerConfig g_attest_server_cfg;
+static uint8_t g_attest_public_key[WT_HSM_ATTEST_PUBLIC_KEY_SIZE];
+static int g_attest_init_status = WH_ERROR_NOTREADY;
+static bool g_attest_init_attempted;
+static bool g_attest_ready;
 
 /* -------------------------------------------------------------------------
  * Shared NVM state (one instance, serialised by g_nvm_lock_mutex).
@@ -221,6 +239,14 @@ static void wt_hsm_tasklet_main(void *arg)
 {
     wt_guest_id_t   gid = (wt_guest_id_t)(uintptr_t)arg;
     wt_hsm_guest_t *g   = &g_guests[gid];
+
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+    /* Key provisioning touches the shared persistent store and therefore
+     * must run from a coroutine that can own the wolfHSM NVM mutex. */
+    if (gid == 0u) {
+        (void)wt_hsm_attest_init();
+    }
+#endif
 
     for (;;) {
         int rc = wh_Server_HandleRequestMessage(&g->server);
@@ -429,5 +455,360 @@ int wt_hsm_signal_fault(wt_guest_id_t guest_id)
     (void)wt_cmse_transport_signal_fault(guest_id);
 
     g->ready = false;
+    return WH_ERROR_OK;
+}
+
+typedef union wt_hsm_attest_packet {
+    uint64_t align;
+    uint8_t bytes[WOLFHSM_CFG_COMM_DATA_LEN];
+} wt_hsm_attest_packet_t;
+
+static void wt_hsm_force_zero(void* memory, size_t size)
+{
+    volatile uint8_t* bytes = (volatile uint8_t*)memory;
+
+    while (size > 0u) {
+        *bytes++ = 0u;
+        size--;
+    }
+}
+
+static int wt_hsm_attest_transport_init(void* context, const void* config,
+    whCommSetConnectedCb connectCb, void* connectContext)
+{
+    (void)context;
+    (void)config;
+    (void)connectCb;
+    (void)connectContext;
+    return WH_ERROR_OK;
+}
+
+static int wt_hsm_attest_transport_recv(void* context, uint16_t* size,
+    void* data)
+{
+    (void)context;
+    (void)size;
+    (void)data;
+    return WH_ERROR_NOTREADY;
+}
+
+static int wt_hsm_attest_transport_send(void* context, uint16_t size,
+    const void* data)
+{
+    (void)context;
+    (void)size;
+    (void)data;
+    return WH_ERROR_NOTREADY;
+}
+
+static int wt_hsm_attest_transport_cleanup(void* context)
+{
+    (void)context;
+    return WH_ERROR_OK;
+}
+
+static const whTransportServerCb g_attest_transport_cb = {
+    .Init = wt_hsm_attest_transport_init,
+    .Recv = wt_hsm_attest_transport_recv,
+    .Send = wt_hsm_attest_transport_send,
+    .Cleanup = wt_hsm_attest_transport_cleanup
+};
+
+static int wt_hsm_attest_crypto_response(wt_hsm_attest_packet_t* response,
+    uint16_t responseSize, uint32_t expectedAlgorithm, uint8_t** payload)
+{
+    whMessageCrypto_GenericResponseHeader* header;
+
+    if ((response == NULL) || (payload == NULL) ||
+        (responseSize < sizeof(*header))) {
+        return WH_ERROR_ABORTED;
+    }
+
+    header = (whMessageCrypto_GenericResponseHeader*)response->bytes;
+    if (header->algoType != expectedAlgorithm) {
+        return WH_ERROR_ABORTED;
+    }
+    if (header->rc != WH_ERROR_OK) {
+        return header->rc;
+    }
+
+    *payload = response->bytes + sizeof(*header);
+    return WH_ERROR_OK;
+}
+
+static int wt_hsm_attest_export_public(void)
+{
+    wt_hsm_attest_packet_t response;
+    whMessageKeystore_ExportPublicRequest request;
+    whMessageKeystore_ExportPublicResponse* result;
+    ecc_key publicKey;
+    const uint8_t* der;
+    word32 xSize = 32u;
+    word32 ySize = 32u;
+    uint16_t responseSize = 0u;
+    int keyInited = 0;
+    int ret;
+
+    (void)memset(&request, 0, sizeof(request));
+    (void)memset(&response, 0, sizeof(response));
+    request.id = WT_HSM_ATTEST_KEY_ID;
+    request.algo = WH_KEY_ALGO_ECC;
+
+    ret = wh_Server_HandleKeyRequest(&g_attest_server,
+        WH_COMM_MAGIC_NATIVE, WH_KEY_EXPORT_PUBLIC, (uint16_t)sizeof(request),
+        &request, &responseSize, response.bytes);
+    result = (whMessageKeystore_ExportPublicResponse*)response.bytes;
+    if ((ret == WH_ERROR_OK) && (responseSize < sizeof(*result))) {
+        ret = WH_ERROR_ABORTED;
+    }
+    if ((ret == WH_ERROR_OK) && (result->rc != WH_ERROR_OK)) {
+        ret = result->rc;
+    }
+    if ((ret == WH_ERROR_OK) &&
+        (result->len > responseSize - sizeof(*result))) {
+        ret = WH_ERROR_ABORTED;
+    }
+
+    if (ret == WH_ERROR_OK) {
+        der = response.bytes + sizeof(*result);
+        ret = wc_ecc_init_ex(&publicKey, NULL, INVALID_DEVID);
+        if (ret == 0) {
+            keyInited = 1;
+            ret = wh_Crypto_EccDeserializeKeyDer(der,
+                (uint16_t)result->len, &publicKey);
+        }
+    }
+    if (ret == WH_ERROR_OK) {
+        g_attest_public_key[0] = 0x04u;
+        ret = wc_ecc_export_public_raw(&publicKey,
+            &g_attest_public_key[1], &xSize,
+            &g_attest_public_key[33], &ySize);
+        if ((ret == 0) && ((xSize != 32u) || (ySize != 32u))) {
+            ret = WH_ERROR_ABORTED;
+        }
+    }
+
+    if (keyInited != 0) {
+        wc_ecc_free(&publicKey);
+        wt_hsm_force_zero(&publicKey, sizeof(publicKey));
+    }
+    wt_hsm_force_zero(&response, sizeof(response));
+    return ret;
+}
+
+static int wt_hsm_attest_generate_key(void)
+{
+    static const uint8_t label[] = "wolfTrust IAK";
+    wt_hsm_attest_packet_t request;
+    wt_hsm_attest_packet_t response;
+    whMessageCrypto_GenericRequestHeader* header;
+    whMessageCrypto_EccKeyGenRequest* keygen;
+    whMessageCrypto_EccKeyGenResponse* result;
+    uint8_t* responsePayload = NULL;
+    whKeyId serverKeyId;
+    uint16_t requestSize;
+    uint16_t responseSize = 0u;
+    int ret;
+
+    (void)memset(&request, 0, sizeof(request));
+    (void)memset(&response, 0, sizeof(response));
+    header = (whMessageCrypto_GenericRequestHeader*)request.bytes;
+    keygen = (whMessageCrypto_EccKeyGenRequest*)(header + 1);
+    header->algoType = WC_PK_TYPE_EC_KEYGEN;
+    header->algoSubType = WH_MESSAGE_CRYPTO_ALGO_SUBTYPE_NONE;
+    header->affinity = WH_CRYPTO_AFFINITY_SW;
+    keygen->sz = 32u;
+    keygen->curveId = ECC_SECP256R1;
+    keygen->keyId = WT_HSM_ATTEST_KEY_ID;
+    keygen->flags = WH_NVM_FLAGS_SENSITIVE |
+        WH_NVM_FLAGS_NONEXPORTABLE | WH_NVM_FLAGS_LOCAL |
+        WH_NVM_FLAGS_NONMODIFIABLE | WH_NVM_FLAGS_NONDESTROYABLE |
+        WH_NVM_FLAGS_USAGE_SIGN;
+    (void)memcpy(keygen->label, label, sizeof(label) - 1u);
+    requestSize = (uint16_t)(sizeof(*header) + sizeof(*keygen));
+
+    ret = wh_Server_HandleCryptoRequest(&g_attest_server,
+        WH_COMM_MAGIC_NATIVE, WC_ALGO_TYPE_PK, 0u, requestSize,
+        request.bytes, &responseSize, response.bytes);
+    if (ret == WH_ERROR_OK) {
+        ret = wt_hsm_attest_crypto_response(&response, responseSize,
+            WC_PK_TYPE_EC_KEYGEN, &responsePayload);
+    }
+    if (ret == WH_ERROR_OK) {
+        result = (whMessageCrypto_EccKeyGenResponse*)responsePayload;
+        if ((responseSize !=
+                sizeof(whMessageCrypto_GenericResponseHeader) +
+                sizeof(*result)) ||
+            (result->keyId != WT_HSM_ATTEST_KEY_ID) ||
+            (result->len != 0u)) {
+            ret = WH_ERROR_ABORTED;
+        }
+    }
+    if (ret == WH_ERROR_OK) {
+        serverKeyId = WH_MAKE_KEYID(WH_KEYTYPE_CRYPTO, WH_CLIENT_ID_MAX,
+                                    WT_HSM_ATTEST_KEY_ID);
+        ret = wh_Server_KeystoreCommitKey(&g_attest_server, serverKeyId);
+    }
+
+    wt_hsm_force_zero(&request, sizeof(request));
+    wt_hsm_force_zero(&response, sizeof(response));
+    return ret;
+}
+
+int wt_hsm_attest_init(void)
+{
+    int ret;
+
+    if (g_attest_ready) {
+        return WH_ERROR_OK;
+    }
+    if (g_attest_init_attempted) {
+        return g_attest_init_status;
+    }
+    g_attest_init_attempted = true;
+
+    (void)memset(&g_attest_crypto, 0, sizeof(g_attest_crypto));
+    ret = wc_InitRng_ex(g_attest_crypto.rng, NULL, INVALID_DEVID);
+    if (ret != 0) {
+        g_attest_init_status = ret;
+        return ret;
+    }
+
+    (void)memset(&g_attest_comm_cfg, 0, sizeof(g_attest_comm_cfg));
+    g_attest_comm_cfg.transport_cb = &g_attest_transport_cb;
+    g_attest_comm_cfg.server_id = 0u;
+
+    (void)memset(&g_attest_server_cfg, 0, sizeof(g_attest_server_cfg));
+    g_attest_server_cfg.comm_config = &g_attest_comm_cfg;
+    g_attest_server_cfg.nvm = &g_nvm_ctx;
+    g_attest_server_cfg.crypto = &g_attest_crypto;
+#if defined(WOLF_CRYPTO_CB)
+    g_attest_server_cfg.devId = INVALID_DEVID;
+#endif
+
+    ret = wh_Server_Init(&g_attest_server, &g_attest_server_cfg);
+    if (ret == WH_ERROR_OK) {
+        g_attest_server.comm->client_id = WH_CLIENT_ID_MAX;
+        ret = wh_Server_SetConnected(&g_attest_server, WH_COMM_CONNECTED);
+    }
+    if (ret == WH_ERROR_OK) {
+        ret = wt_hsm_attest_export_public();
+        if (ret != WH_ERROR_OK) {
+            ret = wt_hsm_attest_generate_key();
+            if (ret == WH_ERROR_OK) {
+                ret = wt_hsm_attest_export_public();
+            }
+        }
+    }
+
+    if (ret == WH_ERROR_OK) {
+        g_attest_ready = true;
+    }
+    else {
+        wt_hsm_force_zero(g_attest_public_key,
+                          sizeof(g_attest_public_key));
+    }
+    g_attest_init_status = ret;
+    return g_attest_init_status;
+}
+
+int wt_hsm_attest_sign(const uint8_t* digest, size_t digestSize,
+                       uint8_t* signature, size_t signatureCapacity,
+                       size_t* signatureSize)
+{
+    wt_hsm_attest_packet_t request;
+    wt_hsm_attest_packet_t response;
+    whMessageCrypto_GenericRequestHeader* header;
+    whMessageCrypto_EccSignRequest* sign;
+    whMessageCrypto_EccSignResponse* result;
+    uint8_t* responsePayload = NULL;
+    uint8_t r[32];
+    uint8_t s[32];
+    const uint8_t* der;
+    word32 rSize = (word32)sizeof(r);
+    word32 sSize = (word32)sizeof(s);
+    uint16_t requestSize;
+    uint16_t responseSize = 0u;
+    int ret;
+
+    if (signatureSize == NULL) {
+        return WH_ERROR_BADARGS;
+    }
+    *signatureSize = 0u;
+    if (!g_attest_ready || (digest == NULL) || (digestSize != 32u) ||
+        (signature == NULL) || (signatureCapacity < 64u)) {
+        return WH_ERROR_BADARGS;
+    }
+
+    (void)memset(&request, 0, sizeof(request));
+    (void)memset(&response, 0, sizeof(response));
+    header = (whMessageCrypto_GenericRequestHeader*)request.bytes;
+    sign = (whMessageCrypto_EccSignRequest*)(header + 1);
+    header->algoType = WC_PK_TYPE_ECDSA_SIGN;
+    header->algoSubType = WH_MESSAGE_CRYPTO_ALGO_SUBTYPE_NONE;
+    header->affinity = WH_CRYPTO_AFFINITY_SW;
+    sign->keyId = WT_HSM_ATTEST_KEY_ID;
+    sign->sz = (uint32_t)digestSize;
+    (void)memcpy(sign + 1, digest, digestSize);
+    requestSize = (uint16_t)(sizeof(*header) + sizeof(*sign) + digestSize);
+
+    ret = wh_Server_HandleCryptoRequest(&g_attest_server,
+        WH_COMM_MAGIC_NATIVE, WC_ALGO_TYPE_PK, 0u, requestSize,
+        request.bytes, &responseSize, response.bytes);
+    if (ret == WH_ERROR_OK) {
+        ret = wt_hsm_attest_crypto_response(&response, responseSize,
+            WC_PK_TYPE_ECDSA_SIGN, &responsePayload);
+    }
+    result = (whMessageCrypto_EccSignResponse*)responsePayload;
+    if ((ret == WH_ERROR_OK) &&
+        ((responseSize < sizeof(whMessageCrypto_GenericResponseHeader) +
+                         sizeof(*result)) ||
+         (result->sz > responseSize -
+             sizeof(whMessageCrypto_GenericResponseHeader) -
+             sizeof(*result)))) {
+        ret = WH_ERROR_ABORTED;
+    }
+    if (ret == WH_ERROR_OK) {
+        der = (const uint8_t*)(result + 1);
+        ret = wc_ecc_sig_to_rs(der, (word32)result->sz,
+                               r, &rSize, s, &sSize);
+    }
+    if ((ret == 0) && ((rSize > 32u) || (sSize > 32u))) {
+        ret = WH_ERROR_ABORTED;
+    }
+    if (ret == 0) {
+        (void)memset(signature, 0, 64u);
+        (void)memcpy(&signature[32u - rSize], r, rSize);
+        (void)memcpy(&signature[64u - sSize], s, sSize);
+        *signatureSize = 64u;
+    }
+
+    wt_hsm_force_zero(&request, sizeof(request));
+    wt_hsm_force_zero(&response, sizeof(response));
+    wt_hsm_force_zero(r, sizeof(r));
+    wt_hsm_force_zero(s, sizeof(s));
+    if ((ret != 0) && (signature != NULL)) {
+        (void)memset(signature, 0, signatureCapacity);
+    }
+    return ret;
+}
+
+int wt_hsm_attest_public_key(uint8_t* publicKey, size_t publicKeyCapacity,
+                             size_t* publicKeySize)
+{
+    if (publicKeySize == NULL) {
+        return WH_ERROR_BADARGS;
+    }
+    *publicKeySize = WT_HSM_ATTEST_PUBLIC_KEY_SIZE;
+    if (!g_attest_ready) {
+        return g_attest_init_status;
+    }
+    if ((publicKey == NULL) ||
+        (publicKeyCapacity < WT_HSM_ATTEST_PUBLIC_KEY_SIZE)) {
+        return WH_ERROR_BADARGS;
+    }
+
+    (void)memcpy(publicKey, g_attest_public_key,
+                 WT_HSM_ATTEST_PUBLIC_KEY_SIZE);
     return WH_ERROR_OK;
 }

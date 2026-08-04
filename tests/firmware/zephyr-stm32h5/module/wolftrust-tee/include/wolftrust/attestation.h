@@ -1,4 +1,4 @@
-/* client.h
+/* attestation.h
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *
@@ -18,11 +18,15 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef WOLFTRUST_ZEPHYR_CLIENT_H
-#define WOLFTRUST_ZEPHYR_CLIENT_H
+#ifndef WOLFTRUST_ATTESTATION_H
+#define WOLFTRUST_ATTESTATION_H
 
-int wt_zephyr_client_init(const char *tag);
-int wt_zephyr_client_ping(void);
-const char *wt_zephyr_client_status_string(int rc);
+#include <stddef.h>
+#include <stdint.h>
 
-#endif
+#include <psa/error.h>
+
+psa_status_t wolftrust_attestation_get_iak_public_key(uint8_t* publicKey,
+    size_t publicKeyCapacity, size_t* publicKeySize);
+
+#endif /* WOLFTRUST_ATTESTATION_H */

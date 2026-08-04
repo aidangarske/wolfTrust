@@ -1,4 +1,4 @@
-/* client.h
+/* attestation_verify.h
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *
@@ -18,11 +18,15 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef WOLFTRUST_ZEPHYR_CLIENT_H
-#define WOLFTRUST_ZEPHYR_CLIENT_H
+#ifndef WOLFTRUST_ATTESTATION_VERIFY_H
+#define WOLFTRUST_ATTESTATION_VERIFY_H
 
-int wt_zephyr_client_init(const char *tag);
-int wt_zephyr_client_ping(void);
-const char *wt_zephyr_client_status_string(int rc);
+#include <stddef.h>
+#include <stdint.h>
 
-#endif
+int wt_attestation_verify(const uint8_t* token, size_t tokenSize,
+    const uint8_t* publicKey, size_t publicKeySize,
+    const uint8_t* challenge, size_t challengeSize,
+    const char* expectedMeasurementHex);
+
+#endif /* WOLFTRUST_ATTESTATION_VERIFY_H */

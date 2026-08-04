@@ -45,6 +45,8 @@ if(CONFIG_WOLFPSA)
   # Compile every wolfPSA src/*.c EXCEPT psa_store_posix.c (POSIX-only).
   file(GLOB WOLFPSA_SRCS ${WT_WOLFPSA_DIR}/src/*.c)
   list(FILTER WOLFPSA_SRCS EXCLUDE REGEX "psa_store_posix\\.c$")
+  # wolfTrust supplies the target-specific Initial Attestation backend.
+  list(FILTER WOLFPSA_SRCS EXCLUDE REGEX "psa_attestation\\.c$")
   zephyr_library_sources(${WOLFPSA_SRCS})
 
   zephyr_library_sources(

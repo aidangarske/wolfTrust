@@ -15,8 +15,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
 #include <string.h>
@@ -114,6 +113,8 @@ static int test_open_assign(void)
 static int test_assign_rejections(void)
 {
     vnet_switch_t sw;
+    uint8_t f[64];
+
     SETUP(&sw, false);
     T_EQ_INT(vnet_switch_open(&sw, 0, NULL), WT_VNET_OK);
     T_EQ_INT(vnet_switch_open(&sw, 1, NULL), WT_VNET_OK);
@@ -126,11 +127,8 @@ static int test_assign_rejections(void)
     T_EQ_INT(vnet_switch_assign_mac(&sw, 1, &MAC_A), WT_VNET_E_DUP_MAC);
 
     /* TX without open returns NOT_OPEN. */
-    {
-        uint8_t f[64];
-        build_frame(f, &MAC_B, &MAC_A, 1);
-        T_EQ_INT(vnet_switch_tx(&sw, 2, f, 64, 0), WT_VNET_E_NOT_OPEN);
-    }
+    build_frame(f, &MAC_B, &MAC_A, 1);
+    T_EQ_INT(vnet_switch_tx(&sw, 2, f, 64, 0), WT_VNET_E_NOT_OPEN);
     return 0;
 }
 
@@ -161,6 +159,7 @@ static int test_unicast_delivery(void)
     vnet_switch_t sw;
     uint8_t f[64];
     vnet_rx_meta_t meta;
+    vnet_rx_meta_t meta2;
     uint8_t out[64];
     int n;
     SETUP(&sw, false);
@@ -185,12 +184,9 @@ static int test_unicast_delivery(void)
     T_CHECK(memcmp(out, f, 64) == 0);
 
     /* Read does not auto-release: poll again still returns the same meta. */
-    {
-        vnet_rx_meta_t meta2;
-        T_EQ_INT(vnet_switch_poll_rx(&sw, 1, &meta2), WT_VNET_OK);
-        T_EQ_INT(meta2.token_slot, meta.token_slot);
-        T_EQ_INT(meta2.token_gen, meta.token_gen);
-    }
+    T_EQ_INT(vnet_switch_poll_rx(&sw, 1, &meta2), WT_VNET_OK);
+    T_EQ_INT(meta2.token_slot, meta.token_slot);
+    T_EQ_INT(meta2.token_gen, meta.token_gen);
 
     T_EQ_INT(vnet_switch_release_rx(&sw, 1, meta.token_slot, meta.token_gen),
              WT_VNET_OK);

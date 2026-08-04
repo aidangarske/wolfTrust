@@ -15,8 +15,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
 #ifndef WOLFTRUST_SERVICES_HSM_H
@@ -74,5 +73,19 @@ wt_guest_id_t wt_hsm_guest_for_tasklet(const struct wt_co *tasklet);
  * so subsequent NSC veneers reject HSM calls from this guest. Safe to
  * call from handler mode. Returns WH_ERROR_OK on success. */
 int wt_hsm_signal_fault(wt_guest_id_t guest_id);
+
+/* Provision or reopen the Initial Attestation Key in the wolfHSM keystore.
+ * The private key is non-exportable and restricted to signing. */
+int wt_hsm_attest_init(void);
+
+/* Sign a SHA-256 digest with the protected Initial Attestation Key. Output is
+ * the 64-byte COSE ECDSA form, r followed by s. */
+int wt_hsm_attest_sign(const uint8_t* digest, size_t digestSize,
+                       uint8_t* signature, size_t signatureCapacity,
+                       size_t* signatureSize);
+
+/* Return the IAK public point in X9.63 form, 0x04 followed by X and Y. */
+int wt_hsm_attest_public_key(uint8_t* publicKey, size_t publicKeyCapacity,
+                             size_t* publicKeySize);
 
 #endif /* WOLFTRUST_SERVICES_HSM_H */

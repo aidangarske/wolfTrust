@@ -22,6 +22,7 @@ WT_SHARED_UART ?= 3
 # heartbeat companion runs as guest-b. Override WT_MAX_GUESTS=1 to drop the
 # companion and rebuild the secure side for the single-TEE configuration.
 WT_MAX_GUESTS ?= 2
+WT_REUSE_SECURE_BUILD ?= 0
 
 # Baremetal guest-b memory map — matches WT_GUEST1_FLASH_BASE / WT_GUEST1_RAM_BASE
 # in src/port/stm32h563/memory_map.h. Kept here as overridable variables so
@@ -94,8 +95,13 @@ $(PATCH_STAMP): $(wildcard $(CURDIR)/patches/zephyr/*.patch) $(SCRIPT_DIR)/apply
 # clean target also wipes tests/firmware/stm32h563/build/ — a peer baremetal
 # test suite with its own generated headers that we have no business touching.
 secure:
+ifeq ($(WT_REUSE_SECURE_BUILD),1)
+	test -s "$(SECURE_BIN)"
+	test -s "$(SECURE_CMSE_IMPLIB)"
+else
 	rm -rf "$(TOP_BUILD_DIR)"
 	WT_MAX_GUESTS="$(WT_MAX_GUESTS)" $(MAKE) -C "$(ROOT)" build/wolftrust.bin build/secure_cmse_implib.o
+endif
 
 build-guest0: patch secure
 	ZEPHYR_TAG="$(ZEPHYR_TAG)" ZEPHYR_WORKSPACE="$(ZEPHYR_WORKSPACE)" \
@@ -111,6 +117,7 @@ build-guest0-psa: patch secure
 	ZEPHYR_BOARD="$(ZEPHYR_BOARD)" \
 	SECURE_BIN="$(SECURE_BIN)" SECURE_CMSE_IMPLIB="$(SECURE_CMSE_IMPLIB)" \
 	WT_SHARED_UART="$(WT_SHARED_UART)" \
+	WT_EXPECTED_MEASUREMENT_HEX="$(WT_EXPECTED_MEASUREMENT_HEX)" \
 	"$(SCRIPT_DIR)/build_guest.sh" guest0_psa
 
 build-guest1: $(GUEST1_BIN)

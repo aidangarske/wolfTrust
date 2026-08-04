@@ -48,6 +48,7 @@ void wt_platform_prepare_guest_return(wt_guest_id_t guest_id,
 void wt_platform_capture_guest_context(wt_guest_context_t* context,
                                        const wt_trap_frame_t* frame);
 void wt_platform_restore_guest_context(wt_guest_context_t* context);
+void wt_platform_svc_guest_return(void) __attribute__((noreturn));
 bool wt_platform_in_handler_mode(void);
 bool wt_platform_ns_thread_mode_trap(void);
 void wt_platform_return_to_secure_thread(

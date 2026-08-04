@@ -363,6 +363,9 @@ void wt_monitor_init(void)
         g_scheduler.runtime[i].restart_count = 0U;
         g_scheduler.runtime[i].first_restart_tick = 0U;
         wt_partition_reset_runtime(&g_scheduler.configs[i], &g_scheduler.runtime[i]);
+        if (g_scheduler.runtime[i].context.pc == 0u) {
+            wt_platform_panic();
+        }
     }
 }
 

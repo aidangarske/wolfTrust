@@ -200,11 +200,9 @@ jobs:
           cp config/examples/stm32h5-tz-wolftrust.config .config
           make -j2 keytools wolfboot.bin wolfboot_signing_private_key.der
 
-      - name: Build relocated wolfTrust and both guests
+      - name: Build relocated wolfTrust
         run: |
           make build/wolftrust.bin build/secure_cmse_implib.o
-          make -C tests/firmware/zephyr-stm32h5 \
-            build-guest0-psa build-freertos-guest1
 
       - name: Sign wolfTrust secure runtime
         working-directory: wolfBoot
@@ -216,6 +214,18 @@ jobs:
               "$GITHUB_WORKSPACE/build/wolftrust.bin" \
               wolfboot_signing_private_key.der 1
           test -s "$GITHUB_WORKSPACE/build/wolftrust_v1_signed.bin"
+
+      - name: Read the wolfBoot authenticated measurement
+        run: |
+          measurement=$(python3 tests/scripts/read_wolfboot_measurement.py \
+            build/wolftrust_v1_signed.bin)
+          echo "WT_EXPECTED_MEASUREMENT_HEX=$measurement" >> "$GITHUB_ENV"
+
+      - name: Build Zephyr PSA and FreeRTOS PKCS11 guests
+        run: |
+          make -C tests/firmware/zephyr-stm32h5 \
+            WT_REUSE_SECURE_BUILD=1 \
+            build-guest0-psa build-freertos-guest1
 
       - name: Boot the authenticated wolfBoot → wolfTrust → guests chain
         run: |
@@ -238,7 +248,7 @@ jobs:
           esac
           set +e
           rc_file=$(mktemp)
-          ( m33mu wolfBoot/wolfboot.bin \
+          ( stdbuf -oL -eL m33mu wolfBoot/wolfboot.bin \
               build/wolftrust_v1_signed.bin:0x60000 \
               tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0x80000 \
               tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xA0000 \
@@ -257,5 +267,10 @@ jobs:
             exit 1
           fi
           grep -Fq "wolfTrust TEE client initialized" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          grep -Fq "psa_hash_compute(SHA-256) KAT verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "psa_cipher_encrypt(AES-CTR) st=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          grep -Fq "psa_initial_attestation st=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          grep -Fq "wolfTrust attestation: wolfCOSE COSE_Sign1 signed by wolfHSM" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          grep -Fq "wolfTrust attestation: COSE_Sign1 verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          grep -Fq "attestation verify=0 challenge=ok identity=ok lifecycle=0x3000 measurement=ok cose=ES256" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "freertos_guest1: C_Digest(SHA-256) rv=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"

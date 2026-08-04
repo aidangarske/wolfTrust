@@ -106,6 +106,14 @@ __attribute__((naked))
 void SVC_Handler(void)
 {
     __asm__ volatile (
+        "tst  lr, #4                       \n"
+        "ite  eq                           \n"
+        "mrseq r2, msp                     \n"
+        "mrsne r2, psp                     \n"
+        "ldr  r3, [r2, #24]                \n"
+        "ldrb r3, [r3, #-2]                \n"
+        "cmp  r3, #0x7F                    \n"
+        "beq  wt_platform_svc_guest_return \n"
         "ldr  r0, =0xE000ED04             \n"
         "ldr  r1, =0x10000000             \n"
         "str  r1, [r0]                    \n"

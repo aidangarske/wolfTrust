@@ -1,4 +1,24 @@
-/* guest0_psa — minimal PSA Crypto smoke for the wolfPSA + wolfHSM chain.
+/* main.c
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+/* guest0_psa is the PSA Crypto and Initial Attestation lifecycle test.
  *
  * Exercises three PSA primitives that, with wolfPSA_SetDefaultDevID()
  * pointed at WH_DEV_ID by the wolfpsa module's SYS_INIT hook, traverse:
@@ -25,12 +45,20 @@
 #include <zephyr/logging/log.h>
 
 #include <psa/crypto.h>
+#include <psa/initial_attestation.h>
 
+#include <wolftrust/attestation.h>
 #include <wolftrust/zephyr/client.h>
+
+#include "attestation_verify.h"
 
 LOG_MODULE_REGISTER(guest0_psa, LOG_LEVEL_INF);
 
 #define WOLFTRUST_FN_HSM_CANCEL 2u
+
+#ifndef WT_EXPECTED_MEASUREMENT_HEX
+#define WT_EXPECTED_MEASUREMENT_HEX ""
+#endif
 
 /* Mirror guest0's TEE-driver smoke so the runner's existing TEE assertions
  * stay green and we don't need a second runner mode. */
@@ -70,17 +98,31 @@ static void exercise_psa_rng(void)
 
 static void exercise_psa_hash(void)
 {
-	static const uint8_t input[] =
-		"wolfTrust/wolfPSA/wolfHSM/CMSE chain test";
-	uint8_t digest[32];
-	size_t digest_len = 0;
-	psa_status_t st;
+    static const uint8_t input[] =
+        "wolfTrust/wolfPSA/wolfHSM/CMSE chain test";
+    static const uint8_t expected[32] = {
+        0x02, 0x7b, 0x1a, 0xec, 0xb3, 0x27, 0x3a, 0x54,
+        0x38, 0x6a, 0xea, 0x85, 0x66, 0x45, 0xa2, 0x6a,
+        0xe1, 0xce, 0xc4, 0xdf, 0x1e, 0x00, 0x72, 0x71,
+        0xab, 0x5f, 0x10, 0x21, 0x40, 0x57, 0xed, 0x67
+    };
+    uint8_t digest[sizeof(expected)];
+    size_t digestLen = 0u;
+    psa_status_t status;
 
-	st = psa_hash_compute(PSA_ALG_SHA_256,
-			      input, sizeof(input) - 1,
-			      digest, sizeof(digest), &digest_len);
-	LOG_INF("psa_hash_compute(SHA-256) st=%d len=%u first=0x%02x",
-		(int)st, (unsigned)digest_len, (unsigned)digest[0]);
+    status = psa_hash_compute(PSA_ALG_SHA_256, input, sizeof(input) - 1u,
+        digest, sizeof(digest), &digestLen);
+    if ((status != PSA_SUCCESS) || (digestLen != sizeof(expected)) ||
+            (memcmp(digest, expected, sizeof(expected)) != 0)) {
+        LOG_ERR("psa_hash_compute(SHA-256) KAT failed st=%d len=%u",
+            (int)status, (unsigned)digestLen);
+        if ((status == PSA_SUCCESS) && (digestLen <= sizeof(digest))) {
+            LOG_HEXDUMP_ERR(digest, digestLen, "SHA-256 received");
+        }
+        return;
+    }
+
+    LOG_INF("psa_hash_compute(SHA-256) KAT verified");
 }
 
 static void exercise_psa_cipher(void)
@@ -118,6 +160,67 @@ static void exercise_psa_cipher(void)
 	(void)psa_destroy_key(key);
 }
 
+static void exercise_psa_initial_attestation(void)
+{
+    uint8_t challenge[PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32];
+    uint8_t token[512];
+    uint8_t publicKey[65];
+    size_t tokenSize = 0u;
+    size_t publicKeySize = 0u;
+    psa_status_t status;
+    uint32_t keyPrefixHigh;
+    uint32_t keyPrefixLow;
+    int verify;
+    size_t i;
+
+    for (i = 0u; i < sizeof(challenge); ++i) {
+        challenge[i] = (uint8_t)(0xA0u + i);
+    }
+
+    status = psa_initial_attest_get_token_size(sizeof(challenge), &tokenSize);
+    if ((status != PSA_SUCCESS) || (tokenSize > sizeof(token))) {
+        LOG_INF("psa_initial_attestation unavailable st=%d size=%u",
+            (int)status, (unsigned)tokenSize);
+        return;
+    }
+
+    status = psa_initial_attest_get_token(challenge, sizeof(challenge), token,
+        sizeof(token), &tokenSize);
+    LOG_INF("psa_initial_attestation st=%d token_len=%u", (int)status,
+        (unsigned)tokenSize);
+    if (status != PSA_SUCCESS) {
+        return;
+    }
+    LOG_INF("wolfTrust attestation: wolfCOSE COSE_Sign1 signed by wolfHSM");
+
+    status = wolftrust_attestation_get_iak_public_key(publicKey,
+        sizeof(publicKey), &publicKeySize);
+    if (status != PSA_SUCCESS) {
+        LOG_INF("psa_initial_attestation public_key_st=%d", (int)status);
+        return;
+    }
+    keyPrefixHigh = ((uint32_t)publicKey[1] << 24) |
+        ((uint32_t)publicKey[2] << 16) |
+        ((uint32_t)publicKey[3] << 8) | (uint32_t)publicKey[4];
+    keyPrefixLow = ((uint32_t)publicKey[5] << 24) |
+        ((uint32_t)publicKey[6] << 16) |
+        ((uint32_t)publicKey[7] << 8) | (uint32_t)publicKey[8];
+    LOG_INF("wolfTrust attestation: IAK public key prefix=%08x%08x",
+        (unsigned)keyPrefixHigh, (unsigned)keyPrefixLow);
+
+    verify = wt_attestation_verify(token, tokenSize, publicKey, publicKeySize,
+        challenge, sizeof(challenge), WT_EXPECTED_MEASUREMENT_HEX);
+    if (verify == 0) {
+        LOG_INF("wolfTrust attestation: COSE_Sign1 verified");
+        LOG_INF("attestation verify=0 challenge=ok identity=ok "
+            "lifecycle=0x3000 measurement=ok cose=ES256");
+    }
+    else {
+        LOG_ERR("wolfTrust attestation: COSE_Sign1 verification failed rc=%d",
+            verify);
+    }
+}
+
 int main(void)
 {
 	int rc;
@@ -136,6 +239,7 @@ int main(void)
 	exercise_psa_rng();
 	exercise_psa_hash();
 	exercise_psa_cipher();
+	exercise_psa_initial_attestation();
 
 	LOG_INF("guest0_psa done");
 

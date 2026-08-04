@@ -95,7 +95,7 @@
 #define WT_MPU_NS_RNR            (*(volatile uint32_t*)0xE002ED98u)
 #define WT_MPU_NS_RBAR           (*(volatile uint32_t*)0xE002ED9Cu)
 #define WT_MPU_NS_RLAR           (*(volatile uint32_t*)0xE002EDA0u)
-#define WT_MPU_NS_MAIR0          (*(volatile uint32_t*)0xE002EDA4u)
+#define WT_MPU_NS_MAIR0          (*(volatile uint32_t*)0xE002EDC0u)
 
 #define WT_RCC_BASE_S            0x54020C00u
 #define WT_RCC_BASE_NS           WHAL_STM32H5_RCC_BASE
@@ -105,6 +105,7 @@
 #define WT_RCC_PLL1CFGR          (*(volatile uint32_t*)(WT_RCC_BASE_S + 0x28u))
 #define WT_RCC_PLL1DIVR          (*(volatile uint32_t*)(WT_RCC_BASE_S + 0x34u))
 #define WT_RCC_PLL1FRACR         (*(volatile uint32_t*)(WT_RCC_BASE_S + 0x38u))
+#define WT_RCC_AHB1ENR           (*(volatile uint32_t*)(WT_RCC_BASE_S + 0x88u))
 #define WT_RCC_AHB2ENR           (*(volatile uint32_t*)(WT_RCC_BASE_S + 0x8Cu))
 #define WT_RCC_APB1LENR          (*(volatile uint32_t*)(WT_RCC_BASE_S + 0x9Cu))
 #define WT_RCC_CCIPR1            (*(volatile uint32_t*)(WT_RCC_BASE_S + 0xD8u))
@@ -183,7 +184,7 @@
 #define WT_GTZC1_MPCBB2_SECCFGR  ((volatile uint32_t *)(WT_GTZC1_BASE_S + 0x0C00u + 0x100u))
 #define WT_GTZC1_MPCBB3_SECCFGR  ((volatile uint32_t *)(WT_GTZC1_BASE_S + 0x1000u + 0x100u))
 
-#define WT_RCC_AHB2ENR_GTZC1EN   (1u << 22)
+#define WT_RCC_AHB1ENR_GTZC1EN   (1u << 24)
 #define WT_RCC_AHB2ENR_GPIOAEN   (1u << 0)
 #define WT_RCC_AHB2ENR_GPIODEN   (1u << 3)
 #define WT_GTZC_SECCFGR1_USART2SEC (1u << 13)

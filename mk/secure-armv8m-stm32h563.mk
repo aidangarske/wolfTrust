@@ -29,9 +29,17 @@ WT_GUEST_CORE_CLOCK_HZ ?= 240000000
 WT_GUEST_UART_CLOCK_HZ ?= 120000000
 WT_WOLFCRYPT_SP_ASM ?= 1
 WT_WOLFCRYPT_ARMASM ?= 1
-WT_WOLFCRYPT_STM32_HASH ?= 1
+WT_WOLFCRYPT_STM32_HASH ?= 0
 WT_ENGINE_HSM ?= 1
 WT_ATTEST_COSE ?= 1
+
+# wolfHSM resumes SHA-256 operations from the portable digest and length
+# fields carried by its wire protocol. STM32 HASH uses opaque peripheral CSR
+# state instead, so enabling it here would remove the wolfHSM SHA handler and
+# make a client fallback operate on a partially modified context.
+ifneq ($(WT_WOLFCRYPT_STM32_HASH),0)
+$(error WT_WOLFCRYPT_STM32_HASH is incompatible with the wolfHSM SHA service)
+endif
 
 # Secure runtime placement. The default preserves the standalone image;
 # the wolfBoot handoff build relocates it to 0x0C020000.
@@ -61,6 +69,7 @@ HSM_DEFS_SECURE := -DWOLFSSL_USER_SETTINGS -DWOLFHSM_CFG \
 
 ifeq ($(WT_ATTEST_COSE),1)
 SECURE_CFLAGS_COSE := -I$(WOLFCOSE_DIR)/include \
+    -DWT_ATTEST_COSE=1 \
     -DWOLFCOSE_LEAN -DWOLFCOSE_ENABLE_EXT_SIGN \
     -DWOLFCOSE_NO_SIGN1_VERIFY -DWOLFCOSE_NO_ENCRYPT0 \
     -DWOLFCOSE_NO_MAC0 -DWOLFCOSE_NO_KEY_ENCODE \
@@ -76,12 +85,6 @@ HSM_DEFS_SECURE += -DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO \
     -DWOLFSSL_ARMASM_INLINE -DWOLFSSL_ARMASM_NO_NEON \
     -DWOLFSSL_ARMASM_THUMB2
 endif
-ifeq ($(WT_WOLFCRYPT_STM32_HASH),1)
-HSM_DEFS_SECURE += -DWOLFSSL_STM32H5 -DSTM32_HASH \
-    -DNO_STM32_RNG -DNO_STM32_CRYPTO -DNO_STM32_HMAC \
-    -include $(abspath $(PORT_DIR)/wolfcrypt_stm32h563.h)
-endif
-
 SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -Wall -Wextra \
     -I$(ROOT)/include -I$(PORT_DIR) \
@@ -170,11 +173,6 @@ WOLFCRYPT_SECURE_SRCS += \
     $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c
 endif
 
-ifeq ($(WT_WOLFCRYPT_STM32_HASH),1)
-WOLFCRYPT_SECURE_SRCS += $(WOLFSSL_DIR)/wolfcrypt/src/port/st/stm32.c
-HSM_WOLFHSM_CFLAGS += -DNO_SHA256
-endif
-
 WT_SECURE_EXTRA_SRCS := \
     $(ROOT)/src/arch/armv8m/cmse.c \
     $(ROOT)/src/arch/armv8m/coroutine_armv8m.c \
@@ -186,11 +184,13 @@ WT_SECURE_EXTRA_SRCS := \
     $(WOLFHAL_DIR)/src/rng/stm32h5_rng.c \
     $(wildcard $(WOLFHSM_RUNNER_DIR)/libc_stubs.c) \
     $(wildcard $(ROOT)/src/services/wolfhsm/*.c) \
+    $(ROOT)/src/services/boot_handoff.c \
     $(wildcard $(ROOT)/src/arch/armv8m/cmse_transport.c)
 
 ifeq ($(WT_ATTEST_COSE),1)
 WT_SECURE_EXTRA_SRCS += \
     $(ROOT)/src/services/attestation_cose.c \
+    $(ROOT)/src/services/initial_attestation.c \
     $(WOLFCOSE_DIR)/src/wolfcose.c \
     $(WOLFCOSE_DIR)/src/wolfcose_cbor.c
 endif
@@ -222,7 +222,10 @@ $(BUILD_DIR):
 $(WOLFHSM_CFG_H): | $(BUILD_DIR)
 	printf '#include "%s"\n' "$(abspath $(WOLFHSM_RUNNER_DIR)/wh_settings_local.h)" > $@
 
-$(BUILD_MODE_STAMP): | $(BUILD_DIR)
+.PHONY: FORCE
+FORCE:
+
+$(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 	@tmp="$@.tmp"; \
 	printf '%s\n' \
 		'ARCH=$(ARCH)' \

@@ -20,6 +20,7 @@ BOARD="${ZEPHYR_BOARD:-nucleo_h563zi/stm32h563xx/ns}"
 SECURE_BIN="${SECURE_BIN:-$ROOT/build/wolftrust.bin}"
 SECURE_CMSE_IMPLIB="${SECURE_CMSE_IMPLIB:-$ROOT/build/secure_cmse_implib.o}"
 WT_ZEPHYR_DTC_OVERLAY_FILE="${WT_ZEPHYR_DTC_OVERLAY_FILE:-}"
+WT_EXPECTED_MEASUREMENT_HEX="${WT_EXPECTED_MEASUREMENT_HEX:-}"
 
 if [ ! -d "$APP_DIR" ]; then
     echo "unknown guest app: $APP_NAME" >&2
@@ -52,6 +53,10 @@ if [ -n "$WT_ZEPHYR_DTC_OVERLAY_FILE" ]; then
         *) WT_ZEPHYR_DTC_OVERLAY_FILE="$SUBTREE_DIR/$WT_ZEPHYR_DTC_OVERLAY_FILE" ;;
     esac
     set -- "$@" "-DEXTRA_DTC_OVERLAY_FILE=$WT_ZEPHYR_DTC_OVERLAY_FILE"
+fi
+
+if [ -n "$WT_EXPECTED_MEASUREMENT_HEX" ]; then
+    set -- "$@" "-DWT_EXPECTED_MEASUREMENT_HEX=$WT_EXPECTED_MEASUREMENT_HEX"
 fi
 
 "$WEST_BIN" build -p auto \

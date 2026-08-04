@@ -34,6 +34,7 @@
 #define WT_FLASH_CR            (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x2Cu))
 #define WT_FLASH_CCR           (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x34u))
 #define WT_FLASH_OPTSR_CUR     (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x50u))
+#define WT_FLASH_ECCDETR       (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x104u))
 
 #define WT_FLASH_SR_BSY        (1u << 0)
 #define WT_FLASH_SR_DBNE       (1u << 3)
@@ -69,6 +70,9 @@
 #define WT_FLASH_TOP_NS        0x081FFFFFu
 #define WT_FLASH_BANK_SECTORS  128u
 #define WT_FLASH_SWAP_BANK     (1u << 31)
+#define WT_FLASH_ECC_ADDR_MASK 0x0000FFFFu
+#define WT_FLASH_ECC_BANK      (1u << 22)
+#define WT_FLASH_ECCD          (1u << 31)
 
 typedef struct wt_hsm_flash_config {
     uintptr_t base;
@@ -93,11 +97,89 @@ static const wt_hsm_flash_config_t g_hsm_flash_cfg = {
 };
 
 static wt_hsm_flash_context_t g_hsm_flash_ctx;
+static volatile uint32_t g_flash_ecc_active;
+static volatile uint32_t g_flash_ecc_detected;
+static volatile uint32_t g_flash_ecc_bank;
+static volatile uint32_t g_flash_ecc_start;
+static volatile uint32_t g_flash_ecc_end;
 
 static void wt_flash_barrier(void)
 {
     __asm__ volatile ("dsb 0xF" ::: "memory");
     __asm__ volatile ("isb 0xF" ::: "memory");
+}
+
+static uint32_t wt_irq_save(void)
+{
+    uint32_t primask;
+
+    __asm__ volatile ("mrs %0, primask" : "=r" (primask));
+    __asm__ volatile ("cpsid i" ::: "memory");
+    return primask;
+}
+
+static void wt_irq_restore(uint32_t primask)
+{
+    __asm__ volatile ("msr primask, %0" :: "r" (primask) : "memory");
+}
+
+void NMI_Handler(void)
+{
+    uint32_t ecc = WT_FLASH_ECCDETR;
+    uint32_t bank = (ecc & WT_FLASH_ECC_BANK) != 0u ? 1u : 0u;
+    uint32_t address = ecc & WT_FLASH_ECC_ADDR_MASK;
+
+    if ((ecc & WT_FLASH_ECCD) != 0u && g_flash_ecc_active != 0u &&
+        bank == g_flash_ecc_bank && address >= g_flash_ecc_start &&
+        address < g_flash_ecc_end) {
+        g_flash_ecc_detected = 1u;
+        WT_FLASH_ECCDETR |= WT_FLASH_ECCD;
+        wt_flash_barrier();
+        return;
+    }
+
+    for (;;) {
+        __asm__ volatile ("wfi");
+    }
+}
+
+static int wt_flash_read_checked(const uint8_t *source, uint8_t *data,
+                                 uint32_t size)
+{
+    uintptr_t ns_address;
+    uint32_t primask;
+    uint32_t i;
+    int ret = WH_ERROR_OK;
+
+    primask = wt_irq_save();
+    ns_address = (uintptr_t)source & ~0x04000000u;
+    g_flash_ecc_bank = ns_address >= WT_FLASH_BANK2_BASE_NS ? 1u : 0u;
+    if ((WT_FLASH_OPTSR_CUR & WT_FLASH_SWAP_BANK) != 0u) {
+        g_flash_ecc_bank ^= 1u;
+    }
+    g_flash_ecc_start = (uint32_t)((ns_address & 0x000FFFFFu) >> 4);
+    g_flash_ecc_end = (uint32_t)(((ns_address & 0x000FFFFFu) + size + 15u) >> 4);
+    g_flash_ecc_detected = 0u;
+    WT_FLASH_ECCDETR |= WT_FLASH_ECCD;
+    g_flash_ecc_active = 1u;
+    wt_flash_barrier();
+
+    for (i = 0u; i < size; i++) {
+        data[i] = ((const volatile uint8_t *)source)[i];
+    }
+    wt_flash_barrier();
+    g_flash_ecc_active = 0u;
+
+    if (g_flash_ecc_detected != 0u ||
+        (WT_FLASH_ECCDETR & WT_FLASH_ECCD) != 0u) {
+        ret = WH_ERROR_ABORTED;
+        (void)memset(data, 0, size);
+    }
+    WT_FLASH_ECCDETR |= WT_FLASH_ECCD;
+    wt_flash_barrier();
+    wt_irq_restore(primask);
+
+    return ret;
 }
 
 static uintptr_t wt_flash_ns_addr(uintptr_t addr)
@@ -244,7 +326,8 @@ static int wt_hsm_flash_read(void *context, uint32_t offset, uint32_t size,
         return WH_ERROR_BADARGS;
     }
     if (size != 0u) {
-        (void)memcpy(data, (const void *)(ctx->base + offset), size);
+        return wt_flash_read_checked((const uint8_t *)(ctx->base + offset),
+                                     data, size);
     }
     return WH_ERROR_OK;
 }
@@ -262,7 +345,8 @@ static int wt_hsm_flash_program(void *context, uint32_t offset, uint32_t size,
     if (!wt_flash_range_ok(ctx, offset, size)) {
         return WH_ERROR_BADARGS;
     }
-    if ((size % 8u) != 0u) {
+    if ((offset % ctx->program_unit) != 0u ||
+        (size % ctx->program_unit) != 0u) {
         return WH_ERROR_BADARGS;
     }
     if (size != 0u && ctx->write_locked) {
@@ -274,30 +358,24 @@ static int wt_hsm_flash_program(void *context, uint32_t offset, uint32_t size,
 
     while (written < size) {
         uintptr_t dst = ctx->base + offset + written;
-        uintptr_t dst_aligned = dst & ~(uintptr_t)(ctx->program_unit - 1u);
         uint32_t word[4];
-        uint8_t *word_bytes = (uint8_t *)word;
-        uint32_t chunk_off = (uint32_t)(dst - dst_aligned);
-        uint32_t chunk = ctx->program_unit - chunk_off;
-        volatile uint32_t *flash_word = (volatile uint32_t *)dst_aligned;
+        volatile uint32_t *flash_word = (volatile uint32_t *)dst;
 
-        if (chunk > size - written) {
-            chunk = size - written;
-        }
-
-        (void)memcpy(word_bytes, (const void *)dst_aligned, sizeof(word));
-        (void)memcpy(word_bytes + chunk_off, data + written, chunk);
+        (void)memcpy(word, data + written, sizeof(word));
 
         WT_FLASH_CR |= WT_FLASH_CR_PG;
         flash_word[0] = word[0];
+        wt_flash_barrier();
         flash_word[1] = word[1];
+        wt_flash_barrier();
         flash_word[2] = word[2];
+        wt_flash_barrier();
         flash_word[3] = word[3];
         wt_flash_barrier();
         wt_flash_wait_complete();
 
         if ((WT_FLASH_SR & WT_FLASH_SR_EOP) != 0u) {
-            WT_FLASH_SR = WT_FLASH_SR_EOP;
+            WT_FLASH_CCR = WT_FLASH_SR_EOP;
         }
         WT_FLASH_CR &= ~WT_FLASH_CR_PG;
 
@@ -305,7 +383,7 @@ static int wt_hsm_flash_program(void *context, uint32_t offset, uint32_t size,
         if (ret != WH_ERROR_OK) {
             break;
         }
-        written += chunk;
+        written += ctx->program_unit;
     }
 
     WT_FLASH_CR &= ~WT_FLASH_CR_PG;
@@ -384,6 +462,9 @@ static int wt_hsm_flash_verify(void *context, uint32_t offset, uint32_t size,
                                const uint8_t *data)
 {
     wt_hsm_flash_context_t *ctx = (wt_hsm_flash_context_t *)context;
+    uint8_t flash_data[16];
+    uint32_t checked = 0u;
+    int ret;
 
     if (data == NULL && size != 0u) {
         return WH_ERROR_BADARGS;
@@ -391,9 +472,22 @@ static int wt_hsm_flash_verify(void *context, uint32_t offset, uint32_t size,
     if (!wt_flash_range_ok(ctx, offset, size)) {
         return WH_ERROR_BADARGS;
     }
-    if (size != 0u &&
-        memcmp((const void *)(ctx->base + offset), data, size) != 0) {
-        return WH_ERROR_NOTVERIFIED;
+    while (checked < size) {
+        uint32_t chunk = size - checked;
+
+        if (chunk > sizeof(flash_data)) {
+            chunk = sizeof(flash_data);
+        }
+        ret = wt_flash_read_checked(
+                (const uint8_t *)(ctx->base + offset + checked), flash_data,
+                chunk);
+        if (ret != WH_ERROR_OK) {
+            return ret;
+        }
+        if (memcmp(flash_data, data + checked, chunk) != 0) {
+            return WH_ERROR_NOTVERIFIED;
+        }
+        checked += chunk;
     }
     return WH_ERROR_OK;
 }
@@ -402,16 +496,32 @@ static int wt_hsm_flash_blank_check(void *context, uint32_t offset,
                                     uint32_t size)
 {
     wt_hsm_flash_context_t *ctx = (wt_hsm_flash_context_t *)context;
-    const uint8_t *p;
+    uint8_t flash_data[16];
+    uint32_t checked = 0u;
+    uint32_t i;
+    int ret;
 
     if (!wt_flash_range_ok(ctx, offset, size)) {
         return WH_ERROR_BADARGS;
     }
-    p = (const uint8_t *)(ctx->base + offset);
-    for (uint32_t i = 0u; i < size; i++) {
-        if (p[i] != 0xFFu) {
+    while (checked < size) {
+        uint32_t chunk = size - checked;
+
+        if (chunk > sizeof(flash_data)) {
+            chunk = sizeof(flash_data);
+        }
+        ret = wt_flash_read_checked(
+                (const uint8_t *)(ctx->base + offset + checked), flash_data,
+                chunk);
+        if (ret != WH_ERROR_OK) {
             return WH_ERROR_NOTBLANK;
         }
+        for (i = 0u; i < chunk; i++) {
+            if (flash_data[i] != 0xFFu) {
+                return WH_ERROR_NOTBLANK;
+            }
+        }
+        checked += chunk;
     }
     return WH_ERROR_OK;
 }

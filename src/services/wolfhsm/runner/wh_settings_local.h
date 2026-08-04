@@ -107,6 +107,11 @@
  *---------------------------------------------------------------------------*/
 #define WOLFHSM_CFG_NVM_OBJECT_COUNT       8
 
+/* STM32H5 flash is programmed in 128-bit quadwords. Keep the wolfHSM journal
+ * unit aligned with the physical programming unit so no quadword is written
+ * more than once. */
+#define WOLFHSM_CFG_FLASH_UNIT_SIZE         16
+
 /*---------------------------------------------------------------------------
  * Disabled extensions (opt-in, so omitting the define is sufficient)
  *

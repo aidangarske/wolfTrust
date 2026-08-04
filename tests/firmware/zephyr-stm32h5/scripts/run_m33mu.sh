@@ -86,7 +86,7 @@ wolfTrust TEE client initialized|\
 tee impl_id=0x57545254|\
 tee_invoke_func(cancel) rc=0 ret=0x0|\
 psa_generate_random st=0|\
-psa_hash_compute(SHA-256) st=0|\
+psa_hash_compute(SHA-256) KAT verified|\
 psa_cipher_encrypt(AES-CTR) st=0"
 
     # Per-guest1 needles. WT_RUNNER_PROFILE picks which set to assert.

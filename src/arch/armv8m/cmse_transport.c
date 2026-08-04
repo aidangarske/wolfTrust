@@ -352,6 +352,7 @@ const whTransportServerCb wt_cmse_transport_cb = {
 int wt_cmse_transport_signal_fault(wt_guest_id_t guest_id)
 {
     wt_cmse_transport_ctx_t   *ctx;
+    const whCommHeader        *req_hdr;
     whCommHeader               hdr;
     whMessageComm_ErrorResponse body;
     uint8_t                   *resp_data;
@@ -372,13 +373,11 @@ int wt_cmse_transport_signal_fault(wt_guest_id_t guest_id)
 
     /* Mirror the request header so the client matches on seq. The
      * request data area starts immediately after the request CSR. */
-    {
-        const whCommHeader *req_hdr = (const whCommHeader *)(ctx->req_csr + 1);
-        hdr.magic = WH_COMM_MAGIC_NATIVE;
-        hdr.kind  = req_hdr->kind;
-        hdr.seq   = req_hdr->seq;
-        hdr.aux   = WH_COMM_AUX_RESP_FATAL;
-    }
+    req_hdr = (const whCommHeader *)(ctx->req_csr + 1);
+    hdr.magic = WH_COMM_MAGIC_NATIVE;
+    hdr.kind  = req_hdr->kind;
+    hdr.seq   = req_hdr->seq;
+    hdr.aux   = WH_COMM_AUX_RESP_FATAL;
     body.return_code = WH_ERROR_ABORTED;
 
     resp_data = (uint8_t *)(ctx->resp_csr + 1);

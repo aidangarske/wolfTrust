@@ -15,8 +15,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
 #include "wolftrust/platform.h"
@@ -32,8 +31,13 @@
 #include "memory_map.h"
 #include "stm32h563_regs.h"
 
+void* memcpy(void* destination, const void* source, size_t size);
+void* memset(void* destination, int value, size_t size);
+
 #ifdef WT_ENGINE_HSM
 #include "wolftrust/services/hsm.h"
+#include "wolftrust/boot_handoff.h"
+#include "wolftrust/services/initial_attestation.h"
 #include "wolftrust/arch/armv8m/cmse.h"
 #include "wolftrust/arch/armv8m/cmse_transport.h"
 #include "wolftrust/sched/tasklet.h"
@@ -54,10 +58,13 @@
 #define WT_MPU_RLAR_EN       (1u << 0)
 #define WT_MPU_RLAR_ATTRIDX_NORMAL  (0u << 1)  /* MAIR[0] = normal memory */
 #define WT_MPU_RLAR_ATTRIDX_DEVICE  (1u << 1)  /* MAIR[1] = device memory */
+#define WT_MPU_RLAR_ATTRIDX_NOCACHE (2u << 1)  /* MAIR[2] = normal non-cacheable */
 
-/* MAIR encodings: normal write-back/RA/WA inner+outer = 0xFF; device-nGnRE = 0x04. */
+/* MAIR encodings: normal write-back/RA/WA inner+outer = 0xFF;
+ * device-nGnRE = 0x04; normal non-cacheable inner+outer = 0x44. */
 #define WT_MPU_MAIR0_NORMAL_AT_0   0x000000FFu
 #define WT_MPU_MAIR0_DEVICE_AT_1   0x00000400u
+#define WT_MPU_MAIR0_NOCACHE_AT_2  0x00440000u
 
 typedef struct wt_exception_frame {
     uint32_t r0;
@@ -152,7 +159,7 @@ static void wt_gtzc_init(void)
 {
     size_t i;
 
-    WT_RCC_AHB2ENR |= WT_RCC_AHB2ENR_GTZC1EN;
+    WT_RCC_AHB1ENR |= WT_RCC_AHB1ENR_GTZC1EN;
 
     for (i = 0; i < 16u; ++i) {
         WT_GTZC1_MPCBB1_SECCFGR[i] = 0xFFFFFFFFu;
@@ -215,6 +222,21 @@ static void wt_mpu_s_set_region(uint32_t rnr, uintptr_t base,
                     | rlar_flags | WT_MPU_RLAR_EN);
 }
 
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+static void wt_clear_boot_handoff_scratch(void)
+{
+    volatile uint8_t* scratch =
+        (volatile uint8_t*)WT_BOOT_HANDOFF_ADDRESS;
+    size_t scratchSize = WT_RAM_S_BASE - WT_BOOT_HANDOFF_ADDRESS;
+    size_t i;
+
+    for (i = 0u; i < scratchSize; ++i) {
+        scratch[i] = 0u;
+    }
+    wt_dsb();
+}
+#endif
+
 /* Secure-side MPU whitelist. PRIVDEFENA is OFF, so any access outside
  * the listed regions traps (MemManage / SecureFault). This catches NULL
  * pointer derefs, wild pointer writes, and stray peripheral accesses
@@ -225,9 +247,12 @@ static void wt_mpu_s_init(void)
     WT_MPU_S_CTRL = 0u;
     wt_dsb();
 
-    /* MAIR0[7:0]   = Normal WB/RA/WA  (AttrIndx 0)
-     * MAIR0[15:8]  = Device nGnRE     (AttrIndx 1) */
-    WT_MPU_S_MAIR0 = WT_MPU_MAIR0_NORMAL_AT_0 | WT_MPU_MAIR0_DEVICE_AT_1;
+    /* MAIR0[7:0]   = Normal WB/RA/WA   (AttrIndx 0)
+     * MAIR0[15:8]  = Device nGnRE      (AttrIndx 1)
+     * MAIR0[23:16] = Normal non-cacheable (AttrIndx 2) */
+    WT_MPU_S_MAIR0 = WT_MPU_MAIR0_NORMAL_AT_0 |
+                     WT_MPU_MAIR0_DEVICE_AT_1 |
+                     WT_MPU_MAIR0_NOCACHE_AT_2;
     WT_MPU_S_MAIR1 = 0u;
 
     /* Region 0: secure flash RX (image, NSC stubs, .text). */
@@ -240,16 +265,22 @@ static void wt_mpu_s_init(void)
      * lives at 0x0C1FC000..0x0C1FFFFF and STM32H5 flash programming
      * writes data words directly to the destination flash address with
      * FLASH_CR.PG set (the FLASH controller intercepts the stores).
-     * The peripheral's own LOCK / PG gating is the real write barrier;
-     * MPU just needs to permit the addressed stores. */
+     * The peripheral's own LOCK / PG gating is the real write barrier.
+     * Keep this region non-cacheable so an immediate verify reads the flash
+     * controller rather than a cache line populated before programming. */
     wt_mpu_s_set_region(1u,
         0x0C100000u, 0x0C1FFFFFu,
         WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW | WT_MPU_RBAR_SH_INNER,
-        WT_MPU_RLAR_ATTRIDX_NORMAL);
+        WT_MPU_RLAR_ATTRIDX_NOCACHE);
 
     /* Region 2: secure RAM RW-NX (.data/.bss/MSP_S + coroutine stacks). */
     wt_mpu_s_set_region(2u,
-        WT_RAM_S_BASE, WT_RAM_S_BASE + WT_RAM_S_SIZE - 1u,
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+        WT_BOOT_HANDOFF_ADDRESS,
+#else
+        WT_RAM_S_BASE,
+#endif
+        WT_RAM_S_BASE + WT_RAM_S_SIZE - 1u,
         WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW | WT_MPU_RBAR_SH_INNER,
         WT_MPU_RLAR_ATTRIDX_NORMAL);
 
@@ -539,6 +570,17 @@ static void wt_exception_return_ns_msp(void)
         "msr control_ns, r1             \n"
         "ldr lr, [r0, #" WT_ASM_STR(WT_GUEST_CONTEXT_EXC_RETURN_OFFSET) "] \n"
         "bx lr                          \n"
+    );
+}
+
+__attribute__((naked, noreturn))
+void wt_platform_svc_guest_return(void)
+{
+    __asm volatile(
+        "mrs r2, msp                    \n"
+        "ldr r1, =g_secure_entry_sp    \n"
+        "str r2, [r1]                  \n"
+        "b wt_exception_return_ns_msp  \n"
     );
 }
 
@@ -980,7 +1022,11 @@ void wt_platform_restore_guest_context(wt_guest_context_t* context)
             stacked->r3 = 0u;
             stacked->r12 = 0u;
             stacked->lr = context->lr;
-            stacked->pc = context->pc;
+            /* Vector-table reset handlers carry the Thumb marker in bit 0,
+             * but an exception frame carries the aligned PC and restores
+             * Thumb state from xPSR.T. Leaving bit 0 set causes INVEP on
+             * STM32H563 during the first exception-based guest dispatch. */
+            stacked->pc = context->pc & ~(uintptr_t)1u;
             stacked->xpsr = context->xpsr;
             context->msp_ns = (uintptr_t)stacked;
             context->frame_stacked = true;
@@ -989,6 +1035,10 @@ void wt_platform_restore_guest_context(wt_guest_context_t* context)
 
     g_return_context = *context;
     wt_arm_secure_timer();
+    if (wt_read_ipsr() == 0u) {
+        __asm volatile("svc #0x7F");
+        wt_platform_panic();
+    }
     wt_exception_return_ns_msp();
 }
 
@@ -1047,17 +1097,16 @@ uint32_t wt_platform_active_guest_id(void)
 
 void wt_platform_configure_ns_irq(uint32_t irq)
 {
+    volatile uint32_t *itns = (volatile uint32_t *)0xE000E380u;
     uint32_t word = irq >> 5;
     uint32_t bit  = irq & 31u;
+
     if (word >= WT_MAX_IRQ_WORDS) return;
     /* ITNS only has a secure alias; mark this IRQ as NS-targeted.
      * Do NOT enable in NVIC ISER here — that comes from the per-guest
      * partition irq_mask when the monitor dispatches a guest that
      * actually wants to receive this IRQ. */
-    {
-        volatile uint32_t *itns = (volatile uint32_t *)0xE000E380u;
-        itns[word] |= (1u << bit);
-    }
+    itns[word] |= (1u << bit);
 }
 
 void wt_platform_set_ns_irq_pending(uint32_t irq, bool asserted)
@@ -1083,6 +1132,10 @@ void Reset_Handler(void)
     extern uint32_t _ebss;
     uint32_t* src = &_sidata;
     uint32_t* dst = &_sdata;
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+    wt_boot_handoff_t bootHandoff;
+    int handoffRet;
+#endif
 
     while (dst < &_edata) {
         *dst++ = *src++;
@@ -1093,6 +1146,10 @@ void Reset_Handler(void)
     }
 
     wt_monitor_init();
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+    handoffRet = wt_boot_handoff_consume(&bootHandoff);
+    wt_clear_boot_handoff_scratch();
+#endif
 #ifdef WT_ENGINE_HSM
     /* Bring up the secure-side wolfHSM service before dispatching guests:
      *  1. tasklet scheduler (provides the bootstrap context)
@@ -1116,6 +1173,13 @@ void Reset_Handler(void)
             wt_platform_panic();
         }
     }
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+    if (handoffRet == 0) {
+        if (wt_initial_attest_init(&bootHandoff) != WT_ATTEST_SUCCESS) {
+            wt_platform_panic();
+        }
+    }
+#endif
 #endif
     wt_monitor_start();
     wt_platform_panic();
@@ -1379,6 +1443,138 @@ out:
     wt_secure_service_exit();
     return rc;
 }
+
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+int WolfTrust_Attest_GetTokenSize_Impl(size_t challengeSize,
+                                      size_t* tokenSize);
+__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+int WolfTrust_Attest_GetTokenSize(size_t challengeSize, size_t* tokenSize)
+{
+    return WolfTrust_Attest_GetTokenSize_Impl(challengeSize, tokenSize);
+}
+
+int WolfTrust_Attest_GetTokenSize_Impl(size_t challengeSize,
+                                      size_t* tokenSize)
+{
+    size_t secureTokenSize = 0u;
+    int ret;
+
+    wt_secure_service_enter();
+    if ((g_active_guest >= WT_MAX_GUESTS) ||
+        !wt_cmse_check_ns_rw(tokenSize, sizeof(*tokenSize)) ||
+        !wt_cmse_check_in_guest_ns_ram(g_active_guest, tokenSize,
+                                       sizeof(*tokenSize))) {
+        ret = WT_ATTEST_ERROR_INVALID_ARGUMENT;
+        goto out;
+    }
+
+    ret = wt_initial_attest_get_token_size(challengeSize, &secureTokenSize);
+    *tokenSize = secureTokenSize;
+
+out:
+    wt_secure_service_exit();
+    return ret;
+}
+
+int WolfTrust_Attest_GetToken_Impl(const uint8_t* challenge,
+    size_t challengeSize, uint8_t* token, size_t* tokenSize);
+__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+int WolfTrust_Attest_GetToken(const uint8_t* challenge, size_t challengeSize,
+    uint8_t* token, size_t* tokenSize)
+{
+    return WolfTrust_Attest_GetToken_Impl(challenge, challengeSize, token,
+        tokenSize);
+}
+
+int WolfTrust_Attest_GetToken_Impl(const uint8_t* challenge,
+    size_t challengeSize, uint8_t* token, size_t* tokenSize)
+{
+    uint8_t secureChallenge[WT_ATTEST_CHALLENGE_SIZE_64];
+    uint8_t secureToken[WT_ATTEST_MAX_TOKEN_SIZE];
+    size_t tokenCapacity = 0u;
+    size_t secureTokenSize = 0u;
+    int ret;
+
+    wt_secure_service_enter();
+    if ((g_active_guest >= WT_MAX_GUESTS) ||
+        (challengeSize > sizeof(secureChallenge)) ||
+        !wt_cmse_check_ns_ro(challenge, challengeSize) ||
+        !wt_cmse_check_in_guest_ns_addr(g_active_guest, challenge,
+                                        challengeSize) ||
+        !wt_cmse_check_ns_rw(tokenSize, sizeof(*tokenSize)) ||
+        !wt_cmse_check_in_guest_ns_ram(g_active_guest, tokenSize,
+                                       sizeof(*tokenSize))) {
+        ret = WT_ATTEST_ERROR_INVALID_ARGUMENT;
+        goto out;
+    }
+
+    tokenCapacity = *tokenSize;
+    if ((tokenCapacity > sizeof(secureToken)) ||
+        !wt_cmse_check_ns_rw(token, tokenCapacity) ||
+        !wt_cmse_check_in_guest_ns_ram(g_active_guest, token,
+                                       tokenCapacity)) {
+        ret = WT_ATTEST_ERROR_INVALID_ARGUMENT;
+        goto out;
+    }
+
+    (void)memcpy(secureChallenge, challenge, challengeSize);
+    ret = wt_initial_attest_get_token(g_active_guest, secureChallenge,
+        challengeSize, secureToken, tokenCapacity, &secureTokenSize);
+    if (ret == WT_ATTEST_SUCCESS) {
+        (void)memcpy(token, secureToken, secureTokenSize);
+    }
+    *tokenSize = secureTokenSize;
+
+out:
+    (void)memset(secureChallenge, 0, sizeof(secureChallenge));
+    (void)memset(secureToken, 0, sizeof(secureToken));
+    wt_secure_service_exit();
+    return ret;
+}
+
+int WolfTrust_Attest_GetPublicKey_Impl(uint8_t* publicKey,
+    size_t publicKeyCapacity, size_t* publicKeySize);
+__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+int WolfTrust_Attest_GetPublicKey(uint8_t* publicKey,
+    size_t publicKeyCapacity, size_t* publicKeySize)
+{
+    return WolfTrust_Attest_GetPublicKey_Impl(publicKey, publicKeyCapacity,
+                                               publicKeySize);
+}
+
+int WolfTrust_Attest_GetPublicKey_Impl(uint8_t* publicKey,
+    size_t publicKeyCapacity, size_t* publicKeySize)
+{
+    uint8_t securePublicKey[WT_ATTEST_IAK_PUBLIC_KEY_SIZE];
+    size_t securePublicKeySize = 0u;
+    int ret;
+
+    wt_secure_service_enter();
+    if ((g_active_guest >= WT_MAX_GUESTS) ||
+        (publicKeyCapacity > sizeof(securePublicKey)) ||
+        !wt_cmse_check_ns_rw(publicKey, publicKeyCapacity) ||
+        !wt_cmse_check_in_guest_ns_ram(g_active_guest, publicKey,
+                                       publicKeyCapacity) ||
+        !wt_cmse_check_ns_rw(publicKeySize, sizeof(*publicKeySize)) ||
+        !wt_cmse_check_in_guest_ns_ram(g_active_guest, publicKeySize,
+                                       sizeof(*publicKeySize))) {
+        ret = WT_ATTEST_ERROR_INVALID_ARGUMENT;
+        goto out;
+    }
+
+    ret = wt_initial_attest_get_iak_public_key(securePublicKey,
+        sizeof(securePublicKey), &securePublicKeySize);
+    if (ret == WT_ATTEST_SUCCESS) {
+        (void)memcpy(publicKey, securePublicKey, securePublicKeySize);
+    }
+    *publicKeySize = securePublicKeySize;
+
+out:
+    (void)memset(securePublicKey, 0, sizeof(securePublicKey));
+    wt_secure_service_exit();
+    return ret;
+}
+#endif
 
 #endif /* WT_ENGINE_HSM */
 
