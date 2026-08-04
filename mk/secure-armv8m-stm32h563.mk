@@ -9,6 +9,7 @@ WOLFHSM_RUNNER_DIR := $(ROOT)/src/services/wolfhsm/runner
 WOLFHSM_DIR := $(ROOT)/lib/wolfHSM
 WOLFSSL_DIR := $(ROOT)/lib/wolfSSL
 WOLFHAL_DIR := $(ROOT)/lib/wolfhal
+WOLFCOSE_DIR := $(ROOT)/lib/wolfCOSE
 
 BUILD_DIR ?= build
 SECURE_ELF := $(BUILD_DIR)/wolftrust.elf
@@ -30,6 +31,7 @@ WT_WOLFCRYPT_SP_ASM ?= 1
 WT_WOLFCRYPT_ARMASM ?= 1
 WT_WOLFCRYPT_STM32_HASH ?= 1
 WT_ENGINE_HSM ?= 1
+WT_ATTEST_COSE ?= 1
 
 # Secure runtime placement. The default preserves the standalone image;
 # the wolfBoot handoff build relocates it to 0x0C020000.
@@ -56,6 +58,14 @@ HSM_INCLUDES_SECURE := $(HSM_INCLUDES) -I$(WOLFHAL_DIR) -I$(abspath $(WOLFHSM_RU
 HSM_DEFS_SECURE := -DWOLFSSL_USER_SETTINGS -DWOLFHSM_CFG \
     -DWOLF_CRYPTO_CB -UNO_CODING \
     -DWC_RESEED_INTERVAL=1000000 -DWT_ENGINE_HSM=$(WT_ENGINE_HSM)
+
+ifeq ($(WT_ATTEST_COSE),1)
+SECURE_CFLAGS_COSE := -I$(WOLFCOSE_DIR)/include \
+    -DWOLFCOSE_LEAN -DWOLFCOSE_ENABLE_EXT_SIGN \
+    -DWOLFCOSE_NO_SIGN1_VERIFY -DWOLFCOSE_NO_ENCRYPT0 \
+    -DWOLFCOSE_NO_MAC0 -DWOLFCOSE_NO_KEY_ENCODE \
+    -DWOLFCOSE_NO_KEY_DECODE
+endif
 
 ifeq ($(WT_WOLFCRYPT_SP_ASM),1)
 HSM_DEFS_SECURE += -DWOLFSSL_SP_ASM -DWOLFSSL_SP_ARM_CORTEX_M_ASM \
@@ -88,7 +98,7 @@ SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -DWT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_BASE) \
     -DWHAL_CFG_STM32H5_RNG_DIRECT_API_MAPPING \
     -mcmse \
-    $(HSM_INCLUDES_SECURE) $(HSM_DEFS_SECURE)
+    $(HSM_INCLUDES_SECURE) $(HSM_DEFS_SECURE) $(SECURE_CFLAGS_COSE)
 
 ifeq ($(CONFIG_VNET),y)
 SECURE_CFLAGS += -DCONFIG_VNET=1 \
@@ -178,6 +188,13 @@ WT_SECURE_EXTRA_SRCS := \
     $(wildcard $(ROOT)/src/services/wolfhsm/*.c) \
     $(wildcard $(ROOT)/src/arch/armv8m/cmse_transport.c)
 
+ifeq ($(WT_ATTEST_COSE),1)
+WT_SECURE_EXTRA_SRCS += \
+    $(ROOT)/src/services/attestation_cose.c \
+    $(WOLFCOSE_DIR)/src/wolfcose.c \
+    $(WOLFCOSE_DIR)/src/wolfcose_cbor.c
+endif
+
 ifeq ($(CONFIG_VNET),y)
 WT_SECURE_EXTRA_SRCS += \
     $(ROOT)/src/vnet/vnet_mac.c    \
@@ -216,6 +233,7 @@ $(BUILD_MODE_STAMP): | $(BUILD_DIR)
 		'WT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_BASE)' \
 		'WT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_BASE)' \
 		'WT_ENGINE_HSM=$(WT_ENGINE_HSM)' \
+		'WT_ATTEST_COSE=$(WT_ATTEST_COSE)' \
 		'WT_MAX_GUESTS=$(WT_MAX_GUESTS)' \
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
 		'WT_WOLFCRYPT_SP_ASM=$(WT_WOLFCRYPT_SP_ASM)' \
@@ -271,6 +289,12 @@ $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/vnet/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAM
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/vnet/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(WOLFCOSE_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)

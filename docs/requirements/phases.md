@@ -19,13 +19,17 @@ DICE paths have been qualified. No future release tag is assumed.
 
 The Phase 1 wolfCOSE gate must prove:
 
-1. wolfTrust can encode a CBOR payload through wolfCOSE.
-2. Exact tagged and untagged `COSE_Sign1` sizes match produced output.
-3. The external signing callback is invoked with an ES256 digest and can sign
+1. Production wolfTrust code consumes wolfCOSE through an API that does not
+   expose wolfCOSE types to the Initial Attestation service.
+2. The production adapter accepts encoded EAT payloads and routes ES256
+   signing through an opaque callback suitable for wolfHSM.
+3. Exact tagged and untagged `COSE_Sign1` sizes match produced output.
+4. The external signing callback is invoked with an ES256 digest and can sign
    without exposing a private key to wolfTrust or wolfCOSE.
-4. The pinned wolfSSL revision, latest stable wolfSSL, and wolfSSL master all
+5. The pinned wolfSSL revision, latest stable wolfSSL, and wolfSSL master all
    build and pass the wolfTrust-owned integration test.
-5. The dependency commit is recorded by the wolfTrust gitlink.
+6. The Cortex-M33 Secure runtime links the constrained wolfCOSE profile.
+7. The dependency commit is recorded by the wolfTrust gitlink.
 
 Stop after this gate passes.
 

@@ -8,154 +8,178 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <wolfcose/wolfcose.h>
+#include "wolftrust/services/attestation_cose.h"
 
 #define WT_TEST_ES256_DIGEST_SIZE    32u
 #define WT_TEST_ES256_SIGNATURE_SIZE 64u
 
-typedef struct wt_test_signer_ctx {
+typedef struct wt_test_signer_context {
     unsigned int calls;
-} wt_test_signer_ctx_t;
+    int fail;
+} wt_test_signer_context_t;
 
-static int wt_test_external_sign(void* signerCtx, int32_t alg,
-    const uint8_t* digest, size_t digestSize, uint8_t* signature,
-    size_t signatureSize, size_t* signatureLength)
+static int wt_test_external_sign(void* context, const uint8_t* digest,
+    size_t digestSize, uint8_t* signature, size_t signatureSize,
+    size_t* signatureLength)
 {
-    wt_test_signer_ctx_t* ctx = (wt_test_signer_ctx_t*)signerCtx;
+    wt_test_signer_context_t* signer =
+        (wt_test_signer_context_t*)context;
 
-    if ((ctx == NULL) || (digest == NULL) || (signature == NULL) ||
-        (signatureLength == NULL) || (alg != WOLFCOSE_ALG_ES256) ||
+    if ((signer == NULL) || (digest == NULL) || (signature == NULL) ||
+        (signatureLength == NULL) ||
         (digestSize != WT_TEST_ES256_DIGEST_SIZE) ||
-        (signatureSize < WT_TEST_ES256_SIGNATURE_SIZE)) {
+        (signatureSize < WT_TEST_ES256_SIGNATURE_SIZE) ||
+        (signer->fail != 0)) {
         return -1;
     }
 
-    (void)digest;
     (void)memset(signature, 0xA5, WT_TEST_ES256_SIGNATURE_SIZE);
     *signatureLength = WT_TEST_ES256_SIGNATURE_SIZE;
-    ctx->calls++;
+    signer->calls++;
 
     return 0;
 }
 
-static int wt_test_encode_payload(uint8_t* payload, size_t payloadSize,
-    size_t* payloadLength)
+static int wt_test_all_zero(const uint8_t* data, size_t dataSize)
 {
-    static const uint8_t component[] = "wolfTrust";
-    static const uint8_t measurement[] = {
-        0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE
-    };
-    WOLFCOSE_CBOR_CTX cbor;
+    size_t i;
+
+    for (i = 0u; i < dataSize; i++) {
+        if (data[i] != 0u) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+static int wt_test_sign_output(const wt_attest_cose_signer_t* signer,
+    const uint8_t* payload, size_t payloadSize, uint32_t flags,
+    uint8_t expectedFirstByte, size_t* outputSize)
+{
+    uint8_t scratch[256];
+    uint8_t output[256];
+    size_t predictedSize = 0u;
     int ret;
 
-    if ((payload == NULL) || (payloadLength == NULL)) {
-        return WOLFCOSE_E_INVALID_ARG;
+    (void)memset(scratch, 0x3C, sizeof(scratch));
+    ret = wt_attest_cose_sign1_size(signer, payloadSize, flags,
+        &predictedSize);
+    if (ret == WT_ATTEST_COSE_OK) {
+        ret = wt_attest_cose_sign1_encode(signer, payload, payloadSize,
+            flags, scratch, sizeof(scratch), output, sizeof(output),
+            outputSize);
     }
-
-    cbor.buf = payload;
-    cbor.cbuf = NULL;
-    cbor.bufSz = payloadSize;
-    cbor.idx = 0u;
-
-    ret = wc_CBOR_EncodeMapStart(&cbor, 2u);
-    if (ret == WOLFCOSE_SUCCESS) {
-        ret = wc_CBOR_EncodeUint(&cbor, 1u);
-    }
-    if (ret == WOLFCOSE_SUCCESS) {
-        ret = wc_CBOR_EncodeTstr(&cbor, component,
-            sizeof(component) - 1u);
-    }
-    if (ret == WOLFCOSE_SUCCESS) {
-        ret = wc_CBOR_EncodeUint(&cbor, 2u);
-    }
-    if (ret == WOLFCOSE_SUCCESS) {
-        ret = wc_CBOR_EncodeBstr(&cbor, measurement,
-            sizeof(measurement));
-    }
-    if (ret == WOLFCOSE_SUCCESS) {
-        *payloadLength = cbor.idx;
+    if ((ret == WT_ATTEST_COSE_OK) &&
+        ((*outputSize != predictedSize) ||
+         (output[0] != expectedFirstByte) ||
+         (wt_test_all_zero(scratch, sizeof(scratch)) == 0))) {
+        ret = WT_ATTEST_COSE_E_ENCODE;
     }
 
     return ret;
 }
 
-static int wt_test_sign_output(WOLFCOSE_KEY* key, const uint8_t* payload,
-    size_t payloadLength, uint32_t flags, uint8_t expectedFirstByte,
-    size_t* outputLength)
+static int wt_test_invalid_inputs(wt_attest_cose_signer_t* signer,
+    const uint8_t* payload, size_t payloadSize)
 {
     uint8_t scratch[256];
     uint8_t output[256];
-    size_t predictedLength = 0u;
-    int ret;
+    size_t outputSize = 9u;
+    int ret = WT_ATTEST_COSE_OK;
 
-    ret = wc_CoseSign1_SignSize_ex(key, WOLFCOSE_ALG_ES256, 0u,
-        payloadLength, 0u, flags, &predictedLength);
-    if (ret == WOLFCOSE_SUCCESS) {
-        ret = wc_CoseSign1_Sign_ex(key, WOLFCOSE_ALG_ES256, NULL, 0u,
-            payload, payloadLength, NULL, 0u, NULL, 0u, scratch,
-            sizeof(scratch), output, sizeof(output), outputLength, NULL,
-            flags);
+    if (wt_attest_cose_sign1_size(NULL, payloadSize, 0u,
+            &outputSize) != WT_ATTEST_COSE_E_BADARG) {
+        ret = WT_ATTEST_COSE_E_ENCODE;
     }
-    if ((ret == WOLFCOSE_SUCCESS) &&
-        ((*outputLength != predictedLength) ||
-         (output[0] != expectedFirstByte))) {
-        ret = -1;
+    if ((ret == WT_ATTEST_COSE_OK) &&
+        (wt_attest_cose_sign1_size(signer, 0u, 0u,
+            &outputSize) != WT_ATTEST_COSE_E_BADARG)) {
+        ret = WT_ATTEST_COSE_E_ENCODE;
+    }
+    if ((ret == WT_ATTEST_COSE_OK) &&
+        (wt_attest_cose_sign1_size(signer, payloadSize, 0x80000000u,
+            &outputSize) != WT_ATTEST_COSE_E_BADARG)) {
+        ret = WT_ATTEST_COSE_E_ENCODE;
+    }
+    if ((ret == WT_ATTEST_COSE_OK) &&
+        (wt_attest_cose_sign1_encode(signer, payload, payloadSize, 0u,
+            scratch, sizeof(scratch), output, 1u,
+            &outputSize) != WT_ATTEST_COSE_E_BUFFER)) {
+        ret = WT_ATTEST_COSE_E_ENCODE;
     }
 
     return ret;
+}
+
+static int wt_test_signer_failure(wt_attest_cose_signer_t* signer,
+    wt_test_signer_context_t* context, const uint8_t* payload,
+    size_t payloadSize)
+{
+    uint8_t scratch[256];
+    uint8_t output[256];
+    size_t outputSize = 9u;
+    int ret;
+
+    (void)memset(output, 0x5A, sizeof(output));
+    context->fail = 1;
+    ret = wt_attest_cose_sign1_encode(signer, payload, payloadSize, 0u,
+        scratch, sizeof(scratch), output, sizeof(output), &outputSize);
+    context->fail = 0;
+
+    if ((ret != WT_ATTEST_COSE_E_SIGN) || (outputSize != 0u) ||
+        (wt_test_all_zero(output, sizeof(output)) == 0)) {
+        return WT_ATTEST_COSE_E_ENCODE;
+    }
+
+    return WT_ATTEST_COSE_OK;
 }
 
 int main(void)
 {
-    uint8_t payload[64];
-    WOLFCOSE_KEY key;
-    wt_test_signer_ctx_t signerCtx;
-    size_t payloadLength = 0u;
-    size_t taggedLength = 0u;
-    size_t untaggedLength = 0u;
-    int keyInited = 0;
+    static const uint8_t payload[] = {
+        0xA2, 0x01, 0x69, 0x77, 0x6F, 0x6C, 0x66, 0x54, 0x72, 0x75,
+        0x73, 0x74, 0x02, 0x48, 0x10, 0x32, 0x54, 0x76, 0x98, 0xBA,
+        0xDC, 0xFE
+    };
+    static const uint8_t keyId[] = {0x01, 0x02, 0x03, 0x04};
+    wt_test_signer_context_t context;
+    wt_attest_cose_signer_t signer;
+    size_t taggedSize = 0u;
+    size_t untaggedSize = 0u;
     int ret;
 
-    (void)memset(&signerCtx, 0, sizeof(signerCtx));
+    (void)memset(&context, 0, sizeof(context));
+    signer.sign = wt_test_external_sign;
+    signer.context = &context;
+    signer.keyId = keyId;
+    signer.keyIdSize = sizeof(keyId);
 
-    ret = wt_test_encode_payload(payload, sizeof(payload), &payloadLength);
-    if (ret == WOLFCOSE_SUCCESS) {
-        ret = wc_CoseKey_Init(&key);
-        if (ret == WOLFCOSE_SUCCESS) {
-            keyInited = 1;
-        }
+    ret = wt_test_sign_output(&signer, payload, sizeof(payload), 0u,
+        0xD2u, &taggedSize);
+    if (ret == WT_ATTEST_COSE_OK) {
+        ret = wt_test_sign_output(&signer, payload, sizeof(payload),
+            WT_ATTEST_COSE_FLAG_UNTAGGED, 0x84u, &untaggedSize);
     }
-    if (ret == WOLFCOSE_SUCCESS) {
-        key.kty = WOLFCOSE_KTY_EC2;
-        key.crv = WOLFCOSE_CRV_P256;
-        key.alg = WOLFCOSE_ALG_ES256;
-        ret = wc_CoseKey_SetExtSigner(&key, wt_test_external_sign,
-            &signerCtx);
+    if ((ret == WT_ATTEST_COSE_OK) &&
+        ((taggedSize != (untaggedSize + 1u)) ||
+         (context.calls != 2u))) {
+        ret = WT_ATTEST_COSE_E_ENCODE;
     }
-    if (ret == WOLFCOSE_SUCCESS) {
-        ret = wt_test_sign_output(&key, payload, payloadLength, 0u,
-            0xD2u, &taggedLength);
+    if (ret == WT_ATTEST_COSE_OK) {
+        ret = wt_test_invalid_inputs(&signer, payload, sizeof(payload));
     }
-    if (ret == WOLFCOSE_SUCCESS) {
-        ret = wt_test_sign_output(&key, payload, payloadLength,
-            WOLFCOSE_SIGN1_UNTAGGED, 0x84u, &untaggedLength);
-    }
-    if ((ret == WOLFCOSE_SUCCESS) &&
-        ((taggedLength != (untaggedLength + 1u)) ||
-         (signerCtx.calls != 2u))) {
-        ret = -1;
+    if (ret == WT_ATTEST_COSE_OK) {
+        ret = wt_test_signer_failure(&signer, &context, payload,
+            sizeof(payload));
     }
 
-    if (keyInited != 0) {
-        wc_CoseKey_Free(&key);
-    }
-
-    if (ret != WOLFCOSE_SUCCESS) {
+    if (ret != WT_ATTEST_COSE_OK) {
         (void)fprintf(stderr, "wolfTrust wolfCOSE integration failed: %d\n",
             ret);
         return 1;
     }
 
-    (void)printf("wolfTrust wolfCOSE integration passed\n");
+    (void)printf("wolfTrust wolfCOSE production integration passed\n");
     return 0;
 }
