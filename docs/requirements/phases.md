@@ -5,6 +5,22 @@ the next phase. A failing gate keeps the current phase open. Later work may be
 planned, but it must not be used to hide or defer a failure in an earlier
 phase.
 
+## Mandatory phase revalidation gate
+
+At the end of every phase, rerun the complete validation ladder against the
+exact phase commit before starting the next phase:
+
+1. Host unit and integration tests, including the phase's negative tests.
+2. The full STM32H5 M33MU wolfBoot to wolfTrust lifecycle, with both the
+   Zephyr and FreeRTOS guest matrix entries.
+3. A real STM32H563 H5 hardware smoke test covering secure boot, wolfTrust,
+   wolfHSM, wolfCOSE/PSA behavior, and guest output relevant to that phase.
+
+The hardware result must be captured in a log and recorded with the commit.
+If the H5 test cannot be run, the phase remains open; a successful host or
+M33MU run does not substitute for target evidence. A local toolchain or board
+connection failure must be reported separately from a firmware failure.
+
 ## Phase 1: dependency and clean-room baseline
 
 Add the approved wolfSSL project dependencies and prove their required public
