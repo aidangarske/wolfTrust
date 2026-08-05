@@ -15,7 +15,7 @@ be rewritten.
 
 | Area | Required baseline |
 | --- | --- |
-| Framework | Published FF-M client, service, IPC, and Level 3 isolation behavior |
+| Framework | FF-M 1.0 IPC plus the selected FF-M 1.1 features recorded in `framework.md`, with Level 3 isolation |
 | Crypto | PSA Crypto API 1.5 |
 | Storage | PSA Secure Storage API 1.0 |
 | Attestation | PSA Attestation API 2.0 with 1.0 compatibility |
@@ -35,3 +35,18 @@ be rewritten.
 
 A build fails when the selected profile exceeds declared architecture or
 platform enforcement capabilities.
+
+## Framework compatibility policy
+
+The first production profile implements the complete FF-M 1.0 IPC programming
+model. It also exposes FF-M 1.1 framework and isolation discovery, explicit
+IPC manifest selection, and stateless services after their individual gates
+pass. SFN partitions remain a later compatibility feature, but the manifest
+intermediate representation reserves the model distinction now so adding SFN
+does not change the common SPM boundary.
+
+Memory-mapped IOVEC support is disabled in the initial Level 3 profile.
+Services use SPM-mediated `psa_read`, `psa_skip`, and `psa_write` transfers so
+client memory is never directly mapped into a service partition. A future
+port may enable memory-mapped IOVEC only with an architecture-specific proof
+that the selected isolation profile remains enforced.

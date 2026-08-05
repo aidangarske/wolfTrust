@@ -10,8 +10,10 @@ endif
 .DEFAULT_GOAL := all
 
 .PHONY: all clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
-        test-domain-host test-domain-compilers test-domain-sanitize \
-        test-domain-valgrind test-vnet-host test-wolfcose-host \
+		test-domain-host test-domain-compilers test-domain-sanitize \
+		test-domain-valgrind test-manifest-host test-manifest-compilers \
+		test-manifest-sanitize test-manifest-valgrind test-vnet-host \
+		test-wolfcose-host \
         run-stm32h563-vnet
 
 all: $(SECURE_BIN) $(SECURE_ELF)
@@ -22,6 +24,7 @@ clean:
 	$(MAKE) -C tests/firmware/stm32h563 clean
 	$(MAKE) -C tests/firmware/stm32h563-vnet clean
 	$(MAKE) -C tests/host/domain clean
+	$(MAKE) -C tests/host/manifest clean
 	$(MAKE) -C tests/host/vnet clean
 	$(MAKE) -C tests/host/wolfcose clean
 
@@ -36,6 +39,18 @@ test-domain-sanitize:
 
 test-domain-valgrind:
 	$(MAKE) -C tests/host/domain valgrind
+
+test-manifest-host:
+	$(MAKE) -C tests/host/manifest run
+
+test-manifest-compilers:
+	$(MAKE) -C tests/host/manifest compilers
+
+test-manifest-sanitize:
+	$(MAKE) -C tests/host/manifest sanitize
+
+test-manifest-valgrind:
+	$(MAKE) -C tests/host/manifest valgrind
 
 test-vnet-host:
 	$(MAKE) -C tests/host/vnet run
