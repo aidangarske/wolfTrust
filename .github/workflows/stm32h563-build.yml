@@ -98,7 +98,7 @@ jobs:
       ZEPHYR_BOARD: nucleo_h563zi/stm32h563xx/ns
       WT_TEST_GUEST: ${{ matrix.guest }}
       # Temporary until the M33MU ECCDETR fix is merged upstream.
-      M33MU_REF: 5321f212fcfd9296b3d65d6b3f60aeec3d286565
+      M33MU_REF: 23a831ea2e5b4fb7fbc0547d53e2d0c497847f21
     steps:
       - uses: actions/checkout@v4
 
