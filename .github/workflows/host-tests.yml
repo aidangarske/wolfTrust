@@ -182,6 +182,40 @@ jobs:
       - name: Run lifecycle unit tests under Valgrind
         run: make -C tests/host/lifecycle clean valgrind
 
+  host-ipc:
+    name: wolfTrust IPC host tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run IPC contract tests
+        run: make -C tests/host/ipc clean run
+
+  ipc-sanitizers:
+    name: IPC tests (ASan and UBSan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run sanitized IPC contract tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: make -C tests/host/ipc clean sanitize
+
+  ipc-valgrind:
+    name: IPC tests (Valgrind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends valgrind
+      - name: Run IPC contract tests under Valgrind
+        run: make -C tests/host/ipc clean valgrind
+
   host-wolfcose:
     name: wolfCOSE integration (${{ matrix.name }})
     needs: resolve
