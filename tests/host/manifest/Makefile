@@ -27,11 +27,21 @@ LDFLAGS := $(EXTRA_LDFLAGS)
 
 MANIFEST_TEST := $(BUILD_DIR)/test_manifest
 MANIFEST_SRCS := $(ROOT)/src/domain.c $(ROOT)/src/manifest.c main.c
+GENERATOR := $(ROOT)/tools/manifest/generate.py
+GENERATOR_TEST := test_generator.py
+GENERATOR_FIXTURE := fixtures/level3.json
+GENERATED_DIR := $(BUILD_DIR)/generated
+GENERATED_STAMP := $(GENERATED_DIR)/.stamp
+GENERATED_TEST := $(BUILD_DIR)/test_generated_manifest
+GENERATED_C := $(GENERATED_DIR)/wolftrust_manifest_generated.c
+GENERATED_H := $(GENERATED_DIR)/wolftrust_manifest_generated.h
+GENERATED_SRCS := $(ROOT)/src/domain.c $(ROOT)/src/manifest.c \
+	$(GENERATED_DIR)/wolftrust_manifest_generated.c generated_main.c
 
 .PHONY: all run run-valgrind compiler-gcc compiler-clang compilers sanitize \
     valgrind clean
 
-all: $(MANIFEST_TEST)
+all: $(MANIFEST_TEST) $(GENERATED_TEST)
 
 $(BUILD_DIR):
 	mkdir -p $@
@@ -39,8 +49,21 @@ $(BUILD_DIR):
 $(MANIFEST_TEST): $(MANIFEST_SRCS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(MANIFEST_SRCS)
 
-run: $(MANIFEST_TEST)
+$(GENERATED_STAMP): $(GENERATOR) $(GENERATOR_FIXTURE) | $(BUILD_DIR)
+	python3 $(GENERATOR) $(GENERATOR_FIXTURE) $(GENERATED_DIR) \
+		--supported-features 0x5 --address-bits 32
+	touch $@
+
+$(GENERATED_C) $(GENERATED_H): $(GENERATED_STAMP)
+
+$(GENERATED_TEST): $(ROOT)/src/domain.c $(ROOT)/src/manifest.c \
+	generated_main.c $(GENERATED_STAMP) $(GENERATED_C) $(GENERATED_H)
+	$(CC) $(CFLAGS) -I$(GENERATED_DIR) $(LDFLAGS) -o $@ $(GENERATED_SRCS)
+
+run: $(MANIFEST_TEST) $(GENERATED_TEST)
 	$(MANIFEST_TEST)
+	$(GENERATED_TEST)
+	python3 $(GENERATOR_TEST)
 
 compiler-gcc:
 	$(MAKE) run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc
@@ -59,9 +82,11 @@ sanitize:
 valgrind:
 	$(MAKE) run-valgrind BUILD_DIR=$(BUILD_DIR)/valgrind
 
-run-valgrind: $(MANIFEST_TEST)
+run-valgrind: $(MANIFEST_TEST) $(GENERATED_TEST)
 	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
 		$(MANIFEST_TEST)
+	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+		$(GENERATED_TEST)
 
 clean:
 	rm -rf $(BUILD_DIR)
