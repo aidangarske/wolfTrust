@@ -148,6 +148,40 @@ jobs:
       - name: Run manifest unit tests under Valgrind
         run: make -C tests/host/manifest clean valgrind
 
+  host-lifecycle:
+    name: wolfTrust lifecycle host tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run lifecycle unit tests
+        run: make -C tests/host/lifecycle clean run
+
+  lifecycle-sanitizers:
+    name: Lifecycle tests (ASan and UBSan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run sanitized lifecycle unit tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: make -C tests/host/lifecycle clean sanitize
+
+  lifecycle-valgrind:
+    name: Lifecycle tests (Valgrind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends valgrind
+      - name: Run lifecycle unit tests under Valgrind
+        run: make -C tests/host/lifecycle clean valgrind
+
   host-wolfcose:
     name: wolfCOSE integration (${{ matrix.name }})
     needs: resolve

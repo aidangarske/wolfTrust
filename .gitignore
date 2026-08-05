@@ -8,6 +8,7 @@ tests/firmware/stm32h563-vnet/stm32h563_OTP.bin
 tests/host/wolfhsm_loopback/test_loopback
 tests/host/domain/build/
 tests/host/manifest/build/
+tests/host/lifecycle/build/
 tests/host/vnet/test_vnet
 tests/host/wolfcose/test_wolfcose_integration
 

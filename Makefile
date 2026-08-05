@@ -13,8 +13,10 @@ endif
 		test-domain-host test-domain-compilers test-domain-sanitize \
 		test-domain-valgrind test-manifest-host test-manifest-compilers \
 		test-manifest-sanitize test-manifest-valgrind test-vnet-host \
+		test-lifecycle-host test-lifecycle-compilers test-lifecycle-sanitize \
+		test-lifecycle-valgrind \
 		test-wolfcose-host \
-        run-stm32h563-vnet
+		run-stm32h563-vnet
 
 all: $(SECURE_BIN) $(SECURE_ELF)
 	@$(SIZE) $(SECURE_ELF)
@@ -25,6 +27,7 @@ clean:
 	$(MAKE) -C tests/firmware/stm32h563-vnet clean
 	$(MAKE) -C tests/host/domain clean
 	$(MAKE) -C tests/host/manifest clean
+	$(MAKE) -C tests/host/lifecycle clean
 	$(MAKE) -C tests/host/vnet clean
 	$(MAKE) -C tests/host/wolfcose clean
 
@@ -51,6 +54,18 @@ test-manifest-sanitize:
 
 test-manifest-valgrind:
 	$(MAKE) -C tests/host/manifest valgrind
+
+test-lifecycle-host:
+	$(MAKE) -C tests/host/lifecycle run
+
+test-lifecycle-compilers:
+	$(MAKE) -C tests/host/lifecycle compilers
+
+test-lifecycle-sanitize:
+	$(MAKE) -C tests/host/lifecycle sanitize
+
+test-lifecycle-valgrind:
+	$(MAKE) -C tests/host/lifecycle valgrind
 
 test-vnet-host:
 	$(MAKE) -C tests/host/vnet run
