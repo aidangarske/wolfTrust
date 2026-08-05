@@ -97,6 +97,8 @@ jobs:
       WT_MAX_GUESTS: 2
       ZEPHYR_BOARD: nucleo_h563zi/stm32h563xx/ns
       WT_TEST_GUEST: ${{ matrix.guest }}
+      # Temporary until the M33MU ECCDETR fix is merged upstream.
+      M33MU_REF: 5321f212fcfd9296b3d65d6b3f60aeec3d286565
     steps:
       - uses: actions/checkout@v4
 
@@ -104,6 +106,15 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: Build patched M33MU
+        run: |
+          git clone --no-checkout https://github.com/aidangarske/m33mu.git m33mu
+          git -C m33mu fetch --depth 1 origin "$M33MU_REF"
+          git -C m33mu checkout --detach "$M33MU_REF"
+          cmake -S m33mu -B m33mu/build -DM33MU_ENABLE_WOLFSSL=OFF
+          cmake --build m33mu/build --target m33mu -j2
+          echo "M33MU=$GITHUB_WORKSPACE/m33mu/build/m33mu" >> "$GITHUB_ENV"
 
       - name: Initialize wolfTrust dependencies
         run: git submodule update --init --single-branch
