@@ -22,6 +22,7 @@
 #ifndef WOLFTRUST_PLATFORM_H
 #define WOLFTRUST_PLATFORM_H
 
+#include "wolftrust/arch/armv8m/context.h"
 #include "wolftrust/types.h"
 
 typedef struct wt_trap_frame {

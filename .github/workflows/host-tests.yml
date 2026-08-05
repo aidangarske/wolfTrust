@@ -40,6 +40,80 @@ jobs:
           git submodule update --init --recursive
       - run: make -C tests/host/wolfhsm_loopback run
 
+  host-domain:
+    name: wolfTrust domain host tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run domain unit tests
+        run: make -C tests/host/domain clean run
+
+  domain-compiler-matrix:
+    name: Domain tests (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: GCC 12
+            package: gcc-12
+            cc: gcc-12
+          - name: GCC 13
+            package: gcc-13
+            cc: gcc-13
+          - name: GCC 14
+            package: gcc-14
+            cc: gcc-14
+          - name: GCC 15
+            package: gcc-15
+            cc: gcc-15
+          - name: Clang 17
+            package: clang-17
+            cc: clang-17
+          - name: Clang 18
+            package: clang-18
+            cc: clang-18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends software-properties-common
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ${{ matrix.package }}
+      - name: Run domain unit tests
+        run: |
+          make -C tests/host/domain clean run \
+            CC=${{ matrix.cc }}
+
+  domain-sanitizers:
+    name: Domain tests (ASan and UBSan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run sanitized domain unit tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: make -C tests/host/domain clean sanitize
+
+  domain-valgrind:
+    name: Domain tests (Valgrind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends valgrind
+      - name: Run domain unit tests under Valgrind
+        run: make -C tests/host/domain clean valgrind
+
   host-wolfcose:
     name: wolfCOSE integration (${{ matrix.name }})
     needs: resolve

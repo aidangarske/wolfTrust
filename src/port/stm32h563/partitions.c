@@ -55,9 +55,10 @@ static const wt_guest_config_t g_partition_configs[] = {
         },
         .memory_windows = {
             {WT_GUEST0_FLASH_BASE, WT_GUEST_FLASH_SIZE,
-             WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
+             WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC, WT_RESOURCE_SHARE_NONE},
             {0x20000000U, 0x00008000U,
-             WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_RESTART_CLEAR}
+             WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_RESTART_CLEAR,
+             WT_RESOURCE_SHARE_NONE}
         },
         .memory_window_count = 2U,
         .mpu_regions = {
@@ -94,9 +95,10 @@ static const wt_guest_config_t g_partition_configs[] = {
         },
         .memory_windows = {
             {WT_GUEST1_FLASH_BASE, WT_GUEST_FLASH_SIZE,
-             WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
+             WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC, WT_RESOURCE_SHARE_NONE},
             {0x20008000U, 0x00008000U,
-             WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_RESTART_CLEAR}
+             WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_RESTART_CLEAR,
+             WT_RESOURCE_SHARE_NONE}
         },
         .memory_window_count = 2U,
         .mpu_regions = {

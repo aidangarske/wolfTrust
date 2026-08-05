@@ -22,6 +22,7 @@
 #ifndef WOLFTRUST_PARTITION_H
 #define WOLFTRUST_PARTITION_H
 
+#include "wolftrust/arch/armv8m/context.h"
 #include "wolftrust/types.h"
 
 /* Per-guest CMSE shared-buffer descriptor for the wolfHSM transport.

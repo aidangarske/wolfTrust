@@ -40,6 +40,13 @@ security-state, privilege-state, restart, and lifecycle contracts. Validate
 them with host unit tests, compiler coverage, sanitizers, Valgrind, and the
 existing Cortex-M33 cross-build.
 
+This phase defines and host-tests the validation contract. It does not compile
+the validator into the existing guest monitor or claim that the current H563
+runtime enforces generated domain descriptors. Phase 3 must make generated
+manifests the sole production input, compile the validator into the SPM, and
+fail closed on validation errors before scheduling any partition. No isolation
+level claim is permitted before that integration passes its gate.
+
 Stop after the portable contract gate passes.
 
 ## Phase 3: manifest, Secure Partition Manager, and IPC
