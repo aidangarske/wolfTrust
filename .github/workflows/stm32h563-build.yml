@@ -188,7 +188,7 @@ jobs:
               build/wolftrust_v1_signed.bin:0x60000 \
               tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0x80000 \
               tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xA0000 \
-              --uart-stdout --quit-on-faults --timeout 600; \
+              --uart-stdout --call-trace --quit-on-faults --timeout 60; \
             echo $? > "$rc_file" ) \
             | tee "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           emu_status=$(cat "$rc_file")
