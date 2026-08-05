@@ -83,11 +83,11 @@ jobs:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
     env:
       # wolfBoot fork branch containing the H5 secure-app handoff.
-      WOLFBOOT_REF: 19fae13fe3c9b78276228da0d4475677580a8a22
+      WOLFBOOT_REF: d85fa9dbdf6c36f47b7e96eba5c9df750ad3c963
       CROSS_COMPILE: /usr/local/bin/arm-none-eabi-
       ZEPHYR_TOOLCHAIN_VARIANT: cross-compile
-      # wolfBoot's secure H5 image occupies 0x0C000000..0x0C05E020;
-      # place wolfTrust at the first 128-KiB-aligned free slot.
+      # The wolfBoot configuration reserves the wolfTrust partition at the
+      # first 128-KiB-aligned secure slot.
       WT_SECURE_FLASH_BASE: 0x0C060000
       WT_SECURE_FLASH_SIZE: 0x00020000
       WT_SECURE_IMAGE_HEADER_SIZE: 0x400
@@ -97,8 +97,8 @@ jobs:
       WT_MAX_GUESTS: 2
       ZEPHYR_BOARD: nucleo_h563zi/stm32h563xx/ns
       WT_TEST_GUEST: ${{ matrix.guest }}
-      # Temporary until the M33MU ECCDETR fix is merged upstream.
-      M33MU_REF: 23a831ea2e5b4fb7fbc0547d53e2d0c497847f21
+      # Upstream merge of danielinux/m33mu PR #13.
+      M33MU_REF: c84792f7f9e9ce24cf94ffc492c36231de1854c2
     steps:
       - uses: actions/checkout@v4
 
@@ -107,9 +107,9 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://github.com/".insteadOf git@github.com:
 
-      - name: Build patched M33MU
+      - name: Build pinned upstream M33MU
         run: |
-          git clone --no-checkout https://github.com/aidangarske/m33mu.git m33mu
+          git clone --no-checkout https://github.com/danielinux/m33mu.git m33mu
           git -C m33mu fetch --depth 1 origin "$M33MU_REF"
           git -C m33mu checkout --detach "$M33MU_REF"
           cmake -S m33mu -B m33mu/build -DM33MU_ENABLE_WOLFSSL=OFF
@@ -161,6 +161,9 @@ jobs:
         run: |
           make -C tests/firmware/zephyr-stm32h5 \
             WT_REUSE_SECURE_BUILD=1 \
+            WT_EXPECTED_LIFECYCLE=0x1000u \
+            WT_ATTESTATION_DEVELOPMENT_PROFILE=1 \
+            WT_M33MU_EXPECT_BKPT=1 \
             build-guest0-psa build-freertos-guest1
 
       - name: Boot the authenticated wolfBoot → wolfTrust → guests chain
@@ -184,11 +187,11 @@ jobs:
           esac
           set +e
           rc_file=$(mktemp)
-          ( stdbuf -oL -eL m33mu wolfBoot/wolfboot.bin \
+          ( stdbuf -oL -eL "$M33MU" wolfBoot/wolfboot.bin \
               build/wolftrust_v1_signed.bin:0x60000 \
               tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0x80000 \
               tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xA0000 \
-              --uart-stdout --call-trace --quit-on-faults --timeout 60; \
+              --uart-stdout --expect-bkpt 0x7f --quit-on-faults --timeout 60; \
             echo $? > "$rc_file" ) \
             | tee "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           emu_status=$(cat "$rc_file")
@@ -208,7 +211,9 @@ jobs:
           grep -Fq "psa_initial_attestation st=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "wolfTrust attestation: wolfCOSE COSE_Sign1 signed by wolfHSM" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "wolfTrust attestation: COSE_Sign1 verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "attestation verify=0 challenge=ok identity=ok lifecycle=0x3000 measurement=ok cose=ES256" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          grep -Fq "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          grep -Fq "secured lifecycle policy rejected development token" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          grep -Fq "[EXPECT BKPT] Success" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           if [ "$WT_TEST_GUEST" = "zephyr" ]; then
             grep -Fq "psa_generate_random st=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
             grep -Fq "psa_hash_compute(SHA-256) KAT verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"

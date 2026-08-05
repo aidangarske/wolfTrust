@@ -60,6 +60,12 @@ LOG_MODULE_REGISTER(guest0_psa, LOG_LEVEL_INF);
 #define WT_EXPECTED_MEASUREMENT_HEX ""
 #endif
 
+#ifndef WT_EXPECTED_LIFECYCLE
+#define WT_EXPECTED_LIFECYCLE 0x3000u
+#endif
+
+#define WT_PSA_LIFECYCLE_SECURED 0x3000u
+
 /* Mirror guest0's TEE-driver smoke so the runner's existing TEE assertions
  * stay green and we don't need a second runner mode. */
 static void exercise_tee_driver(void)
@@ -170,6 +176,7 @@ static void exercise_psa_initial_attestation(void)
     psa_status_t status;
     uint32_t keyPrefixHigh;
     uint32_t keyPrefixLow;
+    uint32_t verifiedLifecycle = 0u;
     int verify;
     size_t i;
 
@@ -209,15 +216,29 @@ static void exercise_psa_initial_attestation(void)
         (unsigned)keyPrefixHigh, (unsigned)keyPrefixLow);
 
     verify = wt_attestation_verify(token, tokenSize, publicKey, publicKeySize,
-        challenge, sizeof(challenge), WT_EXPECTED_MEASUREMENT_HEX);
+        challenge, sizeof(challenge), WT_EXPECTED_MEASUREMENT_HEX,
+        WT_EXPECTED_LIFECYCLE, &verifiedLifecycle);
     if (verify == 0) {
         LOG_INF("wolfTrust attestation: COSE_Sign1 verified");
         LOG_INF("attestation verify=0 challenge=ok identity=ok "
-            "lifecycle=0x3000 measurement=ok cose=ES256");
+            "lifecycle=0x%04x measurement=ok cose=ES256",
+            (unsigned)WT_EXPECTED_LIFECYCLE);
+#if defined(WT_ATTESTATION_DEVELOPMENT_PROFILE)
+        verify = wt_attestation_verify(token, tokenSize, publicKey,
+            publicKeySize, challenge, sizeof(challenge),
+            WT_EXPECTED_MEASUREMENT_HEX, WT_PSA_LIFECYCLE_SECURED,
+            &verifiedLifecycle);
+        if (verify == 0) {
+            LOG_ERR("secured lifecycle policy accepted development token");
+            return;
+        }
+        LOG_INF("secured lifecycle policy rejected development token");
+#endif
     }
     else {
-        LOG_ERR("wolfTrust attestation: COSE_Sign1 verification failed rc=%d",
-            verify);
+        LOG_ERR("wolfTrust attestation: COSE_Sign1 verification failed rc=%d "
+            "expected_lifecycle=0x%04x received_lifecycle=0x%04x", verify,
+            (unsigned)WT_EXPECTED_LIFECYCLE, (unsigned)verifiedLifecycle);
     }
 }
 
@@ -242,6 +263,10 @@ int main(void)
 	exercise_psa_initial_attestation();
 
 	LOG_INF("guest0_psa done");
+
+#if defined(WT_M33MU_EXPECT_BKPT)
+    __asm volatile("bkpt #0x7f");
+#endif
 
 	for (;;) {
 		k_sleep(K_SECONDS(1));

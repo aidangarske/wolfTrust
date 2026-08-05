@@ -23,6 +23,9 @@ WT_SHARED_UART ?= 3
 # companion and rebuild the secure side for the single-TEE configuration.
 WT_MAX_GUESTS ?= 2
 WT_REUSE_SECURE_BUILD ?= 0
+WT_EXPECTED_LIFECYCLE ?= 0x3000u
+WT_ATTESTATION_DEVELOPMENT_PROFILE ?= 0
+WT_M33MU_EXPECT_BKPT ?= 0
 
 # Baremetal guest-b memory map — matches WT_GUEST1_FLASH_BASE / WT_GUEST1_RAM_BASE
 # in src/port/stm32h563/memory_map.h. Kept here as overridable variables so
@@ -118,6 +121,9 @@ build-guest0-psa: patch secure
 	SECURE_BIN="$(SECURE_BIN)" SECURE_CMSE_IMPLIB="$(SECURE_CMSE_IMPLIB)" \
 	WT_SHARED_UART="$(WT_SHARED_UART)" \
 	WT_EXPECTED_MEASUREMENT_HEX="$(WT_EXPECTED_MEASUREMENT_HEX)" \
+	WT_EXPECTED_LIFECYCLE="$(WT_EXPECTED_LIFECYCLE)" \
+	WT_ATTESTATION_DEVELOPMENT_PROFILE="$(WT_ATTESTATION_DEVELOPMENT_PROFILE)" \
+	WT_M33MU_EXPECT_BKPT="$(WT_M33MU_EXPECT_BKPT)" \
 	"$(SCRIPT_DIR)/build_guest.sh" guest0_psa
 
 build-guest1: $(GUEST1_BIN)

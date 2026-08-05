@@ -34,7 +34,6 @@
 #define WT_PSA_SW_MEASUREMENT_TYPE 1
 #define WT_PSA_SW_MEASUREMENT_VALUE 2
 #define WT_PSA_SW_MEASUREMENT_DESCRIPTION 6
-#define WT_PSA_LIFECYCLE_SECURED 0x3000u
 #define WT_REQUIRED_CLAIMS 0x3Fu
 
 static int wt_hex_nibble(char value)
@@ -132,7 +131,8 @@ static int wt_verify_software_component(WOLFCOSE_CBOR_CTX* cbor,
 
 static int wt_verify_claims(const uint8_t* payload, size_t payloadSize,
     const uint8_t* challenge, size_t challengeSize,
-    const uint8_t* expectedMeasurement)
+    const uint8_t* expectedMeasurement, uint32_t expectedLifecycle,
+    uint32_t* verifiedLifecycle)
 {
     WOLFCOSE_CBOR_CTX cbor;
     const uint8_t* data;
@@ -191,7 +191,10 @@ static int wt_verify_claims(const uint8_t* payload, size_t payloadSize,
         }
         else if ((ret == 0) && (label == WT_PSA_CLAIM_LIFECYCLE)) {
             ret = wc_CBOR_DecodeUint(&cbor, &value);
-            if ((ret == 0) && (value == WT_PSA_LIFECYCLE_SECURED)) {
+            if ((ret == 0) && (value <= UINT32_MAX)) {
+                *verifiedLifecycle = (uint32_t)value;
+            }
+            if ((ret == 0) && (value == expectedLifecycle)) {
                 claims |= 16u;
             }
             else {
@@ -217,7 +220,8 @@ static int wt_verify_claims(const uint8_t* payload, size_t payloadSize,
 int wt_attestation_verify(const uint8_t* token, size_t tokenSize,
     const uint8_t* publicKey, size_t publicKeySize,
     const uint8_t* challenge, size_t challengeSize,
-    const char* expectedMeasurementHex)
+    const char* expectedMeasurementHex, uint32_t expectedLifecycle,
+    uint32_t* verifiedLifecycle)
 {
     uint8_t expectedMeasurement[32];
     uint8_t scratch[384];
@@ -231,9 +235,11 @@ int wt_attestation_verify(const uint8_t* token, size_t tokenSize,
     int ret;
 
     if ((token == NULL) || (publicKey == NULL) || (publicKeySize != 65u) ||
-        (publicKey[0] != 0x04u) || (challenge == NULL)) {
+        (publicKey[0] != 0x04u) || (challenge == NULL) ||
+        (verifiedLifecycle == NULL)) {
         return -1;
     }
+    *verifiedLifecycle = 0u;
     ret = wt_decode_measurement(expectedMeasurementHex, expectedMeasurement);
     if (ret != 0) {
         return ret;
@@ -263,7 +269,8 @@ int wt_attestation_verify(const uint8_t* token, size_t tokenSize,
     }
     if (ret == 0) {
         ret = wt_verify_claims(payload, payloadSize, challenge, challengeSize,
-                               expectedMeasurement);
+                               expectedMeasurement, expectedLifecycle,
+                               verifiedLifecycle);
     }
 
     if (coseKeyInited != 0) {

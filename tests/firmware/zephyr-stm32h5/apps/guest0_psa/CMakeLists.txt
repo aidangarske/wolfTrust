@@ -31,8 +31,23 @@ target_compile_definitions(app PRIVATE
   WOLFCOSE_NO_KEY_DECODE
 )
 if(DEFINED WT_EXPECTED_MEASUREMENT_HEX)
-  target_compile_definitions(app PRIVATE
-    WT_EXPECTED_MEASUREMENT_HEX="${WT_EXPECTED_MEASUREMENT_HEX}")
+    target_compile_definitions(app PRIVATE
+        WT_EXPECTED_MEASUREMENT_HEX="${WT_EXPECTED_MEASUREMENT_HEX}")
+endif()
+
+if(NOT DEFINED WT_EXPECTED_LIFECYCLE)
+    set(WT_EXPECTED_LIFECYCLE 0x3000u)
+endif()
+target_compile_definitions(app PRIVATE
+    WT_EXPECTED_LIFECYCLE=${WT_EXPECTED_LIFECYCLE})
+
+if(WT_ATTESTATION_DEVELOPMENT_PROFILE)
+    target_compile_definitions(app PRIVATE
+        WT_ATTESTATION_DEVELOPMENT_PROFILE=1)
+endif()
+
+if(WT_M33MU_EXPECT_BKPT)
+    target_compile_definitions(app PRIVATE WT_M33MU_EXPECT_BKPT=1)
 endif()
 
 set_source_files_properties(

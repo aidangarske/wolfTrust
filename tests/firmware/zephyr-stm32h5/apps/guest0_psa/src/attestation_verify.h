@@ -27,6 +27,7 @@
 int wt_attestation_verify(const uint8_t* token, size_t tokenSize,
     const uint8_t* publicKey, size_t publicKeySize,
     const uint8_t* challenge, size_t challengeSize,
-    const char* expectedMeasurementHex);
+    const char* expectedMeasurementHex, uint32_t expectedLifecycle,
+    uint32_t* verifiedLifecycle);
 
 #endif /* WOLFTRUST_ATTESTATION_VERIFY_H */

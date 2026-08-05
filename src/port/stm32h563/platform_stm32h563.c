@@ -199,6 +199,25 @@ static void wt_gtzc_init(void)
 
 static void wt_sau_init(void)
 {
+    uint32_t region;
+    uint32_t regionCount = WT_SAU_TYPE & 0xFFu;
+
+    /* Disable the SAU before changing any region pair. Updating RBAR while
+     * the previous RLAR remains enabled creates a transient region spanning
+     * the new base and old limit. That can reclassify the currently executing
+     * Secure image as Non-secure before the matching RLAR write completes. */
+    WT_SAU_CTRL = 0u;
+    wt_dsb();
+    wt_isb();
+
+    /* A preceding Secure stage may leave enabled regions behind. Clear every
+     * implemented slot before installing wolfTrust's complete attribution
+     * map so no higher-priority stale region can override it. */
+    for (region = 0u; region < regionCount; region++) {
+        WT_SAU_RNR = region;
+        WT_SAU_RLAR = 0u;
+    }
+
     wt_sau_set_region(0u, WT_GUEST0_FLASH_BASE,
                       WT_GUEST1_FLASH_BASE + WT_GUEST_FLASH_SIZE - 1u,
                       false);
