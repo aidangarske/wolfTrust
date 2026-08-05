@@ -146,11 +146,74 @@ class GeneratorTest(unittest.TestCase):
             manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
             manifest["features"] = 7
             manifest["partitions"][0]["model"] = 1
+            manifest["partitions"][0]["framework_version"] = 0x101
             manifest["partitions"][0]["services"][0]["signal"] = 0
             source.write_text(json.dumps(manifest), encoding="utf-8")
 
             result = self.run_generator(source, root / "output", "0x7")
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_dependency_cycle_is_rejected_before_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "cycle.json"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["partitions"][1]["dependencies"] = [0x1000]
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_generator(source, root / "output")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("cycle", result.stderr)
+            self.assertFalse((root / "output").exists())
+
+    def test_domain_enum_is_rejected_before_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "domain.json"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["domains"][1]["domain_class"] = 99
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_generator(source, root / "output")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("domain class", result.stderr)
+
+    def test_service_policy_is_rejected_before_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "service.json"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["partitions"][0]["services"][0]["connection_based"] = False
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_generator(source, root / "output")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("connection based", result.stderr)
+
+    def test_entry_point_policy_is_rejected_before_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "entry.json"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["domains"][1]["entry_point"] = \
+                manifest["domains"][1]["stack_base"]
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_generator(source, root / "output")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("entry point", result.stderr)
+
+    def test_interrupt_ownership_is_rejected_before_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "interrupt.json"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["partitions"][0]["interrupts"][0]["interrupt"] += 1
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_generator(source, root / "output")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("partition interrupt", result.stderr)
 
 
 if __name__ == "__main__":

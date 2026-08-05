@@ -514,7 +514,7 @@ static int wt_hsm_flash_blank_check(void *context, uint32_t offset,
                 (const uint8_t *)(ctx->base + offset + checked), flash_data,
                 chunk);
         if (ret != WH_ERROR_OK) {
-            return WH_ERROR_NOTBLANK;
+            return ret;
         }
         for (i = 0u; i < chunk; i++) {
             if (flash_data[i] != 0xFFu) {

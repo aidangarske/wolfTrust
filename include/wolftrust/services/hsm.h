@@ -78,6 +78,10 @@ int wt_hsm_signal_fault(wt_guest_id_t guest_id);
  * The private key is non-exportable and restricted to signing. */
 int wt_hsm_attest_init(void);
 
+/* Run one secure HSM tasklet during bootstrap so the Initial Attestation Key
+ * is provisioned before any Non-secure guest can request attestation. */
+int wt_hsm_attest_bootstrap(void);
+
 /* Sign a SHA-256 digest with the protected Initial Attestation Key. Output is
  * the 64-byte COSE ECDSA form, r followed by s. */
 int wt_hsm_attest_sign(const uint8_t* digest, size_t digestSize,

@@ -1193,6 +1193,11 @@ void Reset_Handler(void)
         }
     }
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+    if (wt_hsm_attest_bootstrap() != WH_ERROR_OK) {
+        wt_platform_panic();
+    }
+#endif
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     if (handoffRet == 0) {
         if (wt_initial_attest_init(&bootHandoff) != WT_ATTEST_SUCCESS) {
             wt_platform_panic();

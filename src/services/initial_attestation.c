@@ -293,6 +293,9 @@ int wt_initial_attest_get_token(wt_guest_id_t guestId,
         ret = wt_attest_cose_sign1_encode(&signer, payload, payloadSize,
             WT_ATTEST_COSE_FLAG_UNTAGGED, scratch, sizeof(scratch), token,
             tokenCapacity, tokenSize);
+        if (ret == WT_ATTEST_COSE_E_BUFFER) {
+            ret = WT_ATTEST_ERROR_BUFFER_TOO_SMALL;
+        }
     }
 
     wt_attest_force_zero(payload, sizeof(payload));

@@ -242,9 +242,15 @@ static void wt_hsm_tasklet_main(void *arg)
 
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     /* Key provisioning touches the shared persistent store and therefore
-     * must run from a coroutine that can own the wolfHSM NVM mutex. */
-    if (gid == 0u) {
-        (void)wt_hsm_attest_init();
+     * must run from a coroutine that can own the wolfHSM NVM mutex. The
+     * bootstrap path runs this tasklet before guest dispatch; this fallback
+     * also keeps a direct HSM-driven startup safe on ports without that hook. */
+    if (!g_attest_ready) {
+        if (wt_hsm_attest_init() != WH_ERROR_OK) {
+            for (;;) {
+                wt_tasklet_block();
+            }
+        }
     }
 #endif
 
@@ -400,6 +406,29 @@ struct wt_co *wt_hsm_guest_tasklet(wt_guest_id_t guest_id)
 {
     if (guest_id >= WT_MAX_GUESTS) return NULL;
     return g_guests[guest_id].tasklet;
+}
+
+int wt_hsm_attest_bootstrap(void)
+{
+    wt_guest_id_t gid;
+    wt_tasklet_t *tasklet;
+
+    if (g_attest_ready) {
+        return WH_ERROR_OK;
+    }
+    for (gid = 0u; gid < WT_MAX_GUESTS; gid++) {
+        if (!g_guests[gid].ready || g_guests[gid].tasklet == NULL) {
+            continue;
+        }
+        tasklet = g_guests[gid].tasklet;
+        wt_tasklet_wake(tasklet);
+        if (wt_tasklet_resume(tasklet) == 0u) {
+            return WH_ERROR_ABORTED;
+        }
+        return g_attest_ready ? WH_ERROR_OK : g_attest_init_status;
+    }
+
+    return WH_ERROR_NOTREADY;
 }
 
 /* =========================================================================

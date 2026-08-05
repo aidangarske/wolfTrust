@@ -85,6 +85,7 @@ wolfPSA up; default devId=0x5748534d|\
 wolfTrust TEE client initialized|\
 tee impl_id=0x57545254|\
 tee_invoke_func(cancel) rc=0 ret=0x0|\
+psa_initial_attestation short-buffer rejected correctly|\
 psa_generate_random st=0|\
 psa_hash_compute(SHA-256) KAT verified|\
 psa_cipher_encrypt(AES-CTR) st=0"

@@ -170,8 +170,10 @@ static void exercise_psa_initial_attestation(void)
 {
     uint8_t challenge[PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32];
     uint8_t token[512];
+    uint8_t undersizedToken[1];
     uint8_t publicKey[65];
     size_t tokenSize = 0u;
+    size_t undersizedTokenSize = sizeof(undersizedToken);
     size_t publicKeySize = 0u;
     psa_status_t status;
     uint32_t keyPrefixHigh;
@@ -190,6 +192,15 @@ static void exercise_psa_initial_attestation(void)
             (int)status, (unsigned)tokenSize);
         return;
     }
+
+    status = psa_initial_attest_get_token(challenge, sizeof(challenge),
+        undersizedToken, sizeof(undersizedToken), &undersizedTokenSize);
+    if (status != PSA_ERROR_BUFFER_TOO_SMALL) {
+        LOG_ERR("psa_initial_attestation short-buffer mapping failed st=%d",
+            (int)status);
+        return;
+    }
+    LOG_INF("psa_initial_attestation short-buffer rejected correctly");
 
     status = psa_initial_attest_get_token(challenge, sizeof(challenge), token,
         sizeof(token), &tokenSize);
@@ -257,10 +268,10 @@ int main(void)
 	}
 
 	exercise_tee_driver();
+	exercise_psa_initial_attestation();
 	exercise_psa_rng();
 	exercise_psa_hash();
 	exercise_psa_cipher();
-	exercise_psa_initial_attestation();
 
 	LOG_INF("guest0_psa done");
 
