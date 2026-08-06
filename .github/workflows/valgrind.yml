@@ -24,7 +24,10 @@ jobs:
           git submodule update --init --recursive
       - name: Install Valgrind
         run: |
-          sudo apt-get update
+          sudo apt-get update \
+            -o Dir::Etc::sourcelist="sources.list.d/ubuntu.sources" \
+            -o Dir::Etc::sourceparts="-" \
+            -o APT::Get::List-Cleanup="0"
           sudo apt-get install -y --no-install-recommends valgrind
       - name: Run aggregate host suite under Valgrind
         run: make test-valgrind
