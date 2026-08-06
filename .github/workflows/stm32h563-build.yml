@@ -25,9 +25,9 @@ jobs:
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
     env:
-      # wolfBoot PR #831: wolfCOSE-backed PSA/DICE attestation integration.
-      # Keep this pinned until the PR is merged, then move to upstream master.
-      WOLFBOOT_REF: 9b9ca53454732c5385de764bfcfd192335c997a2
+      # Upstream wolfBoot master, including the merged wolfCOSE-backed
+      # PSA/DICE attestation integration.
+      WOLFBOOT_REF: 0dfad2dbc1d7107ebfa7a41375e0f7c13ff7e6cc
       ZEPHYR_BOARD: ${{ matrix.config.board }}
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +82,8 @@ jobs:
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
     env:
-      # wolfBoot fork branch containing the H5 secure-app handoff.
+      # Keep the validated H5 secure-app handoff until that configuration is
+      # upstreamed; upstream master does not yet ship this wolfTrust config.
       WOLFBOOT_REF: d85fa9dbdf6c36f47b7e96eba5c9df750ad3c963
       CROSS_COMPILE: /usr/local/bin/arm-none-eabi-
       ZEPHYR_TOOLCHAIN_VARIANT: cross-compile

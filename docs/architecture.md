@@ -20,6 +20,17 @@ The monitor is responsible for dispatch, fault containment, and restoring each
 guest's NS execution context. Guests are resumed from the exact point where they
 were preempted.
 
+The generated Secure Partition Manager manifest is validated before monitor
+startup. The STM32H563 port then binds each static hardware guest envelope to a
+manifest secure-partition domain and fails closed on missing or incompatible
+identity, security state, privilege state, restart policy, or memory envelope.
+The generated flash/RAM resources populate the H5 memory windows and MPU
+regions. Device and NSC windows remain platform policy. Vector-table read
+aliases and wolfHSM transport windows are explicit port capabilities. The port
+declares both required and provided capabilities, rejects missing or unknown
+capabilities, and verifies that each transport window is contained in a
+manifest-authorized writable, non-executable memory resource before scheduling.
+
 Alongside guest scheduling the Secure side hosts a wolfHSM server, exposed to
 guests through ARMv8-M Non-secure Callable (NSC) veneers. The crypto/keystore
 service shares the Secure exception model with the monitor but runs in its own

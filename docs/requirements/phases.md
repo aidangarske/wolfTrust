@@ -30,12 +30,12 @@ firmware failure.
 Add the approved wolfSSL project dependencies and prove their required public
 interfaces from wolfTrust-owned tests.
 
-The wolfCOSE development dependency is pinned to commit
-`c96270786043244f8a001595c5d59e79772eec72`, the two-commit head of wolfCOSE
-PR #65. This commit includes the external signing seam and provides tagged and
-untagged `COSE_Sign1` output plus exact size prediction. It remains an exact
-development commit pin until the complete wolfTrust attestation and wolfBoot
-DICE paths have been qualified. No future release tag is assumed.
+The wolfCOSE dependency is pinned to upstream `main` commit
+`588232e6f2213133b48976f5cf3153b21fc7199c`. This upstream commit contains the
+external signing seam and provides tagged and untagged `COSE_Sign1` output plus
+exact size prediction. It remains an exact commit pin until the complete
+wolfTrust attestation and wolfBoot DICE paths have been qualified; no release
+tag is assumed.
 
 The Phase 1 wolfCOSE gate must prove:
 
@@ -51,6 +51,15 @@ The Phase 1 wolfCOSE gate must prove:
 6. The Cortex-M33 Secure runtime links the constrained wolfCOSE profile.
 7. The dependency commit is recorded by the wolfTrust gitlink.
 
+The wolfBoot integration has two deliberately separate gates while the
+secure-app handoff is being upstreamed. The standalone STM32H5 PSA build tracks
+official wolfBoot `master`. The complete wolfBoot-to-wolfTrust lifecycle keeps
+the validated wolfTrust-aware wolfBoot commit until its
+`stm32h5-tz-wolftrust.config` and secure-app handoff settings exist upstream.
+The lifecycle job must not be moved to official `master` merely because the
+DICE/COSE changes have merged; doing so would test a different boot layout and
+fail before wolfTrust starts.
+
 Stop after this gate passes.
 
 ## Phase 2: portable isolation contracts
@@ -60,12 +69,12 @@ security-state, privilege-state, restart, and lifecycle contracts. Validate
 them with host unit tests, compiler coverage, sanitizers, Valgrind, and the
 existing Cortex-M33 cross-build.
 
-This phase defines and host-tests the validation contract. It does not compile
-the validator into the existing guest monitor or claim that the current H563
-runtime enforces generated domain descriptors. Phase 3 must make generated
-manifests the sole production input, compile the validator into the SPM, and
-fail closed on validation errors before scheduling any partition. No isolation
-level claim is permitted before that integration passes its gate.
+This phase defines and host-tests the validation contract. The H563 monitor now
+compiles the validator into SPM startup and fails closed on validation errors
+before scheduling any partition. The architecture-neutral partition API uses
+an opaque runtime type, while the Armv8-M context and complete runtime type are
+defined in the Armv8-M architecture layer. The port binds guest identity and
+restart policy to generated secure-partition domains.
 
 Stop after the portable contract gate passes.
 
@@ -76,12 +85,15 @@ partition lifecycle, scheduling, PSA IPC connection state, message state, and
 strict caller validation. Add negative tests for illegal memory access,
 spoofed identity, invalid handles, queue exhaustion, and partition faults.
 
-The initial implementation slice adds the SPM bootstrap boundary: generated
-manifests are validated before the SPM can enter its ready state, and malformed
-or missing policy leaves it failed closed with the validator result preserved.
-This slice is host-tested; the H563 static guest monitor remains the execution
-bridge until generated partition descriptors are mapped into runtime scheduling
-and memory protection.
+Generated manifests are validated before the SPM can enter its ready state, and
+malformed or missing policy leaves it failed closed with the validator result
+preserved. The H563 port binds generated identity, lifecycle, restart policy,
+stack, memory, and interrupt resources before scheduling. Device and NSC
+windows remain platform policy. Vector-read aliases and wolfHSM transport
+windows are declared as explicit port capabilities and checked before first
+dispatch. The transport must be contained in manifest-authorized writable,
+non-executable memory. Host negative tests and the complete wolfBoot to
+wolfTrust M33MU lifecycle exercise this binding.
 
 Stop after the isolation and IPC gate passes.
 

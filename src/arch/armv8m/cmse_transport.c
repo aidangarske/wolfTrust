@@ -103,7 +103,7 @@ wt_cmse_transport_ctx_t *wt_cmse_transport_ctx_for(wt_guest_id_t guest_id)
     return &g_transport_ctx[guest_id];
 }
 
-/* Populate *out_cfg from the guest's wt_guest_config_t.hsm_transport.
+/* Populate *out_cfg from the guest's explicit port binding.
  * Caller is responsible for passing a valid out_cfg pointer. */
 void wt_cmse_transport_cfg_for(wt_guest_id_t guest_id,
                                 wt_cmse_transport_cfg_t *out_cfg)
@@ -125,8 +125,8 @@ void wt_cmse_transport_cfg_for(wt_guest_id_t guest_id,
 
     for (i = 0; i < count; ++i) {
         if (configs[i].guest_id == guest_id) {
-            out_cfg->ns_buf_base = configs[i].hsm_transport.base;
-            out_cfg->ns_buf_size = configs[i].hsm_transport.size;
+            out_cfg->ns_buf_base = configs[i].port.hsm_transport.base;
+            out_cfg->ns_buf_size = configs[i].port.hsm_transport.size;
             return;
         }
     }

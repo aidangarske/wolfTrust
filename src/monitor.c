@@ -20,6 +20,8 @@
  */
 
 #include "wolftrust/monitor.h"
+#include "wolftrust/spm.h"
+#include "wolftrust_manifest_generated.h"
 
 #include <stdbool.h>
 
@@ -32,6 +34,7 @@
 #endif
 
 static wt_scheduler_state_t g_scheduler;
+static wt_spm_t g_spm;
 #ifdef WT_ENGINE_HSM
 static wt_guest_id_t g_pending_tasklet_guest;
 static bool g_pending_tasklet_guest_valid;
@@ -342,11 +345,21 @@ void wt_monitor_init(void)
 {
     size_t count;
     size_t i;
+    int spm_result;
 
     wt_platform_init();
 
+    spm_result = wt_spm_init(&g_spm, wt_generated_manifest_get(),
+                             WT_MANIFEST_FEATURE_IPC);
+    if (spm_result != WT_SPM_VALID) {
+        wt_platform_panic();
+    }
+
     g_scheduler.configs = wt_partitions_config_table(&count);
     g_scheduler.runtime = wt_partitions_runtime_table(&count);
+    if (wt_partitions_bind_manifest(wt_spm_manifest(&g_spm)) != 0) {
+        wt_platform_panic();
+    }
     g_scheduler.guest_count = count;
     g_scheduler.current_guest = 0U;
     g_scheduler.current_rep = WT_SCHED_REP_NS;

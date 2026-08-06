@@ -1,4 +1,4 @@
-/* context.h
+/* partition.h
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *
@@ -18,28 +18,24 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef WOLFTRUST_ARCH_ARMV8M_CONTEXT_H
-#define WOLFTRUST_ARCH_ARMV8M_CONTEXT_H
+#ifndef WOLFTRUST_ARCH_ARMV8M_PARTITION_H
+#define WOLFTRUST_ARCH_ARMV8M_PARTITION_H
 
-#include <stdbool.h>
-#include <stdint.h>
+#include "wolftrust/arch/armv8m/context.h"
+#include "wolftrust/partition.h"
 
-typedef struct wt_armv8m_context {
-    uint32_t r4_r11[8];
-    uintptr_t psp_ns;
-    uintptr_t msp_ns;
-    uintptr_t vector_table_ns;
-    uint32_t control_ns;
-    uintptr_t exc_return;
-    uintptr_t pc;
-    uintptr_t lr;
-    uint32_t xpsr;
-    bool frame_stacked;
-    bool active_exception;
-    uintptr_t psplim_ns;
-} wt_armv8m_context_t;
+struct wt_guest_runtime {
+    wt_guest_context_t context;
+    wt_guest_state_t state;
+    uint32_t remaining_delay_ticks;
+    uint32_t restart_count;
+    uint32_t first_restart_tick;
+    wt_fault_reason_t last_fault;
+};
 
-/* Temporary alias keeps the H563 guest monitor source compatible. */
-typedef wt_armv8m_context_t wt_guest_context_t;
+typedef struct wt_guest_partition {
+    wt_guest_config_t config;
+    wt_guest_runtime_t runtime;
+} wt_guest_partition_t;
 
 #endif

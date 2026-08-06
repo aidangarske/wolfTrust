@@ -12,6 +12,11 @@ WOLFHAL_DIR := $(ROOT)/lib/wolfhal
 WOLFCOSE_DIR := $(ROOT)/lib/wolfCOSE
 
 BUILD_DIR ?= build
+MANIFEST_INPUT := $(PORT_DIR)/manifest.json
+MANIFEST_DIR := $(BUILD_DIR)/manifest
+MANIFEST_STAMP := $(MANIFEST_DIR)/.stamp
+MANIFEST_GEN_C := $(MANIFEST_DIR)/wolftrust_manifest_generated.c
+MANIFEST_GEN_H := $(MANIFEST_DIR)/wolftrust_manifest_generated.h
 SECURE_ELF := $(BUILD_DIR)/wolftrust.elf
 SECURE_BIN := $(BUILD_DIR)/wolftrust.bin
 SECURE_CMSE_IMPLIB := $(BUILD_DIR)/secure_cmse_implib.o
@@ -101,7 +106,8 @@ SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -DWT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_BASE) \
     -DWHAL_CFG_STM32H5_RNG_DIRECT_API_MAPPING \
     -mcmse \
-    $(HSM_INCLUDES_SECURE) $(HSM_DEFS_SECURE) $(SECURE_CFLAGS_COSE)
+    $(HSM_INCLUDES_SECURE) $(HSM_DEFS_SECURE) $(SECURE_CFLAGS_COSE) \
+    -I$(MANIFEST_DIR)
 
 ifeq ($(CONFIG_VNET),y)
 SECURE_CFLAGS += -DCONFIG_VNET=1 \
@@ -122,7 +128,10 @@ SECURE_SRCS := \
     $(WOLFHSM_RUNNER_DIR)/ivt.c \
     $(WOLFHSM_RUNNER_DIR)/runtime.c \
     $(PORT_DIR)/platform_stm32h563.c \
+    $(ROOT)/src/domain.c \
+    $(ROOT)/src/manifest.c \
     $(ROOT)/src/monitor.c \
+    $(ROOT)/src/spm.c \
     $(PORT_DIR)/partitions.c
 
 WOLFHSM_SECURE_SRCS := \
@@ -209,15 +218,31 @@ HSM_SECURE_BASE_OBJS := $(patsubst %.c,$(BUILD_DIR)/sec_%.o,$(notdir $(SECURE_SR
 HSM_WOLFHSM_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/wh_sec_%.o,$(notdir $(WOLFHSM_SECURE_SRCS)))
 HSM_WOLFCRYPT_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/wc_sec_%.o,$(notdir $(WOLFCRYPT_SECURE_SRCS)))
 HSM_WT_EXTRA_OBJS := $(patsubst %.c,$(BUILD_DIR)/wt_sec_%.o,$(notdir $(WT_SECURE_EXTRA_SRCS)))
+MANIFEST_OBJ := $(BUILD_DIR)/wt_sec_wolftrust_manifest_generated.o
 
 ALL_SECURE_OBJS := \
     $(HSM_SECURE_BASE_OBJS) \
     $(HSM_WOLFHSM_SEC_OBJS) \
     $(HSM_WOLFCRYPT_SEC_OBJS) \
-    $(HSM_WT_EXTRA_OBJS)
+    $(HSM_WT_EXTRA_OBJS) \
+    $(MANIFEST_OBJ)
 
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
+
+$(MANIFEST_DIR):
+	@mkdir -p $@
+
+$(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) | $(MANIFEST_DIR)
+	python3 $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
+		$(MANIFEST_DIR) --supported-features 0x1 --address-bits 32
+	touch $@
+
+$(MANIFEST_GEN_C) $(MANIFEST_GEN_H): $(MANIFEST_STAMP)
+
+$(MANIFEST_OBJ): $(MANIFEST_GEN_C) $(MANIFEST_GEN_H) \
+		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $(MANIFEST_GEN_C)
 
 $(WOLFHSM_CFG_H): | $(BUILD_DIR)
 	printf '#include "%s"\n' "$(abspath $(WOLFHSM_RUNNER_DIR)/wh_settings_local.h)" > $@
@@ -300,6 +325,10 @@ $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_
 $(BUILD_DIR)/wt_sec_%.o: $(WOLFCOSE_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/sec_monitor.o: $(ROOT)/src/monitor.c $(MANIFEST_GEN_H) \
+		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
 $(BUILD_DIR)/sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
@@ -311,10 +340,10 @@ $(BUILD_DIR)/sec_%.o: $(ROOT)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(B
 
 $(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) $(WOLFHSM_RUNNER_DIR)/secure.ld $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) \
-		-Wl,-T$(WOLFHSM_RUNNER_DIR)/secure.ld \
 		-Wl,--defsym=WT_SECURE_FLASH_ORIGIN=$(WT_SECURE_FLASH_BASE) \
 		-Wl,--defsym=WT_SECURE_FLASH_SIZE=$(WT_SECURE_FLASH_SIZE) \
 		-Wl,--defsym=WT_SECURE_IMAGE_HEADER_SIZE=$(WT_SECURE_IMAGE_HEADER_SIZE) \
+		-Wl,-T$(WOLFHSM_RUNNER_DIR)/secure.ld \
 		-Wl,--cmse-implib \
 		-Wl,--out-implib=$(SECURE_CMSE_IMPLIB) \
 		-o $(SECURE_ELF) $(ALL_SECURE_OBJS) -lgcc

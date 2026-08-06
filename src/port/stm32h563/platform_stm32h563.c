@@ -84,6 +84,7 @@ typedef struct wt_exception_frame {
 #define WT_GUEST_CONTEXT_MSP_NS_OFFSET     36U
 #define WT_GUEST_CONTEXT_CONTROL_NS_OFFSET 44U
 #define WT_GUEST_CONTEXT_EXC_RETURN_OFFSET 48U
+#define WT_GUEST_CONTEXT_PSPLIM_NS_OFFSET  68U
 #define WT_EXC_RETURN_MODE_THREAD          0x08u
 #define WT_EXC_RETURN_RETURN_TO_NONSECURE  0x00u
 #define WT_EXC_RETURN_SECURITY_MASK        0x40u
@@ -99,6 +100,8 @@ _Static_assert(WT_GUEST_CONTEXT_MSP_NS_OFFSET == offsetof(wt_guest_context_t, ms
 _Static_assert(WT_GUEST_CONTEXT_CONTROL_NS_OFFSET == offsetof(wt_guest_context_t, control_ns),
                "wt_guest_context_t layout changed");
 _Static_assert(WT_GUEST_CONTEXT_EXC_RETURN_OFFSET == offsetof(wt_guest_context_t, exc_return),
+               "wt_guest_context_t layout changed");
+_Static_assert(WT_GUEST_CONTEXT_PSPLIM_NS_OFFSET == offsetof(wt_guest_context_t, psplim_ns),
                "wt_guest_context_t layout changed");
 
 /* Referenced by inline asm in SysTick_Handler; mark used so -Os does
@@ -576,14 +579,13 @@ static void wt_exception_return_ns_msp(void)
         "msr psp_ns, r1                 \n"
         "ldr r1, [r0, #" WT_ASM_STR(WT_GUEST_CONTEXT_MSP_NS_OFFSET) "] \n"
         "msr msp_ns, r1                 \n"
-        /* PSPLIM_NS / MSPLIM_NS aren't captured per guest yet, so clear
-         * them on every dispatch to keep a guest that programs them
-         * (e.g. FreeRTOS's ARM_CM33_NTZ port, which writes PSPLIM to the
-         * task stack's lower bound on every PendSV) from STKOF-faulting
-         * a peer guest whose PSP_NS legitimately sits outside the first
-         * guest's stack window. Per-guest save/restore is a follow-up. */
-        "mov r1, #0                     \n"
+        "ldr r1, [r0, #" WT_ASM_STR(WT_GUEST_CONTEXT_PSPLIM_NS_OFFSET) "] \n"
         "msr psplim_ns, r1              \n"
+        /* MSP_NS is the exception stack shared with the secure transition;
+         * keep its limit disabled until the port has a dedicated exception
+         * stack. Restoring an RTOS task limit here can block the next secure
+         * timer frame before the scheduler can switch guests. */
+        "mov r1, #0                     \n"
         "msr msplim_ns, r1              \n"
         "ldr r1, [r0, #" WT_ASM_STR(WT_GUEST_CONTEXT_CONTROL_NS_OFFSET) "] \n"
         "msr control_ns, r1             \n"
@@ -976,6 +978,13 @@ void wt_platform_prepare_guest_return(wt_guest_id_t guest_id,
         return;
     }
 
+    /* A non-secure RTOS must not be able to redirect Secure exception
+     * dispatch through the shared PPB alias. Reassert wolfTrust's vector
+     * table before every guest handoff so the next CMSE/HSM transition
+     * always enters the relocated secure runtime. */
+    WT_SCB_VTOR_S = WT_FLASH_IMAGE_BASE;
+    wt_dsb();
+    wt_isb();
     wt_virtual_systick_save_departing();
 
     WT_SCB_VTOR_NS = (uint32_t)context->vector_table_ns;
@@ -1006,6 +1015,7 @@ void wt_platform_capture_guest_context(wt_guest_context_t* context,
         context->msp_ns = stacked_addr;
     }
     context->control_ns = wt_read_control_ns();
+    __asm volatile("mrs %0, psplim_ns" : "=r"(context->psplim_ns));
     context->exc_return = g_live_exc_return;
     context->r4_r11[0] = g_live_r4_r11[0];
     context->r4_r11[1] = g_live_r4_r11[1];
@@ -1184,7 +1194,7 @@ void Reset_Handler(void)
         wt_cmse_transport_ctx_t *tx_ctx;
         configs = wt_partitions_config_table(&cfg_count);
         if (configs == NULL || gid >= cfg_count) break;
-        if (configs[gid].hsm_transport.size == 0u) continue;
+        if (configs[gid].port.hsm_transport.size == 0u) continue;
         wt_cmse_transport_cfg_for(gid, &tx_cfg);
         tx_ctx = wt_cmse_transport_ctx_for(gid);
         if (tx_ctx == NULL) continue;

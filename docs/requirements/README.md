@@ -25,6 +25,8 @@ The initial original requirements are in [system.md](system.md) and
 [portability.md](portability.md). The clean implementation entry point is
 [implementation-handoff.md](implementation-handoff.md). Work is divided into
 tested stop points in [phases.md](phases.md).
+The live implementation checklist is [task-list.md](task-list.md); update it
+when a task is implemented or its validation status changes.
 
 The compatibility lane may add a requirement only when it can be stated using
 public inputs, outputs, and state transitions. Internal implementation details

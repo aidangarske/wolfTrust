@@ -42,7 +42,7 @@
 
 /* ---------------------------------------------------------------------------
  * Per-guest init configuration — passed to wt_cmse_transport_init.
- * ns_buf_base and ns_buf_size are filled from wt_guest_config_t.hsm_transport
+ * ns_buf_base and ns_buf_size are filled from the guest port binding
  * by wt_cmse_transport_cfg_for().
  * ---------------------------------------------------------------------------*/
 typedef struct wt_cmse_transport_cfg {
@@ -76,7 +76,7 @@ extern const whTransportServerCb wt_cmse_transport_cb;
  * guest_id is out of range. */
 wt_cmse_transport_ctx_t *wt_cmse_transport_ctx_for(wt_guest_id_t guest_id);
 
-/* Populate *out_cfg from the guest's wt_guest_config_t.hsm_transport so
+/* Populate *out_cfg from the guest's explicit port binding so
  * that the platform init code can call wt_cmse_transport_init without
  * embedding platform addresses directly. */
 void wt_cmse_transport_cfg_for(wt_guest_id_t guest_id,

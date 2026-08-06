@@ -22,8 +22,14 @@
 #ifndef WOLFTRUST_PARTITION_H
 #define WOLFTRUST_PARTITION_H
 
-#include "wolftrust/arch/armv8m/context.h"
+#include "wolftrust/manifest.h"
 #include "wolftrust/types.h"
+
+#define WT_PORT_CAPABILITY_VECTOR_READ_ALIAS (1U << 0)
+#define WT_PORT_CAPABILITY_HSM_TRANSPORT      (1U << 1)
+#define WT_PORT_CAPABILITY_ALL \
+    (WT_PORT_CAPABILITY_VECTOR_READ_ALIAS | \
+     WT_PORT_CAPABILITY_HSM_TRANSPORT)
 
 /* Per-guest CMSE shared-buffer descriptor for the wolfHSM transport.
  * The buffer lives in the guest's NS RAM. The secure side validates
@@ -34,6 +40,13 @@ typedef struct wt_hsm_transport_window {
     uintptr_t base;
     size_t    size;
 } wt_hsm_transport_window_t;
+
+typedef struct wt_guest_port_binding {
+    uint32_t required_capabilities;
+    uint32_t provided_capabilities;
+    uintptr_t vector_read_address;
+    wt_hsm_transport_window_t hsm_transport;
+} wt_guest_port_binding_t;
 
 typedef struct wt_guest_config {
     wt_guest_id_t guest_id;
@@ -48,25 +61,26 @@ typedef struct wt_guest_config {
     size_t mpu_region_count;
     wt_restart_policy_t restart_policy;
     uint32_t timeslice_ms;
-    wt_hsm_transport_window_t hsm_transport;
+    wt_guest_port_binding_t port;
 } wt_guest_config_t;
 
-typedef struct wt_guest_runtime {
-    wt_guest_context_t context;
-    wt_guest_state_t state;
-    uint32_t remaining_delay_ticks;
-    uint32_t restart_count;
-    uint32_t first_restart_tick;
-    wt_fault_reason_t last_fault;
-} wt_guest_runtime_t;
+typedef struct wt_guest_runtime wt_guest_runtime_t;
 
-typedef struct wt_guest_partition {
-    wt_guest_config_t config;
-    wt_guest_runtime_t runtime;
-} wt_guest_partition_t;
+typedef enum wt_port_validation_result {
+    WT_PORT_VALID = 0,
+    WT_PORT_ERROR_ARGUMENT = -500,
+    WT_PORT_ERROR_CAPABILITY = -501,
+    WT_PORT_ERROR_VECTOR_ALIAS = -502,
+    WT_PORT_ERROR_HSM_TRANSPORT = -503
+} wt_port_validation_result_t;
 
 const wt_guest_config_t* wt_partitions_config_table(size_t* count);
 wt_guest_runtime_t* wt_partitions_runtime_table(size_t* count);
+/* Bind the platform scheduler table to the validated generated manifest. */
+int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest);
+int wt_partition_validate_port_binding(
+    const wt_guest_config_t* config,
+    const wt_domain_descriptor_t* domain);
 void wt_partition_reset_runtime(const wt_guest_config_t* config,
                                 wt_guest_runtime_t* runtime);
 
