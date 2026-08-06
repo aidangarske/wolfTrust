@@ -58,8 +58,7 @@ jobs:
             git -C "$path" fetch --depth 1 "$repo" "$latest"
             git -C "$path" checkout --detach FETCH_HEAD
 
-            if ! { make -C tests/host/vnet run &&
-                   make -C tests/host/wolfhsm_loopback run; }; then
+            if ! make test; then
               failed=1
               title="${path} ${latest} breaks wolfTrust"
               body="wolfTrust failed its host gate with ${path} pinned to ${latest}.\n\nRun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\n\nCandidate: ${candidate}\nPrevious pin: ${current}"

@@ -1,0 +1,30 @@
+name: Valgrind
+
+on:
+  push:
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  host-valgrind:
+    name: Host tests (Valgrind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize test dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends valgrind
+      - name: Run aggregate host suite under Valgrind
+        run: make test-valgrind

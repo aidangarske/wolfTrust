@@ -1,0 +1,33 @@
+name: Cross compilation
+
+on:
+  push:
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  cortex-m33:
+    name: Cortex-M33 cross compilation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize firmware dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init \
+            lib/wolfCOSE lib/wolfHSM lib/wolfPKCS11 lib/wolfPSA lib/wolfSSL \
+            lib/wolfhal
+      - name: Install Arm GCC toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
+      - name: Build STM32H563 secure firmware
+        run: make -C tests/firmware/stm32h563 all TOOLPREFIX=arm-none-eabi-

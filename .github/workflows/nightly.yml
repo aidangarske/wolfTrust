@@ -10,8 +10,23 @@ permissions:
   issues: write
 
 jobs:
-  host:
-    uses: ./.github/workflows/host-tests.yml
+  unit:
+    uses: ./.github/workflows/unit-tests.yml
+
+  integrations:
+    uses: ./.github/workflows/integration-tests.yml
+
+  compilers:
+    uses: ./.github/workflows/compiler-matrix.yml
+
+  sanitizers:
+    uses: ./.github/workflows/sanitizers.yml
+
+  valgrind:
+    uses: ./.github/workflows/valgrind.yml
+
+  cross-compile:
+    uses: ./.github/workflows/cross-compile.yml
 
   m33mu:
     uses: ./.github/workflows/stm32h563-build.yml

@@ -1,0 +1,136 @@
+name: Dependency integrations
+
+on:
+  push:
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    uses: ./.github/workflows/_resolve-wolfssl.yml
+
+  wolfcose:
+    name: wolfCOSE integration (${{ matrix.name }})
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init lib/wolfCOSE lib/wolfSSL
+      - name: Select wolfSSL ref
+        if: matrix.ref != 'pinned'
+        run: |
+          git -C lib/wolfSSL fetch --no-tags origin "${{ matrix.ref }}"
+          git -C lib/wolfSSL checkout --detach FETCH_HEAD
+      - name: Build wolfSSL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends automake libtool
+          cd lib/wolfSSL
+          ./autogen.sh
+          ./configure --enable-cryptonly --enable-ecc \
+            --disable-shared --enable-static \
+            --prefix="$GITHUB_WORKSPACE/.deps/wolfssl"
+          make -j2
+          make install
+      - name: Run wolfCOSE integration
+        run: |
+          make -C tests/host/wolfcose clean run \
+            WOLFSSL_PREFIX="$GITHUB_WORKSPACE/.deps/wolfssl"
+
+  wolfpsa:
+    name: wolfPSA integration (${{ matrix.name }})
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Select wolfSSL ref
+        if: matrix.ref != 'pinned'
+        run: |
+          git -C lib/wolfSSL fetch --no-tags origin "${{ matrix.ref }}"
+          git -C lib/wolfSSL checkout --detach FETCH_HEAD
+      - name: Build and test wolfPSA
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends automake libtool
+          cd lib/wolfSSL
+          ./autogen.sh
+          ./configure --enable-shared --enable-psa --enable-pkcallbacks \
+            --with-psa-include="$GITHUB_WORKSPACE/lib/wolfPSA/wolfpsa" \
+            --disable-examples --disable-benchmark --disable-crypttests \
+            --prefix="$GITHUB_WORKSPACE/.deps/wolfssl"
+          make -j2
+          make install
+          cd ../wolfPSA
+          make WOLFSSL_PATH=../wolfSSL PSA_INCLUDE=wolfpsa -j2
+          make -C test \
+            WOLFSSL_PATH=../wolfSSL \
+            WOLFSSL_BUILD_DIR="$GITHUB_WORKSPACE/.deps/wolfssl/lib" \
+            CPPFLAGS="-DHAVE_CONFIG_H -DWOLFSSL_HAVE_PSA -DHAVE_PK_CALLBACKS \
+              -I../wolfSSL -I../wolfSSL/wolfssl \
+              -I$GITHUB_WORKSPACE/.deps/wolfssl/lib \
+              -I$GITHUB_WORKSPACE/.deps/wolfssl/include \
+              -I.. -I../wolfpsa -I../src -I../test/psa_server" \
+            psa_api_test psa_crypto_init_test
+          ./test/psa_api_test
+          ./test/psa_crypto_init_test
+
+  wolfpkcs11:
+    name: wolfPKCS11 integration (${{ matrix.name }})
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Select wolfSSL ref
+        if: matrix.ref != 'pinned'
+        run: |
+          git -C lib/wolfSSL fetch --no-tags origin "${{ matrix.ref }}"
+          git -C lib/wolfSSL checkout --detach FETCH_HEAD
+      - name: Build and test wolfPKCS11
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends automake libtool
+          cd lib/wolfSSL
+          ./autogen.sh
+          ./configure --enable-shared --enable-aescfb --enable-rsapss \
+            --enable-keygen --enable-pwdbased --enable-scrypt \
+            C_EXTRA_FLAGS="-DWOLFSSL_PUBLIC_MP -DWC_RSA_DIRECT"
+          make -j2
+          cd ../wolfPKCS11
+          ./autogen.sh
+          ./configure --enable-singlethreaded --disable-dh \
+            CPPFLAGS="-I$GITHUB_WORKSPACE/lib/wolfSSL" \
+            LDFLAGS="-L$GITHUB_WORKSPACE/lib/wolfSSL/src/.libs \
+              -Wl,-rpath,$GITHUB_WORKSPACE/lib/wolfSSL/src/.libs" \
+            CFLAGS="-DWOLFSSL_WOLFHSM_DEVID=0x5748534d"
+          make -j2 test

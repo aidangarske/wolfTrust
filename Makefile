@@ -9,7 +9,7 @@ endif
 
 .DEFAULT_GOAL := all
 
-.PHONY: all clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
+.PHONY: all test test-compilers test-sanitize test-valgrind clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
 		test-domain-host test-domain-compilers test-domain-sanitize \
 		test-domain-valgrind test-manifest-host test-manifest-compilers \
 		test-manifest-sanitize test-manifest-valgrind test-vnet-host \
@@ -23,6 +23,18 @@ endif
 
 all: $(SECURE_BIN) $(SECURE_ELF)
 	@$(SIZE) $(SECURE_ELF)
+
+test:
+	@$(MAKE) --no-print-directory -C tests/host test
+
+test-compilers:
+	@$(MAKE) --no-print-directory -C tests/host test-compilers
+
+test-sanitize:
+	@$(MAKE) --no-print-directory -C tests/host test-sanitize
+
+test-valgrind:
+	@$(MAKE) --no-print-directory -C tests/host test-valgrind
 
 clean:
 	rm -rf $(BUILD_DIR)
