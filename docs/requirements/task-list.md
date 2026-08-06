@@ -11,7 +11,7 @@ separately and are never implied by emulator results.
 - [x] Keep wolfCOSE behind the wolfTrust attestation adapter.
 - [x] Cover tagged/untagged COSE Sign1 sizing and external signing on host.
 - [x] Re-run the complete M33MU lifecycle with the upstream wolfCOSE pin.
-- [ ] Record the exact passing commit in `validation-log.md`.
+- [x] Record the exact passing commit in `validation-log.md`.
 
 ## Phase 2 — portable isolation contracts
 
