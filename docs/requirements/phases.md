@@ -14,12 +14,16 @@ exact phase commit before starting the next phase:
 2. The full STM32H5 M33MU wolfBoot to wolfTrust lifecycle, with both the
    Zephyr and FreeRTOS guest matrix entries.
 3. A real STM32H563 H5 hardware smoke test covering secure boot, wolfTrust,
-   wolfHSM, wolfCOSE/PSA behavior, and guest output relevant to that phase.
+   wolfHSM, wolfCOSE/PSA behavior, and guest output relevant to that phase,
+   when target hardware is available.
 
-The hardware result must be captured in a log and recorded with the commit.
-If the H5 test cannot be run, the phase remains open; a successful host or
-M33MU run does not substitute for target evidence. A local toolchain or board
-connection failure must be reported separately from a firmware failure.
+The M33MU result is the active acceptance gate in the current no-hardware
+environment and must be captured in a log tied to the exact phase commit. A
+hardware result must also be captured and recorded when a target is available;
+hardware qualification remains explicitly open until then. A successful host
+or M33MU run must not be described as physical-target evidence, and a local
+toolchain or board connection failure must be reported separately from a
+firmware failure.
 
 ## Phase 1: dependency and clean-room baseline
 
@@ -112,10 +116,10 @@ Stop after both operating-system gates pass.
 
 ## Phase 8: hardware and port qualification
 
-Qualify the complete chain under STM32H563 M33MU and on the available H5 and
-C5 hardware. Keep architecture mechanisms, SoC policy, board description, and
-application configuration separate so a new port supplies only the layers the
-new target changes.
+Qualify the complete chain under STM32H563 M33MU first. Complete H5 and C5
+hardware qualification when those targets are available. Keep architecture
+mechanisms, SoC policy, board description, and application configuration
+separate so a new port supplies only the layers the new target changes.
 
 Stop after emulation and hardware evidence agree.
 
