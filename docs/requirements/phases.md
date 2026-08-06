@@ -76,6 +76,13 @@ partition lifecycle, scheduling, PSA IPC connection state, message state, and
 strict caller validation. Add negative tests for illegal memory access,
 spoofed identity, invalid handles, queue exhaustion, and partition faults.
 
+The initial implementation slice adds the SPM bootstrap boundary: generated
+manifests are validated before the SPM can enter its ready state, and malformed
+or missing policy leaves it failed closed with the validator result preserved.
+This slice is host-tested; the H563 static guest monitor remains the execution
+bridge until generated partition descriptors are mapped into runtime scheduling
+and memory protection.
+
 Stop after the isolation and IPC gate passes.
 
 ## Phase 4: Crypto and trusted storage

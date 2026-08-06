@@ -216,6 +216,57 @@ jobs:
       - name: Run IPC contract tests under Valgrind
         run: make -C tests/host/ipc clean valgrind
 
+  host-spm:
+    name: wolfTrust SPM bootstrap host tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run SPM bootstrap tests
+        run: make -C tests/host/spm clean run
+
+  spm-compilers:
+    name: SPM bootstrap tests (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: GCC
+            cc: gcc
+          - name: Clang
+            cc: clang
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run SPM bootstrap tests
+        run: make -C tests/host/spm clean run CC=${{ matrix.cc }}
+
+  spm-sanitizers:
+    name: SPM bootstrap tests (ASan and UBSan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run sanitized SPM bootstrap tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: make -C tests/host/spm clean sanitize
+
+  spm-valgrind:
+    name: SPM bootstrap tests (Valgrind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends valgrind
+      - name: Run SPM bootstrap tests under Valgrind
+        run: make -C tests/host/spm clean valgrind
+
   host-wolfcose:
     name: wolfCOSE integration (${{ matrix.name }})
     needs: resolve

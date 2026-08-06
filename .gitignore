@@ -10,6 +10,7 @@ tests/host/domain/build/
 tests/host/manifest/build/
 tests/host/lifecycle/build/
 tests/host/ipc/build/
+tests/host/spm/build/
 tests/host/vnet/test_vnet
 tests/host/wolfcose/test_wolfcose_integration
 

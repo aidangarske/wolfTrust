@@ -16,7 +16,8 @@ endif
 		test-lifecycle-host test-lifecycle-compilers test-lifecycle-sanitize \
 		test-lifecycle-valgrind \
 		test-ipc-host test-ipc-compilers test-ipc-sanitize \
-		test-ipc-valgrind \
+		test-ipc-valgrind test-spm-host test-spm-compilers \
+		test-spm-sanitize test-spm-valgrind \
 		test-wolfcose-host \
 		run-stm32h563-vnet
 
@@ -31,6 +32,7 @@ clean:
 	$(MAKE) -C tests/host/manifest clean
 	$(MAKE) -C tests/host/lifecycle clean
 	$(MAKE) -C tests/host/ipc clean
+	$(MAKE) -C tests/host/spm clean
 	$(MAKE) -C tests/host/vnet clean
 	$(MAKE) -C tests/host/wolfcose clean
 
@@ -81,6 +83,18 @@ test-ipc-sanitize:
 
 test-ipc-valgrind:
 	$(MAKE) -C tests/host/ipc valgrind
+
+test-spm-host:
+	$(MAKE) -C tests/host/spm run
+
+test-spm-compilers:
+	$(MAKE) -C tests/host/spm compilers
+
+test-spm-sanitize:
+	$(MAKE) -C tests/host/spm sanitize
+
+test-spm-valgrind:
+	$(MAKE) -C tests/host/spm valgrind
 
 test-vnet-host:
 	$(MAKE) -C tests/host/vnet run

@@ -45,6 +45,7 @@ MMU-based OSes.
 - `include/wolftrust/` — public Secure-side headers (`monitor.h`, `partition.h`,
   `platform.h`, `types.h`, plus `arch/armv8m/`, `sched/`, `services/`, `sync/`).
 - `src/monitor.c` — generic scheduler core, fault path, NSC yield hook.
+- `src/spm.c` — manifest validation and fail-closed SPM bootstrap state.
 - `src/arch/armv8m/` — ARMv8-M specific code: CMSE helpers (`cmse.c`),
   CMSE-validated wolfHSM transport (`cmse_transport.c`), Secure PendSV tasklet
   switch path (`coroutine_armv8m.c`).
