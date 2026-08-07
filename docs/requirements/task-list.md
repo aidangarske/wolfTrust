@@ -42,10 +42,18 @@ Done (host-verified):
 
 Remaining, ordered (each closes with host + M33MU evidence on one commit):
 
-2. [ ] Fill the FF-M API gaps: real `psa_notify`, `psa_clear`, `psa_eoi`, and
-   honor the `psa_wait` timeout (`src/ffm_api.c:109,159-174` currently panic /
-   ignore). Requires adding doorbell + interrupt signal state to the runtime
-   engine (`src/ffm.c`), not just the API shim, plus host tests.
+2. [x] Fill the FF-M doorbell signal gap: real `psa_notify`/`psa_clear`
+   (`wt_ffm_notify`/`wt_ffm_clear` in `src/ffm.c`, bound in `src/ffm_api.c`;
+   WT-FFM-0027, `tests/host/ffm/main.c`).
+2a. [ ] Implement `psa_eoi`. Blocked: no engine function asserts an interrupt
+   signal into `asserted_signals` yet (unlike the doorbell bit, IRQ signals
+   are validated in the manifest but never raised at runtime) — needs real
+   interrupt-controller/ISR integration, tied to the M33MU NVIC question in
+   item 10, not a host-only `ffm.c` change.
+2b. [ ] Honor the `psa_wait` timeout (`src/ffm_api.c` ignores it; `PSA_POLL`
+   is already the de facto behavior since wait never blocks). `PSA_BLOCK`
+   needs the cooperative scheduler to retry/yield across partitions — that is
+   platform glue in item 3's production boot path, not `ffm.c` alone.
 3. [ ] Wire the FF-M IPC runtime into the production boot path: `src/main.c`
    must `wt_ffm_init` + `wt_ffm_api_bind`, and the SPM must dispatch `psa_call`
    to registered services. (Runtime is compiled but never invoked today.)
