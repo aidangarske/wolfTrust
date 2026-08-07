@@ -20,13 +20,58 @@
 
 #include "wolftrust/spm.h"
 #include "wolftrust/partition.h"
+#include "wolftrust/ffm.h"
 #include "wolftrust_manifest_generated.h"
+#include "psa_manifest/sid.h"
 
 #include <stdio.h>
 #include <string.h>
 
+static int production_ffm_check(void* context, psa_client_id_t caller,
+                                const void* address, size_t size)
+{
+    (void)context;
+    (void)caller;
+    (void)address;
+    (void)size;
+    return 0;
+}
+
+static int production_ffm_check_write(void* context, psa_client_id_t caller,
+                                      void* address, size_t size)
+{
+    (void)context;
+    (void)caller;
+    (void)address;
+    (void)size;
+    return 0;
+}
+
+static int production_ffm_dispatch(void* context, wt_ffm_runtime_t* runtime,
+                                   int32_t partition_id)
+{
+    (void)context;
+    (void)runtime;
+    (void)partition_id;
+    return WT_FFM_ERROR_STATE;
+}
+
+static void production_ffm_panic(void* context, int32_t partition_id)
+{
+    (void)context;
+    (void)partition_id;
+}
+
+static const wt_ffm_port_ops_t g_production_ffm_ops = {
+    production_ffm_check,
+    production_ffm_check_write,
+    production_ffm_dispatch,
+    production_ffm_panic
+};
+
 int main(void)
 {
+    wt_ffm_runtime_t ffm_runtime;
     wt_spm_t spm;
     wt_system_manifest_t invalid_manifest;
     wt_domain_descriptor_t invalid_domains[WT_MANIFEST_MAX_PARTITIONS];
@@ -115,6 +160,23 @@ int main(void)
     if (wt_partition_validate_port_binding(&invalid_config, guest_domain) !=
             WT_PORT_ERROR_HSM_TRANSPORT) {
         (void)fprintf(stderr, "executable HSM transport was accepted\n");
+        return 1;
+    }
+
+    if (wt_ffm_init(&ffm_runtime, wt_spm_manifest(&spm),
+                    &g_production_ffm_ops, NULL) != WT_FFM_SUCCESS) {
+        (void)fprintf(stderr,
+                      "production manifest rejected by FF-M runtime\n");
+        return 1;
+    }
+    if (wt_ffm_service_version(&ffm_runtime, -1,
+                               SERVICE_ATTEST_SID) != SERVICE_ATTEST_VERSION) {
+        (void)fprintf(stderr, "SERVICE_ATTEST not registered by SID\n");
+        return 1;
+    }
+    if (wt_ffm_service_version(&ffm_runtime, -1,
+                               SERVICE_CRYPTO_SID) != SERVICE_CRYPTO_VERSION) {
+        (void)fprintf(stderr, "SERVICE_CRYPTO not registered by SID\n");
         return 1;
     }
 

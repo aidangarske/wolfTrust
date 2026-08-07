@@ -19,6 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#include "wolftrust/ffm_boot.h"
 #include "wolftrust/monitor.h"
 #include "wolftrust/spm.h"
 #include "wolftrust_manifest_generated.h"
@@ -359,6 +360,9 @@ void wt_monitor_init(void)
     g_scheduler.configs = wt_partitions_config_table(&count);
     g_scheduler.runtime = wt_partitions_runtime_table(&count);
     if (wt_partitions_bind_manifest(wt_spm_manifest(&g_spm)) != 0) {
+        wt_platform_panic();
+    }
+    if (wt_ffm_boot_init(wt_spm_manifest(&g_spm)) != WT_FFM_SUCCESS) {
         wt_platform_panic();
     }
     g_scheduler.guest_count = count;
