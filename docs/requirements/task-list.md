@@ -65,10 +65,15 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    (`sec_ffm_boot.o` links into `wolftrust.elf`). `check_read`/`check_write`
    are fail-closed placeholders (deny by default) and `dispatch` returns
    `WT_FFM_ERROR_STATE` — safe today because nothing calls `psa_call` yet.
-3b. [ ] Real Armv8-M CMSE memory validation for `check_read`/`check_write` in
-   `src/ffm_boot.c`, using `cmse_check_address_range()` against each caller's
-   declared memory envelope. Keep CMSE/MPU details out of `src/ffm.c` per the
-   architecture-neutral boundary rule; this belongs in the port layer.
+3b. [x] Real Armv8-M CMSE memory validation for `check_read`/`check_write` in
+   `src/ffm_boot.c`: pairs the raw CMSE range check (`wt_cmse_check_ns_ro`/
+   `_rw`) with the per-guest declared-window check (`wt_cmse_check_in_guest_
+   ns_addr`/`_ram`, `src/arch/armv8m/cmse.c`) for defense-in-depth, reusing
+   existing infrastructure rather than new logic. Secure-Partition callers
+   (`caller > 0`) stay fail-closed — no per-SP memory envelope exists until
+   item 5. CMSE/MPU details stay out of `src/ffm.c` per the architecture-
+   neutral boundary rule. Verified on the Cortex-M cross-build; not yet
+   exercised by a real call (item 3c gives it one).
 3c. [ ] Migrate one real service through actual `psa_connect`/`psa_call`
    dispatch — the crypto hash KAT already proven direct-via-wolfHSM on M33MU
    is the natural first target (`SERVICE_CRYPTO`, SID `4097`, already

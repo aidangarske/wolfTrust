@@ -20,32 +20,50 @@
 
 #include "wolftrust/ffm_boot.h"
 
+#include "wolftrust/arch/armv8m/cmse.h"
 #include "wolftrust/ffm_api.h"
 #include "wolftrust/monitor.h"
 
 static wt_ffm_runtime_t g_ffm_runtime;
 
-/* No Secure Partition dispatches through this port yet (item 3 Section C
- * migrates the first real service). Fail closed rather than validate
- * nothing: real Armv8-M CMSE range checks land in item 3 Section B. */
+/* Every registered service today declares nonsecure_clients, so the only
+ * caller identity this port validates is a Non-secure guest (caller < 0).
+ * Secure-Partition callers (caller > 0) have no memory-envelope check yet
+ * and stay fail-closed until item 5 gives each SP its own L3 domain. */
+static int wt_ffm_boot_caller_guest(psa_client_id_t caller,
+                                    wt_guest_id_t* guest_id)
+{
+    if (caller >= 0) {
+        return 0;
+    }
+    *guest_id = (wt_guest_id_t)(-caller - 1);
+    return 1;
+}
+
 static int wt_ffm_boot_check_read(void* context, psa_client_id_t caller,
                                   const void* address, size_t size)
 {
+    wt_guest_id_t guest_id;
+
     (void)context;
-    (void)caller;
-    (void)address;
-    (void)size;
-    return 0;
+    if (!wt_ffm_boot_caller_guest(caller, &guest_id)) {
+        return 0;
+    }
+    return wt_cmse_check_ns_ro(address, size) &&
+           wt_cmse_check_in_guest_ns_addr(guest_id, address, size);
 }
 
 static int wt_ffm_boot_check_write(void* context, psa_client_id_t caller,
                                    void* address, size_t size)
 {
+    wt_guest_id_t guest_id;
+
     (void)context;
-    (void)caller;
-    (void)address;
-    (void)size;
-    return 0;
+    if (!wt_ffm_boot_caller_guest(caller, &guest_id)) {
+        return 0;
+    }
+    return wt_cmse_check_ns_rw(address, size) &&
+           wt_cmse_check_in_guest_ns_ram(guest_id, address, size);
 }
 
 /* No Secure Partition service loop runs yet; item 3 Section C wires the
