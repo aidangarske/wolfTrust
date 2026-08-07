@@ -24,7 +24,8 @@
 
 int wt_spm_init(wt_spm_t* spm,
                 const wt_system_manifest_t* manifest,
-                uint32_t supported_features)
+                uint32_t supported_features,
+                const wt_profile_capabilities_t* platform)
 {
     int result;
 
@@ -42,7 +43,7 @@ int wt_spm_init(wt_spm_t* spm,
         return WT_SPM_ERROR_ARGUMENT;
     }
 
-    result = wt_manifest_validate(manifest, supported_features);
+    result = wt_manifest_validate(manifest, supported_features, platform);
     spm->validation_result = result;
     if (result != WT_MANIFEST_VALID) {
         spm->state = WT_SPM_STATE_FAILED;

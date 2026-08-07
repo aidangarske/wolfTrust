@@ -9,14 +9,17 @@ endif
 
 .DEFAULT_GOAL := all
 
-.PHONY: all test test-compilers test-sanitize test-valgrind clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
+.PHONY: all test test-conformance fetch-psa-ff-tests \
+		clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
 		test-domain-host test-domain-compilers test-domain-sanitize \
 		test-domain-valgrind test-manifest-host test-manifest-compilers \
 		test-manifest-sanitize test-manifest-valgrind test-vnet-host \
 		test-lifecycle-host test-lifecycle-compilers test-lifecycle-sanitize \
 		test-lifecycle-valgrind \
 		test-ipc-host test-ipc-compilers test-ipc-sanitize \
-		test-ipc-valgrind test-spm-host test-spm-compilers \
+		test-ipc-valgrind test-ffm-host test-ffm-compilers \
+		test-ffm-sanitize test-ffm-valgrind \
+		test-spm-host test-spm-compilers \
 		test-spm-sanitize test-spm-valgrind \
 		test-wolfcose-host \
 		run-stm32h563-vnet
@@ -36,6 +39,15 @@ test-sanitize:
 test-valgrind:
 	@$(MAKE) --no-print-directory -C tests/host test-valgrind
 
+fetch-psa-ff-tests:
+	@tests/upstream/fetch_psa_arch_tests.sh \
+		$(BUILD_DIR)/upstream/psa-arch-tests
+
+test-conformance: fetch-psa-ff-tests
+	@$(MAKE) --no-print-directory -C tests/host/psa_ff_upstream run \
+		BUILD_DIR=$(abspath $(BUILD_DIR))/psa-ff-upstream \
+		PSA_ARCH_TESTS_DIR=$(abspath $(BUILD_DIR))/upstream/psa-arch-tests
+
 clean:
 	rm -rf $(BUILD_DIR)
 	$(MAKE) -C tests/firmware/stm32h563 clean
@@ -44,6 +56,8 @@ clean:
 	$(MAKE) -C tests/host/manifest clean
 	$(MAKE) -C tests/host/lifecycle clean
 	$(MAKE) -C tests/host/ipc clean
+	$(MAKE) -C tests/host/ffm clean
+	$(MAKE) -C tests/host/psa_ff_upstream clean
 	$(MAKE) -C tests/host/spm clean
 	$(MAKE) -C tests/host/vnet clean
 	$(MAKE) -C tests/host/wolfcose clean
@@ -95,6 +109,18 @@ test-ipc-sanitize:
 
 test-ipc-valgrind:
 	$(MAKE) -C tests/host/ipc valgrind
+
+test-ffm-host:
+	$(MAKE) -C tests/host/ffm run
+
+test-ffm-compilers:
+	$(MAKE) -C tests/host/ffm compilers
+
+test-ffm-sanitize:
+	$(MAKE) -C tests/host/ffm sanitize
+
+test-ffm-valgrind:
+	$(MAKE) -C tests/host/ffm valgrind
 
 test-spm-host:
 	$(MAKE) -C tests/host/spm run

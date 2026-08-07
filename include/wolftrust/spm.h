@@ -48,7 +48,8 @@ typedef enum wt_spm_result {
 /* Validate the generated manifest before the SPM exposes a ready state. */
 int wt_spm_init(wt_spm_t* spm,
                 const wt_system_manifest_t* manifest,
-                uint32_t supported_features);
+                uint32_t supported_features,
+                const wt_profile_capabilities_t* platform);
 
 bool wt_spm_ready(const wt_spm_t* spm);
 const wt_system_manifest_t* wt_spm_manifest(const wt_spm_t* spm);

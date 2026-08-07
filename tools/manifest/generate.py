@@ -813,6 +813,55 @@ def generate_header(manifest):
     return "\n".join(lines)
 
 
+def generated_guard(name):
+    return "PSA_MANIFEST_{}_H".format(
+        re.sub(r"[^A-Z0-9]", "_", name.upper()))
+
+
+def generate_pid_header(manifest):
+    lines = [FILE_HEADER.format(name="pid.h"),
+             "#ifndef PSA_MANIFEST_PID_H",
+             "#define PSA_MANIFEST_PID_H", ""]
+    for partition in manifest["partitions"]:
+        lines.append("#define {}_ID {}".format(
+            partition["name"], partition["domain_id"]))
+    lines.extend(("", "#endif", ""))
+    return "\n".join(lines)
+
+
+def generate_sid_header(manifest):
+    lines = [FILE_HEADER.format(name="sid.h"),
+             "#ifndef PSA_MANIFEST_SID_H",
+             "#define PSA_MANIFEST_SID_H", ""]
+    for partition in manifest["partitions"]:
+        for service in partition["services"]:
+            lines.extend((
+                "#define {}_SID {}U".format(service["name"],
+                                             service["sid"]),
+                "#define {}_VERSION {}U".format(service["name"],
+                                                 service["version"]),
+            ))
+    lines.extend(("", "#endif", ""))
+    return "\n".join(lines)
+
+
+def generate_partition_header(partition):
+    file_name = partition["name"].lower() + ".h"
+    guard = generated_guard(partition["name"])
+    lines = [FILE_HEADER.format(name=file_name),
+             "#ifndef {}".format(guard),
+             "#define {}".format(guard), ""]
+    for service in partition["services"]:
+        if partition["model"] == 0:
+            lines.append("#define {}_SIGNAL {}U".format(
+                service["name"], service["signal"]))
+    for interrupt in partition["interrupts"]:
+        lines.append("#define {}_SIGNAL {}U".format(
+            interrupt["signal_name"], interrupt["signal"]))
+    lines.extend(("", "#endif", ""))
+    return file_name, "\n".join(lines)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
@@ -831,10 +880,19 @@ def main():
         validate_policy(manifest, args.supported_features, word_max)
         source = generate_source(manifest, hashlib.sha256(input_bytes).digest())
         args.output.mkdir(parents=True, exist_ok=True)
+        psa_manifest = args.output / "psa_manifest"
+        psa_manifest.mkdir(parents=True, exist_ok=True)
         (args.output / "wolftrust_manifest_generated.c").write_text(
             source, encoding="utf-8")
         (args.output / "wolftrust_manifest_generated.h").write_text(
             generate_header(manifest), encoding="utf-8")
+        (psa_manifest / "pid.h").write_text(
+            generate_pid_header(manifest), encoding="utf-8")
+        (psa_manifest / "sid.h").write_text(
+            generate_sid_header(manifest), encoding="utf-8")
+        for file_name, content in (generate_partition_header(partition)
+                                   for partition in manifest["partitions"]):
+            (psa_manifest / file_name).write_text(content, encoding="utf-8")
     except (ManifestError, UnicodeDecodeError, json.JSONDecodeError,
             OSError) as error:
         print("manifest generation failed: {}".format(error), file=sys.stderr)

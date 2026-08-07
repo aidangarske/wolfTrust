@@ -27,25 +27,27 @@ separately and are never implied by emulator results.
 
 - [x] Generate a typed manifest and validate it before SPM ready state.
 - [x] Fail closed on missing or invalid generated policy.
-- [x] Bind H5 guest identity, security state, privilege state, and restart policy
-  to generated domains before the first dispatch.
 - [x] Keep the root `make test` aggregate and the focused suite Makefiles.
-- [x] Map generated stack descriptors into guest reset context.
-- [x] Define the vector/reset-PC contract: the authenticated Thumb reset PC
-  must fall inside the manifest executable memory resource; exact instruction
-  addresses are intentionally not pinned across rebuilds.
-- [x] Map generated memory resources into the H5 memory windows and MPU
-  envelope; device and NSC regions remain explicit platform capabilities.
-- [x] Map generated interrupt resources into IRQ ownership/quarantine.
-- [x] Represent HSM transport and vector-alias requirements as explicit port
-  capabilities instead of hidden manifest assumptions.
-- [x] Add negative runtime coverage for descriptor mismatch; generic manifest
-  tests cover memory overlap and unauthorized interrupt ownership.
-- [x] Run the complete wolfBoot → wolfTrust → Zephyr/FreeRTOS M33MU gate.
+- [x] Run the wolfBoot to wolfTrust to Zephyr/FreeRTOS M33MU foundation gate.
+- [ ] Generate the required PSA PID, SID, version, and partition signal headers.
+- [ ] Separate Non-secure applications from actual Secure Partitions.
+- [ ] Make immutable port capabilities authoritative during validation.
+- [ ] Make generated resources, entry points, lifecycle, services, and policy
+  authoritative in the production runtime.
+- [ ] Link the bounded SPM IPC and lifecycle implementation into production.
+- [ ] Implement the FF-M client and Secure Partition API surfaces.
+- [ ] Run the pinned Arm PSA FF architecture tests from
+  `tests/upstream/psa-arch-tests.rev` against wolfTrust and a TF-M baseline.
+- [ ] Keep wolfTrust-owned FF-M security tests for handle integrity, bounded
+  resources, memory scrubbing, pointer revalidation, restart, and isolation.
+- [ ] Run each Secure Partition in a distinct Secure Level 3 protection domain.
+- [ ] Route Initial Attestation and the RTOS framework probes through FF-M IPC.
+- [ ] Pass the host and M33MU FF-M positive and negative suites on one commit.
 
-Phase 3 exit gate: no guest may be scheduled unless the generated manifest is
-validated and all runtime-protection fields have been bound or explicitly
-rejected as unsupported by the selected port.
+The earlier Phase 3 validation proves the generated-policy bootstrap and the
+H5 Non-secure guest-monitor lifecycle. It does not prove FF-M IPC or Level 3
+Secure Partition isolation. Phase 3 remains open until the acceptance gate in
+`framework.md` passes.
 
 ## Phase 4 — Crypto, protected storage, and ITS
 

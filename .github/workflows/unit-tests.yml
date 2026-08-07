@@ -24,3 +24,12 @@ jobs:
           git submodule update --init --recursive
       - name: Run aggregate host test suite
         run: make test
+
+  psa-ff-conformance:
+    name: Arm PSA FF conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run pinned Arm PSA FF tests
+        run: make test-conformance

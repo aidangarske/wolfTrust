@@ -91,7 +91,7 @@ HSM_DEFS_SECURE += -DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO \
     -DWOLFSSL_ARMASM_THUMB2
 endif
 SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
-    -Wall -Wextra \
+    -ffunction-sections -fdata-sections -Wall -Wextra \
     -I$(ROOT)/include -I$(PORT_DIR) \
     -DWT_TIMESLICE_MS=$(WT_TIMESLICE_MS) \
     -DWT_MAX_GUESTS=$(WT_MAX_GUESTS) \
@@ -129,6 +129,10 @@ SECURE_SRCS := \
     $(WOLFHSM_RUNNER_DIR)/runtime.c \
     $(PORT_DIR)/platform_stm32h563.c \
     $(ROOT)/src/domain.c \
+    $(ROOT)/src/ffm.c \
+    $(ROOT)/src/ffm_api.c \
+    $(ROOT)/src/ipc.c \
+    $(ROOT)/src/lifecycle.c \
     $(ROOT)/src/manifest.c \
     $(ROOT)/src/monitor.c \
     $(ROOT)/src/spm.c \
@@ -344,6 +348,7 @@ $(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) $(WOLFHSM_RUNNER_DIR)/
 		-Wl,--defsym=WT_SECURE_FLASH_SIZE=$(WT_SECURE_FLASH_SIZE) \
 		-Wl,--defsym=WT_SECURE_IMAGE_HEADER_SIZE=$(WT_SECURE_IMAGE_HEADER_SIZE) \
 		-Wl,-T$(WOLFHSM_RUNNER_DIR)/secure.ld \
+		-Wl,--gc-sections \
 		-Wl,--cmse-implib \
 		-Wl,--out-implib=$(SECURE_CMSE_IMPLIB) \
 		-o $(SECURE_ELF) $(ALL_SECURE_OBJS) -lgcc

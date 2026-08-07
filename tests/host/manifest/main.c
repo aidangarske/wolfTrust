@@ -195,7 +195,8 @@ static void wt_fixture_init(wt_manifest_fixture_t* fixture)
 static int wt_validate(const wt_manifest_fixture_t* fixture)
 {
     return wt_manifest_validate(&fixture->manifest,
-                                fixture->supported_features);
+                                fixture->supported_features,
+                                &fixture->capabilities);
 }
 
 static void wt_test_valid_manifest(void)
@@ -212,7 +213,7 @@ static void wt_test_header(void)
     wt_manifest_fixture_t fixture;
     char long_name[WT_MANIFEST_NAME_MAX + 1U];
 
-    EXPECT_RESULT(wt_manifest_validate(NULL, WT_MANIFEST_FEATURE_IPC),
+    EXPECT_RESULT(wt_manifest_validate(NULL, WT_MANIFEST_FEATURE_IPC, NULL),
                   WT_MANIFEST_ERROR_ARGUMENT);
 
     wt_fixture_init(&fixture);

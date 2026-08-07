@@ -140,6 +140,7 @@ typedef enum wt_manifest_validation_result {
 
 /* supported_features must come from immutable build capabilities. */
 int wt_manifest_validate(const wt_system_manifest_t* manifest,
-                         uint32_t supported_features);
+                         uint32_t supported_features,
+                         const wt_profile_capabilities_t* platform);
 
 #endif

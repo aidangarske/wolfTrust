@@ -144,6 +144,18 @@ static wt_guest_config_t g_partition_configs[] = {
 static wt_guest_runtime_t g_partition_runtime[
     sizeof(g_partition_configs) / sizeof(g_partition_configs[0])
 ];
+static const wt_profile_capabilities_t g_profile_capabilities = {
+    .capabilities = WT_CAPABILITY_SECURITY_STATE |
+                    WT_CAPABILITY_PRIVILEGE_STATE |
+                    WT_CAPABILITY_ROT_ISOLATION |
+                    WT_CAPABILITY_DOMAIN_ISOLATION |
+                    WT_CAPABILITY_MEMORY_PROTECTION |
+                    WT_CAPABILITY_INTERRUPT_ISOLATION |
+                    WT_CAPABILITY_RESTART,
+    .max_domains = 3U,
+    .max_memory_resources_per_domain = 2U,
+    .max_interrupts_per_domain = 0U,
+};
 static uintptr_t g_bound_exec_bases[
     sizeof(g_partition_configs) / sizeof(g_partition_configs[0])
 ];
@@ -197,6 +209,11 @@ wt_guest_runtime_t* wt_partitions_runtime_table(size_t* count)
     }
 
     return g_partition_runtime;
+}
+
+const wt_profile_capabilities_t* wt_partitions_profile_capabilities(void)
+{
+    return &g_profile_capabilities;
 }
 
 static const wt_domain_descriptor_t* wt_partition_manifest_domain(

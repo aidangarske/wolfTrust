@@ -30,6 +30,7 @@ int main(void)
     wt_spm_t spm;
     wt_system_manifest_t invalid_manifest;
     wt_domain_descriptor_t invalid_domains[WT_MANIFEST_MAX_PARTITIONS];
+    wt_profile_capabilities_t limited_platform;
     wt_guest_config_t invalid_config;
     const wt_guest_config_t* configs;
     const wt_domain_descriptor_t* guest_domain;
@@ -38,9 +39,31 @@ int main(void)
     int result;
 
     result = wt_spm_init(&spm, wt_generated_manifest_get(),
-                         WT_MANIFEST_FEATURE_IPC);
+                         WT_MANIFEST_FEATURE_IPC,
+                         wt_partitions_profile_capabilities());
     if (result != WT_SPM_VALID || !wt_spm_ready(&spm)) {
         (void)fprintf(stderr, "production manifest rejected: %d\n", result);
+        return 1;
+    }
+
+    limited_platform = *wt_partitions_profile_capabilities();
+    limited_platform.capabilities &= ~WT_CAPABILITY_MEMORY_PROTECTION;
+    result = wt_spm_init(&spm, wt_generated_manifest_get(),
+                         WT_MANIFEST_FEATURE_IPC, &limited_platform);
+    if (result != WT_SPM_ERROR_VALIDATION ||
+            wt_spm_validation_result(&spm) != WT_MANIFEST_ERROR_DOMAIN ||
+            wt_spm_ready(&spm)) {
+        (void)fprintf(stderr,
+                      "missing immutable platform capability was accepted\n");
+        return 1;
+    }
+
+    result = wt_spm_init(&spm, wt_generated_manifest_get(),
+                         WT_MANIFEST_FEATURE_IPC,
+                         wt_partitions_profile_capabilities());
+    if (result != WT_SPM_VALID || !wt_spm_ready(&spm)) {
+        (void)fprintf(stderr, "production manifest restore rejected: %d\n",
+                      result);
         return 1;
     }
 

@@ -46,7 +46,8 @@ static void wt_test_valid_generated_manifest(void)
     const wt_system_manifest_t* manifest = wt_generated_manifest_get();
     wt_spm_t spm;
 
-    EXPECT_RESULT(wt_spm_init(&spm, manifest, supported_features),
+    EXPECT_RESULT(wt_spm_init(&spm, manifest, supported_features,
+                              manifest->profile_capabilities),
                   WT_SPM_VALID);
     EXPECT_RESULT(wt_spm_ready(&spm), true);
     EXPECT_RESULT(wt_spm_manifest(&spm) == manifest, true);
@@ -62,13 +63,15 @@ static void wt_test_invalid_manifest_fails_closed(void)
     wt_spm_t spm;
 
     invalid.format_version++;
-    EXPECT_RESULT(wt_spm_init(&spm, &invalid, supported_features),
+    EXPECT_RESULT(wt_spm_init(&spm, &invalid, supported_features,
+                              generated->profile_capabilities),
                   WT_SPM_ERROR_VALIDATION);
     EXPECT_RESULT(wt_spm_ready(&spm), false);
     EXPECT_RESULT(wt_spm_manifest(&spm) == NULL, true);
     EXPECT_RESULT(wt_spm_validation_result(&spm), WT_MANIFEST_ERROR_FORMAT);
 
-    EXPECT_RESULT(wt_spm_init(&spm, NULL, supported_features),
+    EXPECT_RESULT(wt_spm_init(&spm, NULL, supported_features,
+                              generated->profile_capabilities),
                   WT_SPM_ERROR_ARGUMENT);
     EXPECT_RESULT(wt_spm_ready(&spm), false);
     EXPECT_RESULT(wt_spm_manifest(&spm) == NULL, true);
@@ -79,7 +82,9 @@ static void wt_test_null_context(void)
     const uint32_t supported_features = WT_MANIFEST_FEATURE_IPC;
 
     EXPECT_RESULT(wt_spm_init(NULL, wt_generated_manifest_get(),
-                              supported_features), WT_SPM_ERROR_ARGUMENT);
+                              supported_features,
+                              wt_generated_manifest_get()->profile_capabilities),
+                  WT_SPM_ERROR_ARGUMENT);
     EXPECT_RESULT(wt_spm_ready(NULL), false);
     EXPECT_RESULT(wt_spm_manifest(NULL) == NULL, true);
     EXPECT_RESULT(wt_spm_validation_result(NULL), WT_MANIFEST_ERROR_ARGUMENT);

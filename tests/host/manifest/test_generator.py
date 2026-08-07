@@ -67,6 +67,10 @@ class GeneratorTest(unittest.TestCase):
                          "wolftrust_manifest_generated.h"):
                 self.assertEqual((first / name).read_bytes(),
                                  (second / name).read_bytes())
+            for name in ("pid.h", "sid.h", "partition_alpha.h",
+                         "partition_beta.h"):
+                self.assertEqual((first / "psa_manifest" / name).read_bytes(),
+                                 (second / "psa_manifest" / name).read_bytes())
 
     def test_duplicate_key_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -138,6 +142,28 @@ class GeneratorTest(unittest.TestCase):
             self.assertIn("WT_GENERATED_PARTITION_ALPHA_DOMAIN_ID 1U", header)
             self.assertIn("WT_GENERATED_SERVICE_ALPHA_SID 4096U", header)
             self.assertIn("WT_GENERATED_SERVICE_BETA_HANDLE 1U", header)
+
+    def test_standard_psa_manifest_headers(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "output"
+            self.assertEqual(self.run_generator(FIXTURE, output).returncode, 0)
+            include_dir = output / "psa_manifest"
+            pid = (include_dir / "pid.h").read_text(encoding="utf-8")
+            sid = (include_dir / "sid.h").read_text(encoding="utf-8")
+            alpha = (include_dir / "partition_alpha.h").read_text(
+                encoding="utf-8")
+            beta = (include_dir / "partition_beta.h").read_text(
+                encoding="utf-8")
+
+            self.assertIn("#define PARTITION_ALPHA_ID 1", pid)
+            self.assertIn("#define PARTITION_BETA_ID 2", pid)
+            self.assertIn("#define SERVICE_ALPHA_SID 4096U", sid)
+            self.assertIn("#define SERVICE_BETA_VERSION 2U", sid)
+            self.assertIn("#define SERVICE_ALPHA_SIGNAL 16U", alpha)
+            self.assertIn("#define ALPHA_IRQ_SIGNAL 32U", alpha)
+            self.assertIn("#define SERVICE_BETA_SIGNAL 16U", beta)
+            self.assertIn("#define BETA_IRQ_SIGNAL 32U", beta)
+            print("PASS: WT-FFM-0004 generated PSA headers")
 
     def test_sfn_zero_signal_is_accepted(self):
         with tempfile.TemporaryDirectory() as temporary:

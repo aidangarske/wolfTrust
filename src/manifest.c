@@ -285,7 +285,8 @@ static int wt_manifest_validate_ffm_resources(
 }
 
 static int wt_manifest_validate_header(const wt_system_manifest_t* manifest,
-                                       uint32_t supported_features)
+                                       uint32_t supported_features,
+                                       const wt_profile_capabilities_t* platform)
 {
     if (manifest->format_version != WT_MANIFEST_FORMAT_VERSION)
         return WT_MANIFEST_ERROR_FORMAT;
@@ -323,12 +324,23 @@ static int wt_manifest_validate_header(const wt_system_manifest_t* manifest,
         return WT_MANIFEST_ERROR_LIMIT;
     }
 
-    if (manifest->profile_capabilities == NULL || manifest->domains == NULL)
+    if (manifest->profile_capabilities == NULL || manifest->domains == NULL ||
+            platform == NULL)
         return WT_MANIFEST_ERROR_ARGUMENT;
 
+    if ((manifest->profile_capabilities->capabilities &
+            ~platform->capabilities) != 0U ||
+            manifest->profile_capabilities->max_domains >
+                platform->max_domains ||
+            manifest->profile_capabilities->max_memory_resources_per_domain >
+                platform->max_memory_resources_per_domain ||
+            manifest->profile_capabilities->max_interrupts_per_domain >
+                platform->max_interrupts_per_domain) {
+        return WT_MANIFEST_ERROR_DOMAIN;
+    }
+
     if (wt_domain_validate_set(manifest->domains, manifest->domain_count,
-            manifest->isolation_profile,
-            manifest->profile_capabilities) != WT_DOMAIN_VALID) {
+            manifest->isolation_profile, platform) != WT_DOMAIN_VALID) {
         return WT_MANIFEST_ERROR_DOMAIN;
     }
 
@@ -818,7 +830,8 @@ static int wt_manifest_validate_dependencies(
 }
 
 int wt_manifest_validate(const wt_system_manifest_t* manifest,
-                         uint32_t supported_features)
+                         uint32_t supported_features,
+                         const wt_profile_capabilities_t* platform)
 {
     size_t i;
     int ret;
@@ -826,7 +839,7 @@ int wt_manifest_validate(const wt_system_manifest_t* manifest,
     if (manifest == NULL)
         return WT_MANIFEST_ERROR_ARGUMENT;
 
-    ret = wt_manifest_validate_header(manifest, supported_features);
+    ret = wt_manifest_validate_header(manifest, supported_features, platform);
     if (ret != WT_MANIFEST_VALID)
         return ret;
 

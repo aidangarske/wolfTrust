@@ -1,0 +1,421 @@
+/* main.c
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+#include "wolftrust/ffm.h"
+
+#include <stdio.h>
+#include <string.h>
+
+#define TEST_SERVICE_SID       0x1000U
+#define TEST_STRICT_SID        0x1001U
+#define TEST_SERVICE_SIGNAL    0x10U
+#define TEST_STRICT_SIGNAL     0x20U
+#define TEST_PARTITION_ID      1
+#define TEST_CLIENT_PARTITION  2
+#define TEST_NS_CLIENT         (-1)
+#define TEST_OTHER_NS_CLIENT   (-2)
+#define TEST_RHANDLE           ((void*)(uintptr_t)0xA5A5U)
+
+typedef struct test_context {
+    unsigned int dispatches;
+    unsigned int read_checks;
+    unsigned int write_checks;
+    unsigned int deny_write_check;
+    unsigned int panics;
+    int reject_write;
+} test_context_t;
+
+static unsigned int g_checks;
+static unsigned int g_failures;
+
+#define EXPECT_INT(actual, expected) \
+    do { \
+        int actual_value = (int)(actual); \
+        int expected_value = (int)(expected); \
+        g_checks++; \
+        if (actual_value != expected_value) { \
+            (void)fprintf(stderr, \
+                "line %d: expected %d, received %d\n", __LINE__, \
+                expected_value, actual_value); \
+            g_failures++; \
+        } \
+    } while (0)
+
+#define EXPECT_SIZE(actual, expected) \
+    do { \
+        size_t actual_value = (actual); \
+        size_t expected_value = (expected); \
+        g_checks++; \
+        if (actual_value != expected_value) { \
+            (void)fprintf(stderr, \
+                "line %d: expected %zu, received %zu\n", __LINE__, \
+                expected_value, actual_value); \
+            g_failures++; \
+        } \
+    } while (0)
+
+#define EXPECT_TRUE(condition) \
+    do { \
+        g_checks++; \
+        if (!(condition)) { \
+            (void)fprintf(stderr, "line %d: condition failed\n", __LINE__); \
+            g_failures++; \
+        } \
+    } while (0)
+
+static const wt_service_descriptor_t g_services[] = {
+    {
+        "test_service", TEST_SERVICE_SID, 3U,
+        WT_SERVICE_VERSION_RELAXED, TEST_SERVICE_SIGNAL, 0U, 1U, 1U
+    },
+    {
+        "strict_service", TEST_STRICT_SID, 2U,
+        WT_SERVICE_VERSION_STRICT, TEST_STRICT_SIGNAL, 0U, 1U, 1U
+    }
+};
+
+static const uint32_t g_client_dependencies[] = {
+    TEST_SERVICE_SID,
+    TEST_STRICT_SID
+};
+
+static const wt_partition_manifest_t g_partitions[] = {
+    {
+        "test_partition", TEST_PARTITION_ID, WT_FFM_VERSION_1_1,
+        WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
+        g_services, sizeof(g_services) / sizeof(g_services[0]),
+        NULL, 0U, NULL, 0U
+    },
+    {
+        "client_partition", TEST_CLIENT_PARTITION, WT_FFM_VERSION_1_0,
+        WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
+        NULL, 0U, g_client_dependencies,
+        sizeof(g_client_dependencies) / sizeof(g_client_dependencies[0]),
+        NULL, 0U
+    }
+};
+
+static const wt_system_manifest_t g_manifest = {
+    .format_version = WT_MANIFEST_FORMAT_VERSION,
+    .generator_version = "host-test",
+    .features = WT_MANIFEST_FEATURE_IPC,
+    .partitions = g_partitions,
+    .partition_count = sizeof(g_partitions) / sizeof(g_partitions[0])
+};
+
+static int test_check_read(void* context, psa_client_id_t caller,
+                           const void* address, size_t size)
+{
+    test_context_t* test = (test_context_t*)context;
+
+    (void)caller;
+    test->read_checks++;
+    return size == 0U || address != NULL;
+}
+
+static int test_check_write(void* context, psa_client_id_t caller,
+                            void* address, size_t size)
+{
+    test_context_t* test = (test_context_t*)context;
+
+    (void)caller;
+    test->write_checks++;
+    if (test->reject_write != 0 &&
+            test->write_checks == test->deny_write_check) {
+        return 0;
+    }
+    return size == 0U || address != NULL;
+}
+
+static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
+                         int32_t partition_id)
+{
+    static const uint8_t response[] = { 'O', 'K' };
+    test_context_t* test = (test_context_t*)context;
+    psa_signal_t asserted = 0U;
+    psa_msg_t message;
+    uint8_t input[3];
+    size_t length;
+
+    test->dispatches++;
+    EXPECT_INT(partition_id, TEST_PARTITION_ID);
+    EXPECT_INT(wt_ffm_wait(runtime, partition_id, PSA_WAIT_ANY, &asserted),
+               WT_FFM_SUCCESS);
+    EXPECT_TRUE(asserted == TEST_SERVICE_SIGNAL ||
+                asserted == TEST_STRICT_SIGNAL);
+    EXPECT_INT(wt_ffm_get(runtime, partition_id, asserted, &message),
+               PSA_SUCCESS);
+
+    if (message.type == PSA_IPC_CONNECT) {
+        EXPECT_INT(wt_ffm_set_rhandle(runtime, partition_id, message.handle,
+                                      TEST_RHANDLE), WT_FFM_SUCCESS);
+        EXPECT_INT(wt_ffm_reply(runtime, partition_id, message.handle,
+                                PSA_SUCCESS), WT_FFM_SUCCESS);
+    }
+    else if (message.type == PSA_IPC_DISCONNECT) {
+        EXPECT_TRUE(message.rhandle == TEST_RHANDLE);
+        EXPECT_INT(wt_ffm_set_rhandle(runtime, partition_id, message.handle,
+                                      NULL), WT_FFM_ERROR_STATE);
+        EXPECT_INT(wt_ffm_reply(runtime, partition_id, message.handle,
+                                PSA_SUCCESS), WT_FFM_SUCCESS);
+    }
+    else {
+        EXPECT_TRUE(message.rhandle == TEST_RHANDLE);
+        EXPECT_SIZE(message.in_size[0], 3U);
+        EXPECT_SIZE(message.out_size[0], 2U);
+        length = wt_ffm_read(runtime, partition_id, message.handle, 0U,
+                             input, 1U);
+        EXPECT_SIZE(length, 1U);
+        EXPECT_INT(input[0], 'a');
+        EXPECT_SIZE(wt_ffm_skip(runtime, partition_id, message.handle, 0U,
+                                1U), 1U);
+        EXPECT_SIZE(wt_ffm_read(runtime, partition_id, message.handle, 0U,
+                                &input[1], 2U), 1U);
+        EXPECT_INT(input[1], 'c');
+        EXPECT_INT(wt_ffm_write(runtime, partition_id, message.handle, 0U,
+                                response, sizeof(response)), WT_FFM_SUCCESS);
+        EXPECT_INT(wt_ffm_write(runtime, partition_id, message.handle, 0U,
+                                response, 1U), WT_FFM_ERROR_BUFFER);
+        EXPECT_INT(wt_ffm_reply(runtime, partition_id, message.handle,
+                                PSA_SUCCESS), WT_FFM_SUCCESS);
+        EXPECT_SIZE(wt_ffm_read(runtime, partition_id, message.handle, 0U,
+                                input, sizeof(input)), 0U);
+    }
+
+    return WT_FFM_SUCCESS;
+}
+
+static void test_panic(void* context, int32_t partition_id)
+{
+    test_context_t* test = (test_context_t*)context;
+
+    (void)partition_id;
+    test->panics++;
+}
+
+static const wt_ffm_port_ops_t g_port_ops = {
+    test_check_read,
+    test_check_write,
+    test_dispatch,
+    test_panic
+};
+
+static void test_init(wt_ffm_runtime_t* runtime, test_context_t* context)
+{
+    (void)memset(context, 0, sizeof(*context));
+    EXPECT_INT(wt_ffm_init(runtime, &g_manifest, &g_port_ops, context),
+               WT_FFM_SUCCESS);
+}
+
+static void test_framework_and_policy(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_handle_t handle;
+
+    test_init(&runtime, &context);
+    EXPECT_INT(wt_ffm_framework_version(&runtime), PSA_FRAMEWORK_VERSION);
+    EXPECT_INT(wt_ffm_service_version(&runtime, TEST_NS_CLIENT,
+                                      TEST_SERVICE_SID), 3U);
+    EXPECT_INT(wt_ffm_service_version(&runtime, TEST_CLIENT_PARTITION,
+                                      TEST_SERVICE_SID), 3U);
+    EXPECT_INT(wt_ffm_service_version(&runtime, TEST_PARTITION_ID,
+                                      TEST_SERVICE_SID), PSA_VERSION_NONE);
+    EXPECT_INT(wt_ffm_service_version(&runtime, TEST_NS_CLIENT, 0xFFFFU),
+               PSA_VERSION_NONE);
+
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 2U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle),
+               WT_FFM_SUCCESS);
+    EXPECT_INT(wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 4U),
+               PSA_ERROR_CONNECTION_REFUSED);
+    EXPECT_INT(wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_STRICT_SID, 1U),
+               PSA_ERROR_CONNECTION_REFUSED);
+    handle = wt_ffm_connect(&runtime, TEST_CLIENT_PARTITION,
+                            TEST_STRICT_SID, 2U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_CLIENT_PARTITION, handle),
+               WT_FFM_SUCCESS);
+    (void)printf("PASS: WT-FFM-0020 framework and policy\n");
+}
+
+static void test_connection_and_vectors(void)
+{
+    static const uint8_t request[] = { 'a', 'b', 'c' };
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_invec input = { request, sizeof(request) };
+    uint8_t response[2] = { 0U, 0U };
+    psa_outvec output = { response, sizeof(response) };
+    psa_handle_t handle;
+
+    test_init(&runtime, &context);
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_OTHER_NS_CLIENT, handle,
+                           PSA_IPC_CALL, &input, 1U, &output, 1U),
+               PSA_ERROR_NOT_PERMITTED);
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle,
+                           PSA_IPC_CALL, &input, 1U, &output, 1U),
+               PSA_SUCCESS);
+    EXPECT_SIZE(output.len, 2U);
+    EXPECT_TRUE(memcmp(response, "OK", 2U) == 0);
+    EXPECT_INT(context.read_checks, 1U);
+    EXPECT_INT(context.write_checks, 2U);
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle),
+               WT_FFM_SUCCESS);
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle,
+                           PSA_IPC_CALL, &input, 1U, &output, 1U),
+               PSA_ERROR_INVALID_HANDLE);
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT,
+                           (psa_handle_t)(handle + 0x80), PSA_IPC_CALL,
+                           &input, 1U, &output, 1U),
+               PSA_ERROR_INVALID_HANDLE);
+    (void)printf("PASS: WT-FFM-0021 connection, messages, and vectors\n");
+}
+
+static void test_vector_rejection(void)
+{
+    uint8_t input_bytes[WT_FFM_TRANSFER_BYTES + 1U];
+    uint8_t output_bytes[2];
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_invec inputs[PSA_MAX_IOVEC + 1U];
+    psa_outvec output = { output_bytes, sizeof(output_bytes) };
+    psa_handle_t handle;
+    size_t i;
+
+    test_init(&runtime, &context);
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    for (i = 0U; i < PSA_MAX_IOVEC + 1U; i++) {
+        inputs[i].base = input_bytes;
+        inputs[i].len = 1U;
+    }
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           inputs, PSA_MAX_IOVEC + 1U, &output, 1U),
+               PSA_ERROR_INVALID_ARGUMENT);
+    inputs[0].len = sizeof(input_bytes);
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           inputs, 1U, &output, 1U),
+               PSA_ERROR_INVALID_ARGUMENT);
+    inputs[0].base = NULL;
+    inputs[0].len = 1U;
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           inputs, 1U, &output, 1U),
+               PSA_ERROR_INVALID_ARGUMENT);
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle),
+               WT_FFM_SUCCESS);
+    (void)printf("PASS: WT-FFM-0032 bounded vector rejection\n");
+}
+
+static void test_output_revalidation(void)
+{
+    static const uint8_t request[] = { 'a', 'b', 'c' };
+    uint8_t response[2] = { 0x5AU, 0x5AU };
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_invec input = { request, sizeof(request) };
+    psa_outvec output = { response, sizeof(response) };
+    psa_handle_t handle;
+
+    test_init(&runtime, &context);
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    context.reject_write = 1;
+    context.deny_write_check = 2U;
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U),
+               PSA_ERROR_NOT_PERMITTED);
+    EXPECT_INT(response[0], 0x5A);
+    EXPECT_INT(response[1], 0x5A);
+    EXPECT_INT(context.write_checks, 2U);
+    (void)printf("PASS: WT-FFM-0033 output revalidation\n");
+}
+
+static void test_bounded_resources(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_handle_t handles[WT_FFM_MAX_CONNECTIONS];
+    size_t i;
+    size_t j;
+
+    test_init(&runtime, &context);
+    for (i = 0U; i < WT_FFM_MAX_CONNECTIONS; i++) {
+        handles[i] = wt_ffm_connect(&runtime, TEST_NS_CLIENT,
+                                    TEST_SERVICE_SID, 3U);
+        EXPECT_TRUE(PSA_HANDLE_IS_VALID(handles[i]));
+    }
+    EXPECT_INT(wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U),
+               PSA_ERROR_CONNECTION_BUSY);
+    for (i = 0U; i < WT_FFM_MAX_CONNECTIONS; i++) {
+        EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handles[i]),
+                   WT_FFM_SUCCESS);
+    }
+    for (i = 0U; i < WT_FFM_MAX_MESSAGES; i++) {
+        EXPECT_INT(runtime.messages[i].allocated, 0U);
+        for (j = 0U; j < WT_FFM_TRANSFER_BYTES; j++) {
+            EXPECT_INT(runtime.messages[i].input[j], 0U);
+            EXPECT_INT(runtime.messages[i].output[j], 0U);
+        }
+    }
+    EXPECT_INT(context.panics, 0U);
+    (void)printf("PASS: WT-FFM-0035 bounded pools and scrubbing\n");
+}
+
+static void test_arguments(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_signal_t signals;
+
+    (void)memset(&context, 0, sizeof(context));
+    EXPECT_INT(wt_ffm_init(NULL, &g_manifest, &g_port_ops, &context),
+               WT_FFM_ERROR_ARGUMENT);
+    EXPECT_INT(wt_ffm_init(&runtime, NULL, &g_port_ops, &context),
+               WT_FFM_ERROR_ARGUMENT);
+    test_init(&runtime, &context);
+    EXPECT_INT(wt_ffm_wait(&runtime, TEST_PARTITION_ID, PSA_WAIT_ANY,
+                           &signals), WT_FFM_ERROR_NOT_READY);
+    EXPECT_INT(wt_ffm_get(&runtime, TEST_PARTITION_ID, TEST_SERVICE_SIGNAL,
+                          NULL), PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, PSA_NULL_HANDLE),
+               WT_FFM_SUCCESS);
+    (void)printf("PASS: WT-FFM-0036 invalid arguments and empty wait\n");
+}
+
+int main(void)
+{
+    test_arguments();
+    test_framework_and_policy();
+    test_connection_and_vectors();
+    test_vector_rejection();
+    test_output_revalidation();
+    test_bounded_resources();
+    if (g_failures != 0U) {
+        (void)fprintf(stderr, "FF-M checks failed: %u/%u\n",
+                      g_failures, g_checks);
+        return 1;
+    }
+    (void)printf("PASS: FF-M runtime checks: %u\n", g_checks);
+    return 0;
+}

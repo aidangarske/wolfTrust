@@ -1,0 +1,42 @@
+/* error.h
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+#ifndef PSA_ERROR_H
+#define PSA_ERROR_H
+
+#include <stdint.h>
+
+typedef int32_t psa_status_t;
+
+#define PSA_SUCCESS                    ((psa_status_t)0)
+#define PSA_ERROR_PROGRAMMER_ERROR     ((psa_status_t)-129)
+#define PSA_ERROR_CONNECTION_REFUSED  ((psa_status_t)-130)
+#define PSA_ERROR_CONNECTION_BUSY     ((psa_status_t)-131)
+#define PSA_ERROR_GENERIC_ERROR       ((psa_status_t)-132)
+#define PSA_ERROR_NOT_PERMITTED       ((psa_status_t)-133)
+#define PSA_ERROR_NOT_SUPPORTED       ((psa_status_t)-134)
+#define PSA_ERROR_INVALID_ARGUMENT    ((psa_status_t)-135)
+#define PSA_ERROR_INVALID_HANDLE      ((psa_status_t)-136)
+#define PSA_ERROR_BAD_STATE           ((psa_status_t)-137)
+#define PSA_ERROR_BUFFER_TOO_SMALL    ((psa_status_t)-138)
+#define PSA_ERROR_DOES_NOT_EXIST      ((psa_status_t)-140)
+#define PSA_ERROR_INSUFFICIENT_MEMORY ((psa_status_t)-141)
+
+#endif /* PSA_ERROR_H */

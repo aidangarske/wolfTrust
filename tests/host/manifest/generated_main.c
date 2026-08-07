@@ -26,8 +26,10 @@ int main(void)
 {
     const uint32_t supported_features = WT_MANIFEST_FEATURE_IPC |
                                         WT_MANIFEST_FEATURE_STATELESS;
+    const wt_system_manifest_t* manifest = wt_generated_manifest_get();
     int result = wt_manifest_validate(wt_generated_manifest_get(),
-                                      supported_features);
+                                      supported_features,
+                                      manifest->profile_capabilities);
 
     if (result != WT_MANIFEST_VALID) {
         (void)fprintf(stderr, "generated manifest validation failed: %d\n",

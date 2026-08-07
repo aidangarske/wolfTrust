@@ -26,13 +26,11 @@ VERBOSE ?= 0
 
 ifeq ($(VERBOSE),1)
 SUBMAKE_FLAGS := --no-print-directory
-SUBMAKE_OUTPUT = 2>&1 | tee -a "$(LOG_FILE)"
 else
 SUBMAKE_FLAGS := --no-print-directory -s
-SUBMAKE_OUTPUT = >> "$(LOG_FILE)" 2>&1
 endif
 
-UNIT_SUITES := domain manifest lifecycle ipc spm vnet wolfhsm_loopback
+UNIT_SUITES := domain manifest lifecycle ipc ffm spm vnet wolfhsm_loopback
 
 .PHONY: all test test-compilers test-sanitize test-valgrind clean
 
@@ -41,14 +39,31 @@ all: test
 test:
 	@set -e -o pipefail; mkdir -p "$$(dirname "$(LOG_FILE)")"; : > "$(LOG_FILE)"; \
 	for suite in $(UNIT_SUITES); do \
+		suite_log="$(BUILD_ROOT)/logs/$(TEST_KIND)-$$suite.log"; \
 		echo "RUN: $(TEST_KIND)/$$suite"; \
 		echo "RUN: $(TEST_KIND)/$$suite" >> "$(LOG_FILE)"; \
-		if ! $(MAKE) $(SUBMAKE_FLAGS) -C $$suite clean run \
-			CC="$(CC)" BUILD_DIR="$(BUILD_ROOT)/$$suite" \
-			$(SUBMAKE_OUTPUT); then \
-			echo "FAIL: $(TEST_KIND)/$$suite"; cat "$(LOG_FILE)"; exit 1; \
+		if [ "$(VERBOSE)" = "1" ]; then \
+			if $(MAKE) $(SUBMAKE_FLAGS) -C $$suite clean run \
+				CC="$(CC)" BUILD_DIR="$(BUILD_ROOT)/$$suite" \
+				2>&1 | tee "$$suite_log"; then \
+				status=0; \
+			else \
+				status=$${PIPESTATUS[0]}; \
+			fi; \
+		else \
+			if $(MAKE) $(SUBMAKE_FLAGS) -C $$suite clean run \
+				CC="$(CC)" BUILD_DIR="$(BUILD_ROOT)/$$suite" \
+				> "$$suite_log" 2>&1; then \
+				status=0; \
+			else \
+				status=$$?; \
+			fi; \
 		fi; \
-		grep '^PASS:' "$(LOG_FILE)" | tail -20 || true; \
+		cat "$$suite_log" >> "$(LOG_FILE)"; \
+		if [ $$status -ne 0 ]; then \
+			echo "FAIL: $(TEST_KIND)/$$suite"; cat "$$suite_log"; exit 1; \
+		fi; \
+		grep '^PASS:' "$$suite_log" || true; \
 		echo "PASS: $(TEST_KIND)/$$suite"; \
 	done
 	@echo "PASS: $(TEST_KIND)/all"; echo "LOG: $(LOG_FILE)"
@@ -63,12 +78,29 @@ test-sanitize: LOG_FILE=$(BUILD_ROOT)/logs/sanitizer.log
 test-sanitize:
 	@set -e -o pipefail; mkdir -p "$$(dirname "$(LOG_FILE)")"; : > "$(LOG_FILE)"; \
 	for suite in $(UNIT_SUITES); do \
+		suite_log="$(BUILD_ROOT)/logs/sanitizer-$$suite.log"; \
 		echo "RUN: sanitizer/$$suite"; \
 		echo "RUN: sanitizer/$$suite" >> "$(LOG_FILE)"; \
-		if ! $(MAKE) $(SUBMAKE_FLAGS) -C $$suite clean sanitize \
-			BUILD_DIR="$(BUILD_ROOT)/sanitize/$$suite" \
-			$(SUBMAKE_OUTPUT); then \
-			echo "FAIL: sanitizer/$$suite"; cat "$(LOG_FILE)"; exit 1; \
+		if [ "$(VERBOSE)" = "1" ]; then \
+			if $(MAKE) $(SUBMAKE_FLAGS) -C $$suite clean sanitize \
+				BUILD_DIR="$(BUILD_ROOT)/sanitize/$$suite" \
+				2>&1 | tee "$$suite_log"; then \
+				status=0; \
+			else \
+				status=$${PIPESTATUS[0]}; \
+			fi; \
+		else \
+			if $(MAKE) $(SUBMAKE_FLAGS) -C $$suite clean sanitize \
+				BUILD_DIR="$(BUILD_ROOT)/sanitize/$$suite" \
+				> "$$suite_log" 2>&1; then \
+				status=0; \
+			else \
+				status=$$?; \
+			fi; \
+		fi; \
+		cat "$$suite_log" >> "$(LOG_FILE)"; \
+		if [ $$status -ne 0 ]; then \
+			echo "FAIL: sanitizer/$$suite"; cat "$$suite_log"; exit 1; \
 		fi; \
 		echo "PASS: sanitizer/$$suite"; \
 	done
@@ -80,12 +112,29 @@ test-valgrind: LOG_FILE=$(BUILD_ROOT)/logs/valgrind.log
 test-valgrind:
 	@set -e -o pipefail; mkdir -p "$$(dirname "$(LOG_FILE)")"; : > "$(LOG_FILE)"; \
 	for suite in $(UNIT_SUITES); do \
+		suite_log="$(BUILD_ROOT)/logs/valgrind-$$suite.log"; \
 		echo "RUN: valgrind/$$suite"; \
 		echo "RUN: valgrind/$$suite" >> "$(LOG_FILE)"; \
-		if ! $(MAKE) $(SUBMAKE_FLAGS) -C $$suite clean valgrind \
-			BUILD_DIR="$(BUILD_ROOT)/valgrind/$$suite" \
-			$(SUBMAKE_OUTPUT); then \
-			echo "FAIL: valgrind/$$suite"; cat "$(LOG_FILE)"; exit 1; \
+		if [ "$(VERBOSE)" = "1" ]; then \
+			if $(MAKE) $(SUBMAKE_FLAGS) -C $$suite clean valgrind \
+				BUILD_DIR="$(BUILD_ROOT)/valgrind/$$suite" \
+				2>&1 | tee "$$suite_log"; then \
+				status=0; \
+			else \
+				status=$${PIPESTATUS[0]}; \
+			fi; \
+		else \
+			if $(MAKE) $(SUBMAKE_FLAGS) -C $$suite clean valgrind \
+				BUILD_DIR="$(BUILD_ROOT)/valgrind/$$suite" \
+				> "$$suite_log" 2>&1; then \
+				status=0; \
+			else \
+				status=$$?; \
+			fi; \
+		fi; \
+		cat "$$suite_log" >> "$(LOG_FILE)"; \
+		if [ $$status -ne 0 ]; then \
+			echo "FAIL: valgrind/$$suite"; cat "$$suite_log"; exit 1; \
 		fi; \
 		echo "PASS: valgrind/$$suite"; \
 	done

@@ -5,7 +5,7 @@ M33MU result is emulator evidence for the Cortex-M33 execution model; it is
 not a physical-board result. Hardware qualification remains open until a
 target is available.
 
-## Phase 3 local acceptance
+## Phase 3 foundation evidence
 
 Commit: `2bc5f70e69faedfeadca5d45f317ff6a880df6ef`
 
@@ -33,8 +33,10 @@ Validated image SHA-256 digests:
 - Zephyr guest: `60a7c51c08d5503885eb26170eef483fdace52e8c85254d18b65d5e423485daa`
 - FreeRTOS guest: `f05d17ecef1df53585ba3c7a491cb7d0070cfbdaf6ee9889f9bca140de1e98aa`
 
-This is emulator evidence. No physical STM32H563 result is claimed for this
-commit.
+This is emulator evidence for the manifest bootstrap, authenticated boot,
+Non-secure guest monitor, and direct secure-service veneers. It is not FF-M
+IPC, Secure Partition, or Level 3 isolation acceptance. No physical STM32H563
+result is claimed for this commit.
 
 ## Current no-hardware gate
 

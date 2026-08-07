@@ -350,7 +350,8 @@ void wt_monitor_init(void)
     wt_platform_init();
 
     spm_result = wt_spm_init(&g_spm, wt_generated_manifest_get(),
-                             WT_MANIFEST_FEATURE_IPC);
+                             WT_MANIFEST_FEATURE_IPC,
+                             wt_partitions_profile_capabilities());
     if (spm_result != WT_SPM_VALID) {
         wt_platform_panic();
     }
