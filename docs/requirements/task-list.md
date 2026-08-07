@@ -81,23 +81,33 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    since `dispatch` is still a placeholder — no M33MU exerciser exists
    either. Closes naturally once item 3c gives `dispatch` a real caller;
    until then this must not be counted as tested.
-3c. [ ] Migrate one real service through actual `psa_connect`/`psa_call`
-   dispatch — the crypto hash KAT already proven direct-via-wolfHSM on M33MU
-   is the natural first target (`SERVICE_CRYPTO`, SID `4097`, already
-   declared in `port/stm32h563/manifest.json`). This is where `dispatch`
-   stops being a placeholder and item 4 (route NS calls through FF-M instead
-   of direct wolfHSM/wolfCOSE calls) actually starts. No purpose-built
-   NS-to-Secure transport for wolfTrust's own `psa_connect`/`psa_call`
-   exists yet (`WT_NSC_VENEER` is defined but unused). Reusing the existing
-   Zephyr `tee` driver (`tests/firmware/zephyr-stm32h5/module/wolftrust-tee/`,
-   a generic vendor-neutral Zephyr subsystem, not Arm/TF-M-specific — already
-   proven end-to-end on M33MU for wolfHSM crypto/attestation) as the carrier
-   for now: a new `tee_invoke_func` function ID dispatches into a new
-   `cmse_nonsecure_entry` veneer wrapping `wt_ffm_connect`/`wt_ffm_call`,
-   following the exact pattern already proven in
-   `src/services/vnet/vnet_service.c` (`veneer_precheck` +
-   `wt_platform_active_guest_id()` + paired `wt_cmse_check_ns_*` /
-   `wt_cmse_check_in_guest_ns_*` validation).
+3c. [x] Secure-side half of the crypto migration through real
+   `psa_connect`/`psa_call` dispatch. `dispatch` now routes
+   `PARTITION_CRYPTO_ID` to a real SHA-256 handler
+   (`wt_ffm_boot_dispatch_crypto` in `src/ffm_boot.c`: wait/get/read/
+   wolfCrypt `wc_Sha256*`/write/reply), no longer the `WT_FFM_ERROR_STATE`
+   placeholder. Added the NS-to-Secure carrier: `WolfTrust_FFM_Connect`/
+   `_Call`/`_Close`, `cmse_nonsecure_entry` veneers in `src/ffm_boot.c`
+   following the exact pattern proven in `src/services/vnet/vnet_service.c`
+   (`wt_platform_active_guest_id()` + paired `wt_cmse_check_ns_*`/
+   `wt_cmse_check_in_guest_ns_*`). `WolfTrust_FFM_Call` bundles the vector
+   pair into one `wt_ffm_veneer_iovec_t` struct pointer, not 4 scalars —
+   `cmse_nonsecure_entry` functions can't take stack-passed args (~4
+   register-arg limit); the struct is CMSE-checked then read once into a
+   local copy to avoid a NS-side TOCTOU on its fields. Verified on the
+   Cortex-M cross-build (compiles, links via `--cmse-implib`); `make test`
+   still green. No purpose-built NS-to-Secure transport for wolfTrust's own
+   `psa_connect`/`psa_call` exists (`WT_NSC_VENEER` is defined but unused) —
+   these veneers ARE that transport, reusing the existing Zephyr `tee`
+   driver (`tests/firmware/zephyr-stm32h5/module/wolftrust-tee/`, a generic
+   vendor-neutral Zephyr subsystem, not Arm/TF-M-specific) as the carrier.
+3c-ns. [ ] NS-side half: add a new `tee_invoke_func` function ID in
+   `wolftrust_tee_driver.c` that calls `WolfTrust_FFM_Connect`/`_Call`, and
+   a guest test call (new or modified `exercise_psa_hash`-shaped function)
+   that goes through this path instead of direct wolfPSA/wolfHSM. Add the
+   M33MU CI assertion once a guest can print the result. This is what
+   finally gives 3a/3b/3c-secure a real caller and closes items 3b-test
+   and (for the exercised path) validates the CMSE checks live.
 3c-followup. [ ] Remove the TEE-driver dependency once purpose-built FF-M
    NSC veneers exist (`WT_NSC_VENEER`-based, directly exposing
    `psa_connect`/`psa_call`/`psa_close` without going through the generic
