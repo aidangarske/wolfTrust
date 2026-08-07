@@ -637,6 +637,34 @@ int wt_ffm_wait(wt_ffm_runtime_t* runtime, int32_t partition_id,
     return *asserted == 0U ? WT_FFM_ERROR_NOT_READY : WT_FFM_SUCCESS;
 }
 
+int wt_ffm_notify(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    uint16_t partition_index;
+
+    if (wt_ffm_find_partition(runtime, partition_id, &partition_index) !=
+            WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_POLICY;
+    }
+    runtime->partitions[partition_index].asserted_signals |= PSA_DOORBELL;
+    return WT_FFM_SUCCESS;
+}
+
+int wt_ffm_clear(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    uint16_t partition_index;
+    psa_signal_t* asserted_signals;
+
+    if (wt_ffm_find_partition(runtime, partition_id, &partition_index) !=
+            WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_POLICY;
+    }
+    asserted_signals = &runtime->partitions[partition_index].asserted_signals;
+    if ((*asserted_signals & PSA_DOORBELL) == 0U)
+        return WT_FFM_ERROR_STATE;
+    *asserted_signals &= ~PSA_DOORBELL;
+    return WT_FFM_SUCCESS;
+}
+
 psa_status_t wt_ffm_get(wt_ffm_runtime_t* runtime, int32_t partition_id,
                         psa_signal_t signal, psa_msg_t* msg)
 {

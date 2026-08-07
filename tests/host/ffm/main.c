@@ -403,9 +403,40 @@ static void test_arguments(void)
     (void)printf("PASS: WT-FFM-0036 invalid arguments and empty wait\n");
 }
 
+static void test_doorbell_signal(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_signal_t asserted;
+
+    test_init(&runtime, &context);
+
+    EXPECT_INT(wt_ffm_notify(&runtime, 99), WT_FFM_ERROR_POLICY);
+    EXPECT_INT(wt_ffm_clear(&runtime, TEST_CLIENT_PARTITION),
+               WT_FFM_ERROR_STATE);
+
+    EXPECT_INT(wt_ffm_notify(&runtime, TEST_CLIENT_PARTITION),
+               WT_FFM_SUCCESS);
+    EXPECT_INT(wt_ffm_wait(&runtime, TEST_CLIENT_PARTITION, PSA_WAIT_ANY,
+                           &asserted), WT_FFM_SUCCESS);
+    EXPECT_INT(asserted, PSA_DOORBELL);
+    EXPECT_INT(wt_ffm_wait(&runtime, TEST_PARTITION_ID, PSA_WAIT_ANY,
+                           &asserted), WT_FFM_ERROR_NOT_READY);
+
+    EXPECT_INT(wt_ffm_clear(&runtime, TEST_CLIENT_PARTITION),
+               WT_FFM_SUCCESS);
+    EXPECT_INT(wt_ffm_wait(&runtime, TEST_CLIENT_PARTITION, PSA_WAIT_ANY,
+                           &asserted), WT_FFM_ERROR_NOT_READY);
+    EXPECT_INT(wt_ffm_clear(&runtime, TEST_CLIENT_PARTITION),
+               WT_FFM_ERROR_STATE);
+
+    (void)printf("PASS: WT-FFM-0027 doorbell notify and clear\n");
+}
+
 int main(void)
 {
     test_arguments();
+    test_doorbell_signal();
     test_framework_and_policy();
     test_connection_and_vectors();
     test_vector_rejection();

@@ -158,13 +158,16 @@ void psa_reply(psa_handle_t msg_handle, psa_status_t status)
 
 void psa_notify(int32_t partition_id)
 {
-    (void)partition_id;
-    wt_ffm_api_panic();
+    if (wt_ffm_notify(g_runtime, partition_id) != WT_FFM_SUCCESS)
+        wt_ffm_api_panic();
 }
 
 void psa_clear(void)
 {
-    wt_ffm_api_panic();
+    if (wt_ffm_clear(g_runtime, wt_ffm_current_partition()) !=
+            WT_FFM_SUCCESS) {
+        wt_ffm_api_panic();
+    }
 }
 
 void psa_eoi(psa_signal_t irq_signal)

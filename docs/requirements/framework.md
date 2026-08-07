@@ -42,6 +42,7 @@ describe or depend on a TF-M implementation.
 | WT-FFM-0024 | A call accepts a nonnegative request type and at most four total input and output vectors. Zero-length vectors ignore their base addresses. | Invalid counts, arithmetic overflow, invalid references, or a concurrent request on one connection triggers programmer-error handling without partial output. | SRC-FFM 3.3.2, 3.3.5, 4.4.3 | Vector boundary, overflow, alias, and concurrency tests | |
 | WT-FFM-0025 | A normal close sends one disconnection message, waits for its reply, releases all connection state, and invalidates the handle. | Repeated or invalid close follows the specified null-handle or programmer-error behavior. | SRC-FFM 3.3.3, 4.4.3, Appendix A | Close ordering and lifetime tests | |
 | WT-FFM-0026 | Abnormal termination prevents later calls, delivers a cleanup disconnection, and requires close before final handle release. | No request after termination reaches the service and no connection state leaks into reuse. | SRC-FFM 3.3.3, Appendix A | Abnormal connection and cleanup tests | |
+| WT-FFM-0027 | Notify raises the doorbell signal on a named partition. Clear consumes only the caller's own asserted doorbell signal. | Notifying an unknown partition or clearing an unasserted doorbell triggers programmer-error handling. | SRC-FFM 3.2.3, 4.5 | Doorbell notify and clear tests | |
 
 ## Service-side IPC requirements
 
