@@ -207,6 +207,7 @@ jobs:
             exit 1
           fi
           grep -Fq "wolfTrust TEE client initialized" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "psa_initial_attestation short-buffer rejected correctly" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "psa_hash_compute(SHA-256) KAT verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "psa_cipher_encrypt(AES-CTR) st=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
