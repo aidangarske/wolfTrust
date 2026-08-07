@@ -284,11 +284,11 @@ static void test_connection_and_vectors(void)
                WT_FFM_SUCCESS);
     EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle,
                            PSA_IPC_CALL, &input, 1U, &output, 1U),
-               PSA_ERROR_INVALID_HANDLE);
+               PSA_ERROR_PROGRAMMER_ERROR);
     EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT,
                            (psa_handle_t)(handle + 0x80), PSA_IPC_CALL,
                            &input, 1U, &output, 1U),
-               PSA_ERROR_INVALID_HANDLE);
+               PSA_ERROR_PROGRAMMER_ERROR);
     (void)printf("PASS: WT-FFM-0021 connection, messages, and vectors\n");
 }
 

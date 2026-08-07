@@ -536,7 +536,7 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
                                         &connection_index);
     if (ret != WT_FFM_SUCCESS)
         return ret == WT_FFM_ERROR_POLICY ? PSA_ERROR_NOT_PERMITTED :
-                                            PSA_ERROR_INVALID_HANDLE;
+                                            PSA_ERROR_PROGRAMMER_ERROR;
     connection = &runtime->connections[connection_index];
     if (connection->state != WT_IPC_CONNECTION_IDLE)
         return PSA_ERROR_BAD_STATE;

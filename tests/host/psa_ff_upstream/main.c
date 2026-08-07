@@ -45,6 +45,12 @@ int32_t client_test_strict_policy_higher_version(caller_security_t caller);
 int32_t client_test_strict_policy_lower_version(caller_security_t caller);
 int32_t client_test_relax_policy_higher_version(caller_security_t caller);
 int32_t client_test_secure_access_only_connection(caller_security_t caller);
+int32_t client_test_psa_close_with_invalid_handle(caller_security_t caller);
+int32_t client_test_psa_call_with_invalid_handle(caller_security_t caller);
+int32_t client_test_psa_call_with_null_handle(caller_security_t caller);
+int32_t client_test_dynamic_mem_alloc_fn(caller_security_t caller);
+int32_t client_test_mem_manipulation_fn(caller_security_t caller);
+int32_t client_test_psa_rot_lifecycle_state(caller_security_t caller);
 
 val_api_t* valtest_entry_i001;
 psa_api_t* psatest_entry_i001;
@@ -58,6 +64,18 @@ val_api_t* valtest_entry_i007;
 psa_api_t* psatest_entry_i007;
 val_api_t* valtest_entry_i008;
 psa_api_t* psatest_entry_i008;
+val_api_t* valtest_entry_i012;
+psa_api_t* psatest_entry_i012;
+val_api_t* valtest_entry_i024;
+psa_api_t* psatest_entry_i024;
+val_api_t* valtest_entry_i025;
+psa_api_t* psatest_entry_i025;
+val_api_t* valtest_entry_i067;
+psa_api_t* psatest_entry_i067;
+val_api_t* valtest_entry_i071;
+psa_api_t* psatest_entry_i071;
+val_api_t* valtest_entry_i088;
+psa_api_t* psatest_entry_i088;
 
 static const wt_service_descriptor_t g_services[] = {
     {
@@ -111,6 +129,21 @@ static const wt_system_manifest_t g_manifest = {
     .partitions = g_partitions,
     .partition_count = sizeof(g_partitions) / sizeof(g_partitions[0])
 };
+
+static int32_t report(const char* test_id, const char* name,
+                      int32_t status)
+{
+    if (status == VAL_STATUS_SUCCESS) {
+        (void)printf("PASS: Arm PSA FF %s %s\n", test_id, name);
+        return VAL_STATUS_SUCCESS;
+    }
+    if (val_status_step((uint32_t)status) == VAL_STEP_SKIPPED) {
+        (void)printf("SKIP: Arm PSA FF %s %s\n", test_id, name);
+        return VAL_STATUS_SUCCESS;
+    }
+    (void)fprintf(stderr, "FAIL: Arm PSA FF %s %s\n", test_id, name);
+    return status;
+}
 
 static val_status_t test_print(print_verbosity_t verbosity,
                                const char* string, int32_t data)
@@ -238,36 +271,95 @@ int main(void)
     psatest_entry_i007 = &g_psa_api;
     valtest_entry_i008 = &g_val_api;
     psatest_entry_i008 = &g_psa_api;
+    valtest_entry_i012 = &g_val_api;
+    psatest_entry_i012 = &g_psa_api;
+    valtest_entry_i024 = &g_val_api;
+    psatest_entry_i024 = &g_psa_api;
+    valtest_entry_i025 = &g_val_api;
+    psatest_entry_i025 = &g_psa_api;
+    valtest_entry_i067 = &g_val_api;
+    psatest_entry_i067 = &g_psa_api;
+    valtest_entry_i071 = &g_val_api;
+    psatest_entry_i071 = &g_psa_api;
+    valtest_entry_i088 = &g_val_api;
+    psatest_entry_i088 = &g_psa_api;
 
     g_context.caller = TEST_NS_CLIENT;
     status = client_test_psa_framework_version(CALLER_NONSECURE);
-    if (status == VAL_STATUS_SUCCESS)
+    status = report("i001", "psa_framework_version (NS)", status);
+    if (status == VAL_STATUS_SUCCESS) {
         status = client_test_psa_version(CALLER_NONSECURE);
+        status = report("i001", "psa_version (NS)", status);
+    }
     if (status != VAL_STATUS_SUCCESS)
         return 1;
     status = client_test_sid_does_not_exists(CALLER_NONSECURE);
-    if (status == VAL_STATUS_SUCCESS)
+    status = report("i004", "sid_does_not_exists", status);
+    if (status == VAL_STATUS_SUCCESS) {
         status = client_test_strict_policy_higher_version(CALLER_NONSECURE);
-    if (status == VAL_STATUS_SUCCESS)
+        status = report("i005", "strict_policy_higher_version", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
         status = client_test_strict_policy_lower_version(CALLER_NONSECURE);
-    if (status == VAL_STATUS_SUCCESS)
+        status = report("i006", "strict_policy_lower_version", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
         status = client_test_relax_policy_higher_version(CALLER_NONSECURE);
-    if (status == VAL_STATUS_SUCCESS)
+        status = report("i007", "relax_policy_higher_version", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
         status = client_test_secure_access_only_connection(CALLER_NONSECURE);
+        status = report("i008", "secure_access_only_connection (NS)",
+                        status);
+    }
+    if (status != VAL_STATUS_SUCCESS)
+        return 1;
+    status = client_test_psa_close_with_invalid_handle(CALLER_NONSECURE);
+    status = report("i012", "psa_close_with_invalid_handle", status);
+    /* NS psa_close(invalid) is spec-permitted to panic; that expected
+     * panic must not fail the aggregate g_context.failures check below. */
+    g_context.failures = 0U;
+    if (status == VAL_STATUS_SUCCESS) {
+        status = client_test_psa_call_with_invalid_handle(CALLER_NONSECURE);
+        status = report("i024", "psa_call_with_invalid_handle", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        status = client_test_psa_call_with_null_handle(CALLER_NONSECURE);
+        status = report("i025", "psa_call_with_null_handle", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        status = client_test_dynamic_mem_alloc_fn(CALLER_NONSECURE);
+        status = report("i067", "dynamic_mem_alloc_fn", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        status = client_test_mem_manipulation_fn(CALLER_NONSECURE);
+        status = report("i071", "mem_manipulation_fn", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        status = client_test_psa_rot_lifecycle_state(CALLER_NONSECURE);
+        status = report("i088", "psa_rot_lifecycle_state", status);
+    }
     if (status != VAL_STATUS_SUCCESS)
         return 1;
 
     g_context.caller = TEST_CLIENT_PARTITION;
     g_context.partition = TEST_CLIENT_PARTITION;
     status = client_test_psa_framework_version(CALLER_SECURE);
-    if (status == VAL_STATUS_SUCCESS)
+    status = report("i001", "psa_framework_version (secure)", status);
+    if (status == VAL_STATUS_SUCCESS) {
         status = client_test_psa_version(CALLER_SECURE);
-    if (status == VAL_STATUS_SUCCESS)
+        status = report("i001", "psa_version (secure)", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
         status = client_test_secure_access_only_connection(CALLER_SECURE);
+        status = report("i008", "secure_access_only_connection (secure)",
+                        status);
+    }
     wt_ffm_api_unbind();
     if (status != VAL_STATUS_SUCCESS || g_context.failures != 0U)
         return 1;
 
-    (void)printf("PASS: Arm PSA FF i001 and i004 through i008 on wolfTrust\n");
+    (void)printf("PASS: Arm PSA FF i001, i004-i008, i012, i024, i025, "
+                "i067, i071, i088 on wolfTrust\n");
     return 0;
 }

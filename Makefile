@@ -44,9 +44,11 @@ fetch-psa-ff-tests:
 		$(BUILD_DIR)/upstream/psa-arch-tests
 
 test-conformance: fetch-psa-ff-tests
+	@echo "RUN: conformance/psa_ff_upstream"
 	@$(MAKE) --no-print-directory -C tests/host/psa_ff_upstream run \
 		BUILD_DIR=$(abspath $(BUILD_DIR))/psa-ff-upstream \
 		PSA_ARCH_TESTS_DIR=$(abspath $(BUILD_DIR))/upstream/psa-arch-tests
+	@echo "PASS: conformance/all"
 
 clean:
 	rm -rf $(BUILD_DIR)

@@ -63,9 +63,24 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
 9. [ ] Add M33MU FF-M assertions: a positive `psa_connect`/`psa_call` round trip
    plus negatives (forged handle, oversized vector, cross-domain access) on the
    emulator path (`.github/workflows/stm32h563-build.yml`).
-10. [ ] Expand `tests/host/psa_ff_upstream/` past the host subset
-    (`i001,i004-i008`) to the full Arm FF-M suite under M33MU (NS app + 3 SPs)
-    and add the TF-M baseline comparison.
+10. [ ] Expand `tests/host/psa_ff_upstream/` past the host-viable subset
+    (`i001,i004-i008,i012,i024,i025,i067[SKIP],i071,i088`) to the full Arm
+    FF-M suite under M33MU (NS app + 3 SPs, including the tests that need real
+    reboot continuity and multi-partition isolation) and add the TF-M baseline
+    comparison. `make test-conformance` must auto-detect an available M33MU
+    binary/emulator: when present, run the full FF-M suite on it; when absent,
+    run only the host-viable subset and print an explicit warning that
+    hardware/emulator was not detected and coverage fell back to non-HW tests.
+    Confirm first whether m33mu models a real NVIC (IRQ-class tests need this;
+    TrustZone isolation and flash-persisted reboot cycles are already proven by
+    existing CI). Real H5 hardware is not required for this gate — it stays a
+    separate, never-implied-by-emulator hardware evidence record per the skill.
+    Two sub-gaps found while wiring the host-viable subset, needed before more
+    tests can be added: (a) add an `UNSPECIFIED` service version policy to
+    `WT_SERVICE_VERSION_*`/`ffm.c` — blocks `i002,i003,i010,i011,i026,i048-
+    i053,i058,i063,i090`; (b) give `test_dispatch()` real per-service logic
+    instead of a generic wait/get/reply(SUCCESS) — blocks `i027` (connection
+    drop) and any future test needing service-specific server behavior.
 11. [ ] Pass the host and M33MU FF-M positive and negative suites on one commit.
 
 The earlier Phase 3 validation proves the generated-policy bootstrap and the
