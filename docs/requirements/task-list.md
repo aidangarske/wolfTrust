@@ -75,12 +75,14 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
     TrustZone isolation and flash-persisted reboot cycles are already proven by
     existing CI). Real H5 hardware is not required for this gate — it stays a
     separate, never-implied-by-emulator hardware evidence record per the skill.
-    Two sub-gaps found while wiring the host-viable subset, needed before more
-    tests can be added: (a) add an `UNSPECIFIED` service version policy to
-    `WT_SERVICE_VERSION_*`/`ffm.c` — blocks `i002,i003,i010,i011,i026,i048-
-    i053,i058,i063,i090`; (b) give `test_dispatch()` real per-service logic
-    instead of a generic wait/get/reply(SUCCESS) — blocks `i027` (connection
-    drop) and any future test needing service-specific server behavior.
+10a. [ ] Add an `UNSPECIFIED` service version policy to `WT_SERVICE_VERSION_*`
+    / `ffm.c` (any client version accepted, no strict/relaxed check). Blocks
+    wiring `i002,i003,i010,i011,i026,i048-i053,i058,i063,i090` in
+    `tests/host/psa_ff_upstream/`.
+10b. [ ] Give `test_dispatch()` in `tests/host/psa_ff_upstream/main.c` real
+    per-service logic instead of a generic wait/get/reply(SUCCESS). Blocks
+    wiring `i027` (connection drop) and any future test needing
+    service-specific server behavior.
 11. [ ] Pass the host and M33MU FF-M positive and negative suites on one commit.
 
 The earlier Phase 3 validation proves the generated-policy bootstrap and the
