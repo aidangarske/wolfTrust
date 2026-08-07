@@ -23,78 +23,10 @@
 #include "wolftrust/arch/armv8m/cmse.h"
 #include "wolftrust/ffm_api.h"
 #include "wolftrust/monitor.h"
+#include "wolftrust/services/crypto_service.h"
 #include "psa_manifest/pid.h"
 
-#include <wolfssl/wolfcrypt/sha256.h>
-
 static wt_ffm_runtime_t g_ffm_runtime;
-
-/* SERVICE_CRYPTO supports a single request today: compute a SHA-256 digest
- * of the input vector into the output vector. PSA_IPC_CALL (0) is that
- * request's type; a second operation would need its own type value. */
-static int wt_ffm_boot_service_crypto_hash(wt_ffm_runtime_t* runtime,
-                                           int32_t partition_id,
-                                           psa_handle_t msg_handle)
-{
-    wc_Sha256 sha;
-    uint8_t chunk[64];
-    uint8_t digest[WC_SHA256_DIGEST_SIZE];
-    size_t got;
-
-    if (wc_InitSha256(&sha) != 0) {
-        return WT_FFM_ERROR_STATE;
-    }
-    for (;;) {
-        got = wt_ffm_read(runtime, partition_id, msg_handle, 0U, chunk,
-                          sizeof(chunk));
-        if (got == 0U) {
-            break;
-        }
-        if (wc_Sha256Update(&sha, chunk, (word32)got) != 0) {
-            return WT_FFM_ERROR_STATE;
-        }
-    }
-    if (wc_Sha256Final(&sha, digest) != 0) {
-        return WT_FFM_ERROR_STATE;
-    }
-    if (wt_ffm_write(runtime, partition_id, msg_handle, 0U, digest,
-                     sizeof(digest)) != WT_FFM_SUCCESS) {
-        return WT_FFM_ERROR_STATE;
-    }
-    return WT_FFM_SUCCESS;
-}
-
-static int wt_ffm_boot_dispatch_crypto(wt_ffm_runtime_t* runtime,
-                                       int32_t partition_id)
-{
-    psa_signal_t asserted;
-    psa_msg_t msg;
-    psa_status_t reply_status;
-
-    if (wt_ffm_wait(runtime, partition_id, PSA_WAIT_ANY, &asserted) !=
-            WT_FFM_SUCCESS) {
-        return WT_FFM_ERROR_STATE;
-    }
-    if (wt_ffm_get(runtime, partition_id, asserted, &msg) != PSA_SUCCESS) {
-        return WT_FFM_ERROR_STATE;
-    }
-
-    if (msg.type == PSA_IPC_CONNECT || msg.type == PSA_IPC_DISCONNECT) {
-        reply_status = PSA_SUCCESS;
-    } else if (msg.type == PSA_IPC_CALL) {
-        reply_status = wt_ffm_boot_service_crypto_hash(runtime, partition_id,
-                           msg.handle) == WT_FFM_SUCCESS ?
-                       PSA_SUCCESS : PSA_ERROR_GENERIC_ERROR;
-    } else {
-        reply_status = PSA_ERROR_NOT_SUPPORTED;
-    }
-
-    if (wt_ffm_reply(runtime, partition_id, msg.handle, reply_status) !=
-            WT_FFM_SUCCESS) {
-        return WT_FFM_ERROR_STATE;
-    }
-    return WT_FFM_SUCCESS;
-}
 
 /* WT-FFM-0012: the SPM validates every external memory reference before
  * an API transfer. Every registered service today declares
@@ -143,9 +75,8 @@ static int wt_ffm_boot_check_write(void* context, psa_client_id_t caller,
 static int wt_ffm_boot_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                 int32_t partition_id)
 {
-    (void)context;
     if (partition_id == PARTITION_CRYPTO_ID) {
-        return wt_ffm_boot_dispatch_crypto(runtime, partition_id);
+        return wt_crypto_service_dispatch(context, runtime, partition_id);
     }
     return WT_FFM_ERROR_STATE;
 }

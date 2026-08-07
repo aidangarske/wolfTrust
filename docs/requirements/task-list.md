@@ -82,13 +82,22 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    either. Closes naturally once item 3c gives `dispatch` a real caller;
    until then this must not be counted as tested.
 3c. [x] Secure-side half of the crypto migration through real
-   `psa_connect`/`psa_call` dispatch. `dispatch` now routes
-   `PARTITION_CRYPTO_ID` to a real SHA-256 handler
-   (`wt_ffm_boot_dispatch_crypto` in `src/ffm_boot.c`: wait/get/read/
-   wolfCrypt `wc_Sha256*`/write/reply), no longer the `WT_FFM_ERROR_STATE`
-   placeholder. Added the NS-to-Secure carrier: `WolfTrust_FFM_Connect`/
-   `_Call`/`_Close`, `cmse_nonsecure_entry` veneers in `src/ffm_boot.c`
-   following the exact pattern proven in `src/services/vnet/vnet_service.c`
+   `psa_connect`/`psa_call` dispatch. The SHA-256 service handler moved to
+   its own architecture-neutral file, `src/services/crypto_service.c`
+   (`wt_crypto_service_dispatch`: wait/get/read/wolfCrypt `wc_Sha256*`/
+   write/reply) — no Armv8-M/CMSE dependency, so it is directly
+   host-testable, unlike everything else in `src/ffm_boot.c`. `dispatch`
+   in `src/ffm_boot.c` now routes `PARTITION_CRYPTO_ID` to it instead of
+   the `WT_FFM_ERROR_STATE` placeholder. **Real test evidence**:
+   `tests/host/crypto_service/` drives an actual `wt_ffm_connect` +
+   `wt_ffm_call` round trip (registering `wt_crypto_service_dispatch`
+   directly as the port's `dispatch` callback, since `wt_ffm_call()`
+   invokes it synchronously) and asserts the returned digest against a
+   real SHA-256 KAT — proving the dispatch path is correct, not just that
+   it compiles. Wired into `make test` (`unit/crypto_service`). Added the
+   NS-to-Secure carrier: `WolfTrust_FFM_Connect`/`_Call`/`_Close`,
+   `cmse_nonsecure_entry` veneers in `src/ffm_boot.c` following the exact
+   pattern proven in `src/services/vnet/vnet_service.c`
    (`wt_platform_active_guest_id()` + paired `wt_cmse_check_ns_*`/
    `wt_cmse_check_in_guest_ns_*`). `WolfTrust_FFM_Call` bundles the vector
    pair into one `wt_ffm_veneer_iovec_t` struct pointer, not 4 scalars —
@@ -96,8 +105,11 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    register-arg limit); the struct is CMSE-checked then read once into a
    local copy to avoid a NS-side TOCTOU on its fields. Verified on the
    Cortex-M cross-build (compiles, links via `--cmse-implib`); `make test`
-   still green. No purpose-built NS-to-Secure transport for wolfTrust's own
-   `psa_connect`/`psa_call` exists (`WT_NSC_VENEER` is defined but unused) —
+   green including the new crypto_service suite. The veneers themselves
+   (CMSE checks, guest-id mapping) are still only compile-verified — that
+   gap is 3b-test, unchanged, closes with 3c-ns. No purpose-built
+   NS-to-Secure transport for wolfTrust's own `psa_connect`/`psa_call`
+   exists (`WT_NSC_VENEER` is defined but unused) —
    these veneers ARE that transport, reusing the existing Zephyr `tee`
    driver (`tests/firmware/zephyr-stm32h5/module/wolftrust-tee/`, a generic
    vendor-neutral Zephyr subsystem, not Arm/TF-M-specific) as the carrier.

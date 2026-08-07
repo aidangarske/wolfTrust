@@ -199,6 +199,7 @@ WT_SECURE_EXTRA_SRCS := \
     $(wildcard $(WOLFHSM_RUNNER_DIR)/libc_stubs.c) \
     $(wildcard $(ROOT)/src/services/wolfhsm/*.c) \
     $(ROOT)/src/services/boot_handoff.c \
+    $(ROOT)/src/services/crypto_service.c \
     $(wildcard $(ROOT)/src/arch/armv8m/cmse_transport.c)
 
 ifeq ($(WT_ATTEST_COSE),1)
