@@ -28,7 +28,7 @@ WT_ATTESTATION_DEVELOPMENT_PROFILE ?= 0
 WT_M33MU_EXPECT_BKPT ?= 0
 
 # Baremetal guest-b memory map — matches WT_GUEST1_FLASH_BASE / WT_GUEST1_RAM_BASE
-# in src/port/stm32h563/memory_map.h. Kept here as overridable variables so
+# in port/stm32h563/memory_map.h. Kept here as overridable variables so
 # this Makefile is self-contained.
 WT_GUEST1_FLASH_BASE ?= 0x08040000
 WT_GUEST1_RAM_BASE   ?= 0x20008000

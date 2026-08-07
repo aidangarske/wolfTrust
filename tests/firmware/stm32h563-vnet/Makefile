@@ -29,7 +29,7 @@ SIZE       := $(TOOLPREFIX)size
 M33MU      ?= m33mu
 
 ROOT       := ../../..
-PORT_DIR   := $(ROOT)/src/port/stm32h563
+PORT_DIR   := $(ROOT)/port/stm32h563
 WOLFIP_DIR := $(ROOT)/lib/wolfIP
 
 CONFIG_VNET ?= y

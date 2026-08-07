@@ -4,7 +4,7 @@ OBJCOPY := $(TOOLPREFIX)objcopy
 SIZE := $(TOOLPREFIX)size
 
 ROOT := .
-PORT_DIR := $(ROOT)/src/port/stm32h563
+PORT_DIR := $(ROOT)/port/stm32h563
 WOLFHSM_RUNNER_DIR := $(ROOT)/src/services/wolfhsm/runner
 WOLFHSM_DIR := $(ROOT)/lib/wolfHSM
 WOLFSSL_DIR := $(ROOT)/lib/wolfSSL

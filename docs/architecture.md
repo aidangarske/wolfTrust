@@ -67,7 +67,7 @@ MMU-based OSes.
 - `src/services/wolfhsm/` — per-guest wolfHSM server context, NVM lock callback
   table, and the runner glue (`runner/` — IVT, runtime libc stubs, linker script,
   local wolfHSM settings).
-- `src/port/stm32h563/` — STM32H563 platform port: SAU/GTZC setup, SysTick,
+- `port/stm32h563/` — STM32H563 platform port: SAU/GTZC setup, SysTick,
   partition table, internal-flash NVM backend, RNG entropy source, register
   definitions.
 - `lib/wolfhal`, `lib/wolfHSM`, `lib/wolfSSL` — vendored dependencies. wolfCrypt
@@ -127,7 +127,7 @@ validates every access against the guest's declared NS window AND through
 
 Per-guest server contexts share one wolfHSM NVM context, which is serialised
 by a sleep mutex (`wt_mutex_t`) plugged into wolfHSM's `whLockCb` vtable.
-On STM32H563 the NVM backend (`src/port/stm32h563/hsm_flash.c`) writes two
+On STM32H563 the NVM backend (`port/stm32h563/hsm_flash.c`) writes two
 mirrored 8 KiB sectors at the end of internal flash bank 2.
 
 Each per-guest server runs inside a Secure tasklet. Tasklets are entered from
@@ -145,7 +145,7 @@ from the SoC TRNG via wolfHAL (`lib/wolfhal/src/rng/stm32h5_rng.c`).
 ## Porting tasks
 
 A real SoC port must replace `src/platform_stub.c` (or supply a port like
-`src/port/stm32h563/platform_stm32h563.c`) with Secure firmware that:
+`port/stm32h563/platform_stm32h563.c`) with Secure firmware that:
 
 - configures the Secure scheduler timer,
 - programs Secure attribution and memory firewalls,

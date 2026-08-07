@@ -8,7 +8,7 @@ re-litigate them.
 
 ## Caller identification
 
-The wolfHSM veneers in `src/port/stm32h563/platform_stm32h563.c` read
+The wolfHSM veneers in `port/stm32h563/platform_stm32h563.c` read
 `g_active_guest` (a file-static `volatile uint32_t`) to know which guest
 is currently calling. The scheduler in `src/monitor.c` keeps a parallel
 `g_scheduler.current_guest` it updates on dispatch.
@@ -96,7 +96,7 @@ coherent):
 
   - `include/wolftrust/vnet/*.h` — public types, ABI, helper APIs
   - `src/vnet/*.c` — pure dataplane, no hardware coupling
-  - `src/port/stm32h563/platform_stm32h563.c` — VNET veneers appended,
+  - `port/stm32h563/platform_stm32h563.c` — VNET veneers appended,
     pattern-matched to the existing `WolfTrust_HSM_*` block
   - `tests/host/vnet/` — host-side unit tests (gcc, raw asserts,
     same shape as `tests/host/wolfhsm_loopback`)

@@ -61,7 +61,7 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    failure like every other boot-time validation step. Proven on host
    (`tests/host/spm/production_main.c` confirms `SERVICE_ATTEST`/
    `SERVICE_CRYPTO` register by SID against the real
-   `src/port/stm32h563/manifest.json`) and on the Cortex-M cross-build
+   `port/stm32h563/manifest.json`) and on the Cortex-M cross-build
    (`sec_ffm_boot.o` links into `wolftrust.elf`). `check_read`/`check_write`
    are fail-closed placeholders (deny by default) and `dispatch` returns
    `WT_FFM_ERROR_STATE` — safe today because nothing calls `psa_call` yet.
@@ -72,7 +72,7 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
 3c. [ ] Migrate one real service through actual `psa_connect`/`psa_call`
    dispatch — the crypto hash KAT already proven direct-via-wolfHSM on M33MU
    is the natural first target (`SERVICE_CRYPTO`, SID `4097`, already
-   declared in `src/port/stm32h563/manifest.json`). This is where `dispatch`
+   declared in `port/stm32h563/manifest.json`). This is where `dispatch`
    stops being a placeholder and item 4 (route NS calls through FF-M instead
    of direct wolfHSM/wolfCOSE calls) actually starts.
 4. [ ] Register the PSA services (crypto, attestation) behind SIDs and route NS

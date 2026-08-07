@@ -34,7 +34,7 @@ GENERATED_C := $(GENERATED_DIR)/wolftrust_manifest_generated.c
 GENERATED_H := $(GENERATED_DIR)/wolftrust_manifest_generated.h
 SPM_SRCS := $(ROOT)/src/domain.c $(ROOT)/src/manifest.c \
     $(ROOT)/src/spm.c $(GENERATED_C) main.c
-PRODUCTION_FIXTURE := $(ROOT)/src/port/stm32h563/manifest.json
+PRODUCTION_FIXTURE := $(ROOT)/port/stm32h563/manifest.json
 PRODUCTION_DIR := $(BUILD_DIR)/production-generated
 PRODUCTION_STAMP := $(PRODUCTION_DIR)/.stamp
 PRODUCTION_C := $(PRODUCTION_DIR)/wolftrust_manifest_generated.c
@@ -42,7 +42,7 @@ PRODUCTION_H := $(PRODUCTION_DIR)/wolftrust_manifest_generated.h
 PRODUCTION_TEST := $(BUILD_DIR)/test_production_manifest
 PRODUCTION_SRCS := $(ROOT)/src/domain.c $(ROOT)/src/manifest.c \
     $(ROOT)/src/spm.c $(ROOT)/src/ffm.c $(ROOT)/src/ipc.c \
-    $(ROOT)/src/port/stm32h563/partitions.c \
+    $(ROOT)/port/stm32h563/partitions.c \
     $(PRODUCTION_C) production_main.c
 
 .PHONY: all run run-valgrind compiler-gcc compiler-clang compilers sanitize \
