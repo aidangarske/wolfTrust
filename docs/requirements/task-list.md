@@ -25,24 +25,48 @@ separately and are never implied by emulator results.
 
 ## Phase 3 — manifest, SPM, runtime binding, and IPC
 
+Done (host-verified):
 - [x] Generate a typed manifest and validate it before SPM ready state.
 - [x] Fail closed on missing or invalid generated policy.
 - [x] Keep the root `make test` aggregate and the focused suite Makefiles.
 - [x] Run the wolfBoot to wolfTrust to Zephyr/FreeRTOS M33MU foundation gate.
-- [ ] Generate the required PSA PID, SID, version, and partition signal headers.
-- [ ] Separate Non-secure applications from actual Secure Partitions.
-- [ ] Make immutable port capabilities authoritative during validation.
-- [ ] Make generated resources, entry points, lifecycle, services, and policy
-  authoritative in the production runtime.
-- [ ] Link the bounded SPM IPC and lifecycle implementation into production.
-- [ ] Implement the FF-M client and Secure Partition API surfaces.
-- [ ] Run the pinned Arm PSA FF architecture tests from
-  `tests/upstream/psa-arch-tests.rev` against wolfTrust and a TF-M baseline.
-- [ ] Keep wolfTrust-owned FF-M security tests for handle integrity, bounded
-  resources, memory scrubbing, pointer revalidation, restart, and isolation.
-- [ ] Run each Secure Partition in a distinct Secure Level 3 protection domain.
-- [ ] Route Initial Attestation and the RTOS framework probes through FF-M IPC.
-- [ ] Pass the host and M33MU FF-M positive and negative suites on one commit.
+- [x] Implement the FF-M client and Secure Partition API surfaces
+  (`src/ffm.c`, `src/ffm_api.c`; `include/psa/{client,service,error}.h`).
+- [x] Make immutable port capabilities authoritative during manifest validation
+  (`src/domain.c` `wt_domain_validate_set`; `tests/host/spm/production_main.c`).
+- [x] Generate PSA identity headers (PID, SID, service version, partition
+  signals) as standard `psa_manifest/{pid.h,sid.h,<partition>.h}` so an
+  unmodified TF-M NS app compiles (`tools/manifest/generate.py`
+  `generate_pid_header`/`generate_sid_header`/`generate_partition_header`;
+  `tests/host/manifest/test_generator.py::test_standard_psa_manifest_headers`).
+
+Remaining, ordered (each closes with host + M33MU evidence on one commit):
+
+2. [ ] Fill the FF-M API gaps: real `psa_notify`, `psa_clear`, `psa_eoi`, and
+   honor the `psa_wait` timeout (`src/ffm_api.c:109,159-174` currently panic /
+   ignore). Requires adding doorbell + interrupt signal state to the runtime
+   engine (`src/ffm.c`), not just the API shim, plus host tests.
+3. [ ] Wire the FF-M IPC runtime into the production boot path: `src/main.c`
+   must `wt_ffm_init` + `wt_ffm_api_bind`, and the SPM must dispatch `psa_call`
+   to registered services. (Runtime is compiled but never invoked today.)
+4. [ ] Register the PSA services (crypto, attestation) behind SIDs and route NS
+   calls through `psa_connect`/`psa_call` → SPM dispatcher instead of the
+   current direct wolfHSM/wolfCOSE calls.
+5. [ ] Separate Non-secure applications from actual Secure Partitions and run
+   each Secure Partition in a distinct Secure Level 3 protection domain.
+6. [ ] Make generated resources, entry points, lifecycle, services, and policy
+   authoritative in the production runtime (not only at validation).
+7. [ ] Route Initial Attestation and the RTOS framework probes through FF-M IPC.
+8. [ ] Add the missing wolfTrust FF-M security tests: partition restart and
+   cross-domain isolation (handle integrity, bounded pools, scrubbing, and
+   pointer revalidation already covered in `tests/host/ffm/main.c`).
+9. [ ] Add M33MU FF-M assertions: a positive `psa_connect`/`psa_call` round trip
+   plus negatives (forged handle, oversized vector, cross-domain access) on the
+   emulator path (`.github/workflows/stm32h563-build.yml`).
+10. [ ] Expand `tests/host/psa_ff_upstream/` past the host subset
+    (`i001,i004-i008`) to the full Arm FF-M suite under M33MU (NS app + 3 SPs)
+    and add the TF-M baseline comparison.
+11. [ ] Pass the host and M33MU FF-M positive and negative suites on one commit.
 
 The earlier Phase 3 validation proves the generated-policy bootstrap and the
 H5 Non-secure guest-monitor lifecycle. It does not prove FF-M IPC or Level 3
