@@ -86,7 +86,23 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    is the natural first target (`SERVICE_CRYPTO`, SID `4097`, already
    declared in `port/stm32h563/manifest.json`). This is where `dispatch`
    stops being a placeholder and item 4 (route NS calls through FF-M instead
-   of direct wolfHSM/wolfCOSE calls) actually starts.
+   of direct wolfHSM/wolfCOSE calls) actually starts. No purpose-built
+   NS-to-Secure transport for wolfTrust's own `psa_connect`/`psa_call`
+   exists yet (`WT_NSC_VENEER` is defined but unused). Reusing the existing
+   Zephyr `tee` driver (`tests/firmware/zephyr-stm32h5/module/wolftrust-tee/`,
+   a generic vendor-neutral Zephyr subsystem, not Arm/TF-M-specific — already
+   proven end-to-end on M33MU for wolfHSM crypto/attestation) as the carrier
+   for now: a new `tee_invoke_func` function ID dispatches into a new
+   `cmse_nonsecure_entry` veneer wrapping `wt_ffm_connect`/`wt_ffm_call`,
+   following the exact pattern already proven in
+   `src/services/vnet/vnet_service.c` (`veneer_precheck` +
+   `wt_platform_active_guest_id()` + paired `wt_cmse_check_ns_*` /
+   `wt_cmse_check_in_guest_ns_*` validation).
+3c-followup. [ ] Remove the TEE-driver dependency once purpose-built FF-M
+   NSC veneers exist (`WT_NSC_VENEER`-based, directly exposing
+   `psa_connect`/`psa_call`/`psa_close` without going through the generic
+   `tee_invoke_func` indirection). TEE is a legitimate reusable carrier for
+   now, not the long-term production transport.
 4. [ ] Register the PSA services (crypto, attestation) behind SIDs and route NS
    calls through `psa_connect`/`psa_call` → SPM dispatcher instead of the
    current direct wolfHSM/wolfCOSE calls.
