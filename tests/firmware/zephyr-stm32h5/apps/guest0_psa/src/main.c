@@ -55,6 +55,10 @@
 LOG_MODULE_REGISTER(guest0_psa, LOG_LEVEL_INF);
 
 #define WOLFTRUST_FN_HSM_CANCEL 2u
+#define WOLFTRUST_FN_FFM_CONNECT 3u
+#define WOLFTRUST_FN_FFM_CALL    4u
+#define WOLFTRUST_FN_FFM_CLOSE   5u
+#define WT_CRYPTO_SID 4097u
 
 #ifndef WT_EXPECTED_MEASUREMENT_HEX
 #define WT_EXPECTED_MEASUREMENT_HEX ""
@@ -90,6 +94,72 @@ static void exercise_tee_driver(void)
 	arg.func = WOLFTRUST_FN_HSM_CANCEL;
 	rc = tee_invoke_func(tee, &arg, 0, NULL);
 	LOG_INF("tee_invoke_func(cancel) rc=%d ret=0x%x", rc, arg.ret);
+}
+
+/* Item 3c-ns: proves the FF-M dispatch path 3a/3b/3c wired up (real
+ * psa_connect/psa_call servicing SERVICE_CRYPTO) end to end from a real
+ * Non-secure guest, not just a host test. Reuses the existing TEE
+ * transport (task-list.md item 3c-followup tracks replacing it with
+ * purpose-built FF-M veneers). */
+static void exercise_ffm_crypto(void)
+{
+	static const uint8_t input[] =
+		"wolfTrust FF-M SERVICE_CRYPTO dispatch test";
+	static const uint8_t expected[32] = {
+		0x20, 0x03, 0xdf, 0x15, 0x2a, 0x52, 0x8a, 0x06,
+		0xc8, 0xd3, 0x48, 0xb8, 0xfa, 0x8b, 0x2f, 0x87,
+		0xf7, 0x1f, 0xae, 0xc6, 0x24, 0x6c, 0x7e, 0x72,
+		0x8e, 0x27, 0xa4, 0xb5, 0x0a, 0x49, 0x84, 0x66
+	};
+	const struct device *tee = DEVICE_DT_GET_ANY(wolfssl_wolftrust_tee);
+	struct tee_invoke_func_arg arg;
+	struct tee_param param[2];
+	uint8_t digest[sizeof(expected)];
+	int32_t handle;
+	int rc;
+
+	if (tee == NULL || !device_is_ready(tee)) {
+		LOG_WRN("wolftrust TEE device not present/ready");
+		return;
+	}
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CONNECT;
+	param[0].a = WT_CRYPTO_SID;
+	param[0].b = 1u;
+	rc = tee_invoke_func(tee, &arg, 1, param);
+	handle = (int32_t)arg.ret;
+	if (rc != 0 || handle <= 0) {
+		LOG_ERR("FF-M psa_connect(SERVICE_CRYPTO) failed rc=%d "
+			"handle=%d", rc, handle);
+		return;
+	}
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CALL;
+	param[0].a = (uint64_t)handle;
+	param[0].b = 0u; /* PSA_IPC_CALL */
+	param[0].c = (uint64_t)(uintptr_t)input;
+	param[1].a = sizeof(input) - 1u;
+	param[1].b = (uint64_t)(uintptr_t)digest;
+	param[1].c = sizeof(digest);
+	rc = tee_invoke_func(tee, &arg, 2, param);
+	if (rc != 0 || (int32_t)arg.ret != 0) {
+		LOG_ERR("FF-M psa_call(SERVICE_CRYPTO) failed rc=%d st=%d",
+			rc, (int32_t)arg.ret);
+	} else if (memcmp(digest, expected, sizeof(expected)) != 0) {
+		LOG_ERR("wolfTrust FF-M SERVICE_CRYPTO digest mismatch");
+	} else {
+		LOG_INF("wolfTrust FF-M SERVICE_CRYPTO dispatch verified");
+	}
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CLOSE;
+	param[0].a = (uint64_t)handle;
+	(void)tee_invoke_func(tee, &arg, 1, param);
 }
 
 static void exercise_psa_rng(void)
@@ -268,6 +338,7 @@ int main(void)
 	}
 
 	exercise_tee_driver();
+	exercise_ffm_crypto();
 	exercise_psa_initial_attestation();
 	exercise_psa_rng();
 	exercise_psa_hash();

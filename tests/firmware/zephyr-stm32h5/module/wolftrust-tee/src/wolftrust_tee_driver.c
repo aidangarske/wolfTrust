@@ -33,6 +33,8 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/tee.h>
 
+#include <wolftrust/ffm_veneer.h>
+
 #define DT_DRV_COMPAT wolfssl_wolftrust_tee
 
 /* "WTRT" — wolfTrust impl id, returned via get_version. */
@@ -43,8 +45,21 @@
 #define WOLFTRUST_FN_HSM_POLL   1u
 #define WOLFTRUST_FN_HSM_CANCEL 2u
 
+/* Item 3c: stopgap NS-to-Secure carrier for wolfTrust's own FF-M client
+ * API, reusing this TEE transport until purpose-built FF-M veneers exist
+ * (task-list.md item 3c-followup). param[0].a/b/c carry scalar value
+ * parameters, not real Zephyr shared-memory memrefs — the secure veneers
+ * do their own CMSE validation of any pointer that crosses. */
+#define WOLFTRUST_FN_FFM_CONNECT 3u
+#define WOLFTRUST_FN_FFM_CALL    4u
+#define WOLFTRUST_FN_FFM_CLOSE   5u
+
 extern int WolfTrust_HSM_Poll(uint16_t seq);
 extern int WolfTrust_HSM_Cancel(uint16_t seq);
+extern int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version);
+extern int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
+                                  const wt_ffm_veneer_iovec_t* ns_iovec);
+extern void WolfTrust_FFM_Close(int32_t handle);
 
 static int wolftrust_get_version(const struct device *dev,
 				 struct tee_version_info *info)
@@ -66,9 +81,9 @@ static int wolftrust_invoke_func(const struct device *dev,
 				 unsigned int num_param,
 				 struct tee_param *param)
 {
+	wt_ffm_veneer_iovec_t iovec;
+
 	ARG_UNUSED(dev);
-	ARG_UNUSED(num_param);
-	ARG_UNUSED(param);
 
 	if (arg == NULL) {
 		return -EINVAL;
@@ -80,6 +95,36 @@ static int wolftrust_invoke_func(const struct device *dev,
 		break;
 	case WOLFTRUST_FN_HSM_CANCEL:
 		arg->ret = (uint32_t)WolfTrust_HSM_Cancel(0u);
+		break;
+	case WOLFTRUST_FN_FFM_CONNECT:
+		if (num_param < 1) {
+			arg->ret = (uint32_t)-EINVAL;
+			return -EINVAL;
+		}
+		arg->ret = (uint32_t)WolfTrust_FFM_Connect(
+			(uint32_t)param[0].a, (uint32_t)param[0].b);
+		break;
+	case WOLFTRUST_FN_FFM_CALL:
+		/* param[0] = {handle, type, input_ptr},
+		 * param[1] = {input_len, output_ptr, output_len}. */
+		if (num_param < 2) {
+			arg->ret = (uint32_t)-EINVAL;
+			return -EINVAL;
+		}
+		iovec.input = (const void *)(uintptr_t)param[0].c;
+		iovec.input_len = (uint32_t)param[1].a;
+		iovec.output = (void *)(uintptr_t)param[1].b;
+		iovec.output_len = (uint32_t)param[1].c;
+		arg->ret = (uint32_t)WolfTrust_FFM_Call(
+			(int32_t)param[0].a, (int32_t)param[0].b, &iovec);
+		break;
+	case WOLFTRUST_FN_FFM_CLOSE:
+		if (num_param < 1) {
+			arg->ret = (uint32_t)-EINVAL;
+			return -EINVAL;
+		}
+		WolfTrust_FFM_Close((int32_t)param[0].a);
+		arg->ret = 0;
 		break;
 	default:
 		arg->ret = (uint32_t)-ENOSYS;

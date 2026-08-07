@@ -1,4 +1,4 @@
-/* ffm_boot.h
+/* ffm_veneer.h
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *
@@ -18,14 +18,22 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef WOLFTRUST_FFM_BOOT_H
-#define WOLFTRUST_FFM_BOOT_H
+#ifndef WOLFTRUST_FFM_VENEER_H
+#define WOLFTRUST_FFM_VENEER_H
 
-#include "wolftrust/ffm.h"
-#include "wolftrust/ffm_veneer.h"
-#include "wolftrust/manifest.h"
+#include <stdint.h>
 
-int wt_ffm_boot_init(const wt_system_manifest_t* manifest);
-const wt_ffm_runtime_t* wt_ffm_boot_runtime(void);
+/* Shared NS/Secure layout for the WolfTrust_FFM_Call veneer (item 3c). A
+ * cmse_nonsecure_entry function cannot take stack-passed arguments (max
+ * ~4 register args), so the single input/output vector pair crosses the
+ * boundary as one struct pointer instead of four scalars. Deliberately
+ * dependency-free (no ffm.h) so Non-secure callers -- the Zephyr
+ * wolftrust-tee driver and guest apps -- can include just this. */
+typedef struct wt_ffm_veneer_iovec {
+    const void* input;
+    uint32_t input_len;
+    void* output;
+    uint32_t output_len;
+} wt_ffm_veneer_iovec_t;
 
-#endif /* WOLFTRUST_FFM_BOOT_H */
+#endif /* WOLFTRUST_FFM_VENEER_H */
