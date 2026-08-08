@@ -75,12 +75,12 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    memory envelope exists until item 5. CMSE/MPU details stay out of
    `src/ffm.c` per the architecture-neutral boundary rule. Verified only by
    the Cortex-M cross-build compiling and linking — no test exists yet.
-3b-test. [ ] Add test evidence for 3b's `check_read`/`check_write`. Blocked
-   the same way as `psa_eoi` (item 2a): the CMSE calls can't be host-tested
-   (ARM-only intrinsics) and nothing calls `check_read`/`check_write` yet
-   since `dispatch` is still a placeholder — no M33MU exerciser exists
-   either. Closes naturally once item 3c gives `dispatch` a real caller;
-   until then this must not be counted as tested.
+3b-test. [x] Test evidence for 3b's `check_read`/`check_write`: closed by the
+   3c-ns M33MU run below. The guest's FF-M `psa_call` crosses the CMSE
+   veneer with real NS input/output pointers, so `check_read`/`check_write`
+   execute live in `wt_ffm_prepare_vectors` on-target and the correct
+   SHA-256 comes back — the ARM-only CMSE path is exercised, not just
+   compiled.
 3c. [x] Secure-side half of the crypto migration through real
    `psa_connect`/`psa_call` dispatch. The SHA-256 service handler moved to
    its own architecture-neutral file, `src/services/crypto_service.c`
@@ -113,13 +113,18 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    these veneers ARE that transport, reusing the existing Zephyr `tee`
    driver (`tests/firmware/zephyr-stm32h5/module/wolftrust-tee/`, a generic
    vendor-neutral Zephyr subsystem, not Arm/TF-M-specific) as the carrier.
-3c-ns. [ ] NS-side half: add a new `tee_invoke_func` function ID in
-   `wolftrust_tee_driver.c` that calls `WolfTrust_FFM_Connect`/`_Call`, and
-   a guest test call (new or modified `exercise_psa_hash`-shaped function)
-   that goes through this path instead of direct wolfPSA/wolfHSM. Add the
-   M33MU CI assertion once a guest can print the result. This is what
-   finally gives 3a/3b/3c-secure a real caller and closes items 3b-test
-   and (for the exercised path) validates the CMSE checks live.
+3c-ns. [x] NS-side half done and proven on M33MU. Added FFM function IDs
+   (`WOLFTRUST_FN_FFM_CONNECT/CALL/CLOSE`) to `wolftrust_tee_driver.c`
+   dispatching into the veneers, and `exercise_ffm_crypto()` in
+   `apps/guest0_psa/src/main.c` driving a real `psa_connect`/`psa_call`
+   for `SERVICE_CRYPTO` over the TEE transport. The emulator boot prints
+   `wolfTrust FF-M SERVICE_CRYPTO dispatch verified` with the correct
+   SHA-256 digest and reaches `[EXPECT BKPT] Success`, exit 0. Asserted in
+   the workflow (`.github/workflows/stm32h563-build.yml`) and in the local
+   gate (`wolftrust-m33mu` skill / `run_m33mu.sh`). Because GitHub Actions
+   is capped this month, the confirming run was the local M33MU gate on
+   `wolf-prec5560` in the CI container — emulator evidence, recorded as
+   such. This gives 3a/3b/3c-secure their first real on-target caller.
 3c-followup. [ ] Remove the TEE-driver dependency once purpose-built FF-M
    NSC veneers exist (`WT_NSC_VENEER`-based, directly exposing
    `psa_connect`/`psa_call`/`psa_close` without going through the generic
