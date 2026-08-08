@@ -114,3 +114,35 @@ int wt_secure_domain_contains(const wt_secure_domain_t* domain,
     }
     return 0;
 }
+
+int wt_ffm_compose_secure_partition_table(const wt_secure_domain_t* domain,
+                                          const wt_mpu_region_t* shared,
+                                          size_t shared_count,
+                                          wt_secure_domain_t* out_table)
+{
+    size_t i;
+    size_t total;
+
+    if (domain == NULL || out_table == NULL ||
+            (shared == NULL && shared_count != 0U)) {
+        return WT_SECURE_DOMAIN_ERROR_ARGUMENT;
+    }
+
+    out_table->domain_id = WT_DOMAIN_ID_INVALID;
+    out_table->region_count = 0U;
+
+    total = shared_count + domain->region_count;
+    if (shared_count > WT_MAX_MPU_REGIONS || total > WT_MAX_MPU_REGIONS) {
+        return WT_SECURE_DOMAIN_ERROR_CAPACITY;
+    }
+
+    for (i = 0U; i < shared_count; i++) {
+        out_table->regions[i] = shared[i];
+    }
+    for (i = 0U; i < domain->region_count; i++) {
+        out_table->regions[shared_count + i] = domain->regions[i];
+    }
+    out_table->region_count = total;
+    out_table->domain_id = domain->domain_id;
+    return WT_SECURE_DOMAIN_OK;
+}

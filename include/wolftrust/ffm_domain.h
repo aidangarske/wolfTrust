@@ -61,4 +61,17 @@ int wt_ffm_resolve_secure_domain(const wt_system_manifest_t* manifest,
 int wt_secure_domain_contains(const wt_secure_domain_t* domain,
                               uintptr_t addr, size_t len, int need_write);
 
+/* Compose the full secure MPU table for a Secure Partition: the shared
+ * regions every partition needs to execute (secure code) followed by the
+ * partition's own private regions. The Level 3 profile copies IOVEC
+ * transfers (WT-FFM-0041), so the SPM, not the partition, touches client
+ * memory — a partition's table therefore needs only code plus its private
+ * regions, leaving other partitions, the SPM, and the private peripheral bus
+ * unmapped and faulting. Fails closed when the combined set exceeds the MPU,
+ * leaving out_table empty. */
+int wt_ffm_compose_secure_partition_table(const wt_secure_domain_t* domain,
+                                          const wt_mpu_region_t* shared,
+                                          size_t shared_count,
+                                          wt_secure_domain_t* out_table);
+
 #endif

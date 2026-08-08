@@ -157,13 +157,31 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    enforcement (5b) needs the region-table swap. Per the completion rule a
    positive marker is not isolation evidence — 5a proves the derivation, 5c
    proves the fault.
-5b. [ ] Enforcement: give each Secure Partition its own unprivileged secure
-   thread (separate secure stack, SVC-based SPM entry) and switch the secure
-   MPU to the partition's resolved domain around dispatch, restoring the SPM
-   whitelist on return. Constraint: the Cortex-M33 secure MPU has only 8
-   regions and `wt_mpu_s_init` already consumes all 8 for the SPM whitelist,
-   so per-partition isolation must swap the region table on entry, not append
-   regions. Consumes `wt_ffm_resolve_secure_domain` from 5a.
+5b. [ ] Enforcement: run each Secure Partition as its own secure execution
+   context and switch the secure MPU to the partition's resolved domain around
+   dispatch, restoring the SPM whitelist on return. Design: reuse the existing
+   secure coroutine layer (`src/sched/coroutine.c` — per-context stacks,
+   cooperative switch from the monitor, and a fault handler that already marks
+   a context FAULTED on MemManage/MPU_S/PSPLIM_S). A partition runs as a
+   coroutine; on switch-in the port narrows the secure MPU to
+   `[secure code RX] + [the partition's resolved private regions]`, on
+   switch-out it restores the whitelist. Because the Level 3 profile copies
+   IOVEC transfers (WT-FFM-0041), the SPM — not the partition — touches client
+   memory, so a partition's table needs only code plus its own regions;
+   PRIVDEFENA is already off, so an unmapped access faults even at privileged
+   level. Constraint: the M33 secure MPU has 8 regions and `wt_mpu_s_init`
+   already uses all 8, so the table is swapped on entry, not appended.
+   Sub-steps:
+   - [x] Architecture-neutral table composition
+     (`wt_ffm_compose_secure_partition_table`, `src/ffm_domain.c`): shared
+     regions + the resolved private set, fail-closed past 8. Host-tested in
+     `tests/host/ffm_domain/` — the composed table maps secure code and the
+     partition's own RAM and excludes another partition's RAM and the MPU
+     control block (`0xE000ED94`). gcc/clang/ASan/UBSan green; Cortex-M33
+     compile clean.
+   - [ ] Port register swap `wt_platform_program_secure_partition_domain` /
+     `wt_platform_restore_spm_domain` and live wiring around crypto dispatch —
+     proven together with 5c on M33MU (a compile is not enforcement evidence).
 5c. [ ] M33MU negative proof: a probe executed inside the crypto Secure
    Partition that reads or writes another domain's or the SPM's private memory
    must fault the initiating partition (MemManage) without exposing data.

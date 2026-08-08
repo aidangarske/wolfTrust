@@ -35,6 +35,9 @@
 #define SP1_RAM_SIZE   0x00008000U
 #define SP2_RAM_BASE   0x20008000U
 #define SP2_RAM_SIZE   0x00008000U
+#define SEC_CODE_BASE  0x0C000000U
+#define SEC_CODE_SIZE  0x00060000U
+#define PPB_MPU_CTRL   0xE000ED94U
 
 static const wt_memory_resource_t sp1_memory[2] = {
     {SP1_FLASH_BASE, SP1_FLASH_SIZE, WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC, 0U},
@@ -104,11 +107,16 @@ static void check(int ok, const char* what)
     }
 }
 
+static const wt_mpu_region_t secure_code[1] = {
+    {SEC_CODE_BASE, SEC_CODE_SIZE, WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC}
+};
+
 int main(void)
 {
     wt_secure_domain_t sp1;
     wt_secure_domain_t sp2;
     wt_secure_domain_t scratch;
+    wt_secure_domain_t table;
     int result;
 
     /* A Secure Partition resolves to exactly its declared private regions. */
@@ -168,6 +176,35 @@ int main(void)
 
     result = wt_ffm_resolve_secure_domain(&manifest, 1U, NULL);
     check(result == WT_SECURE_DOMAIN_ERROR_ARGUMENT, "null output rejected");
+
+    /* Composing a partition's secure MPU table: shared code plus its own
+     * private regions, and nothing else. */
+    result = wt_ffm_compose_secure_partition_table(&sp1, secure_code, 1U,
+                                                   &table);
+    check(result == WT_SECURE_DOMAIN_OK, "compose partition 1 table");
+    check(table.region_count == 3U, "table holds code plus SP regions");
+    check(wt_secure_domain_contains(&table, SEC_CODE_BASE, 4U, 0) == 1,
+          "table maps secure code for execution");
+    check(wt_secure_domain_contains(&table, SP1_RAM_BASE, 4U, 1) == 1,
+          "table maps partition 1 private RAM");
+    check(wt_secure_domain_contains(&table, SP2_RAM_BASE, 4U, 0) == 0,
+          "table excludes partition 2 RAM");
+    check(wt_secure_domain_contains(&table, PPB_MPU_CTRL, 4U, 1) == 0,
+          "table excludes the MPU control block");
+
+    /* No shared regions is allowed; a null shared with a count is not. */
+    result = wt_ffm_compose_secure_partition_table(&sp1, NULL, 0U, &table);
+    check(result == WT_SECURE_DOMAIN_OK, "compose with no shared regions");
+    result = wt_ffm_compose_secure_partition_table(&sp1, NULL, 1U, &table);
+    check(result == WT_SECURE_DOMAIN_ERROR_ARGUMENT,
+          "null shared with count rejected");
+
+    /* Overflowing the MPU fails closed with an empty table. */
+    result = wt_ffm_compose_secure_partition_table(&sp1, secure_code,
+        WT_MAX_MPU_REGIONS, &table);
+    check(result == WT_SECURE_DOMAIN_ERROR_CAPACITY,
+          "oversized composition rejected");
+    check(table.region_count == 0U, "oversized composition leaves empty");
 
     if (failures != 0) {
         (void)printf("FAIL: ffm_domain (%d)\n", failures);
