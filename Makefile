@@ -59,6 +59,7 @@ clean:
 	$(MAKE) -C tests/host/lifecycle clean
 	$(MAKE) -C tests/host/ipc clean
 	$(MAKE) -C tests/host/ffm clean
+	$(MAKE) -C tests/host/ffm_domain clean
 	$(MAKE) -C tests/host/psa_ff_upstream clean
 	$(MAKE) -C tests/host/spm clean
 	$(MAKE) -C tests/host/vnet clean

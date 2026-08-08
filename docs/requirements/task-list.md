@@ -134,7 +134,41 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    calls through `psa_connect`/`psa_call` → SPM dispatcher instead of the
    current direct wolfHSM/wolfCOSE calls.
 5. [ ] Separate Non-secure applications from actual Secure Partitions and run
-   each Secure Partition in a distinct Secure Level 3 protection domain.
+   each Secure Partition in a distinct Secure Level 3 protection domain
+   (WT-FFM-0011). Decomposed:
+5a. [x] Architecture-neutral Secure-Partition protection-domain resolver and
+   containment predicate: `wt_ffm_resolve_secure_domain` /
+   `wt_secure_domain_contains` (`src/ffm_domain.c`,
+   `include/wolftrust/ffm_domain.h`). The resolver derives a partition's
+   private MPU region set from the validated manifest and fails closed for
+   SPM, Non-secure, unknown, oversized, or null inputs (leaving an empty
+   domain, so no over-broad set is ever programmed). The predicate proves a
+   span lies wholly inside a granted region and excludes any other domain's
+   private memory. **Real test evidence**: `tests/host/ffm_domain/` drives 20
+   assertions printing `WT-FFM-0011` — a partition owns its RW RAM and RX
+   flash (RX not writable), each partition excludes the other's private RAM,
+   spans past a region end / zero length / address overflow are rejected, and
+   every fail-closed path returns the right error with an empty domain. Green
+   under gcc, clang, and ASan/UBSan; wired into `make test`
+   (`unit/ffm_domain`). Linked into the secure build
+   (`mk/secure-armv8m-stm32h563.mk`) and compiles for Cortex-M33 with the
+   production `-ffreestanding` flags (228 B text, no data/bss). This is the
+   policy half only: the object is not yet called from the boot path because
+   enforcement (5b) needs the region-table swap. Per the completion rule a
+   positive marker is not isolation evidence — 5a proves the derivation, 5c
+   proves the fault.
+5b. [ ] Enforcement: give each Secure Partition its own unprivileged secure
+   thread (separate secure stack, SVC-based SPM entry) and switch the secure
+   MPU to the partition's resolved domain around dispatch, restoring the SPM
+   whitelist on return. Constraint: the Cortex-M33 secure MPU has only 8
+   regions and `wt_mpu_s_init` already consumes all 8 for the SPM whitelist,
+   so per-partition isolation must swap the region table on entry, not append
+   regions. Consumes `wt_ffm_resolve_secure_domain` from 5a.
+5c. [ ] M33MU negative proof: a probe executed inside the crypto Secure
+   Partition that reads or writes another domain's or the SPM's private memory
+   must fault the initiating partition (MemManage) without exposing data.
+   Closes WT-FFM-0011's failure clause and `framework.md` acceptance-gate
+   negative #1. Needs 5b's live domain switch.
 6. [ ] Make generated resources, entry points, lifecycle, services, and policy
    authoritative in the production runtime (not only at validation).
 7. [ ] Route Initial Attestation and the RTOS framework probes through FF-M IPC.

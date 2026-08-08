@@ -132,6 +132,7 @@ SECURE_SRCS := \
     $(ROOT)/src/ffm.c \
     $(ROOT)/src/ffm_api.c \
     $(ROOT)/src/ffm_boot.c \
+    $(ROOT)/src/ffm_domain.c \
     $(ROOT)/src/ipc.c \
     $(ROOT)/src/lifecycle.c \
     $(ROOT)/src/manifest.c \
