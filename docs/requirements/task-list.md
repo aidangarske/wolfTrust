@@ -189,7 +189,14 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
      carve with compile-time `_Static_assert`s (alignment, in-window,
      contiguous, non-overlapping) plus a runtime print; green under
      gcc/clang/ASan/UBSan, wired into `make test` (`unit/sp_layout`). Secure
-     link with the shrunk RAM is verified at the Phase C cross-build.
+     link with the shrunk RAM is verified on-target: an M33MU regression run of
+     the A+B+C tree links (wolfTrust image 81208 B, no RAM overflow), validates
+     and binds the 5-domain manifest at boot, and boots the full lifecycle to
+     `[EXPECT BKPT] Success`, exit 0. (That run also surfaced a pre-existing,
+     unrelated bug: the wolfBoot `d85fa9d` boot handoff is rejected by
+     `wt_boot_handoff_consume` so attestation reports `lifecycle=0x0000` — see
+     the "boot handoff rejected" task; the local gate warns rather than fails on
+     it so Phase D/E isolation stays verifiable.)
    - [x] Phase B — separate NS-application domains from Secure-Partition
      domains. `manifest.json` now carries five domains: SPM (0), the two guests
      relabelled `NONSECURE_APPLICATION`/NON-SECURE (1,2), and new
