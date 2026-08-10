@@ -44,6 +44,13 @@ void wt_platform_quarantine_pending_irqs(const wt_irq_mask_t* allowed_mask);
 void wt_platform_program_memory_windows(const wt_memory_window_t* windows,
                                         size_t count);
 void wt_platform_program_ns_mpu(const wt_mpu_region_t* regions, size_t count);
+/* Narrow the secure MPU to a single Secure Partition's protection domain
+ * (WT-FFM-0011): program regions 0..count-1 from the composed table and
+ * disable the rest, so any access outside the partition's regions faults.
+ * wt_platform_restore_spm_domain reinstates the full SPM whitelist. */
+void wt_platform_program_secure_partition_domain(const wt_mpu_region_t* regions,
+                                                 size_t count);
+void wt_platform_restore_spm_domain(void);
 void wt_platform_prepare_guest_return(wt_guest_id_t guest_id,
                                       const wt_guest_context_t* context);
 void wt_platform_capture_guest_context(wt_guest_context_t* context,

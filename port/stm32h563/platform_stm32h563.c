@@ -359,6 +359,68 @@ static void wt_mpu_s_init(void)
     wt_isb();
 }
 
+/* Encode one secure MPU region for a Secure Partition domain. Access is
+ * granted at any privilege level so the unprivileged partition thread can
+ * reach its own regions; isolation comes from which regions are mapped. */
+static void wt_program_secure_partition_region(uint32_t rnr, uintptr_t base,
+                                               size_t size, uint32_t attributes)
+{
+    uint32_t rbar_flags = WT_MPU_RBAR_SH_INNER;
+    uint32_t rlar_flags = WT_MPU_RLAR_ATTRIDX_NORMAL;
+
+    if ((attributes & WT_MEM_ATTR_EXEC) == 0u) {
+        rbar_flags |= WT_MPU_RBAR_XN;
+    }
+    if ((attributes & WT_MEM_ATTR_WRITE) != 0u) {
+        rbar_flags |= WT_MPU_RBAR_AP_RWRW;
+    }
+    else {
+        rbar_flags |= WT_MPU_RBAR_AP_RORO;
+    }
+    if ((attributes & WT_MEM_ATTR_DEVICE) != 0u) {
+        rbar_flags &= ~WT_MPU_RBAR_SH_INNER;
+        rlar_flags = WT_MPU_RLAR_ATTRIDX_DEVICE;
+    }
+    wt_mpu_s_set_region(rnr, base, base + size - 1u, rbar_flags, rlar_flags);
+}
+
+void wt_platform_program_secure_partition_domain(const wt_mpu_region_t* regions,
+                                                 size_t count)
+{
+    size_t i;
+
+    WT_MPU_S_CTRL = 0u;
+    wt_dsb();
+
+    WT_MPU_S_MAIR0 = WT_MPU_MAIR0_NORMAL_AT_0 |
+                     WT_MPU_MAIR0_DEVICE_AT_1 |
+                     WT_MPU_MAIR0_NOCACHE_AT_2;
+    WT_MPU_S_MAIR1 = 0u;
+
+    for (i = 0u; i < WT_MAX_MPU_REGIONS; ++i) {
+        if (regions != NULL && i < count && regions[i].size != 0u) {
+            wt_program_secure_partition_region((uint32_t)i, regions[i].base,
+                                               regions[i].size,
+                                               regions[i].attributes);
+        }
+        else {
+            WT_MPU_S_RNR  = (uint32_t)i;
+            WT_MPU_S_RBAR = 0u;
+            WT_MPU_S_RLAR = 0u;
+        }
+    }
+
+    wt_dsb();
+    WT_MPU_S_CTRL = WT_MPU_CTRL_HFNMIENA | WT_MPU_CTRL_ENABLE;
+    wt_dsb();
+    wt_isb();
+}
+
+void wt_platform_restore_spm_domain(void)
+{
+    wt_mpu_s_init();
+}
+
 static void wt_clock_init(void)
 {
     uint32_t reg;

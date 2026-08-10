@@ -203,8 +203,16 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
      Partition resolves to its own secure stack (`WT_SP_CRYPTO_STACK_BASE`) and
      no longer reaches Non-secure guest RAM (`0x20000000`). Full `make test`
      green.
-   - [ ] Phase C — port register swap `wt_platform_program_secure_partition_domain`
-     / `wt_platform_restore_spm_domain`; compile-only.
+   - [x] Phase C — port secure-MPU swap primitive
+     (`wt_platform_program_secure_partition_domain` /
+     `wt_platform_restore_spm_domain`, `platform_stm32h563.c`; declared in
+     `platform.h`). Programs regions 0..count-1 from the composed table with
+     any-privilege AP (so an unprivileged partition thread reaches its own
+     regions) and disables the rest; restore re-runs `wt_mpu_s_init`. Not
+     called yet. The new logic compiles clean in isolation on the host
+     (`-Wall -Wextra -Werror -pedantic`) and for Cortex-M33 freestanding
+     (108 B text); the full-file secure link is verified at the Phase D
+     container build.
    - [ ] Phase D — run crypto dispatch on its own secure stack with the MPU
      narrowed to the composed domain; **M33MU positive (run #1)**.
 5c. [ ] Phase E — M33MU negative proof: a probe executed inside the crypto
