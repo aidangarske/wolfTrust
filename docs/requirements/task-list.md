@@ -171,7 +171,8 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    PRIVDEFENA is already off, so an unmapped access faults even at privileged
    level. Constraint: the M33 secure MPU has 8 regions and `wt_mpu_s_init`
    already uses all 8, so the table is swapped on entry, not appended.
-   Sub-steps:
+   Sub-steps (phased so A–C are host/compile-only and only D/E spend an M33MU
+   gate — two runs total):
    - [x] Architecture-neutral table composition
      (`wt_ffm_compose_secure_partition_table`, `src/ffm_domain.c`): shared
      regions + the resolved private set, fail-closed past 8. Host-tested in
@@ -179,14 +180,28 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
      partition's own RAM and excludes another partition's RAM and the MPU
      control block (`0xE000ED94`). gcc/clang/ASan/UBSan green; Cortex-M33
      compile clean.
-   - [ ] Port register swap `wt_platform_program_secure_partition_domain` /
-     `wt_platform_restore_spm_domain` and live wiring around crypto dispatch —
-     proven together with 5c on M33MU (a compile is not enforcement evidence).
-5c. [ ] M33MU negative proof: a probe executed inside the crypto Secure
-   Partition that reads or writes another domain's or the SPM's private memory
-   must fault the initiating partition (MemManage) without exposing data.
-   Closes WT-FFM-0011's failure clause and `framework.md` acceptance-gate
-   negative #1. Needs 5b's live domain switch.
+   - [x] Phase A — carve secure per-partition RAM. `memory_map.h` reserves the
+     top 16 KiB of the secure RAM window (`0x3009C000..0x300A0000`, the end of
+     physical SRAM) as two 8 KiB secure stacks (`WT_SP_CRYPTO_STACK_BASE`,
+     `WT_SP_ATTEST_STACK_BASE`); `secure.ld` shrinks the main RAM to 464 KiB,
+     adds the `SPSTACKS` region + `.sp_stacks` section, and asserts the region
+     sits directly above the RAM window. `tests/host/sp_layout/` guards the
+     carve with compile-time `_Static_assert`s (alignment, in-window,
+     contiguous, non-overlapping) plus a runtime print; green under
+     gcc/clang/ASan/UBSan, wired into `make test` (`unit/sp_layout`). Secure
+     link with the shrunk RAM is verified at the Phase C cross-build.
+   - [ ] Phase B — separate NS-application domains from Secure-Partition domains
+     in `manifest.json` + regen: give crypto/attest genuine secure private
+     regions (the Phase-A stacks); resolver now yields secure addresses. Host.
+   - [ ] Phase C — port register swap `wt_platform_program_secure_partition_domain`
+     / `wt_platform_restore_spm_domain`; compile-only.
+   - [ ] Phase D — run crypto dispatch on its own secure stack with the MPU
+     narrowed to the composed domain; **M33MU positive (run #1)**.
+5c. [ ] Phase E — M33MU negative proof: a probe executed inside the crypto
+   Secure Partition that reads or writes another domain's or the SPM's private
+   memory must fault the initiating partition (MemManage) without exposing
+   data. Closes WT-FFM-0011's failure clause and `framework.md` acceptance-gate
+   negative #1. Needs 5b's live domain switch. **M33MU negative (run #2)**.
 6. [ ] Make generated resources, entry points, lifecycle, services, and policy
    authoritative in the production runtime (not only at validation).
 7. [ ] Route Initial Attestation and the RTOS framework probes through FF-M IPC.

@@ -69,6 +69,24 @@
 #define WT_RAM_S_BASE            0x30028000u
 #define WT_RAM_S_SIZE            0x00080000u
 
+/* Secure per-partition stacks (WT-FFM-0011 Level 3 isolation). Each Secure
+ * Partition runs on its own secure stack so the secure MPU can confine it to
+ * its own domain. Carved from the top of the secure RAM window that the linker
+ * uses (0x30028000 + 464 KiB .. 0x300A0000, the end of physical SRAM); the
+ * main stack (_estack) drops to 0x3009C000 to make room. These MUST match the
+ * SPSTACKS region in src/services/wolfhsm/runner/secure.ld. */
+#define WT_SP_SECURE_STACK_SIZE  0x00002000u   /* 8 KiB per partition */
+#define WT_SP_SECURE_STACK_COUNT 2u
+#define WT_SP_SECURE_RAM_SIZE \
+    (WT_SP_SECURE_STACK_SIZE * WT_SP_SECURE_STACK_COUNT)
+#define WT_SP_SECURE_RAM_BASE    (WT_RAM_S_BASE + 0x00074000u)  /* 0x3009C000 */
+#define WT_SP_SECURE_RAM_END \
+    (WT_SP_SECURE_RAM_BASE + WT_SP_SECURE_RAM_SIZE)             /* 0x300A0000 */
+#define WT_SP_CRYPTO_STACK_BASE \
+    (WT_SP_SECURE_RAM_BASE + 0u * WT_SP_SECURE_STACK_SIZE)      /* 0x3009C000 */
+#define WT_SP_ATTEST_STACK_BASE \
+    (WT_SP_SECURE_RAM_BASE + 1u * WT_SP_SECURE_STACK_SIZE)      /* 0x3009E000 */
+
 #define WT_SHARED_STATUS_ADDR    0x20000000u
 
 /* Per-guest CMSE shared transport buffer for wolfHSM. Sits inside each

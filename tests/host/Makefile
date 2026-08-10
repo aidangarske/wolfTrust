@@ -31,7 +31,7 @@ SUBMAKE_FLAGS := --no-print-directory -s
 endif
 
 UNIT_SUITES := domain manifest lifecycle ipc ffm spm vnet wolfhsm_loopback \
-    crypto_service ffm_domain
+    crypto_service ffm_domain sp_layout
 
 .PHONY: all test test-compilers test-sanitize test-valgrind clean
 
