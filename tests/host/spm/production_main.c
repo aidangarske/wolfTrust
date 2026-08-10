@@ -21,8 +21,11 @@
 #include "wolftrust/spm.h"
 #include "wolftrust/partition.h"
 #include "wolftrust/ffm.h"
+#include "wolftrust/ffm_domain.h"
 #include "wolftrust_manifest_generated.h"
 #include "psa_manifest/sid.h"
+#include "psa_manifest/pid.h"
+#include "memory_map.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -79,6 +82,7 @@ int main(void)
     wt_guest_config_t invalid_config;
     const wt_guest_config_t* configs;
     const wt_domain_descriptor_t* guest_domain;
+    wt_secure_domain_t crypto_domain;
     size_t config_count;
     size_t domain_count;
     int result;
@@ -177,6 +181,24 @@ int main(void)
     if (wt_ffm_service_version(&ffm_runtime, -1,
                                SERVICE_CRYPTO_SID) != SERVICE_CRYPTO_VERSION) {
         (void)fprintf(stderr, "SERVICE_CRYPTO not registered by SID\n");
+        return 1;
+    }
+
+    /* WT-FFM-0011 Phase B: the crypto Secure Partition now resolves to its own
+     * secure private RAM, not the Non-secure guest memory it was conflated
+     * with before. */
+    if (wt_ffm_resolve_secure_domain(wt_spm_manifest(&spm), PARTITION_CRYPTO_ID,
+                                     &crypto_domain) != WT_SECURE_DOMAIN_OK) {
+        (void)fprintf(stderr, "crypto Secure Partition domain not resolved\n");
+        return 1;
+    }
+    if (!wt_secure_domain_contains(&crypto_domain, WT_SP_CRYPTO_STACK_BASE,
+                                   4U, 1)) {
+        (void)fprintf(stderr, "crypto SP does not own its secure stack\n");
+        return 1;
+    }
+    if (wt_secure_domain_contains(&crypto_domain, WT_GUEST0_RAM_BASE, 4U, 0)) {
+        (void)fprintf(stderr, "crypto SP still reaches Non-secure guest RAM\n");
         return 1;
     }
 

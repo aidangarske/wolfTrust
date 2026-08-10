@@ -152,7 +152,7 @@ static const wt_profile_capabilities_t g_profile_capabilities = {
                     WT_CAPABILITY_MEMORY_PROTECTION |
                     WT_CAPABILITY_INTERRUPT_ISOLATION |
                     WT_CAPABILITY_RESTART,
-    .max_domains = 3U,
+    .max_domains = 5U,
     .max_memory_resources_per_domain = 2U,
     .max_interrupts_per_domain = 0U,
 };
@@ -321,16 +321,18 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
         wt_guest_config_t* config = &g_partition_configs[i];
         const wt_domain_descriptor_t* domain;
 
-        /* Domain zero is the SPM; H5 guest IDs map to secure-partition
-         * descriptors one higher in the generated manifest. */
+        /* Domain zero is the SPM; each H5 guest is a Non-secure application
+         * domain one higher in the generated manifest. The Secure Partitions
+         * (crypto, attestation) are separate secure domains above the guests
+         * and are not bound to a guest here. */
         if (config->guest_id == WT_DOMAIN_ID_INVALID) {
             return -1;
         }
         domain = wt_partition_manifest_domain(manifest,
                                               (wt_domain_id_t)config->guest_id + 1U);
         if (domain == NULL ||
-                domain->domain_class != WT_DOMAIN_CLASS_SECURE_PARTITION ||
-                domain->security_state != WT_SECURITY_STATE_SECURE ||
+                domain->domain_class != WT_DOMAIN_CLASS_NONSECURE_APPLICATION ||
+                domain->security_state != WT_SECURITY_STATE_NONSECURE ||
                 domain->privilege_state != WT_PRIVILEGE_STATE_UNPRIVILEGED ||
                 domain->restart_policy.action != WT_RESTART_ACTION_DOMAIN ||
                 domain->restart_policy.restart_limit !=

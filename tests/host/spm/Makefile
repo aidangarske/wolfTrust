@@ -42,6 +42,7 @@ PRODUCTION_H := $(PRODUCTION_DIR)/wolftrust_manifest_generated.h
 PRODUCTION_TEST := $(BUILD_DIR)/test_production_manifest
 PRODUCTION_SRCS := $(ROOT)/src/domain.c $(ROOT)/src/manifest.c \
     $(ROOT)/src/spm.c $(ROOT)/src/ffm.c $(ROOT)/src/ipc.c \
+    $(ROOT)/src/ffm_domain.c \
     $(ROOT)/port/stm32h563/partitions.c \
     $(PRODUCTION_C) production_main.c
 
@@ -75,8 +76,8 @@ $(SPM_TEST): $(SPM_SRCS) $(GENERATED_STAMP) $(GENERATED_H) | $(BUILD_DIR)
 
 $(PRODUCTION_TEST): $(PRODUCTION_SRCS) $(PRODUCTION_STAMP) $(PRODUCTION_H) \
 		| $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(PRODUCTION_DIR) $(LDFLAGS) -o $@ \
-		$(PRODUCTION_SRCS)
+	$(CC) $(CFLAGS) -I$(PRODUCTION_DIR) -I$(ROOT)/port/stm32h563 \
+		$(LDFLAGS) -o $@ $(PRODUCTION_SRCS)
 
 run: $(SPM_TEST) $(PRODUCTION_TEST)
 	$(SPM_TEST)

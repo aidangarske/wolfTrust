@@ -190,9 +190,19 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
      contiguous, non-overlapping) plus a runtime print; green under
      gcc/clang/ASan/UBSan, wired into `make test` (`unit/sp_layout`). Secure
      link with the shrunk RAM is verified at the Phase C cross-build.
-   - [ ] Phase B — separate NS-application domains from Secure-Partition domains
-     in `manifest.json` + regen: give crypto/attest genuine secure private
-     regions (the Phase-A stacks); resolver now yields secure addresses. Host.
+   - [x] Phase B — separate NS-application domains from Secure-Partition
+     domains. `manifest.json` now carries five domains: SPM (0), the two guests
+     relabelled `NONSECURE_APPLICATION`/NON-SECURE (1,2), and new
+     `SECURE_PARTITION` domains for attestation (3) and crypto (4) whose memory
+     is genuine secure code + the Phase-A secure stacks. `PARTITION_ATTEST`/
+     `PARTITION_CRYPTO` re-point to domains 3/4; port `max_domains` 3→5; the
+     guest-binding assertion in `partitions.c` now expects a Non-secure
+     application domain. Proven host-side: the generator validates the manifest,
+     `unit/spm` binds it (guests → NS-app domains) and — with `src/ffm_domain.c`
+     linked in — asserts on the real generated manifest that the crypto Secure
+     Partition resolves to its own secure stack (`WT_SP_CRYPTO_STACK_BASE`) and
+     no longer reaches Non-secure guest RAM (`0x20000000`). Full `make test`
+     green.
    - [ ] Phase C — port register swap `wt_platform_program_secure_partition_domain`
      / `wt_platform_restore_spm_domain`; compile-only.
    - [ ] Phase D — run crypto dispatch on its own secure stack with the MPU

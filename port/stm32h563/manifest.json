@@ -5,7 +5,7 @@
   "isolation_profile": 3,
   "profile_capabilities": {
     "capabilities": 127,
-    "max_domains": 3,
+    "max_domains": 5,
     "max_memory_resources_per_domain": 2,
     "max_interrupts_per_domain": 0
   },
@@ -35,9 +35,9 @@
     },
     {
       "id": 1,
-      "domain_class": 1,
-      "rot_role": 2,
-      "security_state": 0,
+      "domain_class": 2,
+      "rot_role": 0,
+      "security_state": 1,
       "privilege_state": 1,
       "initial_lifecycle": 0,
       "entry_point": 134742016,
@@ -58,9 +58,9 @@
     },
     {
       "id": 2,
-      "domain_class": 1,
-      "rot_role": 2,
-      "security_state": 0,
+      "domain_class": 2,
+      "rot_role": 0,
+      "security_state": 1,
       "privilege_state": 1,
       "initial_lifecycle": 0,
       "entry_point": 134873088,
@@ -78,12 +78,58 @@
         "initial_delay_ticks": 1
       },
       "required_capabilities": 80
+    },
+    {
+      "id": 3,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": 201392128,
+      "stack_base": 805953536,
+      "stack_size": 8192,
+      "memory_resources": [
+        {"base": 201392128, "size": 4096, "attributes": 5, "share_id": 0},
+        {"base": 805953536, "size": 8192, "attributes": 19, "share_id": 0}
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 64,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80
+    },
+    {
+      "id": 4,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": 201396224,
+      "stack_base": 805945344,
+      "stack_size": 8192,
+      "memory_resources": [
+        {"base": 201396224, "size": 4096, "attributes": 5, "share_id": 0},
+        {"base": 805945344, "size": 8192, "attributes": 19, "share_id": 0}
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 64,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80
     }
   ],
   "partitions": [
     {
       "name": "PARTITION_ATTEST",
-      "domain_id": 1,
+      "domain_id": 3,
       "framework_version": 256,
       "model": 0,
       "priority": 2,
@@ -104,7 +150,7 @@
     },
     {
       "name": "PARTITION_CRYPTO",
-      "domain_id": 2,
+      "domain_id": 4,
       "framework_version": 256,
       "model": 0,
       "priority": 1,
