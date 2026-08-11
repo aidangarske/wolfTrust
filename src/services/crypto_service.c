@@ -22,32 +22,59 @@
 
 #include <wolfssl/wolfcrypt/sha256.h>
 
-static int wt_crypto_service_hash(wt_ffm_runtime_t* runtime,
-                                  int32_t partition_id,
-                                  psa_handle_t msg_handle)
+int wt_crypto_sp_hash(const uint8_t* input, size_t input_len,
+                      uint8_t* digest, size_t digest_len)
 {
     wc_Sha256 sha;
-    uint8_t chunk[64];
-    uint8_t digest[WC_SHA256_DIGEST_SIZE];
-    size_t got;
+    int ret;
 
-    if (wc_InitSha256(&sha) != 0) {
+    if ((input == NULL && input_len != 0U) || digest == NULL ||
+            digest_len < WC_SHA256_DIGEST_SIZE) {
+        return WT_FFM_ERROR_ARGUMENT;
+    }
+    ret = wc_InitSha256(&sha);
+    if (ret == 0) {
+        ret = wc_Sha256Update(&sha, input, (word32)input_len);
+    }
+    if (ret == 0) {
+        ret = wc_Sha256Final(&sha, digest);
+    }
+    if (ret != 0) {
         return WT_FFM_ERROR_STATE;
     }
+    return WT_FFM_SUCCESS;
+}
+
+static int wt_crypto_service_hash(wt_ffm_runtime_t* runtime,
+                                  int32_t partition_id,
+                                  const psa_msg_t* msg)
+{
+    uint8_t input[WT_CRYPTO_SP_INPUT_MAX];
+    uint8_t digest[WC_SHA256_DIGEST_SIZE];
+    size_t in_len = 0U;
+    size_t got;
+    int ret;
+
+    /* Copied IOVEC (WT-FFM-0041): the SPM drains the input vector into a
+     * bounded private buffer, refusing anything past the SP input cap, so the
+     * isolated compute never reads caller memory. */
+    if (msg->in_size[0] > sizeof(input)) {
+        return WT_FFM_ERROR_ARGUMENT;
+    }
     for (;;) {
-        got = wt_ffm_read(runtime, partition_id, msg_handle, 0U, chunk,
-                          sizeof(chunk));
+        got = wt_ffm_read(runtime, partition_id, msg->handle, 0U,
+                          input + in_len, sizeof(input) - in_len);
         if (got == 0U) {
             break;
         }
-        if (wc_Sha256Update(&sha, chunk, (word32)got) != 0) {
-            return WT_FFM_ERROR_STATE;
-        }
+        in_len += got;
     }
-    if (wc_Sha256Final(&sha, digest) != 0) {
-        return WT_FFM_ERROR_STATE;
+
+    ret = wt_crypto_sp_hash(input, in_len, digest, sizeof(digest));
+    if (ret != WT_FFM_SUCCESS) {
+        return ret;
     }
-    if (wt_ffm_write(runtime, partition_id, msg_handle, 0U, digest,
+    if (wt_ffm_write(runtime, partition_id, msg->handle, 0U, digest,
                      sizeof(digest)) != WT_FFM_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
@@ -74,7 +101,7 @@ int wt_crypto_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
         reply_status = PSA_SUCCESS;
     } else if (msg.type == PSA_IPC_CALL) {
         reply_status = wt_crypto_service_hash(runtime, partition_id,
-                           msg.handle) == WT_FFM_SUCCESS ?
+                           &msg) == WT_FFM_SUCCESS ?
                        PSA_SUCCESS : PSA_ERROR_GENERIC_ERROR;
     } else {
         reply_status = PSA_ERROR_NOT_SUPPORTED;

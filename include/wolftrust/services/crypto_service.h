@@ -23,6 +23,19 @@
 
 #include "wolftrust/ffm.h"
 
+/* Copied-IOVEC bound (WT-FFM-0041): the SPM copies request input into a
+ * bounded private buffer before invoking the isolated compute, so the Secure
+ * Partition reads only its own stack. Requests larger than this are refused;
+ * kept well under the 8 KiB per-SP secure stack. */
+#define WT_CRYPTO_SP_INPUT_MAX 2048U
+
+/* Isolated Secure Partition compute (WT-FFM-0011): SHA-256 over a private
+ * input buffer into a private digest buffer. Makes no psa_* calls -- the SPM
+ * performs every IOVEC transfer -- so it runs entirely on the Secure
+ * Partition's own secure stack with the MPU narrowed to that domain. */
+int wt_crypto_sp_hash(const uint8_t* input, size_t input_len,
+                      uint8_t* digest, size_t digest_len);
+
 /* SERVICE_CRYPTO's dispatch loop: wait, get, service one message, reply.
  * Architecture-neutral (no Armv8-M/CMSE dependency) so it is host-testable
  * through a real wt_ffm_connect/wt_ffm_call round trip. Supports a single

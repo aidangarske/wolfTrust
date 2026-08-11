@@ -99,11 +99,15 @@ int main(void)
         0xf7, 0x1f, 0xae, 0xc6, 0x24, 0x6c, 0x7e, 0x72,
         0x8e, 0x27, 0xa4, 0xb5, 0x0a, 0x49, 0x84, 0x66
     };
+    static uint8_t over_cap[WT_CRYPTO_SP_INPUT_MAX + 1U];
     wt_ffm_runtime_t runtime;
     psa_handle_t handle;
     uint8_t digest[32];
+    uint8_t direct_digest[32];
     psa_invec in_vec = { input, sizeof(input) - 1U };
     psa_outvec out_vec = { digest, sizeof(digest) };
+    psa_invec over_vec = { over_cap, sizeof(over_cap) };
+    psa_outvec over_out = { digest, sizeof(digest) };
     psa_status_t status;
 
     if (wt_ffm_init(&runtime, &g_manifest, &g_port_ops, NULL) !=
@@ -129,6 +133,25 @@ int main(void)
             memcmp(digest, expected, sizeof(expected)) != 0) {
         (void)fprintf(stderr,
                       "SHA-256 digest mismatch through FF-M dispatch\n");
+        return 1;
+    }
+
+    /* Isolated compute in isolation: the pure SP function the narrowed-MPU
+     * context will run must produce the same digest with no psa_* calls. */
+    if (wt_crypto_sp_hash(input, sizeof(input) - 1U, direct_digest,
+                          sizeof(direct_digest)) != WT_FFM_SUCCESS ||
+            memcmp(direct_digest, expected, sizeof(expected)) != 0) {
+        (void)fprintf(stderr, "wt_crypto_sp_hash isolated compute mismatch\n");
+        return 1;
+    }
+
+    /* Copied-IOVEC bound: a request past the SP input cap is refused, not
+     * truncated -- the isolated compute never overruns its private buffer. */
+    memset(over_cap, 'A', sizeof(over_cap));
+    status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                         &over_vec, 1U, &over_out, 1U);
+    if (status == PSA_SUCCESS) {
+        (void)fprintf(stderr, "over-cap request was not refused\n");
         return 1;
     }
 
