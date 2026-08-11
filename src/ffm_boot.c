@@ -24,6 +24,9 @@
 #include "wolftrust/ffm_api.h"
 #include "wolftrust/monitor.h"
 #include "wolftrust/services/crypto_service.h"
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+#include "wolftrust/services/attestation_service.h"
+#endif
 #include "psa_manifest/pid.h"
 
 static wt_ffm_runtime_t g_ffm_runtime;
@@ -78,6 +81,11 @@ static int wt_ffm_boot_dispatch(void* context, wt_ffm_runtime_t* runtime,
     if (partition_id == PARTITION_CRYPTO_ID) {
         return wt_crypto_service_dispatch(context, runtime, partition_id);
     }
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+    if (partition_id == PARTITION_ATTEST_ID) {
+        return wt_attestation_service_dispatch(context, runtime, partition_id);
+    }
+#endif
     return WT_FFM_ERROR_STATE;
 }
 

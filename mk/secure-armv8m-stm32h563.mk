@@ -211,6 +211,7 @@ WT_SECURE_EXTRA_SRCS := \
 ifeq ($(WT_ATTEST_COSE),1)
 WT_SECURE_EXTRA_SRCS += \
     $(ROOT)/src/services/attestation_cose.c \
+    $(ROOT)/src/services/attestation_service.c \
     $(ROOT)/src/services/initial_attestation.c \
     $(WOLFCOSE_DIR)/src/wolfcose.c \
     $(WOLFCOSE_DIR)/src/wolfcose_cbor.c
