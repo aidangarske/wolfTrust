@@ -96,6 +96,23 @@ NS guests declared READY).
 Emulator evidence for the Cortex-M33 execution model; no physical STM32H563
 result is claimed.
 
+## Item 7 Initial Attestation through FF-M IPC
+
+Commits: `29ab959` (server-side `SERVICE_ATTEST` dispatch), `0de6c52` (client
+routes the token through the FF-M veneers).
+
+- Host validation: `make test` green including `unit/attestation_service` — a
+  real `psa_connect`/`psa_call` round trip carries a challenge in and a token
+  out through `wt_attestation_service_dispatch` (backend stubbed to isolate the
+  IPC routing; the token generator is M33MU-proven).
+- M33MU positive: the guest's Initial Attestation now travels the FF-M IPC path
+  (`SERVICE_ATTEST` connect/call/close) and still verifies —
+  `attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok
+  cose=ES256`, `[EXPECT BKPT] Success`, exit 0, no fault markers.
+
+The FreeRTOS guest's wolfPKCS11 -> wolfHSM path stays the wolfHSM CMSE
+transport by design (the HSM service itself, not a PSA FF-M RoT service).
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

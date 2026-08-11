@@ -263,7 +263,7 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    (task #3) and the crypto-SP **MPU region** from the resolved domain (task
    #26). Follow-up: collapse the unused `src/lifecycle.c` restart engine that
    duplicates `wt_restart_guest` (hygiene, no authority impact).
-7. [ ] Route Initial Attestation and the RTOS framework probes through FF-M IPC.
+7. [x] Route Initial Attestation and the RTOS framework probes through FF-M IPC.
    - [x] Server side (`29ab959`): added an architecture-neutral
      `wt_attestation_service_dispatch` (`src/services/attestation_service.c`,
      mirroring `crypto_service.c`) that carries a challenge in / token out over
@@ -273,13 +273,21 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
      `tests/host/attestation_service/` (real FF-M round trip, stubbed backend so
      the suite isolates IPC routing — the token generator itself is M33MU-proven
      already). Secure image compiles and links with the new service on target.
-   - [ ] Client side: migrate the guest off the direct `WolfTrust_Attest_Get*`
-     SG veneers onto `tee_invoke_func(FFM_CONNECT/CALL)` against `SERVICE_ATTEST`
-     (sid 4096), then retire the direct veneers (ties into task 16). M33MU
-     positive: attestation still `verify=0` through the FF-M path.
-   - [ ] RTOS framework probe: the FreeRTOS guest's wolfPKCS11 -> wolfHSM path
-     (a third transport, wolfHSM CMSE Submit/Poll) — decide whether it routes
-     through FF-M IPC or stays a distinct HSM transport, and document.
+   - [x] Client side (`0de6c52`): the guest's `psa_initial_attest_get_token`
+     shim (`wolftrust_attestation_client.c`) now connects `SERVICE_ATTEST`
+     (sid 4096) and calls it over `WolfTrust_FFM_Connect`/`Call`/`Close` instead
+     of the direct `WolfTrust_Attest_GetToken` veneer; the exact token length
+     comes from the (deterministic) size query. M33MU positive: `attestation
+     verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok
+     cose=ES256` through the FF-M path. The now-unused `WolfTrust_Attest_GetToken`
+     veneer is retired with the rest under task 16.
+   - Decision (RTOS framework probe): the FreeRTOS guest's wolfPKCS11 ->
+     wolfHSM path is the wolfHSM CMSE Submit/Poll transport, i.e. the HSM
+     service itself, not a PSA FF-M RoT service. It stays a distinct transport
+     by design; the FF-M IPC routing goal is met for the PSA RoT services
+     (crypto + attestation), which both RTOS guests reach. Exposing wolfHSM
+     operations as FF-M services, if ever wanted, is a separate item (relates to
+     task 16). Item 7's Initial-Attestation scope is complete.
 8. [ ] Add the missing wolfTrust FF-M security tests: partition restart and
    cross-domain isolation (handle integrity, bounded pools, scrubbing, and
    pointer revalidation already covered in `tests/host/ffm/main.c`).
