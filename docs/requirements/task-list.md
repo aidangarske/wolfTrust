@@ -264,6 +264,22 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    #26). Follow-up: collapse the unused `src/lifecycle.c` restart engine that
    duplicates `wt_restart_guest` (hygiene, no authority impact).
 7. [ ] Route Initial Attestation and the RTOS framework probes through FF-M IPC.
+   - [x] Server side (`29ab959`): added an architecture-neutral
+     `wt_attestation_service_dispatch` (`src/services/attestation_service.c`,
+     mirroring `crypto_service.c`) that carries a challenge in / token out over
+     a real `psa_connect`/`psa_call`, calling the existing
+     `wt_initial_attest_get_token` backend; wired `PARTITION_ATTEST_ID` into
+     `wt_ffm_boot_dispatch` (gated on `WT_ATTEST_COSE`). Host-proven in
+     `tests/host/attestation_service/` (real FF-M round trip, stubbed backend so
+     the suite isolates IPC routing — the token generator itself is M33MU-proven
+     already). Secure image compiles and links with the new service on target.
+   - [ ] Client side: migrate the guest off the direct `WolfTrust_Attest_Get*`
+     SG veneers onto `tee_invoke_func(FFM_CONNECT/CALL)` against `SERVICE_ATTEST`
+     (sid 4096), then retire the direct veneers (ties into task 16). M33MU
+     positive: attestation still `verify=0` through the FF-M path.
+   - [ ] RTOS framework probe: the FreeRTOS guest's wolfPKCS11 -> wolfHSM path
+     (a third transport, wolfHSM CMSE Submit/Poll) — decide whether it routes
+     through FF-M IPC or stays a distinct HSM transport, and document.
 8. [ ] Add the missing wolfTrust FF-M security tests: partition restart and
    cross-domain isolation (handle integrity, bounded pools, scrubbing, and
    pointer revalidation already covered in `tests/host/ffm/main.c`).
