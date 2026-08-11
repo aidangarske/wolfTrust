@@ -125,6 +125,11 @@ int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_ffm_api_bind(&g_ffm_runtime, &g_ffm_identity_ops, NULL);
     }
+    if (ret == WT_FFM_SUCCESS) {
+        /* Run SERVICE_CRYPTO's compute isolated on the crypto SP's own
+         * secure stack under a narrowed MPU domain (WT-FFM-0011). */
+        wt_crypto_service_set_compute(wt_platform_run_crypto_sp_isolated);
+    }
     return ret;
 }
 

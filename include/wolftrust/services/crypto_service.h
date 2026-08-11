@@ -36,6 +36,13 @@
 int wt_crypto_sp_hash(const uint8_t* input, size_t input_len,
                       uint8_t* digest, size_t digest_len);
 
+/* Compute seam for the copied-IOVEC hash. Host builds keep the default
+ * (wt_crypto_sp_hash inline); the production port installs an isolated runner
+ * that executes on the crypto SP's own secure stack under a narrowed MPU. */
+typedef int (*wt_crypto_sp_compute_fn)(const uint8_t* input, size_t input_len,
+                                       uint8_t* digest, size_t digest_len);
+void wt_crypto_service_set_compute(wt_crypto_sp_compute_fn fn);
+
 /* SERVICE_CRYPTO's dispatch loop: wait, get, service one message, reply.
  * Architecture-neutral (no Armv8-M/CMSE dependency) so it is host-testable
  * through a real wt_ffm_connect/wt_ffm_call round trip. Supports a single

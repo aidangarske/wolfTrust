@@ -48,6 +48,14 @@ void wt_platform_program_ns_mpu(const wt_mpu_region_t* regions, size_t count);
  * (WT-FFM-0011): program regions 0..count-1 from the composed table and
  * disable the rest, so any access outside the partition's regions faults.
  * wt_platform_restore_spm_domain reinstates the full SPM whitelist. */
+/* WT-FFM-0011 (item 5 Phase D): run the crypto Secure Partition's SHA-256
+ * compute on its own carved secure stack with the secure MPU narrowed to
+ * [shared secure code RX] + [crypto SP stack RW], then restore the SPM
+ * domain. Input is copied onto the SP stack and the digest copied back under
+ * the SPM domain (copied IOVEC); the compute itself makes no psa_* calls. */
+int wt_platform_run_crypto_sp_isolated(const uint8_t* input, size_t input_len,
+                                       uint8_t* digest, size_t digest_len);
+
 void wt_platform_program_secure_partition_domain(const wt_mpu_region_t* regions,
                                                  size_t count);
 void wt_platform_restore_spm_domain(void);

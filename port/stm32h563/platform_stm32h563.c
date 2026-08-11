@@ -38,6 +38,8 @@ void* memset(void* destination, int value, size_t size);
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/boot_handoff.h"
 #include "wolftrust/services/initial_attestation.h"
+#include "wolftrust/services/crypto_service.h"
+#include <string.h>
 #include "wolftrust/arch/armv8m/cmse.h"
 #include "wolftrust/arch/armv8m/cmse_transport.h"
 #include "wolftrust/sched/tasklet.h"
@@ -419,6 +421,110 @@ void wt_platform_program_secure_partition_domain(const wt_mpu_region_t* regions,
 void wt_platform_restore_spm_domain(void)
 {
     wt_mpu_s_init();
+}
+
+/* Work area placed at the base of the crypto SP secure stack. The execution
+ * stack descends from the top of the region toward it; MSPLIM guards the
+ * boundary. All fields the isolated compute touches live in this struct so
+ * the narrowed domain [secure code RX] + [SP stack RW] fully contains it. */
+#define WT_SP_SHA256_DIGEST_SIZE 32u
+
+typedef struct wt_crypto_sp_work {
+    const uint8_t* in;
+    uint8_t* out;
+    size_t in_len;
+    size_t out_len;
+    wt_mpu_region_t regions[2];
+    size_t region_count;
+    int result;
+    uint8_t input[WT_CRYPTO_SP_INPUT_MAX];
+    uint8_t digest[WT_SP_SHA256_DIGEST_SIZE];
+} wt_crypto_sp_work_t;
+
+/* Runs on the crypto SP secure stack after the switch: narrow the secure MPU
+ * to the SP domain, compute, restore the SPM domain. Reads only its work
+ * struct (SP stack) and secure code/rodata (mapped RX), so it stays inside
+ * the narrowed domain the whole time. */
+__attribute__((used))
+static void wt_crypto_sp_body(wt_crypto_sp_work_t* work)
+{
+    wt_platform_program_secure_partition_domain(work->regions,
+                                                work->region_count);
+    work->result = wt_crypto_sp_hash(work->in, work->in_len, work->out,
+                                     work->out_len);
+    wt_platform_restore_spm_domain();
+}
+
+/* Switch the active Secure MSP to the SP stack (top r1, limit r2), call the
+ * body on it, then restore the caller's MSP and MSPLIM. The MPU narrow/restore
+ * happen inside the body so both run on the mapped SP stack. Fails closed to
+ * panic if entered on PSP (the SPM dispatch path runs on MSP_S). */
+__attribute__((naked, used))
+static void wt_crypto_sp_call(wt_crypto_sp_work_t* work, uint32_t sp_top,
+                              uint32_t sp_limit)
+{
+    __asm__ volatile (
+        "mrs   r3, control            \n"
+        "tst   r3, #2                 \n"
+        "bne   1f                     \n"
+        "push  {r4, r5, lr}           \n"
+        "mov   r4, sp                 \n"
+        "mrs   r5, msplim             \n"
+        "mov   sp, r1                 \n"
+        "msr   msplim, r2             \n"
+        "bl    wt_crypto_sp_body      \n"
+        "msr   msplim, r5             \n"
+        "mov   sp, r4                 \n"
+        "pop   {r4, r5, lr}           \n"
+        "bx    lr                     \n"
+        "1:                           \n"
+        "b     wt_platform_panic      \n"
+    );
+}
+
+int wt_platform_run_crypto_sp_isolated(const uint8_t* input, size_t input_len,
+                                       uint8_t* digest, size_t digest_len)
+{
+    wt_crypto_sp_work_t* work =
+        (wt_crypto_sp_work_t*)(uintptr_t)WT_SP_CRYPTO_STACK_BASE;
+    uint32_t sp_top = WT_SP_CRYPTO_STACK_BASE + WT_SP_SECURE_STACK_SIZE;
+    uint32_t sp_limit;
+    size_t copy_len;
+
+    if (input == NULL || digest == NULL ||
+            input_len > WT_CRYPTO_SP_INPUT_MAX ||
+            digest_len < WT_SP_SHA256_DIGEST_SIZE) {
+        return WT_FFM_ERROR_ARGUMENT;
+    }
+
+    (void)memset(work, 0, sizeof(*work));
+    (void)memcpy(work->input, input, input_len);
+    work->in = work->input;
+    work->in_len = input_len;
+    work->out = work->digest;
+    work->out_len = sizeof(work->digest);
+    work->result = WT_FFM_ERROR_STATE;
+
+    /* Shared secure code RX (whole image, matches SPM region 0) so the
+     * compute's .text and the SHA-256 rodata tables are reachable. */
+    work->regions[0].base = WT_FLASH_S_BASE;
+    work->regions[0].size = WT_FLASH_S_SIZE;
+    work->regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
+    /* Private crypto SP stack RW (the domain 4 memory resource). */
+    work->regions[1].base = WT_SP_CRYPTO_STACK_BASE;
+    work->regions[1].size = WT_SP_SECURE_STACK_SIZE;
+    work->regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    work->region_count = 2u;
+
+    sp_limit = ((uint32_t)(uintptr_t)(work + 1) + 7u) & ~7u;
+    wt_crypto_sp_call(work, sp_top, sp_limit);
+
+    if (work->result == WT_FFM_SUCCESS) {
+        copy_len = digest_len < sizeof(work->digest) ? digest_len :
+                   sizeof(work->digest);
+        (void)memcpy(digest, work->digest, copy_len);
+    }
+    return work->result;
 }
 
 static void wt_clock_init(void)

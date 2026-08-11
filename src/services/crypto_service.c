@@ -32,7 +32,10 @@ int wt_crypto_sp_hash(const uint8_t* input, size_t input_len,
             digest_len < WC_SHA256_DIGEST_SIZE) {
         return WT_FFM_ERROR_ARGUMENT;
     }
-    ret = wc_InitSha256(&sha);
+    /* INVALID_DEVID keeps the isolated SP compute pure software: with
+     * WOLF_CRYPTO_CB the default devId routes SHA through the shared crypto
+     * callback registry (wolfHSM), which lies outside the SP's MPU domain. */
+    ret = wc_InitSha256_ex(&sha, NULL, INVALID_DEVID);
     if (ret == 0) {
         ret = wc_Sha256Update(&sha, input, (word32)input_len);
     }
@@ -43,6 +46,15 @@ int wt_crypto_sp_hash(const uint8_t* input, size_t input_len,
         return WT_FFM_ERROR_STATE;
     }
     return WT_FFM_SUCCESS;
+}
+
+/* Compute seam: the host default runs wt_crypto_sp_hash inline; the production
+ * port installs an isolated runner (own SP stack + narrowed MPU) at boot. */
+static wt_crypto_sp_compute_fn g_crypto_sp_compute = wt_crypto_sp_hash;
+
+void wt_crypto_service_set_compute(wt_crypto_sp_compute_fn fn)
+{
+    g_crypto_sp_compute = (fn != NULL) ? fn : wt_crypto_sp_hash;
 }
 
 static int wt_crypto_service_hash(wt_ffm_runtime_t* runtime,
@@ -70,7 +82,7 @@ static int wt_crypto_service_hash(wt_ffm_runtime_t* runtime,
         in_len += got;
     }
 
-    ret = wt_crypto_sp_hash(input, in_len, digest, sizeof(digest));
+    ret = g_crypto_sp_compute(input, in_len, digest, sizeof(digest));
     if (ret != WT_FFM_SUCCESS) {
         return ret;
     }
