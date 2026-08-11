@@ -270,6 +270,40 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
 9. [ ] Add M33MU FF-M assertions: a positive `psa_connect`/`psa_call` round trip
    plus negatives (forged handle, oversized vector, cross-domain access) on the
    emulator path (`.github/workflows/stm32h563-build.yml`).
+### Design: one macro-gated target-scenario harness (folds in 7, 8, 9, 11, and the item-5/6 target proofs)
+
+Rather than wire each target-only scenario into the M33MU gate piecemeal, add
+them together, at the end, as a single **detect-or-skip** harness driven from
+`make test` (and the same harness in CI):
+
+- **Detection macro.** A build/env gate (e.g. `WT_TARGET_SCENARIOS`, set when an
+  M33MU binary — or real HW — is detected) selects the target-scenario suite.
+  When present, `make test` builds and boots the gated scenario firmware and
+  asserts each scenario. When absent, it **skips with an explicit message**
+  ("M33MU/HW not detected — target scenarios skipped"), never a silent pass —
+  same rule as the item-10 `make test-conformance` auto-detect.
+- **Every scenario stays host-provable where the logic is portable** (the
+  compute, the policy, the state machine live in host unit tests); the harness
+  proves only the genuinely target-bound behavior (MPU faults, restart on real
+  faults, context switch), each behind a test-only gate so production never
+  faults.
+- **Scenarios collected into the one sweep** (each a `grep`-asserted marker in
+  both the harness and the workflow yml):
+  - restart policy honored on a real fault: a guest faults, restarts up to the
+    manifest `restart_limit`, then goes `FAULTED` at the limit (item 6 restart
+    half / task 7). *This is the currently-missing target coverage — restart is
+    never exercised in the happy-path lifecycle run.*
+  - cross-domain probe faults the initiating partition (item 5 Phase E — already
+    have `run_m33mu_negative.sh`; fold its marker in).
+  - graceful SP fault recovery so a negative run continues (task 26).
+  - service dispatch by SID including `SERVICE_ATTEST` (task 3).
+  - forged/reused handle, oversized vector, interrupted transfer expose no stale
+    data (framework.md acceptance-gate negatives 2–3 / item 9).
+- **Rationale.** `make test` becomes the single entry point: it runs everything
+  host-side always, and the full target scenario set whenever an emulator/board
+  is available, skipping cleanly otherwise. CI runs the identical harness on the
+  box. Real H5 hardware stays a separate, never-emulator-implied record.
+
 10. [ ] Expand `tests/host/psa_ff_upstream/` past the host-viable subset
     (`i001,i004-i008,i012,i024,i025,i067[SKIP],i071,i088`) to the full Arm
     FF-M suite under M33MU (NS app + 3 SPs, including the tests that need real
