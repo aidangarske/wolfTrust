@@ -80,6 +80,7 @@ static wt_guest_config_t g_partition_configs[] = {
             .restart_window_ticks = 64U,
             .initial_delay_ticks = 1U
         },
+        .initial_state = WT_GUEST_READY,
         .timeslice_ms = WT_TIMESLICE_MS,
         .port = {
             .required_capabilities = WT_PORT_CAPABILITY_ALL,
@@ -126,6 +127,7 @@ static wt_guest_config_t g_partition_configs[] = {
             .restart_window_ticks = 64U,
             .initial_delay_ticks = 1U
         },
+        .initial_state = WT_GUEST_READY,
         .timeslice_ms = WT_TIMESLICE_MS,
         .port = {
             .required_capabilities = WT_PORT_CAPABILITY_ALL,
@@ -350,6 +352,10 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
             domain->restart_policy.restart_window_ticks;
         config->restart_policy.initial_delay_ticks =
             domain->restart_policy.initial_delay_ticks;
+        /* The manifest's declared initial lifecycle drives the runtime state:
+         * an NS application declared READY boots runnable; STOPPED stays out
+         * of the schedule until an explicit lifecycle action. */
+        config->initial_state = (wt_guest_state_t)domain->initial_lifecycle;
 
         if (domain->memory_resource_count != config->memory_window_count ||
                 domain->memory_resource_count > config->mpu_region_count) {
@@ -428,7 +434,7 @@ void wt_partition_reset_runtime(const wt_guest_config_t* config,
     memset(runtime, 0, sizeof(*runtime));
     runtime->restart_count = restart_count;
     runtime->first_restart_tick = first_restart_tick;
-    runtime->state = WT_GUEST_READY;
+    runtime->state = config->initial_state;
     runtime->context.psp_ns = config->initial_psp_ns;
     runtime->context.msp_ns = config->initial_msp_ns;
     runtime->context.vector_table_ns = config->vector_table;

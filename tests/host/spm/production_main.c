@@ -227,6 +227,19 @@ int main(void)
         return 1;
     }
 
+    /* WT-FFM: the manifest's initial lifecycle is authoritative -- a guest
+     * domain declared STOPPED binds to a non-runnable runtime state. */
+    invalid_domains[1].initial_lifecycle = WT_DOMAIN_LIFECYCLE_STOPPED;
+    if (wt_partitions_bind_manifest(&invalid_manifest) != 0) {
+        (void)fprintf(stderr, "authoritative lifecycle bind rejected\n");
+        return 1;
+    }
+    configs = wt_partitions_config_table(&config_count);
+    if (configs[0].initial_state != WT_GUEST_STOPPED) {
+        (void)fprintf(stderr, "initial lifecycle not bound from manifest\n");
+        return 1;
+    }
+
     /* An unsupported restart action still fails closed. */
     invalid_domains[1].restart_policy.restart_limit = 3U;
     invalid_domains[1].restart_policy.action = WT_RESTART_ACTION_NEVER;
@@ -235,9 +248,15 @@ int main(void)
         return 1;
     }
 
-    /* Restore the real, authoritative binding. */
+    /* Restore the real, authoritative binding: the guest domains declare
+     * READY, so the bound runtime state is runnable. */
     if (wt_partitions_bind_manifest(wt_spm_manifest(&spm)) != 0) {
         (void)fprintf(stderr, "restart policy rebind rejected\n");
+        return 1;
+    }
+    configs = wt_partitions_config_table(&config_count);
+    if (configs[0].initial_state != WT_GUEST_READY) {
+        (void)fprintf(stderr, "restored guest lifecycle not READY\n");
         return 1;
     }
 

@@ -62,6 +62,7 @@ typedef struct wt_guest_config {
     wt_restart_policy_t restart_policy;
     uint32_t timeslice_ms;
     wt_guest_port_binding_t port;
+    wt_guest_state_t initial_state;
 } wt_guest_config_t;
 
 typedef struct wt_guest_runtime wt_guest_runtime_t;
