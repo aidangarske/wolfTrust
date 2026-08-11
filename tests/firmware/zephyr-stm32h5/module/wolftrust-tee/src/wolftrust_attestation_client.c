@@ -20,17 +20,25 @@
 
 #include <psa/initial_attestation.h>
 #include <wolftrust/attestation.h>
+#include <wolftrust/ffm_veneer.h>
 
 #define WT_ATTEST_ERROR_INVALID_ARGUMENT -3300
 #define WT_ATTEST_ERROR_BUFFER_TOO_SMALL -3301
 #define WT_ATTEST_ERROR_NOT_READY -3302
 
+#define WT_SERVICE_ATTEST_SID     4096u
+#define WT_SERVICE_ATTEST_VERSION 1u
+#define WT_FFM_IPC_CALL           0     /* PSA_IPC_CALL */
+
 extern int WolfTrust_Attest_GetTokenSize(size_t challengeSize,
                                          size_t* tokenSize);
-extern int WolfTrust_Attest_GetToken(const uint8_t* challenge,
-    size_t challengeSize, uint8_t* token, size_t* tokenSize);
 extern int WolfTrust_Attest_GetPublicKey(uint8_t* publicKey,
     size_t publicKeyCapacity, size_t* publicKeySize);
+
+extern int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version);
+extern int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
+                                  const wt_ffm_veneer_iovec_t* ns_iovec);
+extern void WolfTrust_FFM_Close(int32_t handle);
 
 static psa_status_t wt_attest_map_status(int status)
 {
@@ -61,13 +69,45 @@ psa_status_t psa_initial_attest_get_token(const uint8_t* authChallenge,
     size_t challengeSize, uint8_t* token, size_t tokenCapacity,
     size_t* tokenSize)
 {
+    wt_ffm_veneer_iovec_t iovec;
+    size_t exactSize = 0u;
+    int32_t handle;
+    int32_t status;
+    int rc;
+
     if (tokenSize == NULL) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
+    *tokenSize = 0u;
 
-    *tokenSize = tokenCapacity;
-    return wt_attest_map_status(WolfTrust_Attest_GetToken(authChallenge,
-        challengeSize, token, tokenSize));
+    /* Route the attestation token through FF-M IPC (SERVICE_ATTEST) instead of
+     * a direct veneer. The COSE_Sign1 token length is deterministic, so the
+     * size query gives the exact transfer size for the output vector. */
+    rc = WolfTrust_Attest_GetTokenSize(challengeSize, &exactSize);
+    if (rc != 0) {
+        return wt_attest_map_status(rc);
+    }
+    if (exactSize > tokenCapacity) {
+        return PSA_ERROR_BUFFER_TOO_SMALL;
+    }
+
+    handle = WolfTrust_FFM_Connect(WT_SERVICE_ATTEST_SID,
+                                   WT_SERVICE_ATTEST_VERSION);
+    if (handle < 0) {
+        return PSA_ERROR_GENERIC_ERROR;
+    }
+    iovec.input = authChallenge;
+    iovec.input_len = (uint32_t)challengeSize;
+    iovec.output = token;
+    iovec.output_len = (uint32_t)exactSize;
+    status = WolfTrust_FFM_Call(handle, WT_FFM_IPC_CALL, &iovec);
+    WolfTrust_FFM_Close(handle);
+    if (status != 0) {
+        return (psa_status_t)status;
+    }
+
+    *tokenSize = exactSize;
+    return PSA_SUCCESS;
 }
 
 psa_status_t psa_initial_attest_get_token_size(size_t challengeSize,
