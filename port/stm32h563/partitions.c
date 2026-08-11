@@ -334,19 +334,22 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
                 domain->domain_class != WT_DOMAIN_CLASS_NONSECURE_APPLICATION ||
                 domain->security_state != WT_SECURITY_STATE_NONSECURE ||
                 domain->privilege_state != WT_PRIVILEGE_STATE_UNPRIVILEGED ||
-                domain->restart_policy.action != WT_RESTART_ACTION_DOMAIN ||
-                domain->restart_policy.restart_limit !=
-                    config->restart_policy.restart_limit ||
-                domain->restart_policy.restart_window_ticks !=
-                    config->restart_policy.restart_window_ticks ||
-                domain->restart_policy.initial_delay_ticks !=
-                    config->restart_policy.initial_delay_ticks) {
+                domain->restart_policy.action != WT_RESTART_ACTION_DOMAIN) {
             return -1;
         }
         if (wt_partition_validate_port_binding(config, domain) !=
                 WT_PORT_VALID) {
             return -1;
         }
+
+        /* The generated manifest's restart policy is authoritative: the SPM
+         * honors the declared limits, not a compiled-in copy. */
+        config->restart_policy.restart_limit =
+            domain->restart_policy.restart_limit;
+        config->restart_policy.restart_window_ticks =
+            domain->restart_policy.restart_window_ticks;
+        config->restart_policy.initial_delay_ticks =
+            domain->restart_policy.initial_delay_ticks;
 
         if (domain->memory_resource_count != config->memory_window_count ||
                 domain->memory_resource_count > config->mpu_region_count) {

@@ -206,13 +206,38 @@ int main(void)
     if (domain_count > sizeof(invalid_domains) / sizeof(invalid_domains[0])) {
         return 1;
     }
+
+    /* WT-FFM: the restart policy is authoritative. Binding a manifest whose
+     * guest restart_limit differs from the compiled-in default must flow that
+     * value into the runtime config -- proving the SPM reads the manifest, not
+     * a hardcoded copy. */
     (void)memcpy(invalid_domains, wt_spm_manifest(&spm)->domains,
                  domain_count * sizeof(invalid_domains[0]));
     invalid_manifest = *wt_spm_manifest(&spm);
-    invalid_domains[1].restart_policy.restart_limit++;
     invalid_manifest.domains = invalid_domains;
+    invalid_domains[1].restart_policy.restart_limit = 7U;
+    if (wt_partitions_bind_manifest(&invalid_manifest) != 0) {
+        (void)fprintf(stderr, "authoritative restart policy bind rejected\n");
+        return 1;
+    }
+    configs = wt_partitions_config_table(&config_count);
+    if (config_count == 0U ||
+            configs[0].restart_policy.restart_limit != 7U) {
+        (void)fprintf(stderr, "restart limit not bound from manifest\n");
+        return 1;
+    }
+
+    /* An unsupported restart action still fails closed. */
+    invalid_domains[1].restart_policy.restart_limit = 3U;
+    invalid_domains[1].restart_policy.action = WT_RESTART_ACTION_NEVER;
     if (wt_partitions_bind_manifest(&invalid_manifest) == 0) {
-        (void)fprintf(stderr, "invalid restart policy was accepted\n");
+        (void)fprintf(stderr, "unsupported restart action was accepted\n");
+        return 1;
+    }
+
+    /* Restore the real, authoritative binding. */
+    if (wt_partitions_bind_manifest(wt_spm_manifest(&spm)) != 0) {
+        (void)fprintf(stderr, "restart policy rebind rejected\n");
         return 1;
     }
 
