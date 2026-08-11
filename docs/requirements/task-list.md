@@ -247,8 +247,22 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    `framework.md` acceptance-gate negative #1. **M33MU negative (run #2)** via
    `run_m33mu_negative.sh`. Follow-up (own item): graceful fault recovery so the
    probe run continues instead of halting, and CI wiring of the negative job.
-6. [ ] Make generated resources, entry points, lifecycle, services, and policy
-   authoritative in the production runtime (not only at validation).
+6. [x] Make generated resources, entry points, lifecycle, services, and policy
+   authoritative in the production runtime (not only at validation). Resources,
+   entry points, IRQ mask, and NS MSP were already bound from the manifest in
+   `wt_partitions_bind_manifest`; services and version policy are already
+   manifest-driven in `src/ffm.c`. Closed the two remaining "validated but not
+   applied" gaps: **restart policy** — bind now assigns
+   `config->restart_policy` from the domain instead of equality-bricking on
+   mismatch (`22e5461`); **initial lifecycle** — `wt_partition_reset_runtime`
+   sets `runtime->state` from the manifest's `initial_lifecycle`, and NS guest
+   domains declare `READY` (`95c61a1`). Host: `test_production_manifest` proves
+   both values flow from the manifest (distinct restart_limit and a STOPPED
+   guest bind through). M33MU positive green (guests still boot READY). Residual
+   non-manifest authority is tracked separately: service **dispatch** routing
+   (task #3) and the crypto-SP **MPU region** from the resolved domain (task
+   #26). Follow-up: collapse the unused `src/lifecycle.c` restart engine that
+   duplicates `wt_restart_guest` (hygiene, no authority impact).
 7. [ ] Route Initial Attestation and the RTOS framework probes through FF-M IPC.
 8. [ ] Add the missing wolfTrust FF-M security tests: partition restart and
    cross-domain isolation (handle integrity, bounded pools, scrubbing, and

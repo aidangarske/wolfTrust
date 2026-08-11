@@ -80,6 +80,22 @@ Emulator evidence for the Cortex-M33 execution model; no physical STM32H563
 result is claimed. Follow-up (tracked): graceful fault recovery so the negative
 probe run continues rather than halting, and CI wiring of the negative job.
 
+## Item 6 manifest-authoritative bindings (restart policy, initial lifecycle)
+
+Commits: `22e5461` (restart policy bind), `95c61a1` (initial lifecycle bind +
+NS guests declared READY).
+
+- Host validation: `make test` green; `tests/host/spm/test_production_manifest`
+  now asserts both fields flow from the generated manifest — a distinct
+  `restart_limit` (7) and a `STOPPED` guest domain bind through to the runtime
+  config, and the real manifest's `READY` restores a runnable guest.
+- M33MU positive: full wolfBoot -> wolfTrust -> guest lifecycle green,
+  `[EXPECT BKPT] Success`, exit 0, no fault markers — NS guests still boot
+  runnable now that their run state is sourced from the manifest.
+
+Emulator evidence for the Cortex-M33 execution model; no physical STM32H563
+result is claimed.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU
