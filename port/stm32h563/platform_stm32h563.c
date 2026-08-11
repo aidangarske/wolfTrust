@@ -448,10 +448,21 @@ typedef struct wt_crypto_sp_work {
 __attribute__((used))
 static void wt_crypto_sp_body(wt_crypto_sp_work_t* work)
 {
+#if defined(WT_FFM_NEGATIVE_PROBE) && (WT_FFM_NEGATIVE_PROBE == 1)
+    volatile uint32_t probe;
+#endif
+
     wt_platform_program_secure_partition_domain(work->regions,
                                                 work->region_count);
     work->result = wt_crypto_sp_hash(work->in, work->in_len, work->out,
                                      work->out_len);
+#if defined(WT_FFM_NEGATIVE_PROBE) && (WT_FFM_NEGATIVE_PROBE == 1)
+    /* Negative isolation proof (WT-FFM-0011): a read of SPM-private RAM from
+     * inside the narrowed SP domain must fault. Never built into production;
+     * gated behind WT_FFM_NEGATIVE_PROBE for the M33MU negative run. */
+    probe = *(const volatile uint32_t*)(uintptr_t)WT_RAM_S_BASE;
+    (void)probe;
+#endif
     wt_platform_restore_spm_domain();
 }
 

@@ -37,6 +37,7 @@ WT_WOLFCRYPT_ARMASM ?= 1
 WT_WOLFCRYPT_STM32_HASH ?= 0
 WT_ENGINE_HSM ?= 1
 WT_ATTEST_COSE ?= 1
+WT_FFM_NEGATIVE_PROBE ?= 0
 
 # wolfHSM resumes SHA-256 operations from the portable digest and length
 # fields carried by its wire protocol. STM32 HASH uses opaque peripheral CSR
@@ -117,6 +118,10 @@ SECURE_CFLAGS += -DCONFIG_VNET=1 \
     -DWT_VNET_RX_IRQ=$(WT_VNET_RX_IRQ) \
     -DWT_VNET_TIMEOUT_TICKS=$(WT_VNET_TIMEOUT_TICKS) \
     -DWT_VNET_UNKNOWN_UCAST_FLOOD=$(WT_VNET_UNKNOWN_UCAST_FLOOD)
+endif
+
+ifeq ($(WT_FFM_NEGATIVE_PROBE),1)
+SECURE_CFLAGS += -DWT_FFM_NEGATIVE_PROBE=1
 endif
 
 HSM_LIB_CFLAGS := $(SECURE_CFLAGS) \
