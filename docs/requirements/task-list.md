@@ -157,7 +157,7 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    enforcement (5b) needs the region-table swap. Per the completion rule a
    positive marker is not isolation evidence — 5a proves the derivation, 5c
    proves the fault.
-5b. [ ] Enforcement: run each Secure Partition as its own secure execution
+5b. [x] Enforcement: run each Secure Partition as its own secure execution
    context and switch the secure MPU to the partition's resolved domain around
    dispatch, restoring the SPM whitelist on return. Design: reuse the existing
    secure coroutine layer (`src/sched/coroutine.c` — per-context stacks,
@@ -171,8 +171,13 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    PRIVDEFENA is already off, so an unmapped access faults even at privileged
    level. Constraint: the M33 secure MPU has 8 regions and `wt_mpu_s_init`
    already uses all 8, so the table is swapped on entry, not appended.
-   Sub-steps (phased so A–C are host/compile-only and only D/E spend an M33MU
-   gate — two runs total):
+   As built: the crypto SP compute runs on its carved stack via a dedicated
+   secure-MSP trampoline (`wt_crypto_sp_call`) rather than a coroutine — the
+   coroutine layer's 24 KiB stack gate and nested-context state made it the
+   heavier option for a synchronous, non-yielding compute; the trampoline
+   narrows/restores the MPU in a C body on the SP stack. Sub-steps (phased so
+   A–C are host/compile-only and only D/E spend an M33MU gate — two runs
+   total):
    - [x] Architecture-neutral table composition
      (`wt_ffm_compose_secure_partition_table`, `src/ffm_domain.c`): shared
      regions + the resolved private set, fail-closed past 8. Host-tested in
@@ -220,13 +225,28 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
      (`-Wall -Wextra -Werror -pedantic`) and for Cortex-M33 freestanding
      (108 B text); the full-file secure link is verified at the Phase D
      container build.
-   - [ ] Phase D — run crypto dispatch on its own secure stack with the MPU
-     narrowed to the composed domain; **M33MU positive (run #1)**.
-5c. [ ] Phase E — M33MU negative proof: a probe executed inside the crypto
-   Secure Partition that reads or writes another domain's or the SPM's private
-   memory must fault the initiating partition (MemManage) without exposing
-   data. Closes WT-FFM-0011's failure clause and `framework.md` acceptance-gate
-   negative #1. Needs 5b's live domain switch. **M33MU negative (run #2)**.
+   - [x] Phase D — run the crypto SP compute on its own secure stack with the
+     MPU narrowed to the composed domain. Two parts: **D1** reshaped
+     `crypto_service.c` around copied IOVEC (`5b9b8bd`) — the SPM drains the
+     input vector into a bounded buffer and calls a pure `wt_crypto_sp_hash`
+     that makes no `psa_*` calls, host-proven in `tests/host/crypto_service/`
+     (isolated-compute KAT + over-cap rejection). **D2** added the port runner
+     (`wt_platform_run_crypto_sp_isolated`, `69dc8eb`): a naked trampoline
+     switches MSP_S to `WT_SP_CRYPTO_STACK_BASE`, narrows the secure MPU to
+     `[secure code RX] + [crypto SP stack RW]`, runs the SHA, restores the SPM
+     domain; installed at boot via `wt_crypto_service_set_compute`. The compute
+     is forced pure-software (`INVALID_DEVID`) so it never touches the shared
+     crypto-callback registry. **M33MU positive (run #1)**: `SERVICE_CRYPTO`
+     returns the correct SHA-256 under the narrowed domain, attestation
+     `verify=0 lifecycle=0x1000`, `[EXPECT BKPT] Success`, no fault markers.
+5c. [x] Phase E — M33MU negative proof (`f15fe11`): a test-gated probe
+   (`WT_FFM_NEGATIVE_PROBE`) executed inside the crypto Secure Partition reads
+   SPM-private RAM (`WT_RAM_S_BASE`, 0x30028000) and faults the initiating
+   partition — `[MEMFAULT] pc=0x0c060f34 addr=0x30028000 sp=0x3009dff0` (SP
+   stack), boot halts, no data exposed. Closes WT-FFM-0011's failure clause and
+   `framework.md` acceptance-gate negative #1. **M33MU negative (run #2)** via
+   `run_m33mu_negative.sh`. Follow-up (own item): graceful fault recovery so the
+   probe run continues instead of halting, and CI wiring of the negative job.
 6. [ ] Make generated resources, entry points, lifecycle, services, and policy
    authoritative in the production runtime (not only at validation).
 7. [ ] Route Initial Attestation and the RTOS framework probes through FF-M IPC.

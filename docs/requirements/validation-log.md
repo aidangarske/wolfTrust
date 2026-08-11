@@ -56,6 +56,30 @@ Commit: `36d28a5264c145e8aa71dab447db8d397152499c`
 Physical STM32H563 H5 validation is pending. The board was not available for
 the corrected-image run, so no H5 hardware pass or failure is claimed here.
 
+## Item 5 Level 3 isolation evidence (Phase D positive, Phase E negative)
+
+Commits: `69dc8eb` (Phase D — isolated crypto SP compute),
+`f15fe11` (Phase E — gated cross-domain probe).
+
+- Host validation: `make test` fully green on both commits, including
+  `unit/crypto_service` (copied-IOVEC restructure: isolated-compute KAT +
+  over-cap rejection), `unit/ffm_domain`, and `unit/sp_layout`.
+- M33MU positive (run #1, Phase D): the crypto Secure Partition runs its
+  SHA-256 on `WT_SP_CRYPTO_STACK_BASE` with the secure MPU narrowed to
+  `[secure code RX] + [crypto SP stack RW]`. `SERVICE_CRYPTO` returns the
+  correct digest, `attestation verify=0 lifecycle=0x1000 measurement=ok`,
+  `[EXPECT BKPT] Success`, exit 0, no fault marker.
+- M33MU negative (run #2, Phase E, `run_m33mu_negative.sh`, built with
+  `WT_FFM_NEGATIVE_PROBE=1`): a probe inside the narrowed SP domain reads
+  SPM-private RAM and faults —
+  `[MEMFAULT] pc=0x0c060f34 addr=0x30028000 sp=0x3009dff0` (SP stack). The
+  initiating context faults with no data exposed. This is the WT-FFM-0011
+  failure clause and `framework.md` acceptance-gate negative #1.
+
+Emulator evidence for the Cortex-M33 execution model; no physical STM32H563
+result is claimed. Follow-up (tracked): graceful fault recovery so the negative
+probe run continues rather than halting, and CI wiring of the negative job.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU
