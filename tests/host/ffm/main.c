@@ -25,8 +25,10 @@
 
 #define TEST_SERVICE_SID       0x1000U
 #define TEST_STRICT_SID        0x1001U
+#define TEST_UNSPEC_SID        0x1002U
 #define TEST_SERVICE_SIGNAL    0x10U
 #define TEST_STRICT_SIGNAL     0x20U
+#define TEST_UNSPEC_SIGNAL     0x40U
 #define TEST_PARTITION_ID      1
 #define TEST_CLIENT_PARTITION  2
 #define TEST_NS_CLIENT         (-1)
@@ -88,6 +90,10 @@ static const wt_service_descriptor_t g_services[] = {
     {
         "strict_service", TEST_STRICT_SID, 2U,
         WT_SERVICE_VERSION_STRICT, TEST_STRICT_SIGNAL, 0U, 1U, 1U
+    },
+    {
+        "unspec_service", TEST_UNSPEC_SID, 2U,
+        WT_SERVICE_VERSION_UNSPECIFIED, TEST_UNSPEC_SIGNAL, 0U, 1U, 1U
     }
 };
 
@@ -159,7 +165,8 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     EXPECT_INT(wt_ffm_wait(runtime, partition_id, PSA_WAIT_ANY, &asserted),
                WT_FFM_SUCCESS);
     EXPECT_TRUE(asserted == TEST_SERVICE_SIGNAL ||
-                asserted == TEST_STRICT_SIGNAL);
+                asserted == TEST_STRICT_SIGNAL ||
+                asserted == TEST_UNSPEC_SIGNAL);
     EXPECT_INT(wt_ffm_get(runtime, partition_id, asserted, &message),
                PSA_SUCCESS);
 
@@ -248,6 +255,13 @@ static void test_framework_and_policy(void)
     EXPECT_INT(wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 4U),
                PSA_ERROR_CONNECTION_REFUSED);
     EXPECT_INT(wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_STRICT_SID, 1U),
+               PSA_ERROR_CONNECTION_REFUSED);
+    /* UNSPECIFIED accepts any nonzero version, including one that both STRICT
+     * and RELAXED would refuse (5 > the service's own version of 2). */
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_UNSPEC_SID, 5U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle), WT_FFM_SUCCESS);
+    EXPECT_INT(wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_UNSPEC_SID, 0U),
                PSA_ERROR_CONNECTION_REFUSED);
     handle = wt_ffm_connect(&runtime, TEST_CLIENT_PARTITION,
                             TEST_STRICT_SID, 2U);

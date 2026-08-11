@@ -56,7 +56,8 @@ typedef enum wt_partition_priority {
 
 typedef enum wt_service_version_policy {
     WT_SERVICE_VERSION_STRICT = 0,
-    WT_SERVICE_VERSION_RELAXED
+    WT_SERVICE_VERSION_RELAXED,
+    WT_SERVICE_VERSION_UNSPECIFIED
 } wt_service_version_policy_t;
 
 typedef struct wt_service_descriptor {

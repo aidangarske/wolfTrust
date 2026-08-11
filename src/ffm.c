@@ -152,6 +152,8 @@ static int wt_ffm_version_allowed(const wt_service_descriptor_t* service,
 {
     if (requested == 0U)
         return 0;
+    if (service->version_policy == WT_SERVICE_VERSION_UNSPECIFIED)
+        return 1;
     if (service->version_policy == WT_SERVICE_VERSION_STRICT)
         return requested == service->version;
     return requested <= service->version;
