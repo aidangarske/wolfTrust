@@ -439,23 +439,35 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   (2→3+ for code+stack+MMIO), and check `WT_FFM_MAX_PARTITIONS`/`WT_MAX_MPU_REGIONS`
   against the Arm suite's partition count. Enables registering a foreign SP by
   manifest data alone.
-- P3. [ ] **Upstream target PAL + NS val binding; Arm server partitions as real
-  SPs (large).** Provide the psa-arch-tests target port (`pal_config`,
-  `pal_driver_ipc_intf`, `target.cmake`) binding Arm's `val_entry`/`val_dispatcher`
-  to wolfTrust's client APIs; boot the unmodified NS test app as a guest; host
-  Arm's `test_supp`/`val/spe` server partitions as real SPs via P1/P2. First real
-  conformance run (version-policy, lifecycle, data-plane, drop). (Refine with the
-  upstream-port scout findings.)
-- P4. [ ] **Driver partition + per-SP MMIO isolation (large).** A manifest-declared
-  SP that owns a device MMIO region enforced SP-exclusive at MPU_S AND GTZC/TZSC
-  (today device isolation is a coarse boot-time secure/NS GTZC split only,
-  `platform_stm32h563.c:183-194`). Unlocks Arm i048-i053 as REAL conformance, not
-  the "equivalent crossdomain mechanism" citation.
-- P5. [ ] **Reboot continuity (NVM boot-flag service + system reset) (medium).**
-  No whole-secure-image reset exists (`NVIC_SystemReset` absent; panic paths spin
-  forever, `platform_stm32h563.c:1286-1299`); wolfHSM NVM is real but not an
-  FF-M service. Add a small NVM-backed boot-flag service + a reset primitive so
-  Arm's PAL can sequence PROGRAMMER_ERROR/panic-reboot tests across a reset.
+  A full ff/ipc run needs THREE real Arm SPs (fixed SIDs): SERVER_PARTITION
+  (0xFB01-07), DRIVER_PARTITION (0xFC01-04 UART/watchdog/NVMEM/TEST + 1 IRQ),
+  CLIENT_PARTITION (0xFA01). The DRIVER partition is BASELINE PLUMBING for EVERY
+  test (all `val_print`→DRIVER_UART, all boot-flag/NVM→DRIVER_NVMEM), not just the
+  isolation tests. wolfTrust also needs a manifest-ingestion generator: turn Arm's
+  3 `platform/manifests/*_psa.json` into wolfTrust partitions AND emit the
+  `psa_manifest/sid.h`/`pid.h` the upstream `val`/PAL `#include`s (today the host
+  harness fakes this by hand in `main.c:132-196`). The target port itself is small
+  (4 files: `pal_config.h`, `nspe/pal_driver_ipc_intf.c`, `spe/pal_driver_intf.c`,
+  `target.cmake`, modeled on `tgt_ff_tfm_an521/`); STM32 UART/watchdog drivers
+  already exist upstream (`platform/drivers/{uart,watchdog}/stm/`), but NVM must be
+  real flash (upstream `pal_nvmem.c` is SRAM-only). Test-bucket order (of 90):
+- P3. [ ] **Bucket (a): NS client + val + SERVER SP + DRIVER SP (print/NVM only)
+  — 36 tests, the true minimum-viable real SPM run.** Needs P1/P2 + the 3-SP
+  hosting + target PAL + manifest ingestion + real UART/NVM drivers. First real
+  on-target conformance (version-policy, lifecycle, data-plane, signal/status).
+  Then bucket (a′): add CLIENT_PARTITION SP → +6 (`i001,i003,i058,i067,i071,i088`).
+- P4. [ ] **Bucket (b): driver-partition MMIO + UART-IRQ isolation — +7 tests
+  (`i021,i047,i055,i057,i064,i065,i066`) (large).** Enforce a manifest-declared
+  device MMIO region as SP-exclusive at MPU_S AND GTZC/TZSC (today only a coarse
+  boot-time secure/NS split, `platform_stm32h563.c:183-194`) + real UART TX IRQ
+  to the driver SP's signal. i048-i053 live in (b∩c) — need both this and P5.
+- P5. [ ] **Bucket (c): reboot/NVM continuity — 41 tests (`i002,i004-i012,
+  i024-i027,i048-i054,i068-i090`, 14 overlap (b)) (large).** Real flash-backed NVM
+  surviving a Secure reset (0xFF at power-on) + a watchdog that resets on timeout
+  + whole-secure-image reset (`NVIC_SystemReset` absent today; panics spin forever,
+  `platform_stm32h563.c:1286-1299`); the NS image must cold-boot and resume from
+  the boot flag. This unlocks the PROGRAMMER_ERROR/panic-reboot tests and is the
+  hardest piece.
 - P6. [ ] **Interrupt + scheduler completeness (large; needs P1).** Real
   partition IRQ delivery: FLIH asserts a `psa_signal_t` into a partition's
   `asserted_signals`, `psa_eoi` unmasks instead of panicking (`ffm_api.c:173-177`),
