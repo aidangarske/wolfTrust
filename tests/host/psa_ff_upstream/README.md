@@ -11,26 +11,31 @@ make test-conformance
 ```
 
 The current host gate executes upstream tests `i001`, `i004` through `i008`,
-`i010`, `i011`, `i012`, `i024`, `i025`, `i026`, `i067`, `i071`, and `i088`.
-These cover framework and service versions, invalid service IDs, strict,
-relaxed, and unspecified version policies, Secure-only access policy, a
+`i010`, `i011`, `i012`, `i024`, `i025`, `i026`, `i067`, `i071`, `i088`, and
+`i090`. These cover framework and service versions, invalid service IDs,
+strict, relaxed, and unspecified version policies, Secure-only access policy, a
 successful Secure connection lifecycle, closing and calling with an invalid or
-null handle, calling with more than `PSA_MAX_IOVEC` vectors, memory
-manipulation, and RoT lifecycle state. `i067` reports SKIP: it requires SP heap
-allocation support, which wolfTrust does not advertise.
+null handle, calling with more than `PSA_MAX_IOVEC` vectors, calling with a
+negative message type, memory manipulation, and RoT lifecycle state. `i067`
+reports SKIP: it requires SP heap allocation support, which wolfTrust does not
+advertise.
 
 The unspecified-version-policy tests (`i010`, `i011`, `i026`) model an
 `UNSPECIFIED` manifest service the way FF-M resolves its defaults: version 1 and
-`STRICT` policy. `i026` also required a wolfTrust fix — `psa_call` with
-`in_len + out_len > PSA_MAX_IOVEC` now returns `PSA_ERROR_PROGRAMMER_ERROR` per
-FF-M, not `PSA_ERROR_INVALID_ARGUMENT`.
+`STRICT` policy. `i026` and `i090` also required wolfTrust conformance fixes to
+`psa_call`, both in the PROGRAMMER-ERROR family: `in_len + out_len >
+PSA_MAX_IOVEC` and a negative message type now return
+`PSA_ERROR_PROGRAMMER_ERROR` per FF-M, not `PSA_ERROR_INVALID_ARGUMENT`.
 
 Every other `ff/ipc` test in the pinned suite was evaluated and is currently
-blocked on one of: real reboot continuity (`set_boot_flag`/boot-signature
-across a reset), real multi-partition memory isolation, real interrupt
-delivery, or (for `i002/i003/i048-i053/i058/i063/i090`) server-side per-service
-dispatch logic our generic `test_dispatch()` does not yet provide (also
-`i027`). See task-list.md Phase 3 item 10.
+blocked on one of: server-side per-service dispatch our generic
+`test_dispatch()` does not yet replicate (`i002` connection lifecycle, `i003`
+invec/outvec data plane, `i027` connection drop, `i063` signal-mask filtering —
+each host-viable once dispatch selects per-test server behavior), real
+multi-partition memory isolation (`i048`-`i053`, which need the SPM to reject a
+caller vector pointing into another partition's MMIO — M33MU only), or a client
+that itself runs as a Secure Partition (`i058` doorbell, compiled out under
+`-DNONSECURE_TEST_BUILD`). See task-list.md Phase 3 item 10.
 
 This focused host gate is not the complete Arm architecture suite. The full
 suite requires its Non-secure application and three Secure test partitions to

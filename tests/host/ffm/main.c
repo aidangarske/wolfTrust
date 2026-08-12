@@ -401,6 +401,7 @@ static void test_arguments(void)
     wt_ffm_runtime_t runtime;
     test_context_t context;
     psa_signal_t signals;
+    psa_handle_t handle;
 
     (void)memset(&context, 0, sizeof(context));
     EXPECT_INT(wt_ffm_init(NULL, &g_manifest, &g_port_ops, &context),
@@ -408,6 +409,12 @@ static void test_arguments(void)
     EXPECT_INT(wt_ffm_init(&runtime, NULL, &g_port_ops, &context),
                WT_FFM_ERROR_ARGUMENT);
     test_init(&runtime, &context);
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, -1,
+                           NULL, 0U, NULL, 0U), PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle),
+               WT_FFM_SUCCESS);
     EXPECT_INT(wt_ffm_wait(&runtime, TEST_PARTITION_ID, PSA_WAIT_ANY,
                            &signals), WT_FFM_ERROR_NOT_READY);
     EXPECT_INT(wt_ffm_get(&runtime, TEST_PARTITION_ID, TEST_SERVICE_SIGNAL,

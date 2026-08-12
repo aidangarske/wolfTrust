@@ -353,8 +353,9 @@ them together, at the end, as a single **detect-or-skip** harness driven from
   box. Real H5 hardware stays a separate, never-emulator-implied record.
 
 10. [ ] Expand `tests/host/psa_ff_upstream/` past the host-viable subset
-    (now `i001,i004-i008,i010,i011,i012,i024,i025,i026,i067[SKIP],i071,i088`
-    — Slice 1 added the version-policy tests i010/i011/i026) to the full Arm
+    (now `i001,i004-i008,i010,i011,i012,i024,i025,i026,i067[SKIP],i071,i088,
+    i090` — Slice 1 added version-policy i010/i011/i026; i090 added the
+    negative-type PROGRAMMER_ERROR check) to the full Arm
     FF-M suite under M33MU (NS app + 3 SPs, including the tests that need real
     reboot continuity and multi-partition isolation) and add the TF-M baseline
     comparison. `make test-conformance` must auto-detect an available M33MU
@@ -375,9 +376,21 @@ them together, at the end, as a single **detect-or-skip** harness driven from
     `i002,i003,i048-i053,i058,i063,i090` remain blocked on 10b (server
     dispatch), not on a version policy.
 10b. [ ] Give `test_dispatch()` in `tests/host/psa_ff_upstream/main.c` real
-    per-service logic instead of a generic wait/get/reply(SUCCESS). Blocks
-    wiring `i027` (connection drop) and any future test needing
-    service-specific server behavior.
+    per-service logic instead of a generic wait/get/reply(SUCCESS). Because the
+    upstream tests reuse the same SIDs with contradictory server behavior, this
+    needs a `g_active_test` selector so dispatch replicates the right per-test
+    server. Unblocks these host-viable tests (verified by scout): `i003`
+    (invec/outvec data plane — psa_read/skip/write/set_rhandle, the highest-value
+    server, ~6 checks), `i002` (connection lifecycle — busy/reject, identity,
+    connect-limit=50, block-vs-poll, ~9 checks; stresses the runtime pools),
+    `i027` (connection drop — needs a new `SERVER_CONNECTION_DROP` service +
+    PROGRAMMER_ERROR reply, then SPM short-circuits further calls on the handle),
+    `i063` (signal-mask filtering — client only sees refused connects; replicate
+    the masked psa_wait loop to prove the real rule, else it only tests the
+    connect path). `i090` already landed (client-side param validation, no server
+    dispatch). NOT unblocked by this: `i048`-`i053` (need real MPU isolation →
+    Slice 3/M33MU) and `i058` (doorbell client compiled out under
+    `-DNONSECURE_TEST_BUILD`).
 11. [ ] Pass the host and M33MU FF-M positive and negative suites on one commit.
 
 The earlier Phase 3 validation proves the generated-policy bootstrap and the

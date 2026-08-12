@@ -532,10 +532,11 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
     size_t i;
     int ret;
 
-    if (runtime == NULL || caller == 0 || type < 0)
+    if (runtime == NULL || caller == 0)
         return PSA_ERROR_INVALID_ARGUMENT;
-    /* FF-M: in_len + out_len > PSA_MAX_IOVEC is a PROGRAMMER ERROR. */
-    if (in_len > PSA_MAX_IOVEC || out_len > PSA_MAX_IOVEC ||
+    /* FF-M: a negative call type and in_len + out_len > PSA_MAX_IOVEC are
+     * both PROGRAMMER ERRORs. */
+    if (type < 0 || in_len > PSA_MAX_IOVEC || out_len > PSA_MAX_IOVEC ||
             in_len + out_len > PSA_MAX_IOVEC)
         return PSA_ERROR_PROGRAMMER_ERROR;
     ret = wt_ffm_connection_from_handle(runtime, caller, handle,

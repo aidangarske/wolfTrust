@@ -50,6 +50,7 @@ int32_t client_test_unspecified_policy_with_lower_version(
     caller_security_t caller);
 int32_t client_test_psa_call_with_iovec_more_than_max_limit(
     caller_security_t caller);
+int32_t client_test_psa_call_with_neg_type(caller_security_t caller);
 int32_t client_test_secure_access_only_connection(caller_security_t caller);
 int32_t client_test_psa_close_with_invalid_handle(caller_security_t caller);
 int32_t client_test_psa_call_with_invalid_handle(caller_security_t caller);
@@ -88,6 +89,8 @@ val_api_t* valtest_entry_i071;
 psa_api_t* psatest_entry_i071;
 val_api_t* valtest_entry_i088;
 psa_api_t* psatest_entry_i088;
+val_api_t* valtest_entry_i090;
+psa_api_t* psatest_entry_i090;
 
 static const wt_service_descriptor_t g_services[] = {
     {
@@ -308,6 +311,8 @@ int main(void)
     psatest_entry_i071 = &g_psa_api;
     valtest_entry_i088 = &g_val_api;
     psatest_entry_i088 = &g_psa_api;
+    valtest_entry_i090 = &g_val_api;
+    psatest_entry_i090 = &g_psa_api;
 
     g_context.caller = TEST_NS_CLIENT;
     status = client_test_psa_framework_version(CALLER_NONSECURE);
@@ -369,6 +374,10 @@ int main(void)
                         status);
     }
     if (status == VAL_STATUS_SUCCESS) {
+        status = client_test_psa_call_with_neg_type(CALLER_NONSECURE);
+        status = report("i090", "psa_call_with_neg_type", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
         status = client_test_dynamic_mem_alloc_fn(CALLER_NONSECURE);
         status = report("i067", "dynamic_mem_alloc_fn", status);
     }
@@ -401,6 +410,6 @@ int main(void)
         return 1;
 
     (void)printf("PASS: Arm PSA FF i001, i004-i008, i010, i011, i012, "
-                "i024, i025, i026, i067, i071, i088 on wolfTrust\n");
+                "i024, i025, i026, i067, i071, i088, i090 on wolfTrust\n");
     return 0;
 }

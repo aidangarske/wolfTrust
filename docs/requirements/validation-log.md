@@ -221,6 +221,28 @@ This is host conformance evidence for the version-policy behavior; the full Arm
 suite under M33MU (NS app + 3 Secure test partitions) and the TF-M baseline
 remain the later item-10 slices.
 
+## Item 10 conformance expansion (Slice 2 start — negative call type i090)
+
+Wired Arm FF-M test `i090` (`psa_call_with_neg_type`) into
+`make test-conformance`: a `psa_call` with a negative message type must return
+`PSA_ERROR_PROGRAMMER_ERROR`. This required the second half of the
+PROGRAMMER-ERROR-family fix begun for i026 — `wt_ffm_call` returned
+`PSA_ERROR_INVALID_ARGUMENT` for `type < 0`; per FF-M a negative type is a
+PROGRAMMER ERROR, so `wt_ffm_call` now returns `PSA_ERROR_PROGRAMMER_ERROR`
+(the `runtime == NULL`/`caller == 0` internal-argument guards still return
+`INVALID_ARGUMENT`). The wolfTrust host test `WT-FFM-0036` gained a matching
+negative-type assertion.
+
+- `make test-conformance BUILD_DIR=/tmp/wolftrust-conf`: EXIT 0 — `i090` PASS
+  alongside the Slice-1 set, ending `PASS: conformance/all`.
+- `make test`: EXIT 0 — full host suite green including `unit/ffm`
+  (`WT-FFM-0036 invalid arguments and empty wait` now covers the negative type).
+
+The remaining server-dispatch tests (`i002`, `i003`, `i027`, `i063`) are
+host-viable but need `test_dispatch()` to replicate per-test server behavior
+(task 10b); `i048`-`i053` need real MPU isolation (M33MU) and `i058` needs a
+Secure-Partition client (compiled out under `-DNONSECURE_TEST_BUILD`).
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU
