@@ -439,7 +439,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     saved-regs enter/suspend/resume SP context on the coroutine scheduler so an SP
     is a real schedulable entity, not an inline call. Overlaps P2. Target-only;
     M33MU isolation + no-regression evidence required.
-  - P1r. [ ] **Production registration M33MU regression.** Confirm P1a's
+  - P1r. [x] **Production registration M33MU regression (DONE, M33MU 2026-08-12).** Confirm P1a's
     `ffm_boot` registration path dispatches crypto + attest unchanged on M33MU
     (host cannot compile the target `ffm_boot`; Mac `arm-none-eabi` lacks libc
     headers). Bundle with the next box gate run.

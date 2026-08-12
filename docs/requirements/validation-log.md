@@ -360,6 +360,12 @@ P1r production `ffm_boot` registration regression are target-only and deferred
 to the next M33MU box gate (the Mac `arm-none-eabi` toolchain lacks libc headers,
 so `src/ffm.c`/`src/ffm_boot.c` cannot be target-compiled locally).
 
+P1r CLOSED (M33MU emulator, wolf-prec5560, 2026-08-12): local gate on the tree
+at `0183818` (P1a registry + P2a ingester, pre-P1b) — `PASS: local M33MU gate`,
+exit 0, `[EXPECT BKPT] Success`, attestation COSE_Sign1 verified, SHA-256 KAT,
+AES-CTR, FreeRTOS PKCS11 digest all green, no fault markers. The production
+dispatch-registry path serves SERVICE_CRYPTO and SERVICE_ATTEST unchanged.
+
 ## Item 10 P2a — Arm manifest ingestion, psa_manifest identity headers
 
 `tools/manifest/ingest_psa_arch.py` ingests the unmodified upstream
