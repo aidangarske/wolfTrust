@@ -45,6 +45,13 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
  * built-in SP, scheduled via wt_spm_sched_add with the crypto service loop. */
 int wt_spm_sched_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 
+/* SP-side transport: trap one wt_spm_call_t to the privileged gate via SVC,
+ * re-issuing a blocking psa_wait after each wake until it completes. The SVC
+ * dispatcher stamps the caller's own partition id into the call, so callers
+ * need not (and cannot usefully) set it. Only valid on a scheduled SP thread. */
+struct wt_spm_call;
+int wt_spm_sp_call(struct wt_spm_call* call);
+
 /* Privileged SVC #1 dispatcher. Tail-called from SVC_Handler asm with
  * r0 = the exception frame; not for direct C callers. */
 void wt_spm_svc_entry(uint32_t* frame);

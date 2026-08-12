@@ -43,6 +43,7 @@ WT_WOLFCRYPT_STM32_HASH ?= 0
 WT_ENGINE_HSM ?= 1
 WT_ATTEST_COSE ?= 1
 WT_FFM_NEGATIVE_PROBE ?= 0
+WT_CONFORMANCE ?= 0
 
 # wolfHSM resumes SHA-256 operations from the portable digest and length
 # fields carried by its wire protocol. STM32 HASH uses opaque peripheral CSR
@@ -140,7 +141,6 @@ SECURE_SRCS := \
     $(PORT_DIR)/platform_stm32h563.c \
     $(ROOT)/src/domain.c \
     $(ROOT)/src/ffm.c \
-    $(ROOT)/src/ffm_api.c \
     $(ROOT)/src/ffm_boot.c \
     $(ROOT)/src/ffm_domain.c \
     $(ROOT)/src/ipc.c \
@@ -202,6 +202,7 @@ endif
 WT_SECURE_EXTRA_SRCS := \
     $(ROOT)/src/arch/armv8m/cmse.c \
     $(ROOT)/src/arch/armv8m/coroutine_armv8m.c \
+    $(ROOT)/src/arch/armv8m/spm_sp_api.c \
     $(ROOT)/src/arch/armv8m/spm_svc.c \
     $(ROOT)/src/sched/coroutine.c \
     $(ROOT)/src/sync/mutex.c \
@@ -247,6 +248,82 @@ ALL_SECURE_OBJS := \
     $(HSM_WT_EXTRA_OBJS) \
     $(MANIFEST_OBJ)
 
+# Arm PSA-FF conformance partitions (P3a): the unmodified upstream server and
+# client partitions plus the i001/i002 test bodies, compiled into the secure
+# image and scheduled as SPs. P3c regenerates the test lists over the full run
+# range; P3b adds the driver partition.
+ifeq ($(WT_CONFORMANCE),1)
+SECURE_CFLAGS += -DWT_CONFORMANCE=1
+UPSTREAM_DIR := $(BUILD_DIR)/upstream/psa-arch-tests/api-tests
+UPSTREAM_STAMP := $(BUILD_DIR)/.psa-arch-tests.stamp
+CONF_GEN_STAMP := $(MANIFEST_DIR)/.conformance-gen.stamp
+CONF_CFLAGS = $(SECURE_CFLAGS) -DIPC -DVERBOSITY=3 \
+    -I$(UPSTREAM_DIR)/val/common \
+    -I$(UPSTREAM_DIR)/val/nspe \
+    -I$(UPSTREAM_DIR)/val/spe \
+    -I$(UPSTREAM_DIR)/ff/partition \
+    -I$(UPSTREAM_DIR)/platform/targets/common/nspe \
+    -I$(PORT_DIR)/conformance \
+    -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter
+
+CONF_SEC_OBJS := \
+    $(BUILD_DIR)/conf_sec_server_partition.o \
+    $(BUILD_DIR)/conf_sec_client_partition.o \
+    $(BUILD_DIR)/conf_sec_test_i001.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i001.o \
+    $(BUILD_DIR)/conf_sec_test_i003.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i003.o
+ALL_SECURE_OBJS += $(CONF_SEC_OBJS)
+
+# The upstream sources only exist after the fetch; the empty-recipe rule tells
+# make the fetch stamp produces them so the conf_sec pattern rules can fire.
+CONF_UPSTREAM_SRCS := \
+    $(UPSTREAM_DIR)/ff/partition/server_partition.c \
+    $(UPSTREAM_DIR)/ff/partition/client_partition.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i001/test_i001.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i001/test_supp_i001.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i003/test_i003.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i003/test_supp_i003.c
+
+$(CONF_UPSTREAM_SRCS): $(UPSTREAM_STAMP) ;
+
+$(UPSTREAM_STAMP): | $(BUILD_DIR)
+	$(ROOT)/tests/upstream/fetch_psa_arch_tests.sh \
+		$(BUILD_DIR)/upstream/psa-arch-tests
+	touch $@
+
+$(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
+	python3 $(UPSTREAM_DIR)/tools/scripts/gen_tests_list.py ipc \
+		$(UPSTREAM_DIR)/ff/ipc/testsuite.db 0 ALL \
+		$(MANIFEST_DIR)/testlist.txt \
+		$(MANIFEST_DIR)/test_entry_list.inc \
+		$(MANIFEST_DIR)/test_entry_fn_declare_list.inc \
+		$(MANIFEST_DIR)/client_tests_list_declare.inc \
+		$(MANIFEST_DIR)/client_tests_list.inc \
+		$(MANIFEST_DIR)/server_tests_list_declare.inc \
+		$(MANIFEST_DIR)/server_tests_list.inc \
+		1 3
+	printf '#include "server_partition.h"\n' \
+		> $(MANIFEST_DIR)/psa_manifest/server_partition_psa.h
+	printf '#include "client_partition.h"\n' \
+		> $(MANIFEST_DIR)/psa_manifest/client_partition_psa.h
+	printf '#include "driver_partition.h"\n' \
+		> $(MANIFEST_DIR)/psa_manifest/driver_partition_psa.h
+	touch $@
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/partition/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i001/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i003/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+endif
+
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
 
@@ -282,6 +359,7 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		'WT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_BASE)' \
 		'WT_ENGINE_HSM=$(WT_ENGINE_HSM)' \
 		'WT_ATTEST_COSE=$(WT_ATTEST_COSE)' \
+		'WT_CONFORMANCE=$(WT_CONFORMANCE)' \
 		'WT_MAX_GUESTS=$(WT_MAX_GUESTS)' \
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
 		'WT_WOLFCRYPT_SP_ASM=$(WT_WOLFCRYPT_SP_ASM)' \

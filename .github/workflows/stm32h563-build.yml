@@ -242,7 +242,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [positive, restart, crossdomain]
+        scenario: [positive, restart, crossdomain, confboot]
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15

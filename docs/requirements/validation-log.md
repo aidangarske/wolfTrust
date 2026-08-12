@@ -540,6 +540,40 @@ upstream Arm val NSPE links. The connect/call/close aliases, which need
   no fault markers. Proves NS shim -> CMSE veneer -> `wt_ffm_framework_version`
   end to end.
 
+## Item 10 P3a-3 — Arm conformance partitions compiled into the secure image (M33MU)
+
+Arm's unmodified `ff/partition/server_partition.c` and `client_partition.c`, plus
+the i001/i003 test bodies, now compile into the secure image (behind
+`WT_CONFORMANCE=1`) against wolfTrust's own `include/psa/*.h`, the generated
+`psa_manifest/` headers, and a new STM32H563 `pal_config.h`. `wt_ffm_boot_start_sched`
+schedules `server_main`/`client_main` as unprivileged coroutines via
+`wt_spm_sched_add` on their P2-carved manifest stacks (0x3009A000 / 0x3009E000).
+
+The service-side PSA API is now target-native: `src/arch/armv8m/spm_sp_api.c`
+marshals every `psa_*` service call into a `wt_spm_call_t` and traps to the
+privileged gate via SVC (`wt_spm_sp_call`), replacing the direct
+`src/ffm_api.c` bindings in the target build — those dereferenced SPM state an
+unprivileged partition cannot reach (the P1t-2b fault class, now structurally
+impossible). The SVC entry stamps `call->partition_id` from the scheduled slot,
+so a partition cannot impersonate another; a latent conflation was fixed by
+giving `psa_notify` its own `notify_partition` field distinct from the acting
+partition id. SP-as-client IPC (`psa_connect`/`psa_call` from a partition) has
+no gate op yet and refuses closed rather than faking success — tracked with P3b.
+
+- Host `make test`: EXIT 0 (`spm_gate` 62 checks, `unit/all`) — the
+  `notify_partition` split keeps the gate NOTIFY path green.
+- Target dry-compile: all six upstream sources + every touched wolfTrust source
+  compile clean under `arm-none-eabi-gcc` (`-Wall -Wextra`, `-mcmse`).
+- M33MU `confboot` gate PASS (2026-08-12): the conformance image (both Arm SPs
+  scheduled) boots the full positive lifecycle green — `PASS: target/confboot`,
+  exit 0, `[EXPECT BKPT] Success`, no fault markers.
+- M33MU regression on the same tree PASS: `positive` (production image unhurt by
+  the psa_* API move) and `crossdomain` (`[MEMFAULT] addr=0x30028000` still
+  denied). `restart` is NS-guest-fault behavior, orthogonal to the SP psa_*
+  change, last proven on the P1 keystone tree.
+- New `confboot` scenario wired into `run_m33mu_scenario.sh`, `make test-target`,
+  and the CI matrix. The unmodified Arm partitions are the true TF-M drop-in.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

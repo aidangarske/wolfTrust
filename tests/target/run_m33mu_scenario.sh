@@ -10,6 +10,9 @@
 #                                       restart_limit times then leaves it FAULTED
 #   run_m33mu_scenario.sh crossdomain  a probe inside the crypto SP reads
 #                                       SPM-private RAM and the SP domain faults
+#   run_m33mu_scenario.sh confboot     conformance image (Arm server/client SPs
+#                                       scheduled, WT_CONFORMANCE=1) boots the
+#                                       full positive lifecycle green
 #
 # This is the single source the local make test-target harness, the box skill
 # scripts, and the CI jobs all drive, so each scenario's markers stay identical.
@@ -18,8 +21,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|restart|crossdomain) ;;
-  *) echo "usage: $0 positive|restart|crossdomain" >&2; exit 2 ;;
+  positive|restart|crossdomain|confboot) ;;
+  *) echo "usage: $0 positive|restart|crossdomain|confboot" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -92,6 +95,8 @@ cd "$repo"
 secure_flags=""
 if [ "$scenario" = "crossdomain" ]; then
   secure_flags="WT_FFM_NEGATIVE_PROBE=1"
+elif [ "$scenario" = "confboot" ]; then
+  secure_flags="WT_CONFORMANCE=1"
 fi
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
 IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x20000 WOLFBOOT_SECTOR_SIZE=0x2000 \
@@ -141,9 +146,9 @@ set -e
 echo "wolfBoot/wolfTrust M33MU exit status: $emu_status"
 
 case "$scenario" in
-  positive)
+  positive|confboot)
     if grep -Eq '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)' "$log"; then
-      echo "FAIL: fault marker in positive boot log"; exit 1
+      echo "FAIL: fault marker in $scenario boot log"; exit 1
     fi
     grep -Fq "wolfTrust TEE client initialized" "$log"
     grep -Fq "wolfTrust FF-M psa_framework_version=0x0100" "$log"
@@ -155,7 +160,7 @@ case "$scenario" in
     grep -Fq "wolfTrust attestation: COSE_Sign1 verified" "$log"
     grep -Fq "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"
-    echo "PASS: target/positive"
+    echo "PASS: target/$scenario"
     ;;
   restart)
     expected=$((RESTART_LIMIT + 1))

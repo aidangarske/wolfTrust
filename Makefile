@@ -47,6 +47,8 @@ test-target:
 		tests/target/run_m33mu_scenario.sh restart; \
 		echo "RUN: target/crossdomain"; \
 		tests/target/run_m33mu_scenario.sh crossdomain; \
+		echo "RUN: target/confboot"; \
+		tests/target/run_m33mu_scenario.sh confboot; \
 		echo "PASS: target/all"; \
 	fi
 

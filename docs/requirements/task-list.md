@@ -568,8 +568,10 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       shim into the Zephyr NS guest. Dominant unknown; Mac cannot target-compile,
       so it is M33MU-only. Gate: links + boots clean. (`claude-fable-5`.)
     - P3a-4. [ ] **Bind ONE test path end-to-end**: run i001
-      (`psa_framework_version`, no server) then i002 (`psa_connect` -> real
-      `server_main` reply) on M33MU. Gate: the unmodified Arm client test passes
+      (`psa_framework_version`, no server) then i003 (`psa_call` -> real
+      `server_main` reply) on M33MU. i002 is a `panic_test` in the upstream
+      testsuite.db (needs P5 panic-reboot infra), so the first non-panic
+      connect/call test is i003. Gate: the unmodified Arm client test passes
       with the real server SP handshaking through the SPM.
   - P3b. [ ] **PAL driver plane + DRIVER partition.** `nspe/pal_config.h`,
     `nspe/pal_driver_ipc_intf.c`, `spe/pal_driver_intf.c`, `target.cmake`, and

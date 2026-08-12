@@ -45,7 +45,8 @@ typedef enum wt_spm_op {
 
 typedef struct wt_spm_call {
     wt_spm_op_t  op;
-    int32_t      partition_id;
+    int32_t      partition_id;   /* acting partition (SVC stamps the caller) */
+    int32_t      notify_partition; /* NOTIFY target */
     psa_handle_t msg_handle;   /* GET/SET_RHANDLE/READ/SKIP/WRITE/REPLY */
     psa_signal_t signal_mask;  /* WAIT in */
     psa_signal_t signal;       /* GET in */

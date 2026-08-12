@@ -100,7 +100,7 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
                                      call->msg_handle, call->status);
         break;
     case WT_SPM_OP_NOTIFY:
-        call->ret_int = wt_ffm_notify(runtime, call->partition_id);
+        call->ret_int = wt_ffm_notify(runtime, call->notify_partition);
         break;
     case WT_SPM_OP_CLEAR:
         call->ret_int = wt_ffm_clear(runtime, call->partition_id);

@@ -22,7 +22,6 @@
 
 #include "wolftrust/arch/armv8m/cmse.h"
 #include "wolftrust/arch/armv8m/spm_svc.h"
-#include "wolftrust/ffm_api.h"
 #include "wolftrust/monitor.h"
 #include "wolftrust/services/crypto_service.h"
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
@@ -101,36 +100,14 @@ static const wt_ffm_port_ops_t g_ffm_port_ops = {
     wt_ffm_boot_panic
 };
 
-static psa_client_id_t wt_ffm_boot_current_client(void* context)
-{
-    const wt_scheduler_state_t* state;
-
-    (void)context;
-    state = wt_monitor_state();
-    return -(psa_client_id_t)(state->current_guest + 1U);
-}
-
-/* No Secure Partition context is scheduled yet; item 3 Section C tracks
- * the active partition once a real service loop runs. */
-static int32_t wt_ffm_boot_current_partition(void* context)
-{
-    (void)context;
-    return 0;
-}
-
-static const wt_ffm_identity_ops_t g_ffm_identity_ops = {
-    wt_ffm_boot_current_client,
-    wt_ffm_boot_current_partition
-};
-
+/* The direct src/ffm_api.c psa_* binding is host-only: on target every
+ * psa_* call from a Secure Partition crosses the SVC gate instead
+ * (src/arch/armv8m/spm_sp_api.c), so nothing binds the identity ops here. */
 int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
 {
     int ret;
 
     ret = wt_ffm_init(&g_ffm_runtime, manifest, &g_ffm_port_ops, NULL);
-    if (ret == WT_FFM_SUCCESS) {
-        ret = wt_ffm_api_bind(&g_ffm_runtime, &g_ffm_identity_ops, NULL);
-    }
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_ffm_register_partition(&g_ffm_runtime, PARTITION_CRYPTO_ID,
                                         wt_crypto_service_dispatch, NULL);
@@ -151,9 +128,41 @@ int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
     return ret;
 }
 
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+/* Arm PSA-FF conformance partitions (P3a): the unmodified upstream service
+ * loops, scheduled like any other SP. */
+extern void server_main(void);
+extern void client_main(void);
+
+static void wt_conformance_server_entry(void* arg)
+{
+    (void)arg;
+    server_main();
+}
+
+static void wt_conformance_client_entry(void* arg)
+{
+    (void)arg;
+    client_main();
+}
+#endif
+
 int wt_ffm_boot_start_sched(void)
 {
-    return wt_spm_sched_start(&g_ffm_runtime, PARTITION_CRYPTO_ID);
+    int ret;
+
+    ret = wt_spm_sched_start(&g_ffm_runtime, PARTITION_CRYPTO_ID);
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_sched_add(&g_ffm_runtime, SERVER_PARTITION_ID,
+                               wt_conformance_server_entry, NULL);
+    }
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_sched_add(&g_ffm_runtime, CLIENT_PARTITION_ID,
+                               wt_conformance_client_entry, NULL);
+    }
+#endif
+    return ret;
 }
 
 /* Stopgap NS-to-Secure carrier for the FF-M client API (see task-list.md

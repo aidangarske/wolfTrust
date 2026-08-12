@@ -88,6 +88,9 @@ void wt_spm_svc_entry(uint32_t* frame)
         return;
     }
 
+    /* The caller's identity is the scheduled slot's, never the SP-supplied
+     * field: a partition cannot impersonate another through the gate. */
+    call->partition_id = slot->partition_id;
     status = wt_spm_gate(g_spm_svc_runtime, &slot->table, call);
     frame[0] = (uint32_t)status;
     if (status == WT_FFM_SUCCESS && wt_spm_call_would_block(call)) {
@@ -124,6 +127,11 @@ static int wt_spm_svc_transport(wt_ffm_runtime_t* runtime, wt_spm_call_t* call)
         }
     }
     return status;
+}
+
+int wt_spm_sp_call(struct wt_spm_call* call)
+{
+    return wt_spm_svc_transport(NULL, call);
 }
 
 /* The scheduled Secure Partition thread: the production service loop,
