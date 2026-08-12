@@ -374,11 +374,19 @@ static int wt_ffm_dispatch_message(wt_ffm_runtime_t* runtime,
     int32_t partition_id;
     int ret;
 
+    wt_ffm_partition_runtime_t* partition;
+
     service = &runtime->services[message->service_index];
-    partition_id = (int32_t)runtime->partitions[
-        service->partition_index].manifest->domain_id;
-    ret = runtime->ops->dispatch(runtime->port_context, runtime,
-                                 partition_id);
+    partition = &runtime->partitions[service->partition_index];
+    partition_id = (int32_t)partition->manifest->domain_id;
+    if (partition->dispatch != NULL) {
+        ret = partition->dispatch(partition->dispatch_context, runtime,
+                                  partition_id);
+    }
+    else {
+        ret = runtime->ops->dispatch(runtime->port_context, runtime,
+                                     partition_id);
+    }
     if (ret != WT_FFM_SUCCESS)
         return ret;
     if (message->complete == 0U)
@@ -436,6 +444,24 @@ int wt_ffm_init(wt_ffm_runtime_t* runtime,
         runtime->messages[i].next = WT_FFM_QUEUE_NONE;
     }
 
+    return WT_FFM_SUCCESS;
+}
+
+int wt_ffm_register_partition(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                              wt_ffm_dispatch_fn dispatch, void* context)
+{
+    uint16_t partition_index;
+    int ret;
+
+    if (runtime == NULL || dispatch == NULL)
+        return WT_FFM_ERROR_ARGUMENT;
+
+    ret = wt_ffm_find_partition(runtime, partition_id, &partition_index);
+    if (ret != WT_FFM_SUCCESS)
+        return ret;
+
+    runtime->partitions[partition_index].dispatch = dispatch;
+    runtime->partitions[partition_index].dispatch_context = context;
     return WT_FFM_SUCCESS;
 }
 

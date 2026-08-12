@@ -425,7 +425,24 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   per-PID `if` chain. Re-host crypto + attest through the generic path to prove
   no regression. Touches `src/ffm_boot.c`, `src/ffm.c`, `src/monitor.c`,
   `port/stm32h563/partitions.c` (add an SP scheduling-slot table), likely
-  `src/sched/coroutine.c`. Host + M33MU.
+  `src/sched/coroutine.c`. Host + M33MU. Split into P1a/P1t/P1r:
+  - P1a. [x] **Manifest-bound dispatch registry (host, DONE).** Added a
+    per-partition `dispatch`/`dispatch_context` to `wt_ffm_partition_runtime_t`
+    with `wt_ffm_register_partition`; `wt_ffm_dispatch_message` now routes each
+    message to the owning partition's registered service loop (fail-closed port
+    op only as fallback), replacing the per-PID `if` chain in `ffm_boot.c`.
+    Crypto + attest register through it in `wt_ffm_boot_init`. Evidence: host
+    test `WT-FFM-0014 partition dispatch routing` (registered loop intercepts,
+    port op bypassed) + crypto/attest KAT round trips still green in `make test`.
+  - P1t. [ ] **Schedulable execution context (target, needs M33MU).** Generalize
+    the one-shot crypto stack switch (`wt_crypto_sp_call`) into a private-stack +
+    saved-regs enter/suspend/resume SP context on the coroutine scheduler so an SP
+    is a real schedulable entity, not an inline call. Overlaps P2. Target-only;
+    M33MU isolation + no-regression evidence required.
+  - P1r. [ ] **Production registration M33MU regression.** Confirm P1a's
+    `ffm_boot` registration path dispatches crypto + attest unchanged on M33MU
+    (host cannot compile the target `ffm_boot`; Mac `arm-none-eabi` lacks libc
+    headers). Bundle with the next box gate run.
 - P1b. [ ] **Wire the generic domain resolver into the live path (medium, cheap
   early win).** `wt_ffm_resolve_secure_domain` / `wt_ffm_compose_secure_partition_table`
   (`src/ffm_domain.c`) are already generic + manifest-driven but only exercised

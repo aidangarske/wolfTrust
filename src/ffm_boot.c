@@ -73,19 +73,16 @@ static int wt_ffm_boot_check_write(void* context, psa_client_id_t caller,
            wt_cmse_check_in_guest_ns_ram(guest_id, address, size);
 }
 
-/* SERVICE_CRYPTO (PARTITION_CRYPTO_ID) is the first service migrated onto
- * real FF-M dispatch; every other partition still has no service loop. */
+/* Fail-closed fallback for a partition with no registered service loop.
+ * Services bind their dispatch handler through wt_ffm_register_partition in
+ * wt_ffm_boot_init, so the manifest-bound partition table routes each message
+ * rather than a per-PID branch here. */
 static int wt_ffm_boot_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                 int32_t partition_id)
 {
-    if (partition_id == PARTITION_CRYPTO_ID) {
-        return wt_crypto_service_dispatch(context, runtime, partition_id);
-    }
-#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
-    if (partition_id == PARTITION_ATTEST_ID) {
-        return wt_attestation_service_dispatch(context, runtime, partition_id);
-    }
-#endif
+    (void)context;
+    (void)runtime;
+    (void)partition_id;
     return WT_FFM_ERROR_STATE;
 }
 
@@ -133,6 +130,16 @@ int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_ffm_api_bind(&g_ffm_runtime, &g_ffm_identity_ops, NULL);
     }
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_ffm_register_partition(&g_ffm_runtime, PARTITION_CRYPTO_ID,
+                                        wt_crypto_service_dispatch, NULL);
+    }
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_ffm_register_partition(&g_ffm_runtime, PARTITION_ATTEST_ID,
+                                        wt_attestation_service_dispatch, NULL);
+    }
+#endif
     if (ret == WT_FFM_SUCCESS) {
         /* Run SERVICE_CRYPTO's compute isolated on the crypto SP's own
          * secure stack under a narrowed MPU domain (WT-FFM-0011). */

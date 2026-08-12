@@ -480,6 +480,71 @@ static void test_doorbell_signal(void)
     (void)printf("PASS: WT-FFM-0027 doorbell notify and clear\n");
 }
 
+static unsigned int g_registry_dispatches;
+
+/* A registered service loop for TEST_PARTITION_ID: completes connect and
+ * disconnect messages so the manifest-bound partition table, not the port
+ * dispatch op, drives the message (WT-FFM-0014). */
+static int registry_dispatch(void* context, wt_ffm_runtime_t* runtime,
+                             int32_t partition_id)
+{
+    psa_signal_t asserted = 0U;
+    psa_msg_t message;
+
+    (void)context;
+    g_registry_dispatches++;
+    if (wt_ffm_wait(runtime, partition_id, PSA_WAIT_ANY, &asserted) !=
+            WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_STATE;
+    }
+    if (wt_ffm_get(runtime, partition_id, asserted, &message) != PSA_SUCCESS) {
+        return WT_FFM_ERROR_STATE;
+    }
+    if (message.type == PSA_IPC_CONNECT) {
+        (void)wt_ffm_set_rhandle(runtime, partition_id, message.handle,
+                                 TEST_RHANDLE);
+    }
+    if (wt_ffm_reply(runtime, partition_id, message.handle, PSA_SUCCESS) !=
+            WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_STATE;
+    }
+    return WT_FFM_SUCCESS;
+}
+
+static void test_partition_dispatch_registry(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_handle_t handle;
+
+    test_init(&runtime, &context);
+    g_registry_dispatches = 0U;
+
+    EXPECT_INT(wt_ffm_register_partition(NULL, TEST_PARTITION_ID,
+                                         registry_dispatch, NULL),
+               WT_FFM_ERROR_ARGUMENT);
+    EXPECT_INT(wt_ffm_register_partition(&runtime, TEST_PARTITION_ID,
+                                         NULL, NULL), WT_FFM_ERROR_ARGUMENT);
+    EXPECT_INT(wt_ffm_register_partition(&runtime, 0x7FFF,
+                                         registry_dispatch, NULL),
+               WT_FFM_ERROR_POLICY);
+
+    EXPECT_INT(wt_ffm_register_partition(&runtime, TEST_PARTITION_ID,
+                                         registry_dispatch, NULL),
+               WT_FFM_SUCCESS);
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 2U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    /* The registered loop ran and the generic port op did not. */
+    EXPECT_INT(g_registry_dispatches, 1);
+    EXPECT_INT(context.dispatches, 0);
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle), WT_FFM_SUCCESS);
+    EXPECT_INT(g_registry_dispatches, 2);
+    EXPECT_INT(context.dispatches, 0);
+    EXPECT_INT(context.panics, 0);
+
+    (void)printf("PASS: WT-FFM-0014 partition dispatch routing\n");
+}
+
 int main(void)
 {
     test_arguments();
@@ -487,6 +552,7 @@ int main(void)
     test_framework_and_policy();
     test_connection_and_vectors();
     test_connection_drop();
+    test_partition_dispatch_registry();
     test_vector_rejection();
     test_output_revalidation();
     test_bounded_resources();

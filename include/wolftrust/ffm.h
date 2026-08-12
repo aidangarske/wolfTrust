@@ -38,6 +38,9 @@
 
 typedef struct wt_ffm_runtime wt_ffm_runtime_t;
 
+typedef int (*wt_ffm_dispatch_fn)(void* context, wt_ffm_runtime_t* runtime,
+                                  int32_t partition_id);
+
 typedef struct wt_ffm_port_ops {
     int (*check_read)(void* context, psa_client_id_t caller,
                       const void* address, size_t size);
@@ -50,6 +53,8 @@ typedef struct wt_ffm_port_ops {
 
 typedef struct wt_ffm_partition_runtime {
     const wt_partition_manifest_t* manifest;
+    wt_ffm_dispatch_fn dispatch;
+    void* dispatch_context;
     psa_signal_t asserted_signals;
     uint8_t initialized;
 } wt_ffm_partition_runtime_t;
@@ -121,6 +126,8 @@ typedef enum wt_ffm_result {
 int wt_ffm_init(wt_ffm_runtime_t* runtime,
                 const wt_system_manifest_t* manifest,
                 const wt_ffm_port_ops_t* ops, void* port_context);
+int wt_ffm_register_partition(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                              wt_ffm_dispatch_fn dispatch, void* context);
 uint32_t wt_ffm_framework_version(const wt_ffm_runtime_t* runtime);
 uint32_t wt_ffm_service_version(const wt_ffm_runtime_t* runtime,
                                 psa_client_id_t caller, uint32_t sid);

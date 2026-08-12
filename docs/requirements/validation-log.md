@@ -339,6 +339,27 @@ rules.
 - `make test-conformance BUILD_DIR=/tmp/wolftrust-conf`: EXIT 0 — all nine
   `i002` checks PASS, ending `PASS: conformance/all`. `make test`: EXIT 0.
 
+## Item 10 P1a — manifest-bound partition dispatch registry (WT-FFM-0014)
+
+Replaced the per-PID `if` chain in `src/ffm_boot.c` with a manifest-bound
+dispatch registry: `wt_ffm_partition_runtime_t` gained a `dispatch`/
+`dispatch_context` pair, `wt_ffm_register_partition` binds a service loop to a
+partition, and `wt_ffm_dispatch_message` routes each message to the owning
+partition's registered handler, using the port dispatch op only as a fail-closed
+fallback. Crypto + attest register through `wt_ffm_boot_init`.
+
+Evidence (host, EXIT 0):
+- `make test`: new `PASS: WT-FFM-0014 partition dispatch routing` — a registered
+  loop intercepts connect/disconnect for `TEST_PARTITION_ID` (dispatch count 2),
+  the generic port op is bypassed (count 0), argument/lookup validation returns
+  `ARGUMENT`/`POLICY`; plus `SERVICE_CRYPTO`/`SERVICE_ATTEST` KAT round trips
+  still green through real FF-M dispatch.
+
+Not yet proven (split out, not claimed): P1t schedulable execution context and
+P1r production `ffm_boot` registration regression are target-only and deferred
+to the next M33MU box gate (the Mac `arm-none-eabi` toolchain lacks libc headers,
+so `src/ffm.c`/`src/ffm_boot.c` cannot be target-compiled locally).
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU
