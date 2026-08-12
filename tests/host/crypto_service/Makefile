@@ -37,7 +37,9 @@ CFLAGS += $(EXTRA_CFLAGS)
 
 _WT_SRCS := \
     $(ROOT)/src/ffm.c \
+    $(ROOT)/src/ffm_domain.c \
     $(ROOT)/src/ipc.c \
+    $(ROOT)/src/spm_gate.c \
     $(ROOT)/src/services/crypto_service.c
 
 _WC_SRCS := \

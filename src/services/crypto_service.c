@@ -19,6 +19,9 @@
  */
 
 #include "wolftrust/services/crypto_service.h"
+#include "wolftrust/spm_gate.h"
+
+#include <string.h>
 
 #include <wolfssl/wolfcrypt/sha256.h>
 
@@ -63,8 +66,8 @@ static int wt_crypto_service_hash(wt_ffm_runtime_t* runtime,
 {
     uint8_t input[WT_CRYPTO_SP_INPUT_MAX];
     uint8_t digest[WC_SHA256_DIGEST_SIZE];
+    wt_spm_call_t call;
     size_t in_len = 0U;
-    size_t got;
     int ret;
 
     /* Copied IOVEC (WT-FFM-0041): the SPM drains the input vector into a
@@ -74,20 +77,33 @@ static int wt_crypto_service_hash(wt_ffm_runtime_t* runtime,
         return WT_FFM_ERROR_ARGUMENT;
     }
     for (;;) {
-        got = wt_ffm_read(runtime, partition_id, msg->handle, 0U,
-                          input + in_len, sizeof(input) - in_len);
-        if (got == 0U) {
+        (void)memset(&call, 0, sizeof(call));
+        call.op = WT_SPM_OP_READ;
+        call.partition_id = partition_id;
+        call.msg_handle = msg->handle;
+        call.buffer = input + in_len;
+        call.num_bytes = sizeof(input) - in_len;
+        if (wt_spm_gate(runtime, NULL, &call) != WT_FFM_SUCCESS) {
+            return WT_FFM_ERROR_STATE;
+        }
+        if (call.ret_size == 0U) {
             break;
         }
-        in_len += got;
+        in_len += call.ret_size;
     }
 
     ret = g_crypto_sp_compute(input, in_len, digest, sizeof(digest));
     if (ret != WT_FFM_SUCCESS) {
         return ret;
     }
-    if (wt_ffm_write(runtime, partition_id, msg->handle, 0U, digest,
-                     sizeof(digest)) != WT_FFM_SUCCESS) {
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_WRITE;
+    call.partition_id = partition_id;
+    call.msg_handle = msg->handle;
+    call.buffer = digest;
+    call.num_bytes = sizeof(digest);
+    if (wt_spm_gate(runtime, NULL, &call) != WT_FFM_SUCCESS ||
+            call.ret_int != WT_FFM_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
     return WT_FFM_SUCCESS;
@@ -96,16 +112,29 @@ static int wt_crypto_service_hash(wt_ffm_runtime_t* runtime,
 int wt_crypto_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                int32_t partition_id)
 {
-    psa_signal_t asserted;
+    psa_signal_t asserted = 0U;
     psa_msg_t msg;
     psa_status_t reply_status;
+    wt_spm_call_t call;
 
     (void)context;
-    if (wt_ffm_wait(runtime, partition_id, PSA_WAIT_ANY, &asserted) !=
-            WT_FFM_SUCCESS) {
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_WAIT;
+    call.partition_id = partition_id;
+    call.signal_mask = PSA_WAIT_ANY;
+    call.asserted = &asserted;
+    if (wt_spm_gate(runtime, NULL, &call) != WT_FFM_SUCCESS ||
+            call.ret_int != WT_FFM_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
-    if (wt_ffm_get(runtime, partition_id, asserted, &msg) != PSA_SUCCESS) {
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_GET;
+    call.partition_id = partition_id;
+    call.signal = asserted;
+    call.msg = &msg;
+    if (wt_spm_gate(runtime, NULL, &call) != WT_FFM_SUCCESS ||
+            call.ret_status != PSA_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
 
@@ -119,8 +148,13 @@ int wt_crypto_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
         reply_status = PSA_ERROR_NOT_SUPPORTED;
     }
 
-    if (wt_ffm_reply(runtime, partition_id, msg.handle, reply_status) !=
-            WT_FFM_SUCCESS) {
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_REPLY;
+    call.partition_id = partition_id;
+    call.msg_handle = msg.handle;
+    call.status = reply_status;
+    if (wt_spm_gate(runtime, NULL, &call) != WT_FFM_SUCCESS ||
+            call.ret_int != WT_FFM_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
     return WT_FFM_SUCCESS;

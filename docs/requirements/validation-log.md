@@ -436,6 +436,28 @@ MPU on switch-in, and real coroutine suspend/resume land together in P1t-2
 under one M33MU gate. Valgrind not run locally (macOS host); it is the CI
 Valgrind workflow's responsibility.
 
+## Item 10 P1t-2a — gate live in the production image (M33MU)
+
+The production crypto service dispatch (`src/services/crypto_service.c`) now
+routes `psa_wait`/`psa_get`/`psa_read`/`psa_write`/`psa_reply` through
+`wt_spm_gate` instead of calling `wt_ffm_*` inline, and `src/spm_gate.c` is in
+the secure build source list. Still privileged and synchronous — no isolation
+change; this slice proves the gate on the real production dispatch path before
+the P1t-2b SVC/unprivileged work builds on it.
+
+- Host (2026-08-12): `tests/host/crypto_service`
+  (`PASS: SERVICE_CRYPTO SHA-256 KAT through real FF-M dispatch`) green under
+  `cc`, `gcc`, `clang`, and ASan+UBSan with the gate-routed dispatch; full
+  `make test` `PASS: unit/all`.
+- M33MU positive gate (2026-08-12, wolf-prec5560): `PASS: local M33MU gate`,
+  exit 0 — `wolfTrust FF-M SERVICE_CRYPTO dispatch verified`,
+  `psa_hash_compute(SHA-256) KAT verified`, `psa_initial_attestation st=0`,
+  `[EXPECT BKPT] Success`, no fault markers. The KAT result therefore
+  transited `wt_spm_gate` inside the production secure image.
+- Negative gate not re-run: `WT_FFM_NEGATIVE_PROBE` exercises
+  `wt_crypto_sp_body`/`wt_platform_run_crypto_sp_isolated` (platform compute
+  layer), which this slice does not touch.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

@@ -458,7 +458,14 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       gcc+clang+ASan/UBSan) — gate routes the real connect+call dispatch path,
       classifies an empty wait as blocking, and rejects out-of-domain pointers.
       Not yet in the secure build (lands with P1t-2 under one M33MU gate).
-    - P1t-2. [ ] **Coroutine-backed SP via SVC gate (target, needs M33MU).** Wire
+    - P1t-2a. [x] **Gate live in the production image (M33MU 2026-08-12).** The
+      production crypto dispatch (`src/services/crypto_service.c`) routes
+      wait/get/read/write/reply through `wt_spm_gate`; `src/spm_gate.c` is in
+      the secure build. Still privileged/synchronous. Host: crypto_service KAT
+      green under cc/gcc/clang + ASan/UBSan; `make test` all green. M33MU
+      positive gate PASS (KAT + dispatch markers, `[EXPECT BKPT] Success`, no
+      faults) — the KAT transits the gate in the production image.
+    - P1t-2b. [ ] **Coroutine-backed SP via SVC gate (target, needs M33MU).** Wire
       `wt_spm_gate` behind an Armv8-M SVC so a coroutine-backed SP runs
       unprivileged (`CONTROL.nPRIV`) on its own PSP stack + per-SP MPU domain
       programmed on PendSV switch-in, traps to the privileged SPM for each

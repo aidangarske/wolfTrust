@@ -145,6 +145,7 @@ SECURE_SRCS := \
     $(ROOT)/src/ffm_domain.c \
     $(ROOT)/src/ipc.c \
     $(ROOT)/src/lifecycle.c \
+    $(ROOT)/src/spm_gate.c \
     $(ROOT)/src/manifest.c \
     $(ROOT)/src/monitor.c \
     $(ROOT)/src/spm.c \
