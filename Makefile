@@ -41,6 +41,8 @@ test-target:
 	    ! command -v m33mu >/dev/null 2>&1; then \
 		echo "SKIP: FF-M target scenarios (M33MU/HW not detected — set WT_TARGET_SCENARIOS=1 or provide M33MU to run)"; \
 	else \
+		echo "RUN: target/positive"; \
+		tests/target/run_m33mu_scenario.sh positive; \
 		echo "RUN: target/restart"; \
 		tests/target/run_m33mu_scenario.sh restart; \
 		echo "RUN: target/crossdomain"; \

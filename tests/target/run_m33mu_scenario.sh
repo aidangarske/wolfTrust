@@ -80,7 +80,10 @@ git -c protocol.version=2 fetch --depth 1 origin "$WOLFBOOT_REF"
 git checkout --detach "$WOLFBOOT_REF"
 git submodule update --init --single-branch
 cp "$repo/wolfBoot/config/examples/stm32h5-tz-wolftrust.config" .config
-make -j"$(nproc)" keytools wolfboot.bin wolfboot_signing_private_key.der
+# Build keytools serially first: a parallel keytools link races on the shared
+# sp_* objects and intermittently fails "undefined reference".
+make keytools
+make -j"$(nproc)" wolfboot.bin wolfboot_signing_private_key.der
 cd "$repo"
 
 # --- Relocated wolfTrust secure runtime, signed for the reserved slot. The
@@ -147,6 +150,8 @@ case "$scenario" in
     grep -Fq "wolfTrust FF-M forged-handle call rejected" "$log"
     grep -Fq "wolfTrust FF-M oversized-vector call rejected" "$log"
     grep -Fq "psa_hash_compute(SHA-256) KAT verified" "$log"
+    grep -Fq "psa_initial_attestation st=0" "$log"
+    grep -Fq "wolfTrust attestation: COSE_Sign1 verified" "$log"
     grep -Fq "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"
     echo "PASS: target/positive"
