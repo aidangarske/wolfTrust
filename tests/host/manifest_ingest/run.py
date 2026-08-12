@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Assert the Arm PSA-FF manifest ingester emits the expected psa_manifest
 identity headers from the real upstream server/driver/client manifests."""
-import os
+import json
 import re
 import subprocess
 import sys
@@ -10,6 +10,12 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 INGESTER = REPO / "tools" / "manifest" / "ingest_psa_arch.py"
+
+sys.path.insert(0, str(INGESTER.parent))
+import ingest_psa_arch  # noqa: E402
+
+WT_SERVICE_VERSION_STRICT = 0
+WT_SERVICE_VERSION_RELAXED = 1
 
 EXPECT_PID = {
     "SERVER_PARTITION_ID",
@@ -69,6 +75,19 @@ def main():
             return 2
 
     failures = 0
+
+    server = ingest_psa_arch.normalize_partition(
+        json.loads(inputs[0].read_text(encoding="utf-8")), 1)
+    policies = {s["name"]: s["version_policy"] for s in server["services"]}
+    for name, expect in (
+            ("SERVER_STRICT_VERSION", WT_SERVICE_VERSION_STRICT),
+            ("SERVER_UNSPECIFIED_VERSION", WT_SERVICE_VERSION_STRICT),
+            ("SERVER_RELAX_VERSION", WT_SERVICE_VERSION_RELAXED)):
+        if policies.get(name) != expect:
+            print("version_policy {}: expected {}, got {}".format(
+                name, expect, policies.get(name)), file=sys.stderr)
+            failures += 1
+
     with tempfile.TemporaryDirectory() as out:
         result = subprocess.run(
             [sys.executable, str(INGESTER), *[str(p) for p in inputs],
