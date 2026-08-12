@@ -399,8 +399,12 @@ Gate history on this slice, all M33MU emulator on wolf-prec5560 (2026-08-12):
   (SPSTACKS 0x30096000/40K, production crypto/attest stacks moved to
   0x30096000/0x30098000).
 
-P1b ticks only after the WT_FFM_NEGATIVE_PROBE run also passes on this code
-(cross-domain read from inside the resolved domain must MemManage-fault).
+P1b CLOSED — negative gate (WT_FFM_NEGATIVE_PROBE=1) on the same tree PASSED
+(M33MU, 2026-08-12): `[MEMFAULT] pc=0x0c060f34 addr=0x30028000`, the crypto SP's
+read of SPM-private RAM from inside the manifest-resolved domain faults, exit 1,
+`PASS: negative M33MU gate`. `sp=0x30097ff0` and `r4=0x30096000` confirm the SP
+executed on the new manifest-resolved stack carve (crypto slot 0x30096000). Both
+halves of the resolver wiring (positive run 3 + this negative) hold on one tree.
 
 ## Phase gate rule
 

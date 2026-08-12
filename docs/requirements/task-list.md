@@ -443,7 +443,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     `ffm_boot` registration path dispatches crypto + attest unchanged on M33MU
     (host cannot compile the target `ffm_boot`; Mac `arm-none-eabi` lacks libc
     headers). Bundle with the next box gate run.
-- P1b. [ ] **Wire the generic domain resolver into the live path (medium, cheap
+- P1b. [x] **Wire the generic domain resolver into the live path (DONE, M33MU +/- 2026-08-12).** (was: medium, cheap
   early win).** `wt_ffm_resolve_secure_domain` / `wt_ffm_compose_secure_partition_table`
   (`src/ffm_domain.c`) are already generic + manifest-driven but only exercised
   in host tests; the one live target caller (`wt_crypto_sp_body`) hand-builds its
