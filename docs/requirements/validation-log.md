@@ -496,6 +496,32 @@ global-pointer read crosses the domain.
   (sp_ModExp_*/sp_Rsa* linked before their objects). `run_m33mu.sh`,
   `run_m33mu_negative.sh`, and the CI yml now build `keytools` serially first.
 
+## Item 10 P3a-1 — schedule Secure Partitions from a coroutine-keyed table (M33MU)
+
+The single hardcoded crypto SP in `src/arch/armv8m/spm_svc.c` is now a slot
+table (`g_spm_sp[WT_FFM_MAX_PARTITIONS]`). The privileged SVC `#1` dispatcher
+resolves the caller from `wt_co_current()` and validates the call pointer
+against that slot's own MPU thread table before running `wt_spm_gate`, so N
+partitions share one transport, each confined to its manifest domain. Slot setup
+is factored into `wt_spm_sched_add(runtime, pid, entry, arg)`; `wt_spm_sched_start`
+calls it for the crypto SP (table entry 0). A slot is published (`count++`) only
+after `wt_ffm_register_partition` succeeds, so an SP is never visible half-built.
+This is the seam P3a-3 adds Arm's `server_main`/`client_main` through with no
+scheduler-core change. Pure foundation — no Arm SP yet, crypto behavior unchanged.
+
+- Target syntax check: `arm-none-eabi-gcc -fsyntax-only -std=c99 -Wall -Wextra
+  -mcpu=cortex-m33` on `spm_svc.c` — exit 0, no warnings.
+- M33MU positive gate PASS (2026-08-12): `PASS: local M33MU gate`, exit 0,
+  `wolfTrust FF-M SERVICE_CRYPTO dispatch verified`,
+  `psa_hash_compute(SHA-256) KAT verified`, forged-handle st=-129,
+  oversized-vector st=-135, `psa_initial_attestation st=0`,
+  `[EXPECT BKPT] Success`, no fault markers — the crypto SP still transits
+  veneer -> svc #1 -> gate -> coroutine through the generalized slot table.
+- M33MU negative gate (`WT_FFM_NEGATIVE_PROBE=1`) PASS: `[MEMFAULT]
+  addr=0x30028000` with `sp=0x30097fe0` (SP on its PSP domain stack) and
+  `xpsr=0x01000000` (Thread mode) — the per-slot MPU table still denies the
+  unprivileged SP's read of SPM-private RAM, then recovers via the fault path.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

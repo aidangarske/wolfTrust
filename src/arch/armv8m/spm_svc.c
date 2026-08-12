@@ -35,15 +35,39 @@
 
 #include "memory_map.h"
 
-/* Single scheduled SP today (crypto). P3 generalizes this to a table when
- * the Arm conformance partitions arrive. */
+/* Table of scheduled Secure Partitions, each keyed by its coroutine. The SVC
+ * dispatcher resolves the caller from wt_co_current() so every SP runs the same
+ * transport with its own manifest MPU thread table. Only `table` is needed at
+ * runtime; the resolved domain is a transient reused across setup calls. */
+typedef struct wt_spm_sp {
+    wt_co_t* co;
+    wt_secure_domain_t table;
+    int32_t partition_id;
+    uint8_t in_use;
+} wt_spm_sp_t;
+
 static wt_ffm_runtime_t* g_spm_svc_runtime;
-static wt_co_t* g_spm_sp_co;
+static wt_spm_sp_t g_spm_sp[WT_FFM_MAX_PARTITIONS];
+static size_t g_spm_sp_count;
 static wt_secure_domain_t g_spm_sp_domain;
-static wt_secure_domain_t g_spm_sp_table;
+
+/* Resolve the scheduled SP whose coroutine is currently running, or NULL. */
+static wt_spm_sp_t* wt_spm_slot_for_current(void)
+{
+    wt_co_t* cur;
+    size_t i;
+
+    cur = wt_co_current();
+    for (i = 0u; i < g_spm_sp_count; i++) {
+        if (g_spm_sp[i].in_use != 0u && g_spm_sp[i].co == cur) {
+            return &g_spm_sp[i];
+        }
+    }
+    return NULL;
+}
 
 /* Privileged SVC #1 dispatcher, tail-called from SVC_Handler with r0 = the
- * exception frame. Validates that the request comes from the scheduled SP
+ * exception frame. Validates that the request comes from a scheduled SP
  * coroutine and that the call struct lies inside that partition's writable
  * domain, then runs the gate. A psa_wait with nothing asserted suspends the
  * coroutine; the SP-side transport re-issues the SVC on wake. The gate-level
@@ -52,18 +76,19 @@ __attribute__((used))
 void wt_spm_svc_entry(uint32_t* frame)
 {
     wt_spm_call_t* call;
+    wt_spm_sp_t* slot;
     int status;
 
     call = (wt_spm_call_t*)(uintptr_t)frame[0];
-    if (g_spm_svc_runtime == NULL || g_spm_sp_co == NULL ||
-            wt_co_current() != g_spm_sp_co ||
-            wt_secure_domain_contains(&g_spm_sp_table, (uintptr_t)call,
+    slot = wt_spm_slot_for_current();
+    if (g_spm_svc_runtime == NULL || slot == NULL ||
+            wt_secure_domain_contains(&slot->table, (uintptr_t)call,
                                       sizeof(*call), 1) == 0) {
         frame[0] = (uint32_t)WT_FFM_ERROR_ARGUMENT;
         return;
     }
 
-    status = wt_spm_gate(g_spm_svc_runtime, &g_spm_sp_table, call);
+    status = wt_spm_gate(g_spm_svc_runtime, &slot->table, call);
     frame[0] = (uint32_t)status;
     if (status == WT_FFM_SUCCESS && wt_spm_call_would_block(call)) {
         /* Suspends after the SVC returns (PendSV tail-chains); execution
@@ -154,17 +179,19 @@ static int wt_spm_sched_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                               WT_FFM_ERROR_STATE;
 }
 
-int wt_spm_sched_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                     wt_spm_sp_entry_fn entry, void* arg)
 {
+    wt_spm_sp_t* slot;
     const wt_mpu_region_t* stack_region;
     size_t region_count;
     size_t i;
 
-    if (runtime == NULL || runtime->manifest == NULL) {
+    if (runtime == NULL || runtime->manifest == NULL || entry == NULL) {
         return WT_FFM_ERROR_ARGUMENT;
     }
-    if (g_spm_sp_co != NULL) {
-        return WT_FFM_ERROR_STATE;
+    if (g_spm_sp_count >= WT_FFM_MAX_PARTITIONS) {
+        return WT_FFM_ERROR_RESOURCE;
     }
     if (wt_ffm_resolve_secure_domain(runtime->manifest,
                                      (wt_domain_id_t)partition_id,
@@ -191,36 +218,51 @@ int wt_spm_sched_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
     /* Thread-domain MPU table: shared whole-image RX (the manifest's 4K code
      * window lies inside it and Armv8-M regions must not overlap — task #26
      * tracks narrowing) plus the domain's non-EXEC resources. */
-    g_spm_sp_table.domain_id = g_spm_sp_domain.domain_id;
-    g_spm_sp_table.regions[0].base = WT_FLASH_S_BASE;
-    g_spm_sp_table.regions[0].size = WT_FLASH_S_SIZE;
-    g_spm_sp_table.regions[0].attributes = WT_MEM_ATTR_READ |
-                                           WT_MEM_ATTR_EXEC;
+    slot = &g_spm_sp[g_spm_sp_count];
+    slot->table.domain_id = g_spm_sp_domain.domain_id;
+    slot->table.regions[0].base = WT_FLASH_S_BASE;
+    slot->table.regions[0].size = WT_FLASH_S_SIZE;
+    slot->table.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
     region_count = 1u;
     for (i = 0u; i < g_spm_sp_domain.region_count &&
             region_count < WT_MAX_MPU_REGIONS; i++) {
         if ((g_spm_sp_domain.regions[i].attributes & WT_MEM_ATTR_EXEC) ==
                 0u) {
-            g_spm_sp_table.regions[region_count] = g_spm_sp_domain.regions[i];
+            slot->table.regions[region_count] = g_spm_sp_domain.regions[i];
             region_count++;
         }
     }
-    g_spm_sp_table.region_count = region_count;
+    slot->table.region_count = region_count;
 
-    g_spm_sp_co = wt_co_create_blocked_ex(
+    slot->co = wt_co_create_blocked_ex(
         (uint8_t*)(uintptr_t)stack_region->base, stack_region->size,
-        wt_spm_sp_entry, (void*)(intptr_t)partition_id);
-    if (g_spm_sp_co == NULL) {
+        entry, arg);
+    if (slot->co == NULL) {
         return WT_FFM_ERROR_RESOURCE;
     }
-    wt_co_set_domain(g_spm_sp_co, &g_spm_sp_table, 1u);
+    wt_co_set_domain(slot->co, &slot->table, 1u);
+    slot->partition_id = partition_id;
 
-    /* Transport and compute reach the SP through the dispatch context it
-     * builds on its own stack (wt_spm_sp_entry), so no global-pointer read
-     * crosses the partition's MPU domain. The one-shot MSP trampoline the
-     * privileged path installed would panic on a PSP thread, so it is not
-     * used here. */
+    /* Transport and compute reach an SP through a dispatch context it builds
+     * on its own stack, so no global-pointer read crosses the partition's MPU
+     * domain. The one-shot MSP trampoline the privileged path installed would
+     * panic on a PSP thread, so it is not used here. */
     g_spm_svc_runtime = runtime;
-    return wt_ffm_register_partition(runtime, partition_id,
-                                     wt_spm_sched_dispatch, g_spm_sp_co);
+    if (wt_ffm_register_partition(runtime, partition_id,
+                                  wt_spm_sched_dispatch, slot->co) !=
+            WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_STATE;
+    }
+
+    /* Publish the slot last: the SVC dispatcher only scans up to
+     * g_spm_sp_count, so an SP is never visible half-built. */
+    slot->in_use = 1u;
+    g_spm_sp_count++;
+    return WT_FFM_SUCCESS;
+}
+
+int wt_spm_sched_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_sp_entry,
+                            (void*)(intptr_t)partition_id);
 }

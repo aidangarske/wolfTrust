@@ -27,11 +27,22 @@
  * return path; anything else falls through to the PendSV scheduler pend. */
 #define WT_SVC_SPM_CALL 0x01
 
-/* Start the crypto Secure Partition as a scheduled coroutine (P1t): resolve
- * its manifest protection domain, create the coroutine on the manifest stack,
- * bind the unprivileged MPU thread table, install the SVC transport into the
- * service loop, and re-register the partition's dispatch as wake-and-run.
+/* A scheduled Secure Partition's thread entry: the partition's service loop,
+ * unprivileged on its own stack, reaching the SPM only through the SVC
+ * transport. arg is the partition id passed to wt_spm_sched_add. */
+typedef void (*wt_spm_sp_entry_fn)(void* arg);
+
+/* Schedule one Secure Partition (P3a): resolve its manifest protection domain,
+ * build the unprivileged MPU thread table, create the coroutine on the manifest
+ * stack running `entry`, and register the partition's dispatch as wake-and-run.
+ * The scheduler holds a table of up to WT_FFM_MAX_PARTITIONS SPs, each keyed by
+ * its coroutine so the SVC dispatcher resolves the caller from wt_co_current().
  * Call after wt_tasklet_init and wt_ffm_boot_init. Fails closed. */
+int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                     wt_spm_sp_entry_fn entry, void* arg);
+
+/* Start the crypto Secure Partition as a scheduled coroutine (P1t): the single
+ * built-in SP, scheduled via wt_spm_sched_add with the crypto service loop. */
 int wt_spm_sched_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 
 /* Privileged SVC #1 dispatcher. Tail-called from SVC_Handler asm with
