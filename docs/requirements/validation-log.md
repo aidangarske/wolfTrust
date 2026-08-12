@@ -243,6 +243,37 @@ host-viable but need `test_dispatch()` to replicate per-test server behavior
 (task 10b); `i048`-`i053` need real MPU isolation (M33MU) and `i058` needs a
 Secure-Partition client (compiled out under `-DNONSECURE_TEST_BUILD`).
 
+## Item 10 conformance expansion (Slice 2 — per-service dispatch, i003 data plane)
+
+Added a per-test server dispatch to `tests/host/psa_ff_upstream/main.c`: because
+the upstream tests reuse the same SIDs with contradictory server behavior, a
+`g_active_test` selector routes `test_dispatch()` to the matching per-test
+server instead of the generic reply-success. The harness `val` vtable gained
+`ipc_connect`/`ipc_close`. Wired Arm FF-M test `i003` (invec/outvec data plane),
+whose server `dispatch_i003()` replicates the upstream server faithfully:
+
+- `zero_length_invec` / `zero_length_outvec`: read the one non-empty invec and
+  write it to the one non-empty outvec; zero-length and NULL vectors are
+  skipped, and `psa_outvec.len` reflects the bytes written.
+- `call_read_and_skip`: the full `psa_read`/`psa_skip` workout — full reads,
+  a 2-byte partial read, `psa_skip`, an outbound read that returns only the
+  remaining byte, exhausted read/skip returning 0, and zero-byte read/skip.
+  This is genuine coverage of `wt_ffm_read`/`wt_ffm_skip`, which already
+  implement the exact FF-M offset semantics.
+- `call_and_write`: writes four outvecs including two-write concatenation into
+  one outvec (`0xdd` then `0xee` → `0xeedd`, len 2).
+- `psa_set_rhandle`: the reverse handle is NULL at connect and the first call,
+  then persists across calls after `psa_set_rhandle` (5 then 10).
+- `overlapping_vectors`: write-then-read and write-after-write on vectors the
+  client aliases to one byte; the copied-buffer model returns a valid result.
+
+- `make test-conformance BUILD_DIR=/tmp/wolftrust-conf`: EXIT 0 — all six `i003`
+  checks PASS alongside the prior set, ending `PASS: conformance/all`.
+- `make test`: EXIT 0 — full host suite green.
+
+Remaining server-dispatch tests for the router: `i002` (connection lifecycle),
+`i027` (connection drop, needs a new SID), `i063` (signal-mask filtering).
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

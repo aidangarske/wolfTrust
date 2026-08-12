@@ -38,6 +38,12 @@ typedef struct test_context {
 static wt_ffm_runtime_t g_runtime;
 static test_context_t g_context;
 
+/* Selects which test's server behavior test_dispatch() replicates (0 =
+ * generic reply-success). The upstream tests reuse SIDs with different
+ * server logic, so dispatch keys on the active test, not the SID. */
+static int g_active_test;
+static int g_i003_check;
+
 int32_t client_test_psa_framework_version(caller_security_t caller);
 int32_t client_test_psa_version(caller_security_t caller);
 int32_t client_test_sid_does_not_exists(caller_security_t caller);
@@ -51,6 +57,12 @@ int32_t client_test_unspecified_policy_with_lower_version(
 int32_t client_test_psa_call_with_iovec_more_than_max_limit(
     caller_security_t caller);
 int32_t client_test_psa_call_with_neg_type(caller_security_t caller);
+int32_t client_test_zero_length_invec(caller_security_t caller);
+int32_t client_test_zero_length_outvec(caller_security_t caller);
+int32_t client_test_call_read_and_skip(caller_security_t caller);
+int32_t client_test_call_and_write(caller_security_t caller);
+int32_t client_test_psa_set_rhandle(caller_security_t caller);
+int32_t client_test_overlapping_vectors(caller_security_t caller);
 int32_t client_test_secure_access_only_connection(caller_security_t caller);
 int32_t client_test_psa_close_with_invalid_handle(caller_security_t caller);
 int32_t client_test_psa_call_with_invalid_handle(caller_security_t caller);
@@ -61,6 +73,8 @@ int32_t client_test_psa_rot_lifecycle_state(caller_security_t caller);
 
 val_api_t* valtest_entry_i001;
 psa_api_t* psatest_entry_i001;
+val_api_t* valtest_entry_i003;
+psa_api_t* psatest_entry_i003;
 val_api_t* valtest_entry_i004;
 psa_api_t* psatest_entry_i004;
 val_api_t* valtest_entry_i005;
@@ -187,6 +201,19 @@ static val_status_t test_set_boot_flag(boot_state_t state)
     return VAL_STATUS_SUCCESS;
 }
 
+static val_status_t test_ipc_connect(uint32_t sid, uint32_t version,
+                                     psa_handle_t* handle)
+{
+    *handle = psa_connect(sid, version);
+    return PSA_HANDLE_IS_VALID(*handle) ? VAL_STATUS_SUCCESS :
+                                          VAL_STATUS_CONNECTION_FAILED;
+}
+
+static void test_ipc_close(psa_handle_t handle)
+{
+    psa_close(handle);
+}
+
 static int test_check_read(void* context, psa_client_id_t caller,
                            const void* address, size_t size)
 {
@@ -203,6 +230,142 @@ static int test_check_write(void* context, psa_client_id_t caller,
     return size == 0U || address != NULL;
 }
 
+/* i003 check 3 server: exercise the full psa_read/psa_skip semantics of the
+ * FF-M data plane (partial reads, outbound read returns remaining then 0,
+ * zero-byte read/skip). A single reused accumulator `a` mirrors the upstream
+ * server so the byte-level expectations match. Returns a negative status on
+ * any mismatch, which fails the client call. */
+static psa_status_t dispatch_i003_read_skip(wt_ffm_runtime_t* runtime,
+                                            int32_t partition_id,
+                                            psa_handle_t handle)
+{
+    int a = 0;
+
+    if (wt_ffm_read(runtime, partition_id, handle, 0, &a, sizeof(int)) !=
+            sizeof(int) || a != 0xaa)
+        return -3;
+    if (wt_ffm_read(runtime, partition_id, handle, 1, &a, sizeof(int)) !=
+            sizeof(int) || a != 0xbb)
+        return -4;
+    if (wt_ffm_read(runtime, partition_id, handle, 2, &a, 2U) != 2U ||
+            a != 0x7788)
+        return -5;
+    if (wt_ffm_skip(runtime, partition_id, handle, 2, 3U) != 3U)
+        return -6;
+    if (wt_ffm_read(runtime, partition_id, handle, 2, &a, 2U) != 2U ||
+            a != 0x2233)
+        return -7;
+    if (wt_ffm_read(runtime, partition_id, handle, 2, &a, 3U) != 1U ||
+            a != 0x2211)
+        return -8;
+    a = 0xaa;
+    if (wt_ffm_read(runtime, partition_id, handle, 2, &a, 3U) != 0U ||
+            wt_ffm_skip(runtime, partition_id, handle, 2, 3U) != 0U ||
+            a != 0xaa)
+        return -9;
+    if (wt_ffm_read(runtime, partition_id, handle, 3, &a, 0U) != 0U ||
+            a != 0xaa)
+        return -10;
+    if (wt_ffm_skip(runtime, partition_id, handle, 3, 0U) != 0U)
+        return -11;
+    (void)wt_ffm_read(runtime, partition_id, handle, 3, &a, sizeof(int));
+    if (a != 0x50607080)
+        return -12;
+    if (wt_ffm_skip(runtime, partition_id, handle, 3, 5U) != 4U)
+        return -13;
+    if (wt_ffm_skip(runtime, partition_id, handle, 3, 5U) != 0U)
+        return -14;
+    return PSA_SUCCESS;
+}
+
+/* Per-check server for Arm FF-M test i003 (invec/outvec data plane). Each
+ * client check runs its own connect/call/close; g_i003_check selects the
+ * matching server behavior. */
+static int dispatch_i003(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                         const psa_msg_t* message)
+{
+    static int rhandle_a = 5;
+    static int rhandle_b = 10;
+    static int call_seq;
+    int values[5];
+    psa_handle_t handle;
+    psa_status_t reply;
+    int i;
+
+    handle = message->handle;
+    reply = PSA_SUCCESS;
+    if (message->type == PSA_IPC_CONNECT) {
+        if (g_i003_check == 5)
+            call_seq = 0;
+        return wt_ffm_reply(runtime, partition_id, handle, reply);
+    }
+    if (message->type == PSA_IPC_DISCONNECT)
+        return wt_ffm_reply(runtime, partition_id, handle, PSA_SUCCESS);
+
+    values[0] = 0xaa;
+    values[1] = 0xbb;
+    values[2] = 0xcc;
+    values[3] = 0xdd;
+    values[4] = 0xee;
+    switch (g_i003_check) {
+    case 1:
+        if (wt_ffm_read(runtime, partition_id, handle, 2, &values[0],
+                sizeof(int)) != sizeof(int))
+            reply = -1;
+        else
+            (void)wt_ffm_write(runtime, partition_id, handle, 0, &values[0],
+                sizeof(int));
+        break;
+    case 2:
+        if (wt_ffm_read(runtime, partition_id, handle, 0, &values[0],
+                sizeof(int)) != sizeof(int))
+            reply = -1;
+        else
+            (void)wt_ffm_write(runtime, partition_id, handle, 2, &values[0],
+                sizeof(int));
+        break;
+    case 3:
+        reply = dispatch_i003_read_skip(runtime, partition_id, handle);
+        break;
+    case 4:
+        for (i = 0; i < 3; i++)
+            (void)wt_ffm_write(runtime, partition_id, handle, (uint32_t)i,
+                &values[i], sizeof(int));
+        (void)wt_ffm_write(runtime, partition_id, handle, 3, &values[3], 0U);
+        (void)wt_ffm_write(runtime, partition_id, handle, 3, &values[3], 1U);
+        (void)wt_ffm_write(runtime, partition_id, handle, 3, &values[4], 1U);
+        break;
+    case 5:
+        if (call_seq == 0) {
+            if (message->rhandle != NULL)
+                reply = -102;
+            (void)wt_ffm_set_rhandle(runtime, partition_id, handle,
+                &rhandle_a);
+        }
+        else if (call_seq == 1) {
+            if (message->rhandle != &rhandle_a)
+                reply = -103;
+            (void)wt_ffm_set_rhandle(runtime, partition_id, handle,
+                &rhandle_b);
+        }
+        else if (message->rhandle != &rhandle_b) {
+            reply = -104;
+        }
+        call_seq++;
+        break;
+    case 6:
+        values[0] = 0x22;
+        values[1] = 0x33;
+        (void)wt_ffm_write(runtime, partition_id, handle, 0, &values[0], 1U);
+        (void)wt_ffm_read(runtime, partition_id, handle, 0, &values[2], 1U);
+        (void)wt_ffm_write(runtime, partition_id, handle, 1, &values[1], 1U);
+        break;
+    default:
+        break;
+    }
+    return wt_ffm_reply(runtime, partition_id, handle, reply);
+}
+
 static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
                          int32_t partition_id)
 {
@@ -210,20 +373,24 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     psa_signal_t asserted;
     psa_msg_t message;
     int32_t saved_partition;
+    int rc;
 
     saved_partition = test->partition;
     test->partition = partition_id;
     if (wt_ffm_wait(runtime, partition_id, PSA_WAIT_ANY, &asserted) !=
             WT_FFM_SUCCESS ||
             wt_ffm_get(runtime, partition_id, asserted, &message) !=
-                PSA_SUCCESS ||
-            wt_ffm_reply(runtime, partition_id, message.handle,
-                         PSA_SUCCESS) != WT_FFM_SUCCESS) {
+                PSA_SUCCESS) {
         test->partition = saved_partition;
         return WT_FFM_ERROR_STATE;
     }
+    if (g_active_test == 3)
+        rc = dispatch_i003(runtime, partition_id, &message);
+    else
+        rc = wt_ffm_reply(runtime, partition_id, message.handle,
+                          PSA_SUCCESS);
     test->partition = saved_partition;
-    return WT_FFM_SUCCESS;
+    return rc == WT_FFM_SUCCESS ? WT_FFM_SUCCESS : WT_FFM_ERROR_STATE;
 }
 
 static void test_panic(void* context, int32_t partition_id)
@@ -259,6 +426,8 @@ static const wt_ffm_identity_ops_t g_identity_ops = {
 static val_api_t g_val_api = {
     .print = test_print,
     .err_check_set = test_err_check,
+    .ipc_connect = test_ipc_connect,
+    .ipc_close = test_ipc_close,
     .set_boot_flag = test_set_boot_flag
 };
 
@@ -283,6 +452,8 @@ int main(void)
     }
     valtest_entry_i001 = &g_val_api;
     psatest_entry_i001 = &g_psa_api;
+    valtest_entry_i003 = &g_val_api;
+    psatest_entry_i003 = &g_psa_api;
     valtest_entry_i004 = &g_val_api;
     psatest_entry_i004 = &g_psa_api;
     valtest_entry_i005 = &g_val_api;
@@ -377,6 +548,38 @@ int main(void)
         status = client_test_psa_call_with_neg_type(CALLER_NONSECURE);
         status = report("i090", "psa_call_with_neg_type", status);
     }
+    g_active_test = 3;
+    if (status == VAL_STATUS_SUCCESS) {
+        g_i003_check = 1;
+        status = client_test_zero_length_invec(CALLER_NONSECURE);
+        status = report("i003", "zero_length_invec", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        g_i003_check = 2;
+        status = client_test_zero_length_outvec(CALLER_NONSECURE);
+        status = report("i003", "zero_length_outvec", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        g_i003_check = 3;
+        status = client_test_call_read_and_skip(CALLER_NONSECURE);
+        status = report("i003", "call_read_and_skip", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        g_i003_check = 4;
+        status = client_test_call_and_write(CALLER_NONSECURE);
+        status = report("i003", "call_and_write", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        g_i003_check = 5;
+        status = client_test_psa_set_rhandle(CALLER_NONSECURE);
+        status = report("i003", "psa_set_rhandle", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        g_i003_check = 6;
+        status = client_test_overlapping_vectors(CALLER_NONSECURE);
+        status = report("i003", "overlapping_vectors", status);
+    }
+    g_active_test = 0;
     if (status == VAL_STATUS_SUCCESS) {
         status = client_test_dynamic_mem_alloc_fn(CALLER_NONSECURE);
         status = report("i067", "dynamic_mem_alloc_fn", status);
@@ -409,7 +612,7 @@ int main(void)
     if (status != VAL_STATUS_SUCCESS || g_context.failures != 0U)
         return 1;
 
-    (void)printf("PASS: Arm PSA FF i001, i004-i008, i010, i011, i012, "
+    (void)printf("PASS: Arm PSA FF i001, i003-i008, i010, i011, i012, "
                 "i024, i025, i026, i067, i071, i088, i090 on wolfTrust\n");
     return 0;
 }
