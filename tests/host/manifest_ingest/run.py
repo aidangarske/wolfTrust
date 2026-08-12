@@ -122,11 +122,37 @@ def main():
                     name, value, driver.get(name)), file=sys.stderr)
                 failures += 1
 
+    conf = REPO / "port" / "stm32h563" / "manifest-conformance.json"
+    generator = REPO / "tools" / "manifest" / "generate.py"
+    with tempfile.TemporaryDirectory() as ingest_out, \
+            tempfile.TemporaryDirectory() as conf_out:
+        result = subprocess.run(
+            [sys.executable, str(INGESTER), *[str(p) for p in inputs],
+             "--output", ingest_out],
+            capture_output=True, text=True)
+        conf_result = subprocess.run(
+            [sys.executable, str(generator), str(conf), conf_out,
+             "--supported-features", "1"],
+            capture_output=True, text=True)
+        if result.returncode != 0 or conf_result.returncode != 0:
+            print("conformance manifest generation failed: {}{}".format(
+                result.stderr, conf_result.stderr), file=sys.stderr)
+            failures += 1
+        else:
+            ingested = defines(Path(ingest_out) / "psa_manifest" / "sid.h")
+            generated = defines(Path(conf_out) / "psa_manifest" / "sid.h")
+            for name, value in ingested.items():
+                if generated.get(name) != value:
+                    print("conformance manifest drift on {}: {} != {}".format(
+                        name, value, generated.get(name)), file=sys.stderr)
+                    failures += 1
+
     if failures != 0:
         print("manifest ingest checks failed: {}".format(failures),
               file=sys.stderr)
         return 1
     print("PASS: manifest ingest (Arm PSA-FF -> psa_manifest headers)")
+    print("PASS: conformance manifest validates and matches upstream SIDs")
     return 0
 
 

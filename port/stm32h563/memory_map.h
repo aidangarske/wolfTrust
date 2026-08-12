@@ -72,20 +72,28 @@
 /* Secure per-partition stacks (WT-FFM-0011 Level 3 isolation). Each Secure
  * Partition runs on its own secure stack so the secure MPU can confine it to
  * its own domain. Carved from the top of the secure RAM window that the linker
- * uses (0x30028000 + 464 KiB .. 0x300A0000, the end of physical SRAM); the
- * main stack (_estack) drops to 0x3009C000 to make room. These MUST match the
- * SPSTACKS region in src/services/wolfhsm/runner/secure.ld. */
+ * uses (0x30028000 + 440 KiB .. 0x300A0000, the end of physical SRAM); the
+ * main stack (_estack) drops to 0x30096000 to make room. Slots 2-4 host the
+ * PSA-FF conformance partitions (SERVER/DRIVER/CLIENT) in the conformance
+ * build. These MUST match the SPSTACKS region in
+ * src/services/wolfhsm/runner/secure.ld. */
 #define WT_SP_SECURE_STACK_SIZE  0x00002000u   /* 8 KiB per partition */
-#define WT_SP_SECURE_STACK_COUNT 2u
+#define WT_SP_SECURE_STACK_COUNT 5u
 #define WT_SP_SECURE_RAM_SIZE \
     (WT_SP_SECURE_STACK_SIZE * WT_SP_SECURE_STACK_COUNT)
-#define WT_SP_SECURE_RAM_BASE    (WT_RAM_S_BASE + 0x00074000u)  /* 0x3009C000 */
+#define WT_SP_SECURE_RAM_BASE    (WT_RAM_S_BASE + 0x0006E000u)  /* 0x30096000 */
 #define WT_SP_SECURE_RAM_END \
     (WT_SP_SECURE_RAM_BASE + WT_SP_SECURE_RAM_SIZE)             /* 0x300A0000 */
 #define WT_SP_CRYPTO_STACK_BASE \
-    (WT_SP_SECURE_RAM_BASE + 0u * WT_SP_SECURE_STACK_SIZE)      /* 0x3009C000 */
+    (WT_SP_SECURE_RAM_BASE + 0u * WT_SP_SECURE_STACK_SIZE)      /* 0x30096000 */
 #define WT_SP_ATTEST_STACK_BASE \
-    (WT_SP_SECURE_RAM_BASE + 1u * WT_SP_SECURE_STACK_SIZE)      /* 0x3009E000 */
+    (WT_SP_SECURE_RAM_BASE + 1u * WT_SP_SECURE_STACK_SIZE)      /* 0x30098000 */
+#define WT_SP_FF_SERVER_STACK_BASE \
+    (WT_SP_SECURE_RAM_BASE + 2u * WT_SP_SECURE_STACK_SIZE)      /* 0x3009A000 */
+#define WT_SP_FF_DRIVER_STACK_BASE \
+    (WT_SP_SECURE_RAM_BASE + 3u * WT_SP_SECURE_STACK_SIZE)      /* 0x3009C000 */
+#define WT_SP_FF_CLIENT_STACK_BASE \
+    (WT_SP_SECURE_RAM_BASE + 4u * WT_SP_SECURE_STACK_SIZE)      /* 0x3009E000 */
 
 #define WT_SHARED_STATUS_ADDR    0x20000000u
 

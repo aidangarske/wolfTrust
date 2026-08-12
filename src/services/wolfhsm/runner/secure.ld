@@ -27,11 +27,11 @@ MEMORY {
   /* SRAM1 has Secure and Non-secure aliases to the same physical memory.
    * The first 32 KiB are assigned to the two guests through the 0x20000000
    * Non-secure alias, so keep secure .data/.bss above that physical window. */
-  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 464K
-  /* Secure per-partition stacks (WT-FFM-0011). The top 16 KiB of the secure
+  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 440K
+  /* Secure per-partition stacks (WT-FFM-0011). The top 40 KiB of the secure
    * RAM window, reserved so each Secure Partition runs on its own secure
    * stack the MPU can confine. Mirrors WT_SP_SECURE_RAM_* in memory_map.h. */
-  SPSTACKS (rw): ORIGIN = 0x3009C000, LENGTH = 16K
+  SPSTACKS (rw): ORIGIN = 0x30096000, LENGTH = 40K
 }
 
 _estack = ORIGIN(RAM) + LENGTH(RAM);

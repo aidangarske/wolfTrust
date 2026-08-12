@@ -50,6 +50,15 @@ _Static_assert(WT_SP_CRYPTO_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
                    WT_SP_ATTEST_STACK_BASE,
                "crypto and attest SP stacks overlap or leave a gap");
 _Static_assert(WT_SP_ATTEST_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
+                   WT_SP_FF_SERVER_STACK_BASE,
+               "attest and FF server SP stacks overlap or leave a gap");
+_Static_assert(WT_SP_FF_SERVER_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
+                   WT_SP_FF_DRIVER_STACK_BASE,
+               "FF server and driver SP stacks overlap or leave a gap");
+_Static_assert(WT_SP_FF_DRIVER_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
+                   WT_SP_FF_CLIENT_STACK_BASE,
+               "FF driver and client SP stacks overlap or leave a gap");
+_Static_assert(WT_SP_FF_CLIENT_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
                    WT_SP_SECURE_RAM_END,
                "SP stacks do not fill the reserved region");
 

@@ -154,8 +154,8 @@ static const wt_profile_capabilities_t g_profile_capabilities = {
                     WT_CAPABILITY_MEMORY_PROTECTION |
                     WT_CAPABILITY_INTERRUPT_ISOLATION |
                     WT_CAPABILITY_RESTART,
-    .max_domains = 5U,
-    .max_memory_resources_per_domain = 2U,
+    .max_domains = 8U,
+    .max_memory_resources_per_domain = 3U,
     .max_interrupts_per_domain = 0U,
 };
 static uintptr_t g_bound_exec_bases[
