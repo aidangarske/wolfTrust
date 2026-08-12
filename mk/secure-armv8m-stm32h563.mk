@@ -12,7 +12,12 @@ WOLFHAL_DIR := $(ROOT)/lib/wolfhal
 WOLFCOSE_DIR := $(ROOT)/lib/wolfCOSE
 
 BUILD_DIR ?= build
+# WT_CONFORMANCE=1 swaps in the manifest that also hosts Arm's test partitions
+ifeq ($(WT_CONFORMANCE),1)
+MANIFEST_INPUT := $(PORT_DIR)/manifest-conformance.json
+else
 MANIFEST_INPUT := $(PORT_DIR)/manifest.json
+endif
 MANIFEST_DIR := $(BUILD_DIR)/manifest
 MANIFEST_STAMP := $(MANIFEST_DIR)/.stamp
 MANIFEST_GEN_C := $(MANIFEST_DIR)/wolftrust_manifest_generated.c

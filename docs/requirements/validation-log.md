@@ -383,6 +383,25 @@ asserts all 12 SIDs (0xFA01, 0xFB01-07, 0xFC01-04), version defaults
 and driver signals including `DRIVER_UART_INTR_SIG_SIGNAL`=0x100 — then the
 full 24-test host subset, ending `PASS: conformance/all`.
 
+## Item 10 P1b + P2 carve — M33MU positive gate (run 3)
+
+Gate history on this slice, all M33MU emulator on wolf-prec5560 (2026-08-12):
+- Run 2 FAILED (build): `platform_stm32h563.c`'s new `psa_manifest/pid.h`
+  include had no rule dependency on the manifest generation stamp; the target
+  compile raced the generator. Fixed with an explicit
+  `sec_platform_stm32h563.o` rule mirroring `sec_ffm_boot.o`. The P1b logic
+  never executed in that run.
+- Run 3 PASSED on `14b08b9`: `PASS: local M33MU gate`, exit 0,
+  `[EXPECT BKPT] Success`, no fault markers — with `wt_platform_run_crypto_sp_isolated`
+  resolving the crypto SP MPU domain from the bound manifest
+  (`wt_ffm_resolve_secure_domain(PARTITION_CRYPTO_ID)`, stack from the
+  manifest's writable resource, fail-closed) AND the 5-slot secure stack carve
+  (SPSTACKS 0x30096000/40K, production crypto/attest stacks moved to
+  0x30096000/0x30098000).
+
+P1b ticks only after the WT_FFM_NEGATIVE_PROBE run also passes on this code
+(cross-domain read from inside the resolved domain must MemManage-fault).
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU
