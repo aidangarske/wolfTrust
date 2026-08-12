@@ -60,6 +60,21 @@ extern int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version);
 extern int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
                                   const wt_ffm_veneer_iovec_t* ns_iovec);
 extern void WolfTrust_FFM_Close(int32_t handle);
+extern uint32_t WolfTrust_FFM_FrameworkVersion(void);
+extern uint32_t WolfTrust_FFM_ServiceVersion(uint32_t sid);
+
+/* NS PSA FF-M client API (psa/client.h): alias the secure veneers so the
+ * upstream Arm val NSPE links these directly (P3a). Connect/call/close aliases
+ * arrive with psa/client.h's psa_invec/outvec types in P3a-3. */
+uint32_t psa_framework_version(void)
+{
+	return WolfTrust_FFM_FrameworkVersion();
+}
+
+uint32_t psa_version(uint32_t sid)
+{
+	return WolfTrust_FFM_ServiceVersion(sid);
+}
 
 static int wolftrust_get_version(const struct device *dev,
 				 struct tee_version_info *info)

@@ -522,6 +522,24 @@ scheduler-core change. Pure foundation — no Arm SP yet, crypto behavior unchan
   `xpsr=0x01000000` (Thread mode) — the per-slot MPU table still denies the
   unprivileged SP's read of SPM-private RAM, then recovers via the fault path.
 
+## Item 10 P3a-2 — NS->S psa_* version veneers (M33MU)
+
+The Non-secure guest now reaches the SPM's framework-version query through a real
+PSA client veneer, not the TEE-driver `tee_invoke_func` path. New secure
+`cmse_nonsecure_entry` veneers `WolfTrust_FFM_FrameworkVersion()` and
+`WolfTrust_FFM_ServiceVersion(sid)` (`src/ffm_boot.c`, auto-exported into the CMSE
+import library) alias `wt_ffm_framework_version`/`wt_ffm_service_version`. NS
+`psa_framework_version()`/`psa_version()` wrappers over those veneers live in the
+Zephyr `wolftrust-tee` module (`wolftrust_tee_driver.c`) — the exact symbols the
+upstream Arm val NSPE links. The connect/call/close aliases, which need
+`psa/client.h`'s `psa_invec`/`psa_outvec` types, arrive with val in P3a-3.
+
+- M33MU positive gate PASS (2026-08-12): the guest calls `psa_framework_version()`
+  and logs `wolfTrust FF-M psa_framework_version=0x0100` (== `PSA_FRAMEWORK_VERSION`)
+  — asserted by the `positive` scenario — then `PASS: target/positive`, exit 0,
+  no fault markers. Proves NS shim -> CMSE veneer -> `wt_ffm_framework_version`
+  end to end.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

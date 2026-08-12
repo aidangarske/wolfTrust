@@ -70,6 +70,9 @@ LOG_MODULE_REGISTER(guest0_psa, LOG_LEVEL_INF);
 
 #define WT_PSA_LIFECYCLE_SECURED 0x3000u
 
+/* NS PSA FF-M client API, aliased to the secure veneers (P3a-2). */
+extern uint32_t psa_framework_version(void);
+
 /* Mirror guest0's TEE-driver smoke so the runner's existing TEE assertions
  * stay green and we don't need a second runner mode. */
 static void exercise_tee_driver(void)
@@ -77,6 +80,7 @@ static void exercise_tee_driver(void)
 	const struct device *tee = DEVICE_DT_GET_ANY(wolfssl_wolftrust_tee);
 	struct tee_version_info ver;
 	struct tee_invoke_func_arg arg;
+	uint32_t fw;
 	int rc;
 
 	if (tee == NULL || !device_is_ready(tee)) {
@@ -94,6 +98,12 @@ static void exercise_tee_driver(void)
 	arg.func = WOLFTRUST_FN_HSM_CANCEL;
 	rc = tee_invoke_func(tee, &arg, 0, NULL);
 	LOG_INF("tee_invoke_func(cancel) rc=%d ret=0x%x", rc, arg.ret);
+
+	fw = psa_framework_version();
+	if (fw == 0x0100u)
+		LOG_INF("wolfTrust FF-M psa_framework_version=0x%04x", fw);
+	else
+		LOG_ERR("wolfTrust FF-M psa_framework_version unexpected=0x%04x", fw);
 }
 
 /* Item 3c-ns: proves the FF-M dispatch path 3a/3b/3c wired up (real

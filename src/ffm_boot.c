@@ -225,6 +225,23 @@ void WolfTrust_FFM_Close(int32_t handle)
     (void)wt_ffm_close(&g_ffm_runtime, caller, (psa_handle_t)handle);
 }
 
+__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+uint32_t WolfTrust_FFM_FrameworkVersion(void)
+{
+    return wt_ffm_framework_version(&g_ffm_runtime);
+}
+
+__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+uint32_t WolfTrust_FFM_ServiceVersion(uint32_t sid)
+{
+    psa_client_id_t caller;
+
+    if (!wt_ffm_veneer_caller(&caller)) {
+        return PSA_VERSION_NONE;
+    }
+    return wt_ffm_service_version(&g_ffm_runtime, caller, sid);
+}
+
 const wt_ffm_runtime_t* wt_ffm_boot_runtime(void)
 {
     return &g_ffm_runtime;

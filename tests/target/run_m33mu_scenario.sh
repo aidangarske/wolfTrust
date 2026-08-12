@@ -146,6 +146,7 @@ case "$scenario" in
       echo "FAIL: fault marker in positive boot log"; exit 1
     fi
     grep -Fq "wolfTrust TEE client initialized" "$log"
+    grep -Fq "wolfTrust FF-M psa_framework_version=0x0100" "$log"
     grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$log"
     grep -Fq "wolfTrust FF-M forged-handle call rejected" "$log"
     grep -Fq "wolfTrust FF-M oversized-vector call rejected" "$log"
