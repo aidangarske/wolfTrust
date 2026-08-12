@@ -144,6 +144,8 @@ case "$scenario" in
     fi
     grep -Fq "wolfTrust TEE client initialized" "$log"
     grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$log"
+    grep -Fq "wolfTrust FF-M forged-handle call rejected" "$log"
+    grep -Fq "wolfTrust FF-M oversized-vector call rejected" "$log"
     grep -Fq "psa_hash_compute(SHA-256) KAT verified" "$log"
     grep -Fq "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"

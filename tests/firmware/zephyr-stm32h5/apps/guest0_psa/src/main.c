@@ -162,6 +162,85 @@ static void exercise_ffm_crypto(void)
 	(void)tee_invoke_func(tee, &arg, 1, param);
 }
 
+/* Item 9: FF-M IPC negatives on the emulator path. A real Non-secure guest
+ * makes two deliberately malformed psa_call requests through the SPM veneer and
+ * asserts each is rejected without a fault or stale data — the target-side proof
+ * of the handle-integrity and bounded-vector checks host-tested in
+ * tests/host/ffm (WT-FFM-0021, WT-FFM-0032). Both errors are recoverable, so
+ * this runs inline in the normal lifecycle. */
+static void exercise_ffm_negatives(void)
+{
+	static const uint8_t input[] = "wolfTrust FF-M negative probe";
+	const struct device *tee = DEVICE_DT_GET_ANY(wolfssl_wolftrust_tee);
+	struct tee_invoke_func_arg arg;
+	struct tee_param param[2];
+	uint8_t digest[32];
+	int32_t handle;
+	int32_t st;
+	int rc;
+
+	if (tee == NULL || !device_is_ready(tee)) {
+		LOG_WRN("wolftrust TEE device not present/ready");
+		return;
+	}
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CONNECT;
+	param[0].a = WT_CRYPTO_SID;
+	param[0].b = 1u;
+	rc = tee_invoke_func(tee, &arg, 1, param);
+	handle = (int32_t)arg.ret;
+	if (rc != 0 || handle <= 0) {
+		LOG_ERR("FF-M negative setup connect failed rc=%d handle=%d", rc,
+			handle);
+		return;
+	}
+
+	/* Forged handle: the SPM must not map it to this caller's connection. */
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CALL;
+	param[0].a = (uint64_t)(handle + 0x1000);
+	param[0].b = 0u; /* PSA_IPC_CALL */
+	param[0].c = (uint64_t)(uintptr_t)input;
+	param[1].a = sizeof(input) - 1u;
+	param[1].b = (uint64_t)(uintptr_t)digest;
+	param[1].c = sizeof(digest);
+	rc = tee_invoke_func(tee, &arg, 2, param);
+	st = (int32_t)arg.ret;
+	if (rc == 0 && st != 0) {
+		LOG_INF("wolfTrust FF-M forged-handle call rejected st=%d", st);
+	} else {
+		LOG_ERR("FF-M forged-handle call NOT rejected rc=%d st=%d", rc, st);
+	}
+
+	/* Oversized input vector: length beyond WT_FFM_TRANSFER_BYTES (1024) is
+	 * refused on validation, before any copy. */
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CALL;
+	param[0].a = (uint64_t)handle;
+	param[0].b = 0u; /* PSA_IPC_CALL */
+	param[0].c = (uint64_t)(uintptr_t)input;
+	param[1].a = 2048u; /* > WT_FFM_TRANSFER_BYTES */
+	param[1].b = (uint64_t)(uintptr_t)digest;
+	param[1].c = sizeof(digest);
+	rc = tee_invoke_func(tee, &arg, 2, param);
+	st = (int32_t)arg.ret;
+	if (rc == 0 && st != 0) {
+		LOG_INF("wolfTrust FF-M oversized-vector call rejected st=%d", st);
+	} else {
+		LOG_ERR("FF-M oversized-vector call NOT rejected rc=%d st=%d", rc, st);
+	}
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CLOSE;
+	param[0].a = (uint64_t)handle;
+	(void)tee_invoke_func(tee, &arg, 1, param);
+}
+
 static void exercise_psa_rng(void)
 {
 	uint8_t out[16];
@@ -357,6 +436,7 @@ int main(void)
 
 	exercise_tee_driver();
 	exercise_ffm_crypto();
+	exercise_ffm_negatives();
 	exercise_psa_initial_attestation();
 	exercise_psa_rng();
 	exercise_psa_hash();

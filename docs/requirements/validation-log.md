@@ -160,6 +160,32 @@ test-conformance`.
 Emulator evidence for the Cortex-M33 execution model; no physical STM32H563
 result is claimed.
 
+## Item 9 FF-M IPC negatives on the emulator path
+
+`exercise_ffm_negatives` (guest0_psa) makes two malformed `psa_call` requests
+through the SPM veneer in the normal lifecycle (both recoverable, so no separate
+faulting run):
+
+- Forged handle (`handle + 0x1000`, unmapped for this caller) —
+  `wolfTrust FF-M forged-handle call rejected st=-129` (PSA_ERROR_PROGRAMMER_ERROR
+  from `wt_ffm_connection_from_handle`).
+- Oversized input vector (2048 > `WT_FFM_TRANSFER_BYTES` 1024, refused at
+  `wt_ipc_validate_vectors` before any copy) —
+  `wolfTrust FF-M oversized-vector call rejected st=-135`
+  (PSA_ERROR_INVALID_ARGUMENT).
+
+The guest still reaches `[EXPECT BKPT] Success`, so the SPM rejected both without
+a fault or stale data — the target-side proof of the handle-integrity and
+bounded-vector checks host-tested in `tests/host/ffm` (WT-FFM-0021/0032). Both
+markers are asserted in the positive M33MU gate (`run_m33mu_scenario.sh
+positive`, the box `run_m33mu.sh`, and the CI `wolfboot-wolftrust-m33mu` job) so
+CI and the local gate stay identical. The positive `psa_connect`/`psa_call`
+round trip and the cross-domain negative were already covered (SERVICE_CRYPTO
+dispatch and the item-8 crossdomain scenario).
+
+Emulator evidence for the Cortex-M33 execution model; no physical STM32H563
+result is claimed.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

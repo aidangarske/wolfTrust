@@ -308,9 +308,16 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
      identical markers. Closes the item-5 follow-up of wiring the negative job
      into CI (task #26 half); SP graceful fault recovery stays task #26.
    - Evidence for all three slices in `validation-log.md`.
-9. [ ] Add M33MU FF-M assertions: a positive `psa_connect`/`psa_call` round trip
+9. [x] Add M33MU FF-M assertions: a positive `psa_connect`/`psa_call` round trip
    plus negatives (forged handle, oversized vector, cross-domain access) on the
-   emulator path (`.github/workflows/stm32h563-build.yml`).
+   emulator path (`.github/workflows/stm32h563-build.yml`). Positive round trip
+   (SERVICE_CRYPTO dispatch) and cross-domain (item-8 crossdomain scenario) were
+   already covered; added `exercise_ffm_negatives` (guest0_psa) proving the SPM
+   rejects a forged handle (`st=-129`) and an oversized input vector (`st=-135`,
+   > `WT_FFM_TRANSFER_BYTES`) without a fault, guest still reaching
+   `[EXPECT BKPT] Success`. Markers asserted in the positive runner, the box
+   gate, and the CI `wolfboot-wolftrust-m33mu` job. Evidence in
+   `validation-log.md`.
 ### Design: one macro-gated target-scenario harness (folds in 7, 8, 9, 11, and the item-5/6 target proofs)
 
 Rather than wire each target-only scenario into the M33MU gate piecemeal, add
