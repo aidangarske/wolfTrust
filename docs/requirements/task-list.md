@@ -540,10 +540,34 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   already exist upstream (`platform/drivers/{uart,watchdog}/stm/`), but NVM must be
   real flash (upstream `pal_nvmem.c` is SRAM-only). Test-bucket order (of 90):
 - P3. [ ] **Bucket (a): NS client + val + SERVER SP + DRIVER SP (print/NVM only)
-  — 36 tests, the true minimum-viable real SPM run.** Needs P1/P2 + the 3-SP
-  hosting + target PAL + manifest ingestion + real UART/NVM drivers. First real
-  on-target conformance (version-policy, lifecycle, data-plane, signal/status).
-  Then bucket (a′): add CLIENT_PARTITION SP → +6 (`i001,i003,i058,i067,i071,i088`).
+  — the true minimum-viable real SPM run.** Needs P1/P2 + the 3-SP hosting +
+  target PAL + manifest ingestion + real UART/NVM drivers. First real on-target
+  conformance (version-policy, lifecycle, data-plane, signal/status). Then bucket
+  (a′): add CLIENT_PARTITION SP. NOTE (2026-08-12 scout): upstream checkout is
+  **90 IPC tests** (`test_i001..i090`), not 36 — 36 was a stale count; the
+  runnable non-IRQ/non-isolation subset is the P3 target, the rest fall in P4/P5.
+  PSA_BLOCK now works (P1t-2b coroutine suspend/resume). Full scout map +
+  first-slice brief in `/tmp/wolftrust-p3-plan-2026-08-12.md`. Sliced P3a/b/c:
+  - P3a. [ ] **First real Arm SP on target (keystone-equivalent proof).**
+    Generalize `wt_spm_sched_start` to schedule N SPs from
+    `manifest-conformance.json` (table, not the single crypto hardcode); bring up
+    Arm's unmodified `server_main` + `client_main` (`ff/partition/`) as
+    coroutines; add the NS `psa_*` client veneers (`psa_framework_version`,
+    `psa_version`, and `psa_connect/call/close` aliasing the existing
+    `WolfTrust_FFM_*`); build `val/` NSPE + `ff/partition` into the Zephyr NS
+    guest and secure image. Run ONE unmodified Arm test end-to-end on M33MU:
+    i001 (framework_version, no server) then i002 (connect -> real `server_main`
+    reply). Hardest part = the val/ff/PAL build integration + NS->S veneer ABI,
+    not the logic. M33MU-gated.
+  - P3b. [ ] **PAL driver plane + DRIVER partition.** `nspe/pal_config.h`,
+    `nspe/pal_driver_ipc_intf.c`, `spe/pal_driver_intf.c`, `target.cmake`, and
+    STM32H5 replacements for the shared UART/NVMEM/WDG drivers so the DRIVER SP
+    (`driver_main`, SIDs 0xFC01-04) serves print/NVM. Needed by every test that
+    logs or touches NVMEM. M33MU-gated.
+  - P3c. [ ] **Full val dispatcher + test list; iterate the non-IRQ /
+    non-isolation subset to green** (`val_dispatcher`, `.acs_test_info` publish,
+    `execute_non_secure_tests` + `switch_to_secure_client`). Exclude IRQ
+    (`psa_eoi`) and MMIO-isolation tests (P4). M33MU-gated per green increment.
 - P4. [ ] **Bucket (b): driver-partition MMIO + UART-IRQ isolation — +7 tests
   (`i021,i047,i055,i057,i064,i065,i066`) (large).** Enforce a manifest-declared
   device MMIO region as SP-exclusive at MPU_S AND GTZC/TZSC (today only a coarse
