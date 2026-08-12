@@ -360,6 +360,23 @@ P1r production `ffm_boot` registration regression are target-only and deferred
 to the next M33MU box gate (the Mac `arm-none-eabi` toolchain lacks libc headers,
 so `src/ffm.c`/`src/ffm_boot.c` cannot be target-compiled locally).
 
+## Item 10 P2a — Arm manifest ingestion, psa_manifest identity headers
+
+`tools/manifest/ingest_psa_arch.py` ingests the unmodified upstream
+`server/driver/client_partition_psa.json` and emits `psa_manifest/pid.h`,
+`sid.h`, and per-partition signal headers through `generate.py`'s existing
+emitters, replacing the hand-faked `-D` defines path for upstream `val`/PAL
+includes. FF-M defaulting applied: missing `version` → 1, missing
+`version_policy` → STRICT; service and IRQ signals assigned per partition from
+0x10 upward.
+
+Evidence (host, EXIT 0): `make test-conformance` now runs
+`tests/host/manifest_ingest/run.py` against the real fetched manifests —
+asserts all 12 SIDs (0xFA01, 0xFB01-07, 0xFC01-04), version defaults
+(`SERVER_UNSPECIFIED_VERSION_VERSION`=1, `SERVER_STRICT_VERSION_VERSION`=2),
+and driver signals including `DRIVER_UART_INTR_SIG_SIGNAL`=0x100 — then the
+full 24-test host subset, ending `PASS: conformance/all`.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

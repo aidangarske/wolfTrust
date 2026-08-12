@@ -449,6 +449,16 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   in host tests; the one live target caller (`wt_crypto_sp_body`) hand-builds its
   2-region table. Connect the resolver so any SP gets its manifest-declared MPU
   domain. Can land before/parallel to P1.
+- P2a. [x] **Manifest-ingestion generator, identity headers (host, DONE).**
+  `tools/manifest/ingest_psa_arch.py` converts Arm's 3 upstream
+  `*_partition_psa.json` into `psa_manifest/{pid.h,sid.h,<partition>.h}` by
+  reusing `generate.py`'s validated header emitters (FF-M unspecified-version
+  default → version 1; per-partition signal assignment incl. the driver UART
+  IRQ signal). Gated in `make test-conformance` via `test-manifest-ingest`
+  (`tests/host/manifest_ingest/run.py` asserts SIDs 0xFA01/0xFB01-07/0xFC01-04,
+  versions, and driver signals against the real fetched manifests). Remaining
+  ingestion: emit wolfTrust partition/domain descriptors + memory layout once
+  P2 capacity lands.
 - P2. [ ] **Table-driven SP load/entry + capacity (large).** `entry_point` is
   validated but never branched to for SPs; generalize the crypto trampoline
   (`platform_stm32h563.c:449-539`) into an N-partition manifest-driven mechanism;

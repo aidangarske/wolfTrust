@@ -61,7 +61,12 @@ fetch-psa-ff-tests:
 	@tests/upstream/fetch_psa_arch_tests.sh \
 		$(BUILD_DIR)/upstream/psa-arch-tests
 
-test-conformance: fetch-psa-ff-tests
+test-manifest-ingest: fetch-psa-ff-tests
+	@echo "RUN: conformance/manifest_ingest"
+	@python3 tests/host/manifest_ingest/run.py \
+		$(abspath $(BUILD_DIR))/upstream/psa-arch-tests
+
+test-conformance: fetch-psa-ff-tests test-manifest-ingest
 	@echo "RUN: conformance/psa_ff_upstream"
 	@$(MAKE) --no-print-directory -C tests/host/psa_ff_upstream run \
 		BUILD_DIR=$(abspath $(BUILD_DIR))/psa-ff-upstream \
