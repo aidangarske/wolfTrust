@@ -43,6 +43,8 @@ static test_context_t g_context;
  * server logic, so dispatch keys on the active test, not the SID. */
 static int g_active_test;
 static int g_i002_check;
+static int g_i002_connect_seq;
+static int g_i002_call_seq;
 static int g_i003_check;
 
 int32_t client_test_psa_framework_version(caller_security_t caller);
@@ -58,6 +60,10 @@ int32_t client_test_unspecified_policy_with_lower_version(
 int32_t client_test_psa_call_with_iovec_more_than_max_limit(
     caller_security_t caller);
 int32_t client_test_psa_call_with_neg_type(caller_security_t caller);
+int32_t client_test_connection_busy_and_reject(caller_security_t caller);
+int32_t client_test_psa_call_with_allowed_status_code(
+    caller_security_t caller);
+int32_t client_test_identity(caller_security_t caller);
 int32_t client_test_accept_and_close_connect(caller_security_t caller);
 int32_t client_test_connect_with_allowed_version_policy(
     caller_security_t caller);
@@ -392,8 +398,44 @@ static int dispatch_i003(wt_ffm_runtime_t* runtime, int32_t partition_id,
 static int dispatch_i002(wt_ffm_runtime_t* runtime, int32_t partition_id,
                          const psa_msg_t* message)
 {
-    (void)g_i002_check;
-    return wt_ffm_reply(runtime, partition_id, message->handle, PSA_SUCCESS);
+    static const psa_status_t status_codes[] = {
+        PSA_SUCCESS, 1, 2, INT32_MAX, -1, -2, INT32_MIN + 128
+    };
+    static int32_t id_at_connect;
+    psa_handle_t handle;
+    psa_status_t reply;
+
+    handle = message->handle;
+    reply = PSA_SUCCESS;
+    switch (g_i002_check) {
+    case 1:
+        if (message->type == PSA_IPC_CONNECT) {
+            reply = g_i002_connect_seq == 0 ? PSA_ERROR_CONNECTION_BUSY :
+                                              PSA_ERROR_CONNECTION_REFUSED;
+            g_i002_connect_seq++;
+        }
+        break;
+    case 4:
+        if (message->type >= PSA_IPC_CALL) {
+            reply = status_codes[g_i002_call_seq %
+                (int)(sizeof(status_codes) / sizeof(status_codes[0]))];
+            g_i002_call_seq++;
+        }
+        break;
+    case 6:
+        if (message->type == PSA_IPC_CONNECT)
+            id_at_connect = message->client_id;
+        else if (message->type >= PSA_IPC_CALL) {
+            (void)wt_ffm_write(runtime, partition_id, handle, 0,
+                &id_at_connect, sizeof(int32_t));
+            (void)wt_ffm_write(runtime, partition_id, handle, 1,
+                &message->client_id, sizeof(int32_t));
+        }
+        break;
+    default:
+        break;
+    }
+    return wt_ffm_reply(runtime, partition_id, handle, reply);
 }
 
 static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
@@ -600,6 +642,12 @@ int main(void)
     }
     g_active_test = 2;
     if (status == VAL_STATUS_SUCCESS) {
+        g_i002_check = 1;
+        g_i002_connect_seq = 0;
+        status = client_test_connection_busy_and_reject(CALLER_NONSECURE);
+        status = report("i002", "connection_busy_and_reject", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
         g_i002_check = 2;
         status = client_test_accept_and_close_connect(CALLER_NONSECURE);
         status = report("i002", "accept_and_close_connect", status);
@@ -616,6 +664,18 @@ int main(void)
         status = client_test_psa_call_with_allowed_type_values(
             CALLER_NONSECURE);
         status = report("i002", "psa_call_with_allowed_type_values", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        g_i002_check = 4;
+        g_i002_call_seq = 0;
+        status = client_test_psa_call_with_allowed_status_code(
+            CALLER_NONSECURE);
+        status = report("i002", "psa_call_with_allowed_status_code", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        g_i002_check = 6;
+        status = client_test_identity(CALLER_NONSECURE);
+        status = report("i002", "identity", status);
     }
     g_active_test = 3;
     if (status == VAL_STATUS_SUCCESS) {
