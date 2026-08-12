@@ -42,6 +42,7 @@ static test_context_t g_context;
  * generic reply-success). The upstream tests reuse SIDs with different
  * server logic, so dispatch keys on the active test, not the SID. */
 static int g_active_test;
+static int g_i002_check;
 static int g_i003_check;
 
 int32_t client_test_psa_framework_version(caller_security_t caller);
@@ -57,6 +58,11 @@ int32_t client_test_unspecified_policy_with_lower_version(
 int32_t client_test_psa_call_with_iovec_more_than_max_limit(
     caller_security_t caller);
 int32_t client_test_psa_call_with_neg_type(caller_security_t caller);
+int32_t client_test_accept_and_close_connect(caller_security_t caller);
+int32_t client_test_connect_with_allowed_version_policy(
+    caller_security_t caller);
+int32_t client_test_psa_call_with_allowed_type_values(
+    caller_security_t caller);
 int32_t client_test_zero_length_invec(caller_security_t caller);
 int32_t client_test_zero_length_outvec(caller_security_t caller);
 int32_t client_test_call_read_and_skip(caller_security_t caller);
@@ -75,6 +81,8 @@ int32_t client_test_psa_rot_lifecycle_state(caller_security_t caller);
 
 val_api_t* valtest_entry_i001;
 psa_api_t* psatest_entry_i001;
+val_api_t* valtest_entry_i002;
+psa_api_t* psatest_entry_i002;
 val_api_t* valtest_entry_i003;
 psa_api_t* psatest_entry_i003;
 val_api_t* valtest_entry_i004;
@@ -378,6 +386,16 @@ static int dispatch_i003(wt_ffm_runtime_t* runtime, int32_t partition_id,
     return wt_ffm_reply(runtime, partition_id, handle, reply);
 }
 
+/* Per-check server for Arm FF-M test i002 (connection lifecycle). Checks 2, 3,
+ * and 5 accept every connection and call; later checks add per-message
+ * behavior keyed on g_i002_check. */
+static int dispatch_i002(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                         const psa_msg_t* message)
+{
+    (void)g_i002_check;
+    return wt_ffm_reply(runtime, partition_id, message->handle, PSA_SUCCESS);
+}
+
 static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
                          int32_t partition_id)
 {
@@ -396,7 +414,9 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
         test->partition = saved_partition;
         return WT_FFM_ERROR_STATE;
     }
-    if (g_active_test == 3)
+    if (g_active_test == 2)
+        rc = dispatch_i002(runtime, partition_id, &message);
+    else if (g_active_test == 3)
         rc = dispatch_i003(runtime, partition_id, &message);
     else if (g_active_test == 27)
         /* i027: the RoT service drops the connection by replying
@@ -476,6 +496,8 @@ int main(void)
     }
     valtest_entry_i001 = &g_val_api;
     psatest_entry_i001 = &g_psa_api;
+    valtest_entry_i002 = &g_val_api;
+    psatest_entry_i002 = &g_psa_api;
     valtest_entry_i003 = &g_val_api;
     psatest_entry_i003 = &g_psa_api;
     valtest_entry_i004 = &g_val_api;
@@ -576,6 +598,25 @@ int main(void)
         status = client_test_psa_call_with_neg_type(CALLER_NONSECURE);
         status = report("i090", "psa_call_with_neg_type", status);
     }
+    g_active_test = 2;
+    if (status == VAL_STATUS_SUCCESS) {
+        g_i002_check = 2;
+        status = client_test_accept_and_close_connect(CALLER_NONSECURE);
+        status = report("i002", "accept_and_close_connect", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        g_i002_check = 3;
+        status = client_test_connect_with_allowed_version_policy(
+            CALLER_NONSECURE);
+        status = report("i002", "connect_with_allowed_version_policy",
+                        status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        g_i002_check = 5;
+        status = client_test_psa_call_with_allowed_type_values(
+            CALLER_NONSECURE);
+        status = report("i002", "psa_call_with_allowed_type_values", status);
+    }
     g_active_test = 3;
     if (status == VAL_STATUS_SUCCESS) {
         g_i003_check = 1;
@@ -650,7 +691,7 @@ int main(void)
     if (status != VAL_STATUS_SUCCESS || g_context.failures != 0U)
         return 1;
 
-    (void)printf("PASS: Arm PSA FF i001, i003-i008, i010, i011, i012, "
+    (void)printf("PASS: Arm PSA FF i001, i002, i003-i008, i010, i011, i012, "
                 "i024, i025, i026, i027, i063, i067, i071, i088, i090 "
                 "on wolfTrust\n");
     return 0;

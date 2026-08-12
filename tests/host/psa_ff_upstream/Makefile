@@ -24,7 +24,7 @@ CC ?= cc
 BUILD_DIR ?= build
 PSA_ARCH_TESTS_DIR ?= $(ROOT)/build/upstream/psa-arch-tests
 ARM_API := $(PSA_ARCH_TESTS_DIR)/api-tests
-ARM_TEST_IDS := i001 i003 i004 i005 i006 i007 i008 i010 i011 \
+ARM_TEST_IDS := i001 i002 i003 i004 i005 i006 i007 i008 i010 i011 \
     i012 i024 i025 i026 i027 i063 i067 i071 i088 i090
 ARM_TESTS := $(foreach id,$(ARM_TEST_IDS),\
     $(ARM_API)/ff/ipc/test_$(id)/test_$(id).c)
