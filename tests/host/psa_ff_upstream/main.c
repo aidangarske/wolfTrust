@@ -68,6 +68,7 @@ int32_t client_test_psa_close_with_invalid_handle(caller_security_t caller);
 int32_t client_test_psa_call_with_invalid_handle(caller_security_t caller);
 int32_t client_test_psa_call_with_null_handle(caller_security_t caller);
 int32_t client_test_psa_drop_connection(caller_security_t caller);
+int32_t client_test_psa_wait_signal_mask(caller_security_t caller);
 int32_t client_test_dynamic_mem_alloc_fn(caller_security_t caller);
 int32_t client_test_mem_manipulation_fn(caller_security_t caller);
 int32_t client_test_psa_rot_lifecycle_state(caller_security_t caller);
@@ -100,6 +101,8 @@ val_api_t* valtest_entry_i026;
 psa_api_t* psatest_entry_i026;
 val_api_t* valtest_entry_i027;
 psa_api_t* psatest_entry_i027;
+val_api_t* valtest_entry_i063;
+psa_api_t* psatest_entry_i063;
 val_api_t* valtest_entry_i067;
 psa_api_t* psatest_entry_i067;
 val_api_t* valtest_entry_i071;
@@ -401,6 +404,12 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
         rc = wt_ffm_reply(runtime, partition_id, message.handle,
                 message.type >= PSA_IPC_CALL ? PSA_ERROR_PROGRAMMER_ERROR :
                                                PSA_SUCCESS);
+    else if (g_active_test == 63)
+        /* i063: the RoT service refuses both connects. This proves the
+         * client-visible refusal; the server-side signal-mask filtering the
+         * upstream supp exercises needs a real multi-signal scheduler (M33MU). */
+        rc = wt_ffm_reply(runtime, partition_id, message.handle,
+                          PSA_ERROR_CONNECTION_REFUSED);
     else
         rc = wt_ffm_reply(runtime, partition_id, message.handle,
                           PSA_SUCCESS);
@@ -493,6 +502,8 @@ int main(void)
     psatest_entry_i026 = &g_psa_api;
     valtest_entry_i027 = &g_val_api;
     psatest_entry_i027 = &g_psa_api;
+    valtest_entry_i063 = &g_val_api;
+    psatest_entry_i063 = &g_psa_api;
     valtest_entry_i067 = &g_val_api;
     psatest_entry_i067 = &g_psa_api;
     valtest_entry_i071 = &g_val_api;
@@ -601,6 +612,11 @@ int main(void)
         status = client_test_psa_drop_connection(CALLER_NONSECURE);
         status = report("i027", "psa_drop_connection", status);
     }
+    g_active_test = 63;
+    if (status == VAL_STATUS_SUCCESS) {
+        status = client_test_psa_wait_signal_mask(CALLER_NONSECURE);
+        status = report("i063", "psa_wait_signal_mask", status);
+    }
     g_active_test = 0;
     if (status == VAL_STATUS_SUCCESS) {
         status = client_test_dynamic_mem_alloc_fn(CALLER_NONSECURE);
@@ -635,6 +651,7 @@ int main(void)
         return 1;
 
     (void)printf("PASS: Arm PSA FF i001, i003-i008, i010, i011, i012, "
-                "i024, i025, i026, i027, i067, i071, i088, i090 on wolfTrust\n");
+                "i024, i025, i026, i027, i063, i067, i071, i088, i090 "
+                "on wolfTrust\n");
     return 0;
 }

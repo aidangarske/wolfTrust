@@ -295,6 +295,19 @@ sequence directly.
 - `make test`: EXIT 0 — full host suite green including the new
   `WT-FFM-0022 dropped connection close`.
 
+## Item 10 conformance expansion (Slice 2 — signal-mask refusal i063)
+
+Wired Arm FF-M test `i063` (`psa_wait_signal_mask`): the RoT service refuses
+both connects (`SERVER_UNSPECIFIED_VERSION`, `SERVER_RELAX_VERSION`), and the
+client confirms it receives `PSA_ERROR_CONNECTION_REFUSED` for each — the
+client-visible half of the test. The upstream rule under test (a Secure
+Partition using a masked `psa_wait` to ignore an unrelated irritator signal)
+needs a real multi-signal scheduler and is deferred to the M33MU slice; the host
+dispatch has no concurrent irritator to filter. No production change.
+
+- `make test-conformance BUILD_DIR=/tmp/wolftrust-conf`: EXIT 0 — `i063` PASS,
+  ending `PASS: conformance/all`. `make test`: EXIT 0.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

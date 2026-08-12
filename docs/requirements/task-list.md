@@ -356,7 +356,8 @@ them together, at the end, as a single **detect-or-skip** harness driven from
     (now `i001,i003-i008,i010,i011,i012,i024,i025,i026,i067[SKIP],i071,i088,
     i090` — Slice 1 added version-policy i010/i011/i026; i090 added the
     negative-type PROGRAMMER_ERROR check; i003 added the invec/outvec data
-    plane and i027 the connection drop via the per-test dispatch) to the full Arm
+    plane, i027 the connection drop, and i063 the signal-mask refusal via the
+    per-test dispatch) to the full Arm
     FF-M suite under M33MU (NS app + 3 SPs, including the tests that need real
     reboot continuity and multi-partition isolation) and add the TF-M baseline
     comparison. `make test-conformance` must auto-detect an available M33MU
@@ -384,12 +385,12 @@ them together, at the end, as a single **detect-or-skip** harness driven from
     entries + `i003` (invec/outvec data plane, ~6 checks) + `i027` (connection
     drop — new `SERVER_CONNECTION_DROP` service + PROGRAMMER_ERROR reply; also
     fixed `wt_ffm_close` to allow closing a dropped `WT_IPC_CONNECTION_ERROR`
-    connection, host test WT-FFM-0022). REMAINING host-viable: `i002` (connection
-    lifecycle — busy/reject, identity, connect-limit=50, block-vs-poll, ~9 checks;
-    stresses the runtime pools), `i063` (signal-mask filtering — client only sees
-    refused connects;
-    replicate the masked psa_wait loop to prove the real rule, else it only tests
-    the connect path). NOT unblocked by this: `i048`-`i053` (need real MPU
+    connection, host test WT-FFM-0022) + `i063` (signal-mask refusal — the
+    client-visible refused-connect path; the server-side mask filtering itself
+    needs a real multi-signal scheduler, deferred to M33MU). REMAINING
+    host-viable: `i002` (connection lifecycle — busy/reject, identity,
+    connect-limit=50, block-vs-poll, ~9 checks; stresses the runtime pools).
+    NOT unblocked by this: `i048`-`i053` (need real MPU
     isolation → Slice 3/M33MU) and `i058` (doorbell client compiled out under
     `-DNONSECURE_TEST_BUILD`).
 11. [ ] Pass the host and M33MU FF-M positive and negative suites on one commit.
