@@ -448,7 +448,14 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   (`src/ffm_domain.c`) are already generic + manifest-driven but only exercised
   in host tests; the one live target caller (`wt_crypto_sp_body`) hand-builds its
   2-region table. Connect the resolver so any SP gets its manifest-declared MPU
-  domain. Can land before/parallel to P1.
+  domain. Can land before/parallel to P1. CODE LANDED (evidence pending M33MU):
+  `wt_platform_run_crypto_sp_isolated` now resolves the crypto domain via
+  `wt_ffm_resolve_secure_domain(PARTITION_CRYPTO_ID)`, takes the SP stack/work
+  area from the manifest's writable resource (fail-closed if absent or too
+  small), and appends non-EXEC domain resources to the MPU table. EXEC windows
+  stay the shared whole-image RX (manifest 4K code window lies inside it;
+  Armv8-M MPU regions must not overlap — task #26 tracks narrowing). Tick only
+  after the M33MU positive + negative-probe runs pass on this code.
 - P2a. [x] **Manifest-ingestion generator, identity headers (host, DONE).**
   `tools/manifest/ingest_psa_arch.py` converts Arm's 3 upstream
   `*_partition_psa.json` into `psa_manifest/{pid.h,sid.h,<partition>.h}` by

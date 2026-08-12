@@ -31,6 +31,11 @@
 #include "memory_map.h"
 #include "stm32h563_regs.h"
 
+#include "wolftrust/ffm.h"
+#include "wolftrust/ffm_boot.h"
+#include "wolftrust/ffm_domain.h"
+#include "psa_manifest/pid.h"
+
 void* memcpy(void* destination, const void* source, size_t size);
 void* memset(void* destination, int value, size_t size);
 
@@ -428,13 +433,14 @@ void wt_platform_restore_spm_domain(void)
  * boundary. All fields the isolated compute touches live in this struct so
  * the narrowed domain [secure code RX] + [SP stack RW] fully contains it. */
 #define WT_SP_SHA256_DIGEST_SIZE 32u
+#define WT_SP_MIN_EXEC_STACK     1024u
 
 typedef struct wt_crypto_sp_work {
     const uint8_t* in;
     uint8_t* out;
     size_t in_len;
     size_t out_len;
-    wt_mpu_region_t regions[2];
+    wt_mpu_region_t regions[WT_MAX_MPU_REGIONS];
     size_t region_count;
     int result;
     uint8_t input[WT_CRYPTO_SP_INPUT_MAX];
@@ -496,17 +502,48 @@ static void wt_crypto_sp_call(wt_crypto_sp_work_t* work, uint32_t sp_top,
 int wt_platform_run_crypto_sp_isolated(const uint8_t* input, size_t input_len,
                                        uint8_t* digest, size_t digest_len)
 {
-    wt_crypto_sp_work_t* work =
-        (wt_crypto_sp_work_t*)(uintptr_t)WT_SP_CRYPTO_STACK_BASE;
-    uint32_t sp_top = WT_SP_CRYPTO_STACK_BASE + WT_SP_SECURE_STACK_SIZE;
+    /* Singleton: the SPM dispatch path is single-core with no reentry. */
+    static wt_secure_domain_t sp_domain;
+    const wt_ffm_runtime_t* ffm;
+    const wt_mpu_region_t* stack_region;
+    wt_crypto_sp_work_t* work;
+    uint32_t sp_top;
     uint32_t sp_limit;
     size_t copy_len;
+    size_t region_count;
+    size_t i;
 
     if (input == NULL || digest == NULL ||
             input_len > WT_CRYPTO_SP_INPUT_MAX ||
             digest_len < WT_SP_SHA256_DIGEST_SIZE) {
         return WT_FFM_ERROR_ARGUMENT;
     }
+
+    ffm = wt_ffm_boot_runtime();
+    if (ffm == NULL || ffm->manifest == NULL) {
+        return WT_FFM_ERROR_STATE;
+    }
+    if (wt_ffm_resolve_secure_domain(ffm->manifest, PARTITION_CRYPTO_ID,
+                                     &sp_domain) != WT_SECURE_DOMAIN_OK) {
+        return WT_FFM_ERROR_STATE;
+    }
+
+    /* The SP stack and work area come from the manifest domain's writable
+     * memory resource; fail closed if the manifest stops declaring one. */
+    stack_region = NULL;
+    for (i = 0u; i < sp_domain.region_count; i++) {
+        if ((sp_domain.regions[i].attributes & WT_MEM_ATTR_WRITE) != 0u &&
+                (sp_domain.regions[i].attributes & WT_MEM_ATTR_DEVICE) == 0u) {
+            stack_region = &sp_domain.regions[i];
+        }
+    }
+    if (stack_region == NULL ||
+            stack_region->size < sizeof(*work) + WT_SP_MIN_EXEC_STACK) {
+        return WT_FFM_ERROR_STATE;
+    }
+
+    work = (wt_crypto_sp_work_t*)(uintptr_t)stack_region->base;
+    sp_top = (uint32_t)stack_region->base + (uint32_t)stack_region->size;
 
     (void)memset(work, 0, sizeof(*work));
     (void)memcpy(work->input, input, input_len);
@@ -517,15 +554,21 @@ int wt_platform_run_crypto_sp_isolated(const uint8_t* input, size_t input_len,
     work->result = WT_FFM_ERROR_STATE;
 
     /* Shared secure code RX (whole image, matches SPM region 0) so the
-     * compute's .text and the SHA-256 rodata tables are reachable. */
+     * compute's .text and the SHA-256 rodata tables are reachable. The
+     * manifest's code window lies inside it and Armv8-M MPU regions must not
+     * overlap, so EXEC resources are skipped (task #26 tracks narrowing). */
     work->regions[0].base = WT_FLASH_S_BASE;
     work->regions[0].size = WT_FLASH_S_SIZE;
     work->regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
-    /* Private crypto SP stack RW (the domain 4 memory resource). */
-    work->regions[1].base = WT_SP_CRYPTO_STACK_BASE;
-    work->regions[1].size = WT_SP_SECURE_STACK_SIZE;
-    work->regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
-    work->region_count = 2u;
+    region_count = 1u;
+    for (i = 0u; i < sp_domain.region_count &&
+            region_count < WT_MAX_MPU_REGIONS; i++) {
+        if ((sp_domain.regions[i].attributes & WT_MEM_ATTR_EXEC) == 0u) {
+            work->regions[region_count] = sp_domain.regions[i];
+            region_count++;
+        }
+    }
+    work->region_count = region_count;
 
     sp_limit = ((uint32_t)(uintptr_t)(work + 1) + 7u) & ~7u;
     wt_crypto_sp_call(work, sp_top, sp_limit);
