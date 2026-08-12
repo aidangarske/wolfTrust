@@ -272,7 +272,28 @@ whose server `dispatch_i003()` replicates the upstream server faithfully:
 - `make test`: EXIT 0 — full host suite green.
 
 Remaining server-dispatch tests for the router: `i002` (connection lifecycle),
-`i027` (connection drop, needs a new SID), `i063` (signal-mask filtering).
+`i063` (signal-mask filtering).
+
+## Item 10 conformance expansion (Slice 2 — connection drop i027)
+
+Wired Arm FF-M test `i027` (`psa_drop_connection`): a new `SERVER_CONNECTION_DROP`
+service whose dispatch replies `PSA_ERROR_PROGRAMMER_ERROR` to the call, dropping
+the connection. The client then closes the handle and confirms subsequent calls
+on it also return `PROGRAMMER_ERROR`.
+
+`i027` surfaced a real conformance gap: after a call reply of
+`PSA_ERROR_PROGRAMMER_ERROR`, `wt_ffm_reply` leaves the connection in
+`WT_IPC_CONNECTION_ERROR`, and `wt_ffm_close` rejected any non-idle connection,
+so the client's mandatory `psa_close` of a dropped connection would panic. Per
+FF-M a client may close a dropped connection; `wt_ffm_close` now accepts the
+`WT_IPC_CONNECTION_ERROR` state (dispatches the disconnect and releases). The
+wolfTrust host test `WT-FFM-0022` covers the drop-then-close-then-stale-call
+sequence directly.
+
+- `make test-conformance BUILD_DIR=/tmp/wolftrust-conf`: EXIT 0 — `i027` PASS,
+  ending `PASS: conformance/all`.
+- `make test`: EXIT 0 — full host suite green including the new
+  `WT-FFM-0022 dropped connection close`.
 
 ## Phase gate rule
 

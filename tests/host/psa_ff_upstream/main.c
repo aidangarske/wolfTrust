@@ -67,6 +67,7 @@ int32_t client_test_secure_access_only_connection(caller_security_t caller);
 int32_t client_test_psa_close_with_invalid_handle(caller_security_t caller);
 int32_t client_test_psa_call_with_invalid_handle(caller_security_t caller);
 int32_t client_test_psa_call_with_null_handle(caller_security_t caller);
+int32_t client_test_psa_drop_connection(caller_security_t caller);
 int32_t client_test_dynamic_mem_alloc_fn(caller_security_t caller);
 int32_t client_test_mem_manipulation_fn(caller_security_t caller);
 int32_t client_test_psa_rot_lifecycle_state(caller_security_t caller);
@@ -97,6 +98,8 @@ val_api_t* valtest_entry_i025;
 psa_api_t* psatest_entry_i025;
 val_api_t* valtest_entry_i026;
 psa_api_t* psatest_entry_i026;
+val_api_t* valtest_entry_i027;
+psa_api_t* psatest_entry_i027;
 val_api_t* valtest_entry_i067;
 psa_api_t* psatest_entry_i067;
 val_api_t* valtest_entry_i071;
@@ -132,6 +135,11 @@ static const wt_service_descriptor_t g_services[] = {
         "SERVER_UNSPECIFIED_VERSION", SERVER_UNSPECIFIED_VERSION_SID,
         SERVER_UNSPECIFIED_VERSION_VERSION, WT_SERVICE_VERSION_STRICT,
         0x100U, 0U, 1U, 1U
+    },
+    {
+        "SERVER_CONNECTION_DROP", SERVER_CONNECTION_DROP_SID,
+        SERVER_CONNECTION_DROP_VERSION, WT_SERVICE_VERSION_RELAXED,
+        0x200U, 0U, 1U, 1U
     }
 };
 
@@ -140,7 +148,8 @@ static const uint32_t g_dependencies[] = {
     SERVER_SECURE_CONNECT_ONLY_SID,
     SERVER_STRICT_VERSION_SID,
     SERVER_RELAX_VERSION_SID,
-    SERVER_UNSPECIFIED_VERSION_SID
+    SERVER_UNSPECIFIED_VERSION_SID,
+    SERVER_CONNECTION_DROP_SID
 };
 
 static const wt_partition_manifest_t g_partitions[] = {
@@ -386,6 +395,12 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     }
     if (g_active_test == 3)
         rc = dispatch_i003(runtime, partition_id, &message);
+    else if (g_active_test == 27)
+        /* i027: the RoT service drops the connection by replying
+         * PROGRAMMER_ERROR to the call; connect/disconnect reply success. */
+        rc = wt_ffm_reply(runtime, partition_id, message.handle,
+                message.type >= PSA_IPC_CALL ? PSA_ERROR_PROGRAMMER_ERROR :
+                                               PSA_SUCCESS);
     else
         rc = wt_ffm_reply(runtime, partition_id, message.handle,
                           PSA_SUCCESS);
@@ -476,6 +491,8 @@ int main(void)
     psatest_entry_i025 = &g_psa_api;
     valtest_entry_i026 = &g_val_api;
     psatest_entry_i026 = &g_psa_api;
+    valtest_entry_i027 = &g_val_api;
+    psatest_entry_i027 = &g_psa_api;
     valtest_entry_i067 = &g_val_api;
     psatest_entry_i067 = &g_psa_api;
     valtest_entry_i071 = &g_val_api;
@@ -579,6 +596,11 @@ int main(void)
         status = client_test_overlapping_vectors(CALLER_NONSECURE);
         status = report("i003", "overlapping_vectors", status);
     }
+    g_active_test = 27;
+    if (status == VAL_STATUS_SUCCESS) {
+        status = client_test_psa_drop_connection(CALLER_NONSECURE);
+        status = report("i027", "psa_drop_connection", status);
+    }
     g_active_test = 0;
     if (status == VAL_STATUS_SUCCESS) {
         status = client_test_dynamic_mem_alloc_fn(CALLER_NONSECURE);
@@ -613,6 +635,6 @@ int main(void)
         return 1;
 
     (void)printf("PASS: Arm PSA FF i001, i003-i008, i010, i011, i012, "
-                "i024, i025, i026, i067, i071, i088, i090 on wolfTrust\n");
+                "i024, i025, i026, i027, i067, i071, i088, i090 on wolfTrust\n");
     return 0;
 }

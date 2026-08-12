@@ -42,6 +42,7 @@ typedef struct test_context {
     unsigned int deny_write_check;
     unsigned int panics;
     int reject_write;
+    int reply_programmer_error;
 } test_context_t;
 
 static unsigned int g_checks;
@@ -183,6 +184,10 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
         EXPECT_INT(wt_ffm_reply(runtime, partition_id, message.handle,
                                 PSA_SUCCESS), WT_FFM_SUCCESS);
     }
+    else if (test->reply_programmer_error) {
+        EXPECT_INT(wt_ffm_reply(runtime, partition_id, message.handle,
+                                PSA_ERROR_PROGRAMMER_ERROR), WT_FFM_SUCCESS);
+    }
     else {
         EXPECT_TRUE(message.rhandle == TEST_RHANDLE);
         EXPECT_SIZE(message.in_size[0], 3U);
@@ -304,6 +309,27 @@ static void test_connection_and_vectors(void)
                            &input, 1U, &output, 1U),
                PSA_ERROR_PROGRAMMER_ERROR);
     (void)printf("PASS: WT-FFM-0021 connection, messages, and vectors\n");
+}
+
+static void test_connection_drop(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_handle_t handle;
+
+    test_init(&runtime, &context);
+    context.reply_programmer_error = 1;
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           NULL, 0U, NULL, 0U), PSA_ERROR_PROGRAMMER_ERROR);
+    /* The dropped connection is still closable, and a later call on the
+     * released handle returns PROGRAMMER_ERROR. */
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle),
+               WT_FFM_SUCCESS);
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           NULL, 0U, NULL, 0U), PSA_ERROR_PROGRAMMER_ERROR);
+    (void)printf("PASS: WT-FFM-0022 dropped connection close\n");
 }
 
 static void test_vector_rejection(void)
@@ -460,6 +486,7 @@ int main(void)
     test_doorbell_signal();
     test_framework_and_policy();
     test_connection_and_vectors();
+    test_connection_drop();
     test_vector_rejection();
     test_output_revalidation();
     test_bounded_resources();

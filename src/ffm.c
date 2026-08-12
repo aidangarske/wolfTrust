@@ -610,7 +610,10 @@ int wt_ffm_close(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
     if (ret != WT_FFM_SUCCESS)
         return ret;
     connection = &runtime->connections[connection_index];
-    if (connection->state != WT_IPC_CONNECTION_IDLE)
+    /* FF-M: a client may close a connection dropped by a PROGRAMMER ERROR
+     * (WT_IPC_CONNECTION_ERROR), not only an idle one. */
+    if (connection->state != WT_IPC_CONNECTION_IDLE &&
+            connection->state != WT_IPC_CONNECTION_ERROR)
         return WT_FFM_ERROR_STATE;
     if (wt_ffm_alloc_message(runtime, &message_index) != WT_FFM_SUCCESS)
         return WT_FFM_ERROR_RESOURCE;
