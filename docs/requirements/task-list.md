@@ -434,11 +434,38 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     Crypto + attest register through it in `wt_ffm_boot_init`. Evidence: host
     test `WT-FFM-0014 partition dispatch routing` (registered loop intercepts,
     port op bypassed) + crypto/attest KAT round trips still green in `make test`.
-  - P1t. [ ] **Schedulable execution context (target, needs M33MU).** Generalize
-    the one-shot crypto stack switch (`wt_crypto_sp_call`) into a private-stack +
-    saved-regs enter/suspend/resume SP context on the coroutine scheduler so an SP
-    is a real schedulable entity, not an inline call. Overlaps P2. Target-only;
-    M33MU isolation + no-regression evidence required.
+  - P1t. [~] **Schedulable execution context.** Make an SP a private-stack +
+    saved-regs enter/suspend/resume context on the coroutine scheduler so it is a
+    real schedulable entity, not an inline call. Scout facts: `SVC_Handler` +
+    `PendSV_Handler` (`src/arch/armv8m/coroutine_armv8m.c`) already switch
+    cooperatively (bootstrap on MSP_S, tasklets on PSP_S) but the scheduler is
+    compiled yet dormant (no production caller), tasklets run **privileged** with
+    **no per-tasklet MPU**, and SVC only distinguishes `#0x7F` (NS-guest return).
+    The one-shot `wt_crypto_sp_call` is a same-mode MSP swap and cannot call back
+    into the SPM. Correction to the earlier note: the scheduler is **not**
+    host-buildable (no host arch backend; a portable one is hostile to the
+    `-pedantic -Werror` + ASan + Valgrind host harness), so the switch itself is
+    M33MU-proven and only the neutral gate logic is host-proven. Split P1t-1/P1t-2:
+    - P1t-1. [x] **SPM-call gate + arg validation + block classification (host,
+      DONE 2026-08-12).** `wt_spm_gate` (`src/spm_gate.c`,
+      `include/wolftrust/spm_gate.h`) is the single choke point every SP-side
+      `psa_*` funnels through (wait/get/set_rhandle/read/skip/write/reply/notify/
+      clear → the `wt_ffm_*` runtime); it bounds every SP-supplied pointer against
+      the caller's resolved domain via `wt_secure_domain_contains` before the SPM
+      touches it, and `wt_spm_call_would_block` flags an empty `psa_wait` as
+      "suspend this SP". This is what the target SVC handler calls after
+      unmarshalling registers. Evidence: `tests/host/spm_gate` (62 checks,
+      gcc+clang+ASan/UBSan) — gate routes the real connect+call dispatch path,
+      classifies an empty wait as blocking, and rejects out-of-domain pointers.
+      Not yet in the secure build (lands with P1t-2 under one M33MU gate).
+    - P1t-2. [ ] **Coroutine-backed SP via SVC gate (target, needs M33MU).** Wire
+      `wt_spm_gate` behind an Armv8-M SVC so a coroutine-backed SP runs
+      unprivileged (`CONTROL.nPRIV`) on its own PSP stack + per-SP MPU domain
+      programmed on PendSV switch-in, traps to the privileged SPM for each
+      `psa_*`, and suspends on `psa_wait` via `wt_co_block`. Add `src/spm_gate.c`
+      to the secure build. Positive M33MU: crypto SP computes its SHA-256 KAT
+      through the SVC gate. Negative M33MU: unprivileged SP touching SPM RAM
+      faults. All target-affecting build changes land here under one gate.
   - P1r. [x] **Production registration M33MU regression (DONE, M33MU 2026-08-12).** Confirm P1a's
     `ffm_boot` registration path dispatches crypto + attest unchanged on M33MU
     (host cannot compile the target `ffm_boot`; Mac `arm-none-eabi` lacks libc

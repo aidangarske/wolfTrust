@@ -406,6 +406,36 @@ read of SPM-private RAM from inside the manifest-resolved domain faults, exit 1,
 executed on the new manifest-resolved stack carve (crypto slot 0x30096000). Both
 halves of the resolver wiring (positive run 3 + this negative) hold on one tree.
 
+## Item 10 P1t-1 — SPM-call gate (host)
+
+The single privileged choke point `wt_spm_gate` (`src/spm_gate.c`,
+`include/wolftrust/spm_gate.h`) that every SP-side `psa_*` will funnel through
+on target once the SVC handler unmarshals registers into `wt_spm_call_t`. It
+routes wait/get/set_rhandle/read/skip/write/reply/notify/clear to the existing
+`wt_ffm_*` runtime, bounds every SP-supplied pointer against the caller's
+resolved protection domain via `wt_secure_domain_contains` before the
+privileged SPM dereferences it, and `wt_spm_call_would_block` flags an empty
+`psa_wait` (runtime returns `WT_FFM_ERROR_NOT_READY`) as "suspend this SP".
+
+Host evidence (2026-08-12), `tests/host/spm_gate` — 62 checks, green under
+`cc`, `gcc`, and `clang`, and under ASan+UBSan:
+- `WT-FFM-0014 gate routes the SP dispatch path`: a server body with every
+  primitive routed through the gate serves a real `wt_ffm_connect` +
+  `wt_ffm_call` round trip; the NS client receives the `OK` output, proving the
+  gate is behaviorally identical to the inline `wt_ffm_*` calls.
+- `WT-FFM-0014 gate classifies an empty wait as blocking`: gate WAIT with no
+  asserted signal → `would_block == 1`; after `wt_ffm_notify` → success,
+  `would_block == 0`, asserted == `PSA_DOORBELL`.
+- `WT-FFM-0014 gate bounds SP pointers to the domain`: a read destination
+  inside the domain passes validation and runs; outside, NULL, and a write
+  source outside are rejected with `WT_FFM_ERROR_BUFFER` before the runtime
+  runs; a NULL domain bypasses validation.
+
+Not in the secure build yet — the target SVC gate, unprivileged drop, per-SP
+MPU on switch-in, and real coroutine suspend/resume land together in P1t-2
+under one M33MU gate. Valgrind not run locally (macOS host); it is the CI
+Valgrind workflow's responsibility.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU
