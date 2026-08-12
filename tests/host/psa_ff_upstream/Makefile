@@ -24,8 +24,8 @@ CC ?= cc
 BUILD_DIR ?= build
 PSA_ARCH_TESTS_DIR ?= $(ROOT)/build/upstream/psa-arch-tests
 ARM_API := $(PSA_ARCH_TESTS_DIR)/api-tests
-ARM_TEST_IDS := i001 i004 i005 i006 i007 i008 \
-    i012 i024 i025 i067 i071 i088
+ARM_TEST_IDS := i001 i004 i005 i006 i007 i008 i010 i011 \
+    i012 i024 i025 i026 i067 i071 i088
 ARM_TESTS := $(foreach id,$(ARM_TEST_IDS),\
     $(ARM_API)/ff/ipc/test_$(id)/test_$(id).c)
 ARM_TEST_INCLUDES := $(foreach id,$(ARM_TEST_IDS),\
@@ -41,6 +41,8 @@ CFLAGS := -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
     -DSERVER_STRICT_VERSION_VERSION=2U \
     -DSERVER_RELAX_VERSION_SID=0x0000FB05U \
     -DSERVER_RELAX_VERSION_VERSION=2U \
+    -DSERVER_UNSPECIFIED_VERSION_SID=0x0000FB06U \
+    -DSERVER_UNSPECIFIED_VERSION_VERSION=1U \
     -I. -I$(ROOT)/include $(ARM_TEST_INCLUDES) \
     -I$(ARM_API)/val/nspe -I$(ARM_API)/val/common \
     -I$(ARM_API)/platform/targets/common/nspe

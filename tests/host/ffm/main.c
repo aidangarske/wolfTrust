@@ -326,7 +326,7 @@ static void test_vector_rejection(void)
     }
     EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                            inputs, PSA_MAX_IOVEC + 1U, &output, 1U),
-               PSA_ERROR_INVALID_ARGUMENT);
+               PSA_ERROR_PROGRAMMER_ERROR);
     inputs[0].len = sizeof(input_bytes);
     EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                            inputs, 1U, &output, 1U),

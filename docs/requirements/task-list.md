@@ -353,7 +353,8 @@ them together, at the end, as a single **detect-or-skip** harness driven from
   box. Real H5 hardware stays a separate, never-emulator-implied record.
 
 10. [ ] Expand `tests/host/psa_ff_upstream/` past the host-viable subset
-    (`i001,i004-i008,i012,i024,i025,i067[SKIP],i071,i088`) to the full Arm
+    (now `i001,i004-i008,i010,i011,i012,i024,i025,i026,i067[SKIP],i071,i088`
+    — Slice 1 added the version-policy tests i010/i011/i026) to the full Arm
     FF-M suite under M33MU (NS app + 3 SPs, including the tests that need real
     reboot continuity and multi-partition isolation) and add the TF-M baseline
     comparison. `make test-conformance` must auto-detect an available M33MU
@@ -364,10 +365,15 @@ them together, at the end, as a single **detect-or-skip** harness driven from
     TrustZone isolation and flash-persisted reboot cycles are already proven by
     existing CI). Real H5 hardware is not required for this gate — it stays a
     separate, never-implied-by-emulator hardware evidence record per the skill.
-10a. [ ] Add an `UNSPECIFIED` service version policy to `WT_SERVICE_VERSION_*`
-    / `ffm.c` (any client version accepted, no strict/relaxed check). Blocks
-    wiring `i002,i003,i010,i011,i026,i048-i053,i058,i063,i090` in
-    `tests/host/psa_ff_upstream/`.
+10a. [x] Host version-policy tests `i010,i011,i026` wired. FF-M resolves an
+    unspecified manifest service to version 1 + `STRICT`, so they model as a
+    `STRICT` service at version 1 — not the permissive `WT_SERVICE_VERSION_
+    UNSPECIFIED` enum (that means "accept any version", a different concept).
+    `i026` also required a conformance fix: `psa_call` with
+    `in_len + out_len > PSA_MAX_IOVEC` now returns `PSA_ERROR_PROGRAMMER_ERROR`,
+    not `PSA_ERROR_INVALID_ARGUMENT` (`ffm.c`; WT-FFM-0032 updated to match).
+    `i002,i003,i048-i053,i058,i063,i090` remain blocked on 10b (server
+    dispatch), not on a version policy.
 10b. [ ] Give `test_dispatch()` in `tests/host/psa_ff_upstream/main.c` real
     per-service logic instead of a generic wait/get/reply(SUCCESS). Blocks
     wiring `i027` (connection drop) and any future test needing

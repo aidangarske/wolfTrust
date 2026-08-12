@@ -186,6 +186,41 @@ dispatch and the item-8 crossdomain scenario).
 Emulator evidence for the Cortex-M33 execution model; no physical STM32H563
 result is claimed.
 
+## Item 10 conformance expansion (Slice 1 — host version-policy tests)
+
+Added the Arm FF-M version-policy tests `i010`, `i011`, and `i026` to
+`tests/host/psa_ff_upstream/` (run locally on the host via `make
+test-conformance`, no emulator needed). FF-M resolves an unspecified manifest
+service to version 1 with `STRICT` policy, so the harness models
+`SERVER_UNSPECIFIED_VERSION` as a `STRICT` service at version 1 — not the
+permissive `WT_SERVICE_VERSION_UNSPECIFIED` enum, which means "accept any
+version" and would wrongly admit `i010`'s higher-version connect.
+
+- `i010` unspecified_policy_higher_version: connect at version 2 is refused
+  (`PSA_ERROR_CONNECTION_REFUSED`).
+- `i011` unspecified_policy_lower_version: connect at version 0 is refused.
+- `i026` psa_call_with_iovec_more_than_max_limit: connect at version 1
+  succeeds, then `psa_call` with `in_len + out_len > PSA_MAX_IOVEC` returns
+  `PSA_ERROR_PROGRAMMER_ERROR`.
+
+`i026` surfaced a real conformance deviation: `wt_ffm_call` mapped the
+vector-count violation to `PSA_ERROR_INVALID_ARGUMENT`. FF-M defines
+`in_len + out_len > PSA_MAX_IOVEC` as a PROGRAMMER ERROR, so `wt_ffm_call` now
+returns `PSA_ERROR_PROGRAMMER_ERROR` for the count violation while the
+transfer-size cap (`WT_FFM_TRANSFER_BYTES`, the item-9 `st=-135` oversized-vector
+proof) still returns `PSA_ERROR_INVALID_ARGUMENT`. The wolfTrust host test
+`WT-FFM-0032` was updated to assert the conformant code.
+
+- `make test-conformance BUILD_DIR=/tmp/wolftrust-conf`: EXIT 0 — 16 host
+  checks PASS (i010/i011/i026 included), `i067` SKIP (SP heap), ending
+  `PASS: conformance/all`.
+- `make test`: EXIT 0 — full host suite green including `unit/ffm`
+  (`WT-FFM-0032 bounded vector rejection` on the new PROGRAMMER-ERROR mapping).
+
+This is host conformance evidence for the version-policy behavior; the full Arm
+suite under M33MU (NS app + 3 Secure test partitions) and the TF-M baseline
+remain the later item-10 slices.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

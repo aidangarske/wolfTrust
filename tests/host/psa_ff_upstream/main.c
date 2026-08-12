@@ -44,6 +44,12 @@ int32_t client_test_sid_does_not_exists(caller_security_t caller);
 int32_t client_test_strict_policy_higher_version(caller_security_t caller);
 int32_t client_test_strict_policy_lower_version(caller_security_t caller);
 int32_t client_test_relax_policy_higher_version(caller_security_t caller);
+int32_t client_test_unspecified_policy_with_higher_version(
+    caller_security_t caller);
+int32_t client_test_unspecified_policy_with_lower_version(
+    caller_security_t caller);
+int32_t client_test_psa_call_with_iovec_more_than_max_limit(
+    caller_security_t caller);
 int32_t client_test_secure_access_only_connection(caller_security_t caller);
 int32_t client_test_psa_close_with_invalid_handle(caller_security_t caller);
 int32_t client_test_psa_call_with_invalid_handle(caller_security_t caller);
@@ -64,12 +70,18 @@ val_api_t* valtest_entry_i007;
 psa_api_t* psatest_entry_i007;
 val_api_t* valtest_entry_i008;
 psa_api_t* psatest_entry_i008;
+val_api_t* valtest_entry_i010;
+psa_api_t* psatest_entry_i010;
+val_api_t* valtest_entry_i011;
+psa_api_t* psatest_entry_i011;
 val_api_t* valtest_entry_i012;
 psa_api_t* psatest_entry_i012;
 val_api_t* valtest_entry_i024;
 psa_api_t* psatest_entry_i024;
 val_api_t* valtest_entry_i025;
 psa_api_t* psatest_entry_i025;
+val_api_t* valtest_entry_i026;
+psa_api_t* psatest_entry_i026;
 val_api_t* valtest_entry_i067;
 psa_api_t* psatest_entry_i067;
 val_api_t* valtest_entry_i071;
@@ -97,6 +109,12 @@ static const wt_service_descriptor_t g_services[] = {
         "SERVER_RELAX_VERSION", SERVER_RELAX_VERSION_SID,
         SERVER_RELAX_VERSION_VERSION, WT_SERVICE_VERSION_RELAXED,
         0x80U, 0U, 1U, 1U
+    },
+    {
+        /* FF-M defaults an unspecified version_policy to STRICT at version 1. */
+        "SERVER_UNSPECIFIED_VERSION", SERVER_UNSPECIFIED_VERSION_SID,
+        SERVER_UNSPECIFIED_VERSION_VERSION, WT_SERVICE_VERSION_STRICT,
+        0x100U, 0U, 1U, 1U
     }
 };
 
@@ -104,7 +122,8 @@ static const uint32_t g_dependencies[] = {
     SERVER_TEST_DISPATCHER_SID,
     SERVER_SECURE_CONNECT_ONLY_SID,
     SERVER_STRICT_VERSION_SID,
-    SERVER_RELAX_VERSION_SID
+    SERVER_RELAX_VERSION_SID,
+    SERVER_UNSPECIFIED_VERSION_SID
 };
 
 static const wt_partition_manifest_t g_partitions[] = {
@@ -271,12 +290,18 @@ int main(void)
     psatest_entry_i007 = &g_psa_api;
     valtest_entry_i008 = &g_val_api;
     psatest_entry_i008 = &g_psa_api;
+    valtest_entry_i010 = &g_val_api;
+    psatest_entry_i010 = &g_psa_api;
+    valtest_entry_i011 = &g_val_api;
+    psatest_entry_i011 = &g_psa_api;
     valtest_entry_i012 = &g_val_api;
     psatest_entry_i012 = &g_psa_api;
     valtest_entry_i024 = &g_val_api;
     psatest_entry_i024 = &g_psa_api;
     valtest_entry_i025 = &g_val_api;
     psatest_entry_i025 = &g_psa_api;
+    valtest_entry_i026 = &g_val_api;
+    psatest_entry_i026 = &g_psa_api;
     valtest_entry_i067 = &g_val_api;
     psatest_entry_i067 = &g_psa_api;
     valtest_entry_i071 = &g_val_api;
@@ -312,6 +337,16 @@ int main(void)
         status = report("i008", "secure_access_only_connection (NS)",
                         status);
     }
+    if (status == VAL_STATUS_SUCCESS) {
+        status = client_test_unspecified_policy_with_higher_version(
+            CALLER_NONSECURE);
+        status = report("i010", "unspecified_policy_higher_version", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        status = client_test_unspecified_policy_with_lower_version(
+            CALLER_NONSECURE);
+        status = report("i011", "unspecified_policy_lower_version", status);
+    }
     if (status != VAL_STATUS_SUCCESS)
         return 1;
     status = client_test_psa_close_with_invalid_handle(CALLER_NONSECURE);
@@ -326,6 +361,12 @@ int main(void)
     if (status == VAL_STATUS_SUCCESS) {
         status = client_test_psa_call_with_null_handle(CALLER_NONSECURE);
         status = report("i025", "psa_call_with_null_handle", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        status = client_test_psa_call_with_iovec_more_than_max_limit(
+            CALLER_NONSECURE);
+        status = report("i026", "psa_call_with_iovec_more_than_max_limit",
+                        status);
     }
     if (status == VAL_STATUS_SUCCESS) {
         status = client_test_dynamic_mem_alloc_fn(CALLER_NONSECURE);
@@ -359,7 +400,7 @@ int main(void)
     if (status != VAL_STATUS_SUCCESS || g_context.failures != 0U)
         return 1;
 
-    (void)printf("PASS: Arm PSA FF i001, i004-i008, i012, i024, i025, "
-                "i067, i071, i088 on wolfTrust\n");
+    (void)printf("PASS: Arm PSA FF i001, i004-i008, i010, i011, i012, "
+                "i024, i025, i026, i067, i071, i088 on wolfTrust\n");
     return 0;
 }
