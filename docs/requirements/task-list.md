@@ -549,16 +549,28 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   PSA_BLOCK now works (P1t-2b coroutine suspend/resume). Full scout map +
   first-slice brief in `/tmp/wolftrust-p3-plan-2026-08-12.md`. Sliced P3a/b/c:
   - P3a. [ ] **First real Arm SP on target (keystone-equivalent proof).**
-    Generalize `wt_spm_sched_start` to schedule N SPs from
-    `manifest-conformance.json` (table, not the single crypto hardcode); bring up
-    Arm's unmodified `server_main` + `client_main` (`ff/partition/`) as
-    coroutines; add the NS `psa_*` client veneers (`psa_framework_version`,
-    `psa_version`, and `psa_connect/call/close` aliasing the existing
-    `WolfTrust_FFM_*`); build `val/` NSPE + `ff/partition` into the Zephyr NS
-    guest and secure image. Run ONE unmodified Arm test end-to-end on M33MU:
-    i001 (framework_version, no server) then i002 (connect -> real `server_main`
-    reply). Hardest part = the val/ff/PAL build integration + NS->S veneer ABI,
-    not the logic. M33MU-gated.
+    Ordered, each M33MU-gated (do not stack; each must pass before the next):
+    - P3a-1. [ ] **Generalize `wt_spm_sched_start` to a table of N SPs** driven
+      from the bound manifest, replacing the single hardcoded crypto SP
+      (`src/arch/armv8m/spm_svc.c`). Per-SP coroutine + domain + dispatch keyed
+      by the current coroutine (the `g_spm_sp_*` singletons become arrays; the
+      SVC entry resolves the caller from `wt_co_current()`). Crypto stays green
+      as table entry 0. No Arm SP yet — pure foundation. Gate: existing M33MU
+      positive (crypto KAT) + negative regression on the generalized path.
+    - P3a-2. [ ] **NS->S `psa_*` client veneers** (`psa_framework_version`,
+      `psa_version`, `psa_connect/call/close`) aliasing the existing
+      `WolfTrust_FFM_*` + `wt_ffm_framework_version/service_version`, exported to
+      the NS guest through the `.gnu.sgstubs` veneer table. Gate: NS guest calls
+      `psa_framework_version()` across the veneer and gets the right value.
+    - P3a-3. [ ] **Build integration** — compile Arm `val/` NSPE +
+      `ff/partition/{server,client}_partition.c` into the images: server/client
+      partitions into the secure image as scheduled SPs, val NSPE + `psa/client.h`
+      shim into the Zephyr NS guest. Dominant unknown; Mac cannot target-compile,
+      so it is M33MU-only. Gate: links + boots clean. (`claude-fable-5`.)
+    - P3a-4. [ ] **Bind ONE test path end-to-end**: run i001
+      (`psa_framework_version`, no server) then i002 (`psa_connect` -> real
+      `server_main` reply) on M33MU. Gate: the unmodified Arm client test passes
+      with the real server SP handshaking through the SPM.
   - P3b. [ ] **PAL driver plane + DRIVER partition.** `nspe/pal_config.h`,
     `nspe/pal_driver_ipc_intf.c`, `spe/pal_driver_intf.c`, `target.cmake`, and
     STM32H5 replacements for the shared UART/NVMEM/WDG drivers so the DRIVER SP
