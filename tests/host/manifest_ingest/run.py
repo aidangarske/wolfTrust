@@ -123,7 +123,23 @@ def main():
                 failures += 1
 
     conf = REPO / "port" / "stm32h563" / "manifest-conformance.json"
+    base = REPO / "port" / "stm32h563" / "manifest.json"
     generator = REPO / "tools" / "manifest" / "generate.py"
+
+    with tempfile.TemporaryDirectory() as emit_dir:
+        emitted = Path(emit_dir) / "conformance.json"
+        emit = subprocess.run(
+            [sys.executable, str(INGESTER), *[str(p) for p in inputs],
+             "--base", str(base), "--emit-manifest", str(emitted)],
+            capture_output=True, text=True)
+        if emit.returncode != 0:
+            print("emit-manifest failed: {}".format(emit.stderr),
+                  file=sys.stderr)
+            failures += 1
+        elif json.loads(emitted.read_text()) != json.loads(conf.read_text()):
+            print("committed manifest-conformance.json is not reproducible "
+                  "from the upstream manifests", file=sys.stderr)
+            failures += 1
     with tempfile.TemporaryDirectory() as ingest_out, \
             tempfile.TemporaryDirectory() as conf_out:
         result = subprocess.run(

@@ -463,10 +463,22 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   default → version 1; per-partition signal assignment incl. the driver UART
   IRQ signal). Gated in `make test-conformance` via `test-manifest-ingest`
   (`tests/host/manifest_ingest/run.py` asserts SIDs 0xFA01/0xFB01-07/0xFC01-04,
-  versions, and driver signals against the real fetched manifests). Remaining
-  ingestion: emit wolfTrust partition/domain descriptors + memory layout once
-  P2 capacity lands.
-- P2. [ ] **Table-driven SP load/entry + capacity (large).** `entry_point` is
+  versions, and driver signals against the real fetched manifests).
+- P2b. [x] **Ingester emits the full conformance system manifest (host, DONE).**
+  `ingest_psa_arch.py --base manifest.json --emit-manifest` merges Arm's
+  SERVER/DRIVER/CLIENT onto the production manifest with deterministic secure-RAM
+  layout (SP stacks 0x3009A000/C000/E000, code windows 0x0C012000+), resolving
+  cross-partition dependencies by name→SID and bumping caps/limits. The committed
+  `port/stm32h563/manifest-conformance.json` is now proven reproducible from the
+  unmodified upstream manifests (test asserts generated == committed and that it
+  validates through `generate.py`) — no more hand-transcription.
+- P2c. [x] **Capacity + build selection (host, DONE).** 5-slot secure stack carve
+  (`memory_map.h`, `secure.ld`), platform caps 8 domains / 3 mem-resources
+  (checked as `<=`, so production stays valid), `WT_CONFORMANCE=1` swaps the
+  conformance manifest into the secure build. Remaining P2 (trampoline generalized
+  to N schedulable SPs) is folded into P1t — a one-shot generalization is a
+  dead-end because real Arm SPs call back into the SPM mid-execution.
+- P2. [~] **Table-driven SP load/entry + capacity (large).** `entry_point` is
   validated but never branched to for SPs; generalize the crypto trampoline
   (`platform_stm32h563.c:449-539`) into an N-partition manifest-driven mechanism;
   bump per-SP stack carve (`WT_SP_SECURE_STACK_COUNT`), `max_memory_resources_per_domain`
