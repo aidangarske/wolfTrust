@@ -9,7 +9,7 @@ endif
 
 .DEFAULT_GOAL := all
 
-.PHONY: all test test-conformance fetch-psa-ff-tests \
+.PHONY: all test test-conformance test-target fetch-psa-ff-tests \
 		clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
 		test-domain-host test-domain-compilers test-domain-sanitize \
 		test-domain-valgrind test-manifest-host test-manifest-compilers \
@@ -29,6 +29,24 @@ all: $(SECURE_BIN) $(SECURE_ELF)
 
 test:
 	@$(MAKE) --no-print-directory -C tests/host test
+
+# FF-M target-only scenarios (partition restart, cross-domain isolation) that
+# need a real Cortex-M execution model. Separate from `make test` (host-only),
+# like `make test-conformance`. Auto-detect an M33MU emulator (or set
+# WT_TARGET_SCENARIOS=1); skip explicitly otherwise so it never silently passes.
+# Runs inside the wolfboot-ci-m33mu container, never bare-metal.
+test-target:
+	@if [ "$${WT_TARGET_SCENARIOS:-0}" != "1" ] && \
+	    ! { [ -n "$${M33MU:-}" ] && [ -x "$${M33MU:-}" ]; } && \
+	    ! command -v m33mu >/dev/null 2>&1; then \
+		echo "SKIP: FF-M target scenarios (M33MU/HW not detected — set WT_TARGET_SCENARIOS=1 or provide M33MU to run)"; \
+	else \
+		echo "RUN: target/restart"; \
+		tests/target/run_m33mu_scenario.sh restart; \
+		echo "RUN: target/crossdomain"; \
+		tests/target/run_m33mu_scenario.sh crossdomain; \
+		echo "PASS: target/all"; \
+	fi
 
 test-compilers:
 	@$(MAKE) --no-print-directory -C tests/host test-compilers

@@ -229,3 +229,24 @@ jobs:
             grep -Fq "freertos_guest1: C_Digest(SHA-256) rv=0" \
               "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           fi
+
+  wolfboot-wolftrust-m33mu-scenarios:
+    name: wolfTrust FF-M ${{ matrix.scenario }} scenario
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [restart, crossdomain]
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: Run FF-M target scenario
+        run: tests/target/run_m33mu_scenario.sh ${{ matrix.scenario }}

@@ -288,21 +288,26 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
      (crypto + attestation), which both RTOS guests reach. Exposing wolfHSM
      operations as FF-M services, if ever wanted, is a separate item (relates to
      task 16). Item 7's Initial-Attestation scope is complete.
-8. [ ] Add the missing wolfTrust FF-M security tests: partition restart and
+8. [x] Add the missing wolfTrust FF-M security tests: partition restart and
    cross-domain isolation (handle integrity, bounded pools, scrubbing, and
    pointer revalidation already covered in `tests/host/ffm/main.c`).
    - [x] Slice 1 — restart-on-fault target scenario: `WT_GUEST_FAULT_PROBE`
      (guest0_psa) reads Secure RAM on boot; the SecureFault escalates to the
-     monitor. `run_m33mu_restart.sh` (no `--quit-on-faults`) proves the
-     `guest0_psa alive` banner reappears `restart_limit+1` = 4 times then the
-     guest is FAULTED — manifest `restart_limit` honored on target, and the
-     monitor gracefully restarts a Non-secure guest fault while the other guest
-     keeps running. Evidence in `validation-log.md`.
-   - [ ] Slice 2 — detect-or-skip target-scenario harness in `make test`
-     (restart + cross-domain markers; explicit skip when no M33MU/HW).
-   - [ ] Slice 3 — fold the item-5 cross-domain negative
-     (`run_m33mu_negative.sh`) into the harness and wire both into CI (ties
-     tasks #9/#26).
+     monitor. Proves the `guest0_psa alive` banner reappears `restart_limit+1`
+     = 4 times then the guest is FAULTED — manifest `restart_limit` honored on
+     target, and the monitor gracefully restarts a Non-secure guest fault while
+     the other guest keeps running.
+   - [x] Slice 2 — detect-or-skip harness: `tests/target/run_m33mu_scenario.sh`
+     (DRY runner for positive/restart/crossdomain) + a standalone `make
+     test-target` (separate from host-only `make test`, like
+     `make test-conformance`). Auto-detects M33MU (or `WT_TARGET_SCENARIOS=1`);
+     explicit `SKIP` otherwise, never a silent pass. M33MU: `PASS: target/all`.
+   - [x] Slice 3 — folded the item-5 cross-domain negative into the runner and
+     wired CI job `wolfboot-wolftrust-m33mu-scenarios` (matrix restart,
+     crossdomain) driving the same runner so CI and the local harness assert
+     identical markers. Closes the item-5 follow-up of wiring the negative job
+     into CI (task #26 half); SP graceful fault recovery stays task #26.
+   - Evidence for all three slices in `validation-log.md`.
 9. [ ] Add M33MU FF-M assertions: a positive `psa_connect`/`psa_call` round trip
    plus negatives (forged handle, oversized vector, cross-domain access) on the
    emulator path (`.github/workflows/stm32h563-build.yml`).

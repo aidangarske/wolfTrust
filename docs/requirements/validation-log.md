@@ -135,6 +135,31 @@ SecureFault that escalates to the wolfTrust monitor.
 Emulator evidence for the Cortex-M33 execution model; no physical STM32H563
 result is claimed.
 
+## Item 8 detect-or-skip target-scenario harness (Slices 2-3)
+
+Single repo-resident runner `tests/target/run_m33mu_scenario.sh
+<positive|restart|crossdomain>` factors the shared wolfBoot -> wolfTrust ->
+guests build with per-scenario deltas (secure `WT_FFM_NEGATIVE_PROBE`, guest
+`WT_GUEST_FAULT_PROBE`, boot flags, assertions). `make test-target` auto-detects
+an M33MU binary (or `WT_TARGET_SCENARIOS=1`) and runs restart + crossdomain, or
+prints an explicit `SKIP` and passes — never a silent pass. It is a standalone
+target separate from the host-only `make test`, mirroring `make
+test-conformance`.
+
+- Host (dev, no M33MU): `make test-target` prints
+  `SKIP: FF-M target scenarios (M33MU/HW not detected ...)`, exit 0.
+- M33MU (`WT_TARGET_SCENARIOS=1 make test-target` in the wolfboot-ci-m33mu
+  container): `PASS: target/restart` (banner x4 then FAULTED) and
+  `PASS: target/crossdomain` (`[MEMFAULT] pc=0x0c060f34 addr=0x30028000`),
+  ending `PASS: target/all`.
+- CI: `.github/workflows/stm32h563-build.yml` job
+  `wolfboot-wolftrust-m33mu-scenarios` (matrix restart, crossdomain) drives the
+  same runner, so CI and the local harness assert identical markers (ties tasks
+  #9/#26; the negative cross-domain job is now wired per the item-5 follow-up).
+
+Emulator evidence for the Cortex-M33 execution model; no physical STM32H563
+result is claimed.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU
