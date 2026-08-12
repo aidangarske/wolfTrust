@@ -56,6 +56,13 @@ struct wt_co {
      * Owned by whichever wait queue currently holds this coroutine.
      * NULL when not waiting. */
     struct wt_co *next_wait;
+
+    /* Secure Partition protection domain (NULL for plain tasklets). The
+     * ARMv8-M port programs these MPU regions around every switch-in and,
+     * when unprivileged is set, returns to the coroutine thread with
+     * CONTROL.nPRIV=1. PendSV asm reads unprivileged by fixed offset. */
+    const struct wt_secure_domain *domain;
+    uint8_t unprivileged;
 };
 
 /* Exposed to the ARMv8-M exception-based switch path. */

@@ -135,7 +135,11 @@ jobs:
         working-directory: wolfBoot
         run: |
           cp config/examples/stm32h5-tz-wolftrust.config .config
-          make -j2 keytools wolfboot.bin wolfboot_signing_private_key.der
+          # keytools serially first: wolfBoot's host keytools Makefile has a
+          # parallel dependency race (sp_ModExp_*, sp_Rsa* link before their
+          # objects), so a -j build intermittently fails to link.
+          make keytools
+          make -j2 wolfboot.bin wolfboot_signing_private_key.der
 
       - name: Build relocated wolfTrust
         run: |

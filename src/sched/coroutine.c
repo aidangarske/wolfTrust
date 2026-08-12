@@ -180,15 +180,17 @@ void wt_co_init(void)
 
     for (i = 0u; i < WT_CO_MAX; i++) {
         struct wt_co *co = &g_co_table[i];
-        co->sp         = 0u;
-        co->stack_base = (uint8_t *)0;
-        co->stack_size = 0u;
-        co->entry      = (wt_co_entry_fn)0;
-        co->arg        = (void *)0;
-        co->state      = WT_CO_BLOCKED;
-        co->id         = 0u;
-        co->next_run   = (struct wt_co *)0;
-        co->next_wait  = (struct wt_co *)0;
+        co->sp           = 0u;
+        co->stack_base   = (uint8_t *)0;
+        co->stack_size   = 0u;
+        co->entry        = (wt_co_entry_fn)0;
+        co->arg          = (void *)0;
+        co->state        = WT_CO_BLOCKED;
+        co->id           = 0u;
+        co->next_run     = (struct wt_co *)0;
+        co->next_wait    = (struct wt_co *)0;
+        co->domain       = (const struct wt_secure_domain *)0;
+        co->unprivileged = 0u;
     }
 
     g_wt_co_bootstrap.sp         = 0u;
@@ -200,6 +202,8 @@ void wt_co_init(void)
     g_wt_co_bootstrap.id         = 0u;
     g_wt_co_bootstrap.next_run   = (struct wt_co *)0;
     g_wt_co_bootstrap.next_wait  = (struct wt_co *)0;
+    g_wt_co_bootstrap.domain     = (const struct wt_secure_domain *)0;
+    g_wt_co_bootstrap.unprivileged = 0u;
 
     g_wt_co_current   = &g_wt_co_bootstrap;
     g_runqueue_head   = (struct wt_co *)0;
@@ -209,7 +213,7 @@ void wt_co_init(void)
 
 static wt_co_t *wt_co_create_common(uint8_t *stack, size_t stack_size,
                                     wt_co_entry_fn entry, void *arg,
-                                    uint8_t initial_state)
+                                    uint8_t initial_state, size_t min_stack)
 {
     struct wt_co *co;
     uint32_t      id;
@@ -221,7 +225,7 @@ static wt_co_t *wt_co_create_common(uint8_t *stack, size_t stack_size,
     if (stack == (uint8_t *)0) {
         return (wt_co_t *)0;
     }
-    if (stack_size < WT_CO_STACK_SIZE) {
+    if (stack_size < min_stack || stack_size < WT_CO_STACK_MIN) {
         return (wt_co_t *)0;
     }
     /* 8-byte alignment check. */
@@ -237,14 +241,16 @@ static wt_co_t *wt_co_create_common(uint8_t *stack, size_t stack_size,
     g_co_count++;
     co = &g_co_table[id - 1u]; /* table[0..WT_CO_MAX-1], id starts at 1 */
 
-    co->id         = id;
-    co->stack_base = stack;
-    co->stack_size = stack_size;
-    co->entry      = entry;
-    co->arg        = arg;
-    co->state      = (wt_co_state_t)initial_state;
-    co->next_run   = (struct wt_co *)0;
-    co->next_wait  = (struct wt_co *)0;
+    co->id           = id;
+    co->stack_base   = stack;
+    co->stack_size   = stack_size;
+    co->entry        = entry;
+    co->arg          = arg;
+    co->state        = (wt_co_state_t)initial_state;
+    co->next_run     = (struct wt_co *)0;
+    co->next_wait    = (struct wt_co *)0;
+    co->domain       = (const struct wt_secure_domain *)0;
+    co->unprivileged = 0u;
 
     /* Plant stack canary at the very bottom of the caller-provided buffer. */
     *(volatile uint32_t *)(void *)stack = WT_CO_STACK_CANARY;
@@ -262,13 +268,34 @@ static wt_co_t *wt_co_create_common(uint8_t *stack, size_t stack_size,
 wt_co_t *wt_co_create(uint8_t *stack, size_t stack_size,
                        wt_co_entry_fn entry, void *arg)
 {
-    return wt_co_create_common(stack, stack_size, entry, arg, WT_CO_RUNNABLE);
+    return wt_co_create_common(stack, stack_size, entry, arg, WT_CO_RUNNABLE,
+                               WT_CO_STACK_SIZE);
 }
 
 wt_co_t *wt_co_create_blocked(uint8_t *stack, size_t stack_size,
                               wt_co_entry_fn entry, void *arg)
 {
-    return wt_co_create_common(stack, stack_size, entry, arg, WT_CO_BLOCKED);
+    return wt_co_create_common(stack, stack_size, entry, arg, WT_CO_BLOCKED,
+                               WT_CO_STACK_SIZE);
+}
+
+wt_co_t *wt_co_create_blocked_ex(uint8_t *stack, size_t stack_size,
+                                 wt_co_entry_fn entry, void *arg)
+{
+    return wt_co_create_common(stack, stack_size, entry, arg, WT_CO_BLOCKED,
+                               WT_CO_STACK_MIN);
+}
+
+void wt_co_set_domain(wt_co_t *co, const struct wt_secure_domain *domain,
+                      uint8_t unprivileged)
+{
+    if (co == (wt_co_t *)0 || !is_valid_co_pointer(co) ||
+        co == (wt_co_t *)&g_wt_co_bootstrap) {
+        wt_platform_panic();
+        return;
+    }
+    co->domain       = domain;
+    co->unprivileged = (uint8_t)(unprivileged != 0u ? 1u : 0u);
 }
 
 void wt_co_block(void)

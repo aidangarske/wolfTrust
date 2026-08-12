@@ -323,13 +323,14 @@ static void test_gate_validates_buffers(void)
     EXPECT_INT(wt_spm_gate(&runtime, &domain, &call), WT_FFM_SUCCESS);
     EXPECT_INT(call.ret_int, WT_FFM_ERROR_BUFFER);
 
-    /* No domain: validation is bypassed and the op runs on the raw pointer. */
+    /* No domain: validation is bypassed and the op runs on the raw pointer.
+     * The direct transport is exactly this shape — assert it matches. */
     (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_READ;
     call.partition_id = TEST_PARTITION_ID;
     call.buffer = outside;
     call.num_bytes = 16U;
-    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(wt_spm_transport_direct(&runtime, &call), WT_FFM_SUCCESS);
     EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
     EXPECT_SIZE(call.ret_size, 0U);
     (void)printf("PASS: WT-FFM-0014 gate bounds SP pointers to the domain\n");

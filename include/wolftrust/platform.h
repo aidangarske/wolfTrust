@@ -58,6 +58,12 @@ int wt_platform_run_crypto_sp_isolated(const uint8_t* input, size_t input_len,
 
 void wt_platform_program_secure_partition_domain(const wt_mpu_region_t* regions,
                                                  size_t count);
+/* Variant for an unprivileged Secure Partition thread (P1t): identical
+ * region set, but PRIVDEFENA stays on so the privileged SVC/PendSV/fault
+ * handlers keep default-map access while the unprivileged thread is
+ * confined to the mapped regions. */
+void wt_platform_program_sp_thread_domain(const wt_mpu_region_t* regions,
+                                          size_t count);
 void wt_platform_restore_spm_domain(void);
 void wt_platform_prepare_guest_return(wt_guest_id_t guest_id,
                                       const wt_guest_context_t* context);

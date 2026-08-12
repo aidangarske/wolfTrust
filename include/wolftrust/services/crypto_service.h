@@ -22,6 +22,7 @@
 #define WOLFTRUST_SERVICES_CRYPTO_SERVICE_H
 
 #include "wolftrust/ffm.h"
+#include "wolftrust/spm_gate.h"
 
 /* Copied-IOVEC bound (WT-FFM-0041): the SPM copies request input into a
  * bounded private buffer before invoking the isolated compute, so the Secure
@@ -42,6 +43,22 @@ int wt_crypto_sp_hash(const uint8_t* input, size_t input_len,
 typedef int (*wt_crypto_sp_compute_fn)(const uint8_t* input, size_t input_len,
                                        uint8_t* digest, size_t digest_len);
 void wt_crypto_service_set_compute(wt_crypto_sp_compute_fn fn);
+
+/* Transport seam for the loop's SPM requests. Default is the direct gate
+ * call (host tests, privileged inline dispatch); the ARMv8-M port installs
+ * an SVC transport when the loop runs as an unprivileged scheduled SP.
+ * NULL restores the direct default. */
+void wt_crypto_service_set_transport(wt_spm_transport_fn fn);
+
+/* Per-call transport + compute, passed as the dispatch context so an
+ * unprivileged scheduled Secure Partition supplies them from its own stack
+ * instead of reading the file-scope globals, which live in SPM RAM outside
+ * the partition's MPU domain. A NULL dispatch context falls back to the
+ * globals (host tests, privileged inline dispatch). */
+typedef struct wt_crypto_service_ctx {
+    wt_spm_transport_fn transport;
+    wt_crypto_sp_compute_fn compute;
+} wt_crypto_service_ctx_t;
 
 /* SERVICE_CRYPTO's dispatch loop: wait, get, service one message, reply.
  * Architecture-neutral (no Armv8-M/CMSE dependency) so it is host-testable

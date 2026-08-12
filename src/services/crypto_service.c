@@ -60,9 +60,39 @@ void wt_crypto_service_set_compute(wt_crypto_sp_compute_fn fn)
     g_crypto_sp_compute = (fn != NULL) ? fn : wt_crypto_sp_hash;
 }
 
+static wt_spm_transport_fn g_spm_transport = wt_spm_transport_direct;
+
+void wt_crypto_service_set_transport(wt_spm_transport_fn fn)
+{
+    g_spm_transport = (fn != NULL) ? fn : wt_spm_transport_direct;
+}
+
+/* Resolve transport/compute from the dispatch context. The early return on a
+ * non-NULL context keeps the fallback global load out of the scheduled-SP
+ * path entirely, so the unprivileged partition never touches SPM RAM. */
+static wt_spm_transport_fn wt_crypto_resolve_transport(
+    const wt_crypto_service_ctx_t* ctx)
+{
+    if (ctx != NULL) {
+        return ctx->transport;
+    }
+    return g_spm_transport;
+}
+
+static wt_crypto_sp_compute_fn wt_crypto_resolve_compute(
+    const wt_crypto_service_ctx_t* ctx)
+{
+    if (ctx != NULL) {
+        return ctx->compute;
+    }
+    return g_crypto_sp_compute;
+}
+
 static int wt_crypto_service_hash(wt_ffm_runtime_t* runtime,
                                   int32_t partition_id,
-                                  const psa_msg_t* msg)
+                                  const psa_msg_t* msg,
+                                  wt_spm_transport_fn transport,
+                                  wt_crypto_sp_compute_fn compute)
 {
     uint8_t input[WT_CRYPTO_SP_INPUT_MAX];
     uint8_t digest[WC_SHA256_DIGEST_SIZE];
@@ -83,7 +113,7 @@ static int wt_crypto_service_hash(wt_ffm_runtime_t* runtime,
         call.msg_handle = msg->handle;
         call.buffer = input + in_len;
         call.num_bytes = sizeof(input) - in_len;
-        if (wt_spm_gate(runtime, NULL, &call) != WT_FFM_SUCCESS) {
+        if (transport(runtime, &call) != WT_FFM_SUCCESS) {
             return WT_FFM_ERROR_STATE;
         }
         if (call.ret_size == 0U) {
@@ -92,7 +122,7 @@ static int wt_crypto_service_hash(wt_ffm_runtime_t* runtime,
         in_len += call.ret_size;
     }
 
-    ret = g_crypto_sp_compute(input, in_len, digest, sizeof(digest));
+    ret = compute(input, in_len, digest, sizeof(digest));
     if (ret != WT_FFM_SUCCESS) {
         return ret;
     }
@@ -102,7 +132,7 @@ static int wt_crypto_service_hash(wt_ffm_runtime_t* runtime,
     call.msg_handle = msg->handle;
     call.buffer = digest;
     call.num_bytes = sizeof(digest);
-    if (wt_spm_gate(runtime, NULL, &call) != WT_FFM_SUCCESS ||
+    if (transport(runtime, &call) != WT_FFM_SUCCESS ||
             call.ret_int != WT_FFM_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
@@ -112,18 +142,21 @@ static int wt_crypto_service_hash(wt_ffm_runtime_t* runtime,
 int wt_crypto_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                int32_t partition_id)
 {
+    const wt_crypto_service_ctx_t* ctx =
+        (const wt_crypto_service_ctx_t*)context;
+    wt_spm_transport_fn transport = wt_crypto_resolve_transport(ctx);
+    wt_crypto_sp_compute_fn compute = wt_crypto_resolve_compute(ctx);
     psa_signal_t asserted = 0U;
     psa_msg_t msg;
     psa_status_t reply_status;
     wt_spm_call_t call;
 
-    (void)context;
     (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_WAIT;
     call.partition_id = partition_id;
     call.signal_mask = PSA_WAIT_ANY;
     call.asserted = &asserted;
-    if (wt_spm_gate(runtime, NULL, &call) != WT_FFM_SUCCESS ||
+    if (transport(runtime, &call) != WT_FFM_SUCCESS ||
             call.ret_int != WT_FFM_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
@@ -133,7 +166,7 @@ int wt_crypto_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
     call.partition_id = partition_id;
     call.signal = asserted;
     call.msg = &msg;
-    if (wt_spm_gate(runtime, NULL, &call) != WT_FFM_SUCCESS ||
+    if (transport(runtime, &call) != WT_FFM_SUCCESS ||
             call.ret_status != PSA_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
@@ -141,8 +174,8 @@ int wt_crypto_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
     if (msg.type == PSA_IPC_CONNECT || msg.type == PSA_IPC_DISCONNECT) {
         reply_status = PSA_SUCCESS;
     } else if (msg.type == PSA_IPC_CALL) {
-        reply_status = wt_crypto_service_hash(runtime, partition_id,
-                           &msg) == WT_FFM_SUCCESS ?
+        reply_status = wt_crypto_service_hash(runtime, partition_id, &msg,
+                           transport, compute) == WT_FFM_SUCCESS ?
                        PSA_SUCCESS : PSA_ERROR_GENERIC_ERROR;
     } else {
         reply_status = PSA_ERROR_NOT_SUPPORTED;
@@ -153,7 +186,7 @@ int wt_crypto_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
     call.partition_id = partition_id;
     call.msg_handle = msg.handle;
     call.status = reply_status;
-    if (wt_spm_gate(runtime, NULL, &call) != WT_FFM_SUCCESS ||
+    if (transport(runtime, &call) != WT_FFM_SUCCESS ||
             call.ret_int != WT_FFM_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }

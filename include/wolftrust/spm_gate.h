@@ -78,4 +78,12 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
  * SP on this and re-gates the same wait when a later signal wakes it. */
 int wt_spm_call_would_block(const wt_spm_call_t* call);
 
+/* Transport a service loop's request to the gate. The direct transport calls
+ * wt_spm_gate in the same privilege context (host tests, inline dispatch);
+ * the ARMv8-M port installs an SVC transport so a scheduled unprivileged
+ * partition traps to the privileged SPM instead. */
+typedef int (*wt_spm_transport_fn)(wt_ffm_runtime_t* runtime,
+                                   wt_spm_call_t* call);
+int wt_spm_transport_direct(wt_ffm_runtime_t* runtime, wt_spm_call_t* call);
+
 #endif /* WOLFTRUST_SPM_GATE_H */

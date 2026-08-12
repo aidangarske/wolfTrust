@@ -119,3 +119,8 @@ int wt_spm_call_would_block(const wt_spm_call_t* call)
     return call->op == WT_SPM_OP_WAIT &&
            call->ret_int == WT_FFM_ERROR_NOT_READY;
 }
+
+int wt_spm_transport_direct(wt_ffm_runtime_t* runtime, wt_spm_call_t* call)
+{
+    return wt_spm_gate(runtime, NULL, call);
+}

@@ -26,6 +26,10 @@
 #include "wolftrust/manifest.h"
 
 int wt_ffm_boot_init(const wt_system_manifest_t* manifest);
+/* Upgrade the crypto partition to a scheduled unprivileged coroutine (P1t).
+ * Call after wt_tasklet_init; requires the coroutine scheduler, so the
+ * WT_ENGINE_HSM boot path invokes it once the scheduler is up. */
+int wt_ffm_boot_start_sched(void);
 const wt_ffm_runtime_t* wt_ffm_boot_runtime(void);
 
 #endif /* WOLFTRUST_FFM_BOOT_H */

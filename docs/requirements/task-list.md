@@ -465,14 +465,22 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       green under cc/gcc/clang + ASan/UBSan; `make test` all green. M33MU
       positive gate PASS (KAT + dispatch markers, `[EXPECT BKPT] Success`, no
       faults) — the KAT transits the gate in the production image.
-    - P1t-2b. [ ] **Coroutine-backed SP via SVC gate (target, needs M33MU).** Wire
-      `wt_spm_gate` behind an Armv8-M SVC so a coroutine-backed SP runs
-      unprivileged (`CONTROL.nPRIV`) on its own PSP stack + per-SP MPU domain
-      programmed on PendSV switch-in, traps to the privileged SPM for each
-      `psa_*`, and suspends on `psa_wait` via `wt_co_block`. Add `src/spm_gate.c`
-      to the secure build. Positive M33MU: crypto SP computes its SHA-256 KAT
-      through the SVC gate. Negative M33MU: unprivileged SP touching SPM RAM
-      faults. All target-affecting build changes land here under one gate.
+    - P1t-2b. [x] **Coroutine-backed SP via SVC gate (M33MU +/- 2026-08-12).**
+      The crypto SP runs as a scheduled coroutine, unprivileged on its own PSP
+      stack + manifest MPU domain (nPRIV set on PendSV switch-in, MPU narrowed
+      via `wt_platform_program_sp_thread_domain` with PRIVDEFENA so privileged
+      handlers keep SPM access), trapping to the privileged SPM through
+      `svc #1` -> `wt_spm_svc_entry` -> `wt_spm_gate` for every `psa_*`, and
+      suspending on `psa_wait` via `wt_co_block`. New `src/arch/armv8m/spm_svc.c`;
+      coroutine gains `domain`/`unprivileged` + `wt_co_set_domain` /
+      `wt_co_create_blocked_ex`; `src/spm_gate.c` in the secure build.
+      Transport + compute reach the loop through a stack-built dispatch context
+      so the unprivileged SP never reads the SPM-RAM globals (fixed a first-run
+      cross-domain fault at 0x300282b0). M33MU positive (KAT via
+      veneer->svc->gate->coroutine, `[EXPECT BKPT] Success`) + negative
+      (`[MEMFAULT] addr=0x30028000`, SP on PSP domain stack, Thread mode) both
+      PASS on one tree. **P1 KEYSTONE done**: an SP is now a real schedulable,
+      unprivileged, MPU-isolated entity, not an inline call.
   - P1r. [x] **Production registration M33MU regression (DONE, M33MU 2026-08-12).** Confirm P1a's
     `ffm_boot` registration path dispatches crypto + attest unchanged on M33MU
     (host cannot compile the target `ffm_boot`; Mac `arm-none-eabi` lacks libc

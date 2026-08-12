@@ -67,6 +67,24 @@ wt_co_t *wt_co_create(uint8_t *stack, size_t stack_size,
 wt_co_t *wt_co_create_blocked(uint8_t *stack, size_t stack_size,
                               wt_co_entry_fn entry, void *arg);
 
+/* Floor for _ex creation: canary + initial register frame + call headroom.
+ * Secure Partition stacks are manifest-sized and may be smaller than the
+ * WT_CO_STACK_SIZE default the HSM tasklets use. */
+#define WT_CO_STACK_MIN 1024u
+
+wt_co_t *wt_co_create_blocked_ex(uint8_t *stack, size_t stack_size,
+                                 wt_co_entry_fn entry, void *arg);
+
+/* Bind a Secure Partition protection domain to `co`. When set, the
+ * architecture switch programs the domain's MPU regions before the
+ * coroutine runs, restores the SPM whitelist when it yields, and (when
+ * unprivileged is non-zero) drops the coroutine thread to unprivileged
+ * execution. The scheduler only stores the pointer; interpretation is
+ * the architecture port's. */
+struct wt_secure_domain;
+void wt_co_set_domain(wt_co_t *co, const struct wt_secure_domain *domain,
+                      uint8_t unprivileged);
+
 /* Mark the current coroutine BLOCKED and switch away. Returns only when
  * some other code path calls wt_co_wake on this coroutine. Used by
  * wt_mutex_acquire and similar wait primitives. Calling from the

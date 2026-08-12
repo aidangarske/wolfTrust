@@ -458,6 +458,44 @@ the P1t-2b SVC/unprivileged work builds on it.
   `wt_crypto_sp_body`/`wt_platform_run_crypto_sp_isolated` (platform compute
   layer), which this slice does not touch.
 
+## Item 10 P1t-2b — coroutine-backed unprivileged SP via SVC gate (M33MU)
+
+The crypto Secure Partition now runs as a scheduled coroutine, unprivileged on
+its own PSP stack inside its manifest MPU domain, reaching the SPM only through
+`svc #1`. The service loop is the same architecture-neutral code the host tests
+prove (`src/services/crypto_service.c`); only the transport differs — each
+`wt_spm_call_t` traps to `wt_spm_svc_entry` (privileged) which validates the
+call pointer against the partition domain and runs `wt_spm_gate`. A `psa_wait`
+with nothing asserted suspends the coroutine (`wt_co_block`); the SP-side
+transport re-issues on wake. New: `src/arch/armv8m/spm_svc.c`, SVC `#1` branch
+and per-SP nPRIV/MPU switch in `coroutine_armv8m.c`,
+`wt_platform_program_sp_thread_domain` (PRIVDEFENA on so privileged handlers
+keep SPM access while the unprivileged thread is confined), coroutine `domain`/
+`unprivileged` fields + `wt_co_set_domain` + `wt_co_create_blocked_ex`.
+
+Isolation fix during bring-up: the unprivileged loop first faulted reading the
+file-scope `g_spm_transport`/`g_crypto_sp_compute` (function pointers in SPM
+`.data` at 0x300282b0, outside the SP domain). Transport and compute now reach
+the loop through a dispatch context the SP builds on its own stack, so no
+global-pointer read crosses the domain.
+
+- Host (2026-08-12): `tests/host/spm_gate` (62 checks) and
+  `tests/host/crypto_service` KAT green under cc/gcc/clang + ASan/UBSan;
+  `make test` `PASS: unit/all`. The context refactor keeps the `context==NULL`
+  path (globals) for host/inline callers.
+- M33MU positive gate PASS: `PASS: local M33MU gate`, exit 0,
+  `wolfTrust FF-M SERVICE_CRYPTO dispatch verified`,
+  `psa_hash_compute(SHA-256) KAT verified`, `[EXPECT BKPT] Success`, no fault
+  markers. The KAT transits veneer -> svc #1 -> gate -> coroutine SP.
+- M33MU negative gate (`WT_FFM_NEGATIVE_PROBE=1`) PASS:
+  `[MEMFAULT] addr=0x30028000` with `sp=0x30097fe0` (SP on its PSP domain
+  stack) and `xpsr=0x01000000` (Thread mode) — the unprivileged SP's read of
+  SPM-private RAM (WT_RAM_S_BASE) is denied by the MPU, proving genuine
+  unprivileged isolation, then recovers gracefully via the tasklet fault path.
+- Runner flake fixed (recurred twice): wolfBoot host keytools `-j` link race
+  (sp_ModExp_*/sp_Rsa* linked before their objects). `run_m33mu.sh`,
+  `run_m33mu_negative.sh`, and the CI yml now build `keytools` serially first.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

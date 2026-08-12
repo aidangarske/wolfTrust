@@ -21,6 +21,7 @@
 #include "wolftrust/ffm_boot.h"
 
 #include "wolftrust/arch/armv8m/cmse.h"
+#include "wolftrust/arch/armv8m/spm_svc.h"
 #include "wolftrust/ffm_api.h"
 #include "wolftrust/monitor.h"
 #include "wolftrust/services/crypto_service.h"
@@ -142,10 +143,17 @@ int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
 #endif
     if (ret == WT_FFM_SUCCESS) {
         /* Run SERVICE_CRYPTO's compute isolated on the crypto SP's own
-         * secure stack under a narrowed MPU domain (WT-FFM-0011). */
+         * secure stack under a narrowed MPU domain (WT-FFM-0011). The
+         * scheduled path (wt_ffm_boot_start_sched) supersedes this once
+         * the coroutine scheduler is up. */
         wt_crypto_service_set_compute(wt_platform_run_crypto_sp_isolated);
     }
     return ret;
+}
+
+int wt_ffm_boot_start_sched(void)
+{
+    return wt_spm_sched_start(&g_ffm_runtime, PARTITION_CRYPTO_ID);
 }
 
 /* Stopgap NS-to-Secure carrier for the FF-M client API (see task-list.md

@@ -391,8 +391,8 @@ static void wt_program_secure_partition_region(uint32_t rnr, uintptr_t base,
     wt_mpu_s_set_region(rnr, base, base + size - 1u, rbar_flags, rlar_flags);
 }
 
-void wt_platform_program_secure_partition_domain(const wt_mpu_region_t* regions,
-                                                 size_t count)
+static void wt_program_sp_domain_regions(const wt_mpu_region_t* regions,
+                                         size_t count, uint32_t ctrl)
 {
     size_t i;
 
@@ -418,9 +418,27 @@ void wt_platform_program_secure_partition_domain(const wt_mpu_region_t* regions,
     }
 
     wt_dsb();
-    WT_MPU_S_CTRL = WT_MPU_CTRL_HFNMIENA | WT_MPU_CTRL_ENABLE;
+    WT_MPU_S_CTRL = ctrl;
     wt_dsb();
     wt_isb();
+}
+
+void wt_platform_program_secure_partition_domain(const wt_mpu_region_t* regions,
+                                                 size_t count)
+{
+    wt_program_sp_domain_regions(regions, count,
+                                 WT_MPU_CTRL_HFNMIENA | WT_MPU_CTRL_ENABLE);
+}
+
+void wt_platform_program_sp_thread_domain(const wt_mpu_region_t* regions,
+                                          size_t count)
+{
+    /* PRIVDEFENA: the unprivileged SP thread is confined to the mapped
+     * regions while the privileged SVC/PendSV/fault handlers keep the
+     * default map, so psa_* requests can reach SPM state (WT-FFM-0011). */
+    wt_program_sp_domain_regions(regions, count,
+                                 WT_MPU_CTRL_PRIVDEFENA |
+                                 WT_MPU_CTRL_HFNMIENA | WT_MPU_CTRL_ENABLE);
 }
 
 void wt_platform_restore_spm_domain(void)
@@ -1436,6 +1454,11 @@ void Reset_Handler(void)
         }
     }
 #endif
+    /* P1t: crypto SP becomes a scheduled unprivileged coroutine now that
+     * the tasklet scheduler exists. Fail closed — guests depend on it. */
+    if (wt_ffm_boot_start_sched() != WT_FFM_SUCCESS) {
+        wt_platform_panic();
+    }
 #endif
     wt_monitor_start();
     wt_platform_panic();
@@ -1543,6 +1566,12 @@ static void wt_secure_tasklet_fault_entry(void)
          * before re-enabling PSP. */
         "movs   r0, #0                              \n"
         "msr    psplim, r0                          \n"
+        /* An unprivileged Secure Partition coroutine dies here without
+         * passing through PendSV's bootstrap path, so clear CONTROL.nPRIV
+         * or the resumed bootstrap would run unprivileged. */
+        "mrs    r0, control                         \n"
+        "bic    r0, r0, #1                          \n"
+        "msr    control, r0                         \n"
         /* EXC_RETURN = 0xFFFFFFF9: Secure Thread mode using MSP_S, no
          * FP context. mvn of 6 builds the value with no literal pool. */
         "mvn    lr, #6                              \n"
