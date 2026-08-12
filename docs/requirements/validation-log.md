@@ -308,6 +308,37 @@ dispatch has no concurrent irritator to filter. No production change.
 - `make test-conformance BUILD_DIR=/tmp/wolftrust-conf`: EXIT 0 — `i063` PASS,
   ending `PASS: conformance/all`. `make test`: EXIT 0.
 
+## Item 10 conformance expansion (Slice 2 — connection lifecycle i002, all 9 checks)
+
+Wired Arm FF-M test `i002` (connection lifecycle) end to end via the per-test
+dispatch (`dispatch_i002`, keyed on `g_i002_check`):
+
+- `connection_busy_and_reject`: the two connects reply `CONNECTION_BUSY` then
+  `CONNECTION_REFUSED` (per-connect sequence counter).
+- `accept_and_close_connect`, `connect_with_allowed_version_policy` (UNSPEC@1,
+  STRICT@2, RELAX@1, RELAX@2), `psa_call_with_allowed_type_values`
+  (`{PSA_IPC_CALL,1,2,INT16_MAX}`): all accepted.
+- `psa_call_with_allowed_status_code`: the server replies each of
+  `{PSA_SUCCESS,1,2,INT32_MAX,-1,-2,INT32_MIN+128}` in turn and `psa_call`
+  returns it verbatim — confirming negative non-PROGRAMMER_ERROR statuses pass
+  through unchanged and leave the connection idle (closable).
+- `identity`: the server writes the caller `client_id` to two outvecs; the NS
+  caller sees both < 0 and equal.
+- `spm_concurrent_connect_limit`: the client opens connections until refused;
+  the 16-slot runtime pool (`WT_FFM_MAX_CONNECTIONS`) returns
+  `CONNECTION_BUSY` at slot 17, which the client accepts, then closes all.
+- `psa_block_behave` / `psa_poll_behave`: the client-visible half (the service
+  refuses the connects). The server-side PSA_BLOCK-vs-PSA_POLL wait semantics
+  need a real scheduler (task #14) and are deferred to M33MU.
+
+No production change. This closes the host-viable server-dispatch work (task
+10b); the only Arm ff/ipc tests left need target hardware (`i048`-`i053` MPU
+isolation, `i058` SP-client) or the deferred server-internal signal/scheduler
+rules.
+
+- `make test-conformance BUILD_DIR=/tmp/wolftrust-conf`: EXIT 0 — all nine
+  `i002` checks PASS, ending `PASS: conformance/all`. `make test`: EXIT 0.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

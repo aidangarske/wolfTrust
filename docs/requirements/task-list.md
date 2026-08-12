@@ -356,8 +356,8 @@ them together, at the end, as a single **detect-or-skip** harness driven from
     (now `i001,i003-i008,i010,i011,i012,i024,i025,i026,i067[SKIP],i071,i088,
     i090` — Slice 1 added version-policy i010/i011/i026; i090 added the
     negative-type PROGRAMMER_ERROR check; i003 added the invec/outvec data
-    plane, i027 the connection drop, and i063 the signal-mask refusal via the
-    per-test dispatch) to the full Arm
+    plane, i027 the connection drop, i063 the signal-mask refusal, and i002 the
+    full connection lifecycle via the per-test dispatch) to the full Arm
     FF-M suite under M33MU (NS app + 3 SPs, including the tests that need real
     reboot continuity and multi-partition isolation) and add the TF-M baseline
     comparison. `make test-conformance` must auto-detect an available M33MU
@@ -377,22 +377,21 @@ them together, at the end, as a single **detect-or-skip** harness driven from
     not `PSA_ERROR_INVALID_ARGUMENT` (`ffm.c`; WT-FFM-0032 updated to match).
     `i002,i003,i048-i053,i058,i063,i090` remain blocked on 10b (server
     dispatch), not on a version policy.
-10b. [~] Give `test_dispatch()` in `tests/host/psa_ff_upstream/main.c` real
-    per-service logic instead of a generic wait/get/reply(SUCCESS). Because the
-    upstream tests reuse the same SIDs with contradictory server behavior, this
-    needs a `g_active_test` selector so dispatch replicates the right per-test
-    server. DONE: the `g_active_test` router + `ipc_connect`/`ipc_close` vtable
-    entries + `i003` (invec/outvec data plane, ~6 checks) + `i027` (connection
-    drop — new `SERVER_CONNECTION_DROP` service + PROGRAMMER_ERROR reply; also
-    fixed `wt_ffm_close` to allow closing a dropped `WT_IPC_CONNECTION_ERROR`
-    connection, host test WT-FFM-0022) + `i063` (signal-mask refusal — the
-    client-visible refused-connect path; the server-side mask filtering itself
-    needs a real multi-signal scheduler, deferred to M33MU). REMAINING
-    host-viable: `i002` (connection lifecycle — busy/reject, identity,
-    connect-limit=50, block-vs-poll, ~9 checks; stresses the runtime pools).
-    NOT unblocked by this: `i048`-`i053` (need real MPU
-    isolation → Slice 3/M33MU) and `i058` (doorbell client compiled out under
-    `-DNONSECURE_TEST_BUILD`).
+10b. [x] Give `test_dispatch()` in `tests/host/psa_ff_upstream/main.c` real
+    per-service logic instead of a generic wait/get/reply(SUCCESS). A
+    `g_active_test` selector routes to the right per-test server (the upstream
+    tests reuse SIDs with contradictory server behavior). DONE: the router +
+    `ipc_connect`/`ipc_close` vtable entries + `i003` (invec/outvec data plane)
+    + `i027` (connection drop — new `SERVER_CONNECTION_DROP` service; also fixed
+    `wt_ffm_close` to allow closing a dropped `WT_IPC_CONNECTION_ERROR`
+    connection, host test WT-FFM-0022) + `i063` (signal-mask refusal,
+    client-visible half) + `i002` (all 9 connection-lifecycle checks:
+    busy/reject, accept/close, version policy, status-code echo, allowed types,
+    identity, connect-limit via the 16-slot pool returning BUSY, block/poll
+    refusal). Server-internal halves of `i063` and `i002` block/poll (real
+    masked `psa_wait`) are deferred to M33MU (task #14). NOT host-viable:
+    `i048`-`i053` (need real MPU isolation → Slice 3/M33MU) and `i058` (doorbell
+    client compiled out under `-DNONSECURE_TEST_BUILD`).
 11. [ ] Pass the host and M33MU FF-M positive and negative suites on one commit.
 
 The earlier Phase 3 validation proves the generated-policy bootstrap and the

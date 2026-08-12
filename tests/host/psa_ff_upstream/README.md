@@ -10,10 +10,12 @@ Run the current conformance gate from the repository root:
 make test-conformance
 ```
 
-The current host gate executes upstream tests `i001`, `i003` through `i008`,
-`i010`, `i011`, `i012`, `i024`, `i025`, `i026`, `i027`, `i063`, `i067`, `i071`,
-`i088`, and `i090`. These cover framework and service versions, the connection
-drop and signal-mask refusal paths, the invec/outvec data
+The current host gate executes upstream tests `i001` through `i008`, `i010`,
+`i011`, `i012`, `i024`, `i025`, `i026`, `i027`, `i063`, `i067`, `i071`, `i088`,
+and `i090`. These cover framework and service versions, the connection
+lifecycle (busy/reject, accept/close, allowed version policies and types,
+status-code echo, caller identity, the connect limit, and block/poll refusal),
+the connection drop and signal-mask refusal paths, the invec/outvec data
 plane (`psa_read`/`psa_skip`/`psa_write`/`psa_set_rhandle`), invalid service
 IDs, strict, relaxed, and unspecified version policies, Secure-only access
 policy, a successful Secure connection lifecycle, closing and calling with an
@@ -39,14 +41,13 @@ The unspecified-version-policy tests (`i010`, `i011`, `i026`) model an
 PSA_MAX_IOVEC` and a negative message type now return
 `PSA_ERROR_PROGRAMMER_ERROR` per FF-M, not `PSA_ERROR_INVALID_ARGUMENT`.
 
-Every other `ff/ipc` test in the pinned suite was evaluated and is currently
-blocked on one of: server-side per-service dispatch not yet added to the
-`g_active_test` router (`i002` connection lifecycle), real multi-partition
-memory
-isolation (`i048`-`i053`, which need the SPM to reject a caller vector pointing
-into another partition's MMIO — M33MU only), or a client that itself runs as a
-Secure Partition (`i058` doorbell, compiled out under `-DNONSECURE_TEST_BUILD`).
-See task-list.md Phase 3 item 10.
+Every remaining `ff/ipc` test in the pinned suite needs target hardware, not
+more host dispatch: real multi-partition memory isolation (`i048`-`i053`, which
+need the SPM to reject a caller vector pointing into another partition's MMIO —
+M33MU only) or a client that itself runs as a Secure Partition (`i058` doorbell,
+compiled out under `-DNONSECURE_TEST_BUILD`). The server-internal halves of
+`i063` (signal-mask filtering) and `i002`'s block/poll checks are likewise
+deferred to the M33MU slice. See task-list.md Phase 3 item 10.
 
 This focused host gate is not the complete Arm architecture suite. The full
 suite requires its Non-secure application and three Secure test partitions to

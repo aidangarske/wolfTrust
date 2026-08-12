@@ -64,6 +64,9 @@ int32_t client_test_connection_busy_and_reject(caller_security_t caller);
 int32_t client_test_psa_call_with_allowed_status_code(
     caller_security_t caller);
 int32_t client_test_identity(caller_security_t caller);
+int32_t client_test_spm_concurrent_connect_limit(caller_security_t caller);
+int32_t client_test_psa_block_behave(caller_security_t caller);
+int32_t client_test_psa_poll_behave(caller_security_t caller);
 int32_t client_test_accept_and_close_connect(caller_security_t caller);
 int32_t client_test_connect_with_allowed_version_policy(
     caller_security_t caller);
@@ -432,7 +435,17 @@ static int dispatch_i002(wt_ffm_runtime_t* runtime, int32_t partition_id,
                 &message->client_id, sizeof(int32_t));
         }
         break;
+    case 8:
+    case 9:
+        /* Client-visible half of the block/poll checks: the service refuses
+         * the connect. The server-side PSA_BLOCK vs PSA_POLL wait semantics
+         * need a real scheduler (task #14) and are deferred to M33MU. */
+        if (message->type == PSA_IPC_CONNECT)
+            reply = PSA_ERROR_CONNECTION_REFUSED;
+        break;
     default:
+        /* Checks 2, 3, 5, 7 accept every connection and call; check 7 relies
+         * on the runtime returning CONNECTION_BUSY when the pool is full. */
         break;
     }
     return wt_ffm_reply(runtime, partition_id, handle, reply);
@@ -677,6 +690,21 @@ int main(void)
         status = client_test_identity(CALLER_NONSECURE);
         status = report("i002", "identity", status);
     }
+    if (status == VAL_STATUS_SUCCESS) {
+        g_i002_check = 7;
+        status = client_test_spm_concurrent_connect_limit(CALLER_NONSECURE);
+        status = report("i002", "spm_concurrent_connect_limit", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        g_i002_check = 8;
+        status = client_test_psa_block_behave(CALLER_NONSECURE);
+        status = report("i002", "psa_block_behave", status);
+    }
+    if (status == VAL_STATUS_SUCCESS) {
+        g_i002_check = 9;
+        status = client_test_psa_poll_behave(CALLER_NONSECURE);
+        status = report("i002", "psa_poll_behave", status);
+    }
     g_active_test = 3;
     if (status == VAL_STATUS_SUCCESS) {
         g_i003_check = 1;
@@ -751,7 +779,7 @@ int main(void)
     if (status != VAL_STATUS_SUCCESS || g_context.failures != 0U)
         return 1;
 
-    (void)printf("PASS: Arm PSA FF i001, i002, i003-i008, i010, i011, i012, "
+    (void)printf("PASS: Arm PSA FF i001-i008, i010, i011, i012, "
                 "i024, i025, i026, i027, i063, i067, i071, i088, i090 "
                 "on wolfTrust\n");
     return 0;
