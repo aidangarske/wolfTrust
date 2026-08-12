@@ -399,6 +399,76 @@ H5 Non-secure guest-monitor lifecycle. It does not prove FF-M IPC or Level 3
 Secure Partition isolation. Phase 3 remains open until the acceptance gate in
 `framework.md` passes.
 
+## Item 10 — full TF-M-parity conformance port (program P1–P9)
+
+Goal: run the UNMODIFIED upstream Arm PSA-FF conformance suite (NS client app +
+Arm's own Secure test partitions + driver partition) through wolfTrust's real
+production SPM on the STM32H563/M33MU, matching what TF-M provides — plus our own
+equivalent tests, plus a TF-M baseline comparison. The host-only conformance
+subset (item 10 Slices 1-2, done) validated our IPC/policy logic in C; this
+program makes it a real on-target conformance result and a demonstrable TF-M
+drop-in replacement. Decided over the "hybrid one-SP" shortcut because that
+proves neither a conformance claim nor the replacement story (marks its own
+homework). Each phase is independently host + M33MU testable; anything not
+honestly provable yet is split into its own tracked item, never faked.
+
+Root blocker found by scouting (2026-08-12): wolfTrust Secure Partitions are NOT
+schedulable entities today — an SP is an inline C call on the NS caller's stack
+(`src/ffm_boot.c:78-90` hardcoded `if pid==CRYPTO/ATTEST`), `psa_wait` never
+blocks (`src/ffm.c:635-648`, `src/ffm_api.c:104-113` ignores timeout), and the
+monitor scheduler only sees NS guests. So P1 is the keystone.
+
+- P1. [ ] **Generic SP scheduling/execution context (KEYSTONE, large).** Make a
+  Secure Partition a schedulable context (private stack + saved regs, enter/
+  suspend/resume) instead of an inline function call, and a table-driven
+  `dispatch(partition_id)` from the manifest-bound partition table instead of the
+  per-PID `if` chain. Re-host crypto + attest through the generic path to prove
+  no regression. Touches `src/ffm_boot.c`, `src/ffm.c`, `src/monitor.c`,
+  `port/stm32h563/partitions.c` (add an SP scheduling-slot table), likely
+  `src/sched/coroutine.c`. Host + M33MU.
+- P1b. [ ] **Wire the generic domain resolver into the live path (medium, cheap
+  early win).** `wt_ffm_resolve_secure_domain` / `wt_ffm_compose_secure_partition_table`
+  (`src/ffm_domain.c`) are already generic + manifest-driven but only exercised
+  in host tests; the one live target caller (`wt_crypto_sp_body`) hand-builds its
+  2-region table. Connect the resolver so any SP gets its manifest-declared MPU
+  domain. Can land before/parallel to P1.
+- P2. [ ] **Table-driven SP load/entry + capacity (large).** `entry_point` is
+  validated but never branched to for SPs; generalize the crypto trampoline
+  (`platform_stm32h563.c:449-539`) into an N-partition manifest-driven mechanism;
+  bump per-SP stack carve (`WT_SP_SECURE_STACK_COUNT`), `max_memory_resources_per_domain`
+  (2→3+ for code+stack+MMIO), and check `WT_FFM_MAX_PARTITIONS`/`WT_MAX_MPU_REGIONS`
+  against the Arm suite's partition count. Enables registering a foreign SP by
+  manifest data alone.
+- P3. [ ] **Upstream target PAL + NS val binding; Arm server partitions as real
+  SPs (large).** Provide the psa-arch-tests target port (`pal_config`,
+  `pal_driver_ipc_intf`, `target.cmake`) binding Arm's `val_entry`/`val_dispatcher`
+  to wolfTrust's client APIs; boot the unmodified NS test app as a guest; host
+  Arm's `test_supp`/`val/spe` server partitions as real SPs via P1/P2. First real
+  conformance run (version-policy, lifecycle, data-plane, drop). (Refine with the
+  upstream-port scout findings.)
+- P4. [ ] **Driver partition + per-SP MMIO isolation (large).** A manifest-declared
+  SP that owns a device MMIO region enforced SP-exclusive at MPU_S AND GTZC/TZSC
+  (today device isolation is a coarse boot-time secure/NS GTZC split only,
+  `platform_stm32h563.c:183-194`). Unlocks Arm i048-i053 as REAL conformance, not
+  the "equivalent crossdomain mechanism" citation.
+- P5. [ ] **Reboot continuity (NVM boot-flag service + system reset) (medium).**
+  No whole-secure-image reset exists (`NVIC_SystemReset` absent; panic paths spin
+  forever, `platform_stm32h563.c:1286-1299`); wolfHSM NVM is real but not an
+  FF-M service. Add a small NVM-backed boot-flag service + a reset primitive so
+  Arm's PAL can sequence PROGRAMMER_ERROR/panic-reboot tests across a reset.
+- P6. [ ] **Interrupt + scheduler completeness (large; needs P1).** Real
+  partition IRQ delivery: FLIH asserts a `psa_signal_t` into a partition's
+  `asserted_signals`, `psa_eoi` unmasks instead of panicking (`ffm_api.c:173-177`),
+  and `psa_wait` honors PSA_BLOCK/timeout. m33mu HAS a real NVIC+SysTick (verified
+  2026-08-11). Unlocks i058 doorbell, i063 mask, i002 block/poll server halves.
+  Supersedes tasks #13/#14.
+- P7. [ ] **Full suite green on M33MU + `make test-conformance` auto-detect**
+  (present→full target suite, absent→host subset + explicit non-HW warning).
+- P8. [ ] **TF-M baseline comparison** — same suite on TF-M vs wolfTrust, parity.
+- P9. [ ] **Physical STM32H563/H5 bring-up + qualification** — the only milestone
+  that makes "tested on the H5" literally true; all prior evidence is M33MU
+  emulator. Separate track once the emulator suite is green.
+
 ## Phase 4 — Crypto, protected storage, and ITS
 
 - [ ] Implement PSA Crypto service ownership through wolfHSM.
