@@ -291,6 +291,18 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
 8. [ ] Add the missing wolfTrust FF-M security tests: partition restart and
    cross-domain isolation (handle integrity, bounded pools, scrubbing, and
    pointer revalidation already covered in `tests/host/ffm/main.c`).
+   - [x] Slice 1 — restart-on-fault target scenario: `WT_GUEST_FAULT_PROBE`
+     (guest0_psa) reads Secure RAM on boot; the SecureFault escalates to the
+     monitor. `run_m33mu_restart.sh` (no `--quit-on-faults`) proves the
+     `guest0_psa alive` banner reappears `restart_limit+1` = 4 times then the
+     guest is FAULTED — manifest `restart_limit` honored on target, and the
+     monitor gracefully restarts a Non-secure guest fault while the other guest
+     keeps running. Evidence in `validation-log.md`.
+   - [ ] Slice 2 — detect-or-skip target-scenario harness in `make test`
+     (restart + cross-domain markers; explicit skip when no M33MU/HW).
+   - [ ] Slice 3 — fold the item-5 cross-domain negative
+     (`run_m33mu_negative.sh`) into the harness and wire both into CI (ties
+     tasks #9/#26).
 9. [ ] Add M33MU FF-M assertions: a positive `psa_connect`/`psa_call` round trip
    plus negatives (forged handle, oversized vector, cross-domain access) on the
    emulator path (`.github/workflows/stm32h563-build.yml`).

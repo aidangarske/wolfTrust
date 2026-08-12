@@ -113,6 +113,28 @@ routes the token through the FF-M veneers).
 The FreeRTOS guest's wolfPKCS11 -> wolfHSM path stays the wolfHSM CMSE
 transport by design (the HSM service itself, not a PSA FF-M RoT service).
 
+## Item 8 restart-on-fault target scenario (Slice 1)
+
+Guest fault probe: `WT_GUEST_FAULT_PROBE` (guest0_psa `main.c`). Test-only; a
+Non-secure read of Secure RAM (`WT_RAM_S_BASE` 0x30028000) on boot raises a
+SecureFault that escalates to the wolfTrust monitor.
+
+- M33MU restart (`run_m33mu_restart.sh`, built with `WT_GUEST_FAULT_PROBE=1`,
+  booted without `--quit-on-faults` so the handled fault does not halt the
+  emulator): the `guest0_psa alive` banner reappears exactly `restart_limit+1`
+  = 4 times (one boot plus 3 restarts), then the guest is left `WT_GUEST_FAULTED`
+  and stops reappearing — proving `wt_restart_guest` honors the manifest
+  `restart_limit` (domain id 1) on target. This is the restart-policy coverage
+  the happy-path lifecycle run never exercised.
+- The surviving FreeRTOS guest keeps running throughout (wolfPKCS11 init, slot,
+  session, SHA-256, heartbeats 0-4) while guest0 cycles, so the monitor
+  gracefully restarts a Non-secure guest fault from the SecureFault handler and
+  the scheduler continues — the guest-side half of graceful recovery (SP-side
+  graceful recovery remains task #26).
+
+Emulator evidence for the Cortex-M33 execution model; no physical STM32H563
+result is claimed.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

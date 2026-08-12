@@ -323,11 +323,29 @@ static void exercise_psa_initial_attestation(void)
     }
 }
 
+#if defined(WT_GUEST_FAULT_PROBE)
+/* Test-only restart probe: a Non-secure read of Secure RAM raises a SecureFault
+ * that escalates to the wolfTrust monitor, exercising the manifest restart_limit
+ * on target. Immediate logging flushes the banner before the fault. */
+static void wt_guest_fault_probe(void)
+{
+	volatile const uint32_t *secure_ram = (volatile const uint32_t *)0x30028000u;
+	uint32_t sink;
+
+	sink = *secure_ram;
+	(void)sink;
+}
+#endif
+
 int main(void)
 {
 	int rc;
 
 	LOG_INF("guest0_psa alive");
+
+#if defined(WT_GUEST_FAULT_PROBE)
+	wt_guest_fault_probe();
+#endif
 
 	rc = wt_zephyr_client_init("guest0_psa");
 	if (rc == 0) {
