@@ -583,11 +583,14 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       end-to-end: the client test's `psa_call` reaches the real `server_main`
       through the SPM. i002 is a `panic_test` (needs P5), so i003 is the first
       non-panic connect/call test. Gate: confboot `TOTAL PASSED : 2` on M33MU.
-  - P3b. [ ] **PAL driver plane + DRIVER partition.** `nspe/pal_config.h`,
-    `nspe/pal_driver_ipc_intf.c`, `spe/pal_driver_intf.c`, `target.cmake`, and
-    STM32H5 replacements for the shared UART/NVMEM/WDG drivers so the DRIVER SP
-    (`driver_main`, SIDs 0xFC01-04) serves print/NVM. Needed by every test that
-    logs or touches NVMEM. M33MU-gated.
+  - P3b. [x] **PAL driver plane + DRIVER partition.** As built: NS val's
+    `pal_nvm_read/write` route over IPC to `DRIVER_NVMEM_SID` (0xFC03) with
+    the suite's `nvmem_param_t` protocol, so NS and SPE val share the one
+    driver-served store (`conformance_pal.c`; needed 4b's N-vec veneer).
+    Split out: SPE `pal_print` -> real UART needs the driver domain's
+    manifest MMIO grant, which is P4's ingestion mechanism -> moved to P4;
+    WDG stays a no-op (M33MU models no watchdog; timers are P6). Gate:
+    confboot `TOTAL PASSED : 2` with the shared store live.
   - P3c. [ ] **Full val dispatcher + test list; iterate the non-IRQ /
     non-isolation subset to green** (`val_dispatcher`, `.acs_test_info` publish,
     `execute_non_secure_tests` + `switch_to_secure_client`). Exclude IRQ

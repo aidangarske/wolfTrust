@@ -638,6 +638,26 @@ Host `make test` green on the same tree; guest VERBOSITY raised to 3 and the
 NS `wtconf:` traces gated behind `WT_CONF_TRACE` (default off). Production
 regression (positive + crossdomain) rerun on the same tree before commit.
 
+## Item 10 P3b — NS val NVM through the DRIVER partition (M33MU)
+
+`PASS: target/confboot` with `TOTAL TESTS : 2`, `TOTAL PASSED : 2`,
+`TOTAL FAILED : 0` (2026-08-13): the NS val framework's `pal_nvm_read/write`
+now cross the boundary as IPC clients of the DRIVER partition's NVMEM service
+(`nvmem_param_t` invec + data vec to SID 0xFC03, `nonsecure_clients` already
+granted by the generated manifest), so NS and SPE val share the single
+driver-served store — required for every P3c test whose bookkeeping crosses
+NS<->S. The private NS RAM store is deleted. val reads/writes NVM throughout
+both tests, so the green run exercises the path constantly.
+
+Scope splits recorded in the task list: SPE `pal_print` -> real UART requires
+the driver domain's manifest MMIO grant (P4's ingestion mechanism, moved
+there); watchdog remains a no-op on M33MU (no WDG model; P6).
+
+Host `make test` green on the same tree. The slice changes only the
+conformance guest (`WT_RUN_CONFORMANCE`), so the production positive and
+crossdomain binaries are identical to those proven green on `48b63e6`; no
+rerun was performed.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

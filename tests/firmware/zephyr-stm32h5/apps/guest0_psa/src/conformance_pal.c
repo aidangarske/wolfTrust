@@ -32,6 +32,8 @@
 #include <zephyr/kernel.h>
 
 #include "psa/client.h"
+#include "psa_manifest/sid.h"
+#include "pal_common.h"
 #include "wolftrust/ffm_veneer.h"
 
 extern int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version);
@@ -103,40 +105,65 @@ int pal_print(uint8_t c)
     return 0;
 }
 
-/* val records its per-test boot/status state in NVMEM. i001 does not reboot, so
- * a RAM-backed store (erased-flash 0xFF at power-on) satisfies the whole run.
- * Real reset-surviving flash-backed NVM is the reboot-continuity work (P5).
- * val addresses NVMEM with idx*4 offsets; the top index (0xD) needs 56 bytes,
- * so 256 bytes is ample and leaves the guest's 32 KiB window for val's stack. */
-#define WT_CONF_NVM_SIZE 0x100u
-static uint8_t g_conf_nvm[WT_CONF_NVM_SIZE];
-static uint8_t g_conf_nvm_ready;
-
-static void wt_conf_nvm_init(void)
+/* val records its per-test boot/status state in NVMEM. P3b routes both NS and
+ * SPE val through the DRIVER partition's NVMEM service so the two frameworks
+ * share one store (nvmem_param_t invec + data vec, the suite's own driver
+ * protocol). The backing store is the SPE PAL's RAM block until the P5
+ * reboot-continuity work makes it reset-surviving. */
+static psa_status_t wt_conf_nvm_call(uint32_t fn_type, uint32_t offset,
+                                     void* buffer, size_t size)
 {
-    if (g_conf_nvm_ready == 0u) {
-        memset(g_conf_nvm, 0xFF, sizeof(g_conf_nvm));
-        g_conf_nvm_ready = 1u;
+    nvmem_param_t param;
+    psa_invec invec[2];
+    psa_outvec outvec[1];
+    psa_handle_t handle;
+    psa_status_t status;
+
+    param.nvmem_fn_type = (nvmem_fn_type_t)fn_type;
+    param.base = (addr_t)PLATFORM_NVM_BASE;
+    param.offset = offset;
+    param.size = (int)size;
+    handle = psa_connect(DRIVER_NVMEM_SID, DRIVER_NVMEM_VERSION);
+    if (handle <= 0) {
+        return PSA_ERROR_CONNECTION_REFUSED;
     }
+    invec[0].base = &param;
+    invec[0].len = sizeof(param);
+    if (fn_type == (uint32_t)NVMEM_WRITE) {
+        invec[1].base = buffer;
+        invec[1].len = size;
+        status = psa_call(handle, 0, invec, 2u, NULL, 0u);
+    }
+    else {
+        outvec[0].base = buffer;
+        outvec[0].len = size;
+        status = psa_call(handle, 0, invec, 1u, outvec, 1u);
+    }
+    psa_close(handle);
+    return status;
 }
 
 int pal_nvm_read(uint32_t offset, void* buffer, size_t size)
 {
-    wt_conf_nvm_init();
-    if (buffer == NULL || (size_t)offset + size > sizeof(g_conf_nvm)) {
+    if (buffer == NULL) {
         return 1;
     }
-    memcpy(buffer, &g_conf_nvm[offset], size);
+    if (wt_conf_nvm_call((uint32_t)NVMEM_READ, offset, buffer, size) !=
+            PSA_SUCCESS) {
+        return 1;
+    }
     return 0;
 }
 
 int pal_nvm_write(uint32_t offset, void* buffer, size_t size)
 {
-    wt_conf_nvm_init();
-    if (buffer == NULL || (size_t)offset + size > sizeof(g_conf_nvm)) {
+    if (buffer == NULL) {
         return 1;
     }
-    memcpy(&g_conf_nvm[offset], buffer, size);
+    if (wt_conf_nvm_call((uint32_t)NVMEM_WRITE, offset, buffer, size) !=
+            PSA_SUCCESS) {
+        return 1;
+    }
     return 0;
 }
 
