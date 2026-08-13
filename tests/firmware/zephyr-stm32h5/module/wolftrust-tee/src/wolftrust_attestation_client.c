@@ -18,6 +18,8 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <string.h>
+
 #include <psa/initial_attestation.h>
 #include <wolftrust/attestation.h>
 #include <wolftrust/ffm_veneer.h>
@@ -37,7 +39,7 @@ extern int WolfTrust_Attest_GetPublicKey(uint8_t* publicKey,
 
 extern int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version);
 extern int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
-                                  const wt_ffm_veneer_iovec_t* ns_iovec);
+                                  wt_ffm_veneer_iovec_t* ns_iovec);
 extern void WolfTrust_FFM_Close(int32_t handle);
 
 static psa_status_t wt_attest_map_status(int status)
@@ -96,10 +98,13 @@ psa_status_t psa_initial_attest_get_token(const uint8_t* authChallenge,
     if (handle < 0) {
         return PSA_ERROR_GENERIC_ERROR;
     }
-    iovec.input = authChallenge;
-    iovec.input_len = (uint32_t)challengeSize;
-    iovec.output = token;
-    iovec.output_len = (uint32_t)exactSize;
+    memset(&iovec, 0, sizeof(iovec));
+    iovec.in[0].base = authChallenge;
+    iovec.in[0].len = (uint32_t)challengeSize;
+    iovec.out[0].base = token;
+    iovec.out[0].len = (uint32_t)exactSize;
+    iovec.in_count = 1u;
+    iovec.out_count = 1u;
     status = WolfTrust_FFM_Call(handle, WT_FFM_IPC_CALL, &iovec);
     WolfTrust_FFM_Close(handle);
     if (status != 0) {

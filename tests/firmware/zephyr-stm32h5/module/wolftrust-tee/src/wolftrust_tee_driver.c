@@ -29,6 +29,7 @@
 
 #include <errno.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/tee.h>
@@ -58,7 +59,7 @@ extern int WolfTrust_HSM_Poll(uint16_t seq);
 extern int WolfTrust_HSM_Cancel(uint16_t seq);
 extern int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version);
 extern int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
-                                  const wt_ffm_veneer_iovec_t* ns_iovec);
+                                  wt_ffm_veneer_iovec_t* ns_iovec);
 extern void WolfTrust_FFM_Close(int32_t handle);
 extern uint32_t WolfTrust_FFM_FrameworkVersion(void);
 extern uint32_t WolfTrust_FFM_ServiceVersion(uint32_t sid);
@@ -126,10 +127,13 @@ static int wolftrust_invoke_func(const struct device *dev,
 			arg->ret = (uint32_t)-EINVAL;
 			return -EINVAL;
 		}
-		iovec.input = (const void *)(uintptr_t)param[0].c;
-		iovec.input_len = (uint32_t)param[1].a;
-		iovec.output = (void *)(uintptr_t)param[1].b;
-		iovec.output_len = (uint32_t)param[1].c;
+		memset(&iovec, 0, sizeof(iovec));
+		iovec.in[0].base = (const void *)(uintptr_t)param[0].c;
+		iovec.in[0].len = (uint32_t)param[1].a;
+		iovec.out[0].base = (void *)(uintptr_t)param[1].b;
+		iovec.out[0].len = (uint32_t)param[1].c;
+		iovec.in_count = (iovec.in[0].len != 0u) ? 1u : 0u;
+		iovec.out_count = (iovec.out[0].len != 0u) ? 1u : 0u;
 		arg->ret = (uint32_t)WolfTrust_FFM_Call(
 			(int32_t)param[0].a, (int32_t)param[0].b, &iovec);
 		break;

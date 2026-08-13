@@ -62,6 +62,7 @@ psa_signal_t psa_wait(psa_signal_t signal_mask, uint32_t timeout)
     /* PSA_POLL timing is tracked with the psa_wait timeout task; every
      * partition loop in the suite waits with PSA_BLOCK. */
     (void)timeout;
+    (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_WAIT;
     call.signal_mask = signal_mask;
     call.asserted = &asserted;
@@ -76,6 +77,7 @@ psa_status_t psa_get(psa_signal_t signal, psa_msg_t* msg)
 {
     wt_spm_call_t call;
 
+    (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_GET;
     call.signal = signal;
     call.msg = msg;
@@ -89,6 +91,7 @@ void psa_set_rhandle(psa_handle_t msg_handle, void* rhandle)
 {
     wt_spm_call_t call;
 
+    (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_SET_RHANDLE;
     call.msg_handle = msg_handle;
     call.rhandle = rhandle;
@@ -104,6 +107,7 @@ size_t psa_read(psa_handle_t msg_handle, uint32_t invec_idx,
 {
     wt_spm_call_t call;
 
+    (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_READ;
     call.msg_handle = msg_handle;
     call.vec_idx = invec_idx;
@@ -119,6 +123,7 @@ size_t psa_skip(psa_handle_t msg_handle, uint32_t invec_idx, size_t num_bytes)
 {
     wt_spm_call_t call;
 
+    (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_SKIP;
     call.msg_handle = msg_handle;
     call.vec_idx = invec_idx;
@@ -134,6 +139,7 @@ void psa_write(psa_handle_t msg_handle, uint32_t outvec_idx,
 {
     wt_spm_call_t call;
 
+    (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_WRITE;
     call.msg_handle = msg_handle;
     call.vec_idx = outvec_idx;
@@ -150,6 +156,7 @@ void psa_reply(psa_handle_t msg_handle, psa_status_t status)
 {
     wt_spm_call_t call;
 
+    (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_REPLY;
     call.msg_handle = msg_handle;
     call.status = status;
@@ -166,6 +173,7 @@ void psa_notify(int32_t partition_id)
 {
     wt_spm_call_t call;
 
+    (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_NOTIFY;
     call.notify_partition = partition_id;
     if (wt_spm_sp_call(&call) != WT_FFM_SUCCESS ||
@@ -179,6 +187,7 @@ void psa_clear(void)
 {
     wt_spm_call_t call;
 
+    (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_CLEAR;
     if (wt_spm_sp_call(&call) != WT_FFM_SUCCESS ||
             call.ret_int != WT_FFM_SUCCESS) {

@@ -36,46 +36,59 @@
 
 extern int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version);
 extern int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
-                                  const wt_ffm_veneer_iovec_t* ns_iovec);
+                                  wt_ffm_veneer_iovec_t* ns_iovec);
 extern void WolfTrust_FFM_Close(int32_t handle);
+
+#if defined(WT_CONF_TRACE)
+#define WT_CONF_TRACE_PRINT(...) printk(__VA_ARGS__)
+#else
+#define WT_CONF_TRACE_PRINT(...)
+#endif
 
 psa_handle_t psa_connect(uint32_t sid, uint32_t version)
 {
     psa_handle_t handle = (psa_handle_t)WolfTrust_FFM_Connect(sid, version);
 
-    printk("wtconf: connect sid=0x%x v=%u -> %d\n", sid, version,
-           (int)handle);
+    WT_CONF_TRACE_PRINT("wtconf: connect sid=0x%x v=%u -> %d\n", sid, version,
+                        (int)handle);
     return handle;
 }
 
 void psa_close(psa_handle_t handle)
 {
-    printk("wtconf: close h=%d\n", (int)handle);
+    WT_CONF_TRACE_PRINT("wtconf: close h=%d\n", (int)handle);
     WolfTrust_FFM_Close((int32_t)handle);
 }
 
-/* One invec + one outvec cross the veneer today; P3a-4b widens the ABI to
- * PSA_MAX_IOVEC arrays for the multi-vector tests (i003+). i001 makes no
- * psa_call, so the single-vector limit is not exercised here. */
 psa_status_t psa_call(psa_handle_t handle, int32_t type,
                       const psa_invec* in_vec, size_t in_len,
                       psa_outvec* out_vec, size_t out_len)
 {
     wt_ffm_veneer_iovec_t iovec;
     psa_status_t status;
+    size_t i;
 
-    if (in_len > 1u || out_len > 1u) {
-        printk("wtconf: call h=%d REFUSED in=%u out=%u\n", (int)handle,
-               (unsigned)in_len, (unsigned)out_len);
+    if (in_len > WT_FFM_VENEER_IOVEC_MAX ||
+            out_len > WT_FFM_VENEER_IOVEC_MAX) {
         return PSA_ERROR_PROGRAMMER_ERROR;
     }
-    iovec.input = (in_len != 0u) ? in_vec[0].base : NULL;
-    iovec.input_len = (in_len != 0u) ? (uint32_t)in_vec[0].len : 0u;
-    iovec.output = (out_len != 0u) ? out_vec[0].base : NULL;
-    iovec.output_len = (out_len != 0u) ? (uint32_t)out_vec[0].len : 0u;
+    memset(&iovec, 0, sizeof(iovec));
+    for (i = 0u; i < in_len; i++) {
+        iovec.in[i].base = in_vec[i].base;
+        iovec.in[i].len = (uint32_t)in_vec[i].len;
+    }
+    for (i = 0u; i < out_len; i++) {
+        iovec.out[i].base = out_vec[i].base;
+        iovec.out[i].len = (uint32_t)out_vec[i].len;
+    }
+    iovec.in_count = (uint32_t)in_len;
+    iovec.out_count = (uint32_t)out_len;
     status = (psa_status_t)WolfTrust_FFM_Call((int32_t)handle, type, &iovec);
-    printk("wtconf: call h=%d in=%u out=%u -> %d\n", (int)handle,
-           (unsigned)in_len, (unsigned)out_len, (int)status);
+    for (i = 0u; i < out_len; i++) {
+        out_vec[i].len = iovec.out[i].len;
+    }
+    WT_CONF_TRACE_PRINT("wtconf: call h=%d in=%u out=%u -> %d\n", (int)handle,
+                        (unsigned)in_len, (unsigned)out_len, (int)status);
     return status;
 }
 

@@ -179,8 +179,10 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     }
     else if (message.type == PSA_IPC_DISCONNECT) {
         EXPECT_TRUE(message.rhandle == TEST_RHANDLE);
+        /* FF-M: set_rhandle during disconnect succeeds with no observable
+         * effect (i003 checkpoint 206 panics the server otherwise). */
         EXPECT_INT(wt_ffm_set_rhandle(runtime, partition_id, message.handle,
-                                      NULL), WT_FFM_ERROR_STATE);
+                                      NULL), WT_FFM_SUCCESS);
         EXPECT_INT(wt_ffm_reply(runtime, partition_id, message.handle,
                                 PSA_SUCCESS), WT_FFM_SUCCESS);
     }

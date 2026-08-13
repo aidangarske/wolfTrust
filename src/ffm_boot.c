@@ -214,33 +214,45 @@ int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version)
 
 __attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
 int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
-                          const wt_ffm_veneer_iovec_t* ns_iovec)
+                          wt_ffm_veneer_iovec_t* ns_iovec)
 {
     psa_client_id_t caller;
     wt_ffm_veneer_iovec_t iovec;
-    psa_invec in_vec;
-    psa_outvec out_vec;
+    psa_invec in_vec[WT_FFM_VENEER_IOVEC_MAX];
+    psa_outvec out_vec[WT_FFM_VENEER_IOVEC_MAX];
+    int32_t status;
+    uint32_t i;
 
     if (!wt_ffm_veneer_caller(&caller)) {
         return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
     }
     if (ns_iovec == NULL ||
-            !wt_cmse_check_ns_ro(ns_iovec, sizeof(*ns_iovec))) {
+            !wt_cmse_check_ns_rw(ns_iovec, sizeof(*ns_iovec))) {
         return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
     }
     /* Single read into a local copy: the struct's own fields are not
      * re-read after this, so a racing NS write cannot change the vector
      * base/length wt_ffm_call validates and copies from. */
     iovec = *ns_iovec;
-    in_vec.base = iovec.input;
-    in_vec.len = iovec.input_len;
-    out_vec.base = iovec.output;
-    out_vec.len = iovec.output_len;
-    return (int32_t)wt_ffm_call(&g_ffm_runtime, caller, (psa_handle_t)handle,
-                                type, &in_vec,
-                                iovec.input_len != 0U ? 1U : 0U,
-                                &out_vec,
-                                iovec.output_len != 0U ? 1U : 0U);
+    if (iovec.in_count > WT_FFM_VENEER_IOVEC_MAX ||
+            iovec.out_count > WT_FFM_VENEER_IOVEC_MAX) {
+        return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
+    }
+    for (i = 0U; i < iovec.in_count; i++) {
+        in_vec[i].base = iovec.in[i].base;
+        in_vec[i].len = iovec.in[i].len;
+    }
+    for (i = 0U; i < iovec.out_count; i++) {
+        out_vec[i].base = iovec.out[i].base;
+        out_vec[i].len = iovec.out[i].len;
+    }
+    status = (int32_t)wt_ffm_call(&g_ffm_runtime, caller, (psa_handle_t)handle,
+                                  type, in_vec, iovec.in_count,
+                                  out_vec, iovec.out_count);
+    for (i = 0U; i < iovec.out_count; i++) {
+        ns_iovec->out[i].len = (uint32_t)out_vec[i].len;
+    }
+    return status;
 }
 
 __attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))

@@ -48,7 +48,7 @@ typedef enum wt_spm_op {
 } wt_spm_op_t;
 
 /* SP-as-client iovec capacity per direction (i003 widens with the NS veneer). */
-#define WT_SPM_SP_IOVEC 2U
+#define WT_SPM_SP_IOVEC 4U
 
 typedef struct wt_spm_call {
     wt_spm_op_t  op;

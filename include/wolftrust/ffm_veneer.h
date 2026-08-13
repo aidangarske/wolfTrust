@@ -25,15 +25,28 @@
 
 /* Shared NS/Secure layout for the WolfTrust_FFM_Call veneer (item 3c). A
  * cmse_nonsecure_entry function cannot take stack-passed arguments (max
- * ~4 register args), so the single input/output vector pair crosses the
- * boundary as one struct pointer instead of four scalars. Deliberately
- * dependency-free (no ffm.h) so Non-secure callers -- the Zephyr
- * wolftrust-tee driver and guest apps -- can include just this. */
+ * ~4 register args), so the full PSA_MAX_IOVEC vector set crosses the
+ * boundary as one struct pointer. The secure side writes each out[].len
+ * back with the bytes the service produced (psa_call outvec semantics).
+ * Deliberately dependency-free (no ffm.h) so Non-secure callers -- the
+ * Zephyr wolftrust-tee driver and guest apps -- can include just this. */
+#define WT_FFM_VENEER_IOVEC_MAX 4U
+
+typedef struct wt_ffm_veneer_invec {
+    const void* base;
+    uint32_t len;
+} wt_ffm_veneer_invec_t;
+
+typedef struct wt_ffm_veneer_outvec {
+    void* base;
+    uint32_t len;
+} wt_ffm_veneer_outvec_t;
+
 typedef struct wt_ffm_veneer_iovec {
-    const void* input;
-    uint32_t input_len;
-    void* output;
-    uint32_t output_len;
+    wt_ffm_veneer_invec_t in[WT_FFM_VENEER_IOVEC_MAX];
+    wt_ffm_veneer_outvec_t out[WT_FFM_VENEER_IOVEC_MAX];
+    uint32_t in_count;
+    uint32_t out_count;
 } wt_ffm_veneer_iovec_t;
 
 #endif /* WOLFTRUST_FFM_VENEER_H */

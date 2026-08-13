@@ -84,6 +84,8 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/platform/targets/common/nspe/pal_weak.c
     ${WT_CONF_U}/ff/ipc/test_i001/test_entry_i001.c
     ${WT_CONF_U}/ff/ipc/test_i001/test_i001.c
+    ${WT_CONF_U}/ff/ipc/test_i003/test_entry_i003.c
+    ${WT_CONF_U}/ff/ipc/test_i003/test_i003.c
   )
   target_include_directories(app PRIVATE
     ${WT_REPO_ROOT}/include
@@ -95,9 +97,10 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/platform/targets/common/nspe
     ${WT_REPO_ROOT}/port/stm32h563/conformance
     ${WT_CONF_U}/ff/ipc/test_i001
+    ${WT_CONF_U}/ff/ipc/test_i003
   )
   target_compile_definitions(app PRIVATE
-    WT_RUN_CONFORMANCE VAL_NSPE_BUILD NONSECURE_TEST_BUILD IPC VERBOSITY=1)
+    WT_RUN_CONFORMANCE VAL_NSPE_BUILD NONSECURE_TEST_BUILD IPC VERBOSITY=3)
   set_source_files_properties(
     ${WT_CONF_U}/val/common/val_log.c
     ${WT_CONF_U}/val/nspe/val_entry.c
@@ -112,6 +115,8 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/platform/targets/common/nspe/pal_weak.c
     ${WT_CONF_U}/ff/ipc/test_i001/test_entry_i001.c
     ${WT_CONF_U}/ff/ipc/test_i001/test_i001.c
+    ${WT_CONF_U}/ff/ipc/test_i003/test_entry_i003.c
+    ${WT_CONF_U}/ff/ipc/test_i003/test_i003.c
     PROPERTIES COMPILE_OPTIONS
       "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter"
   )

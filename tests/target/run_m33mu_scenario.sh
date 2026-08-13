@@ -71,9 +71,11 @@ else
 fi
 
 # --- wolfTrust dependencies + a clean secure build (drop any stale build/
-#     whose generated wolfhsm_cfg.h bakes in a host-absolute path). ---
+#     whose generated wolfhsm_cfg.h bakes in a host-absolute path). The guest
+#     CMake cache must go too: scenarios configure guest0_psa with different
+#     -D sets and CMake refuses to regenerate over a conflicting cache. ---
 git submodule update --init --single-branch
-rm -rf build
+rm -rf build tests/firmware/zephyr-stm32h5/build
 
 # --- Secure-app wolfBoot first stage. ---
 rm -rf wolfBoot
@@ -178,7 +180,7 @@ case "$scenario" in
     grep -Fq "wolfTrust FF-M psa_framework_version=0x0100" "$log"
     grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$log"
     grep -Fq "wolfTrust FF-M conformance: val_entry start" "$log"
-    grep -Fq "TOTAL PASSED    : 1" "$log"
+    grep -Fq "TOTAL PASSED    : 2" "$log"
     grep -Fq "TOTAL FAILED    : 0" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"
     echo "PASS: target/confboot"

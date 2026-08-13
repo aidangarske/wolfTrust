@@ -25,6 +25,8 @@ static int wt_spm_check_buffer(const wt_secure_domain_t* domain,
 {
     if (domain == NULL)
         return WT_FFM_SUCCESS; /* validation disabled: caller owns the range */
+    if (len == 0U)
+        return WT_FFM_SUCCESS; /* FF-M zero-length transfer: nothing crosses */
     if (buffer == NULL)
         return WT_FFM_ERROR_BUFFER;
     if (wt_secure_domain_contains(domain, (uintptr_t)buffer, len, need_write)

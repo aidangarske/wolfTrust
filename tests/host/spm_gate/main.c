@@ -323,6 +323,27 @@ static void test_gate_validates_buffers(void)
     EXPECT_INT(wt_spm_gate(&runtime, &domain, &call), WT_FFM_SUCCESS);
     EXPECT_INT(call.ret_int, WT_FFM_ERROR_BUFFER);
 
+    /* FF-M zero-length write: passes the gate check even off-domain (i003's
+     * server writes 0 bytes); the dead handle then fails ARGUMENT, not
+     * BUFFER, proving the rejection no longer happens at the gate. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_WRITE;
+    call.partition_id = TEST_PARTITION_ID;
+    call.buffer = outside;
+    call.num_bytes = 0U;
+    EXPECT_INT(wt_spm_gate(&runtime, &domain, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_ARGUMENT);
+
+    /* Zero-length read likewise reaches the message layer and returns 0. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_READ;
+    call.partition_id = TEST_PARTITION_ID;
+    call.buffer = NULL;
+    call.num_bytes = 0U;
+    EXPECT_INT(wt_spm_gate(&runtime, &domain, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+    EXPECT_SIZE(call.ret_size, 0U);
+
     /* No domain: validation is bypassed and the op runs on the raw pointer.
      * The direct transport is exactly this shape — assert it matches. */
     (void)memset(&call, 0, sizeof(call));

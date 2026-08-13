@@ -977,7 +977,7 @@ int wt_ffm_set_rhandle(wt_ffm_runtime_t* runtime, int32_t partition_id,
         return WT_FFM_ERROR_HANDLE;
     message = &runtime->messages[message_index];
     if (message->type == PSA_IPC_DISCONNECT)
-        return WT_FFM_ERROR_STATE;
+        return WT_FFM_SUCCESS; /* FF-M: no observable effect on disconnect */
     runtime->connections[message->connection_index].rhandle =
         (uintptr_t)rhandle;
     return WT_FFM_SUCCESS;

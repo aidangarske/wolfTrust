@@ -605,6 +605,39 @@ New SPM capability landed for this (all clean-room, spec-derived):
 - Production regression (positive + crossdomain) run on the same tree before
   commit — see the commit that carries this entry.
 
+## Item 10 P3a-4b — multi-vector psa_call green (i003, M33MU)
+
+`PASS: target/confboot` with `TOTAL TESTS : 2`, `TOTAL PASSED : 2`,
+`TOTAL FAILED : 0` (2026-08-13): test_i003 (Testing IOVECS, all 6 checks —
+zero-length invec/outvec, psa_read/psa_skip, psa_write, psa_set_rhandle,
+overlapping vectors) joins i001, exercising real multi-vector
+`psa_call` -> `server_main` data transfer through the SPM from the NS val
+client.
+
+Transport widening (clean-room, spec-derived):
+- `WolfTrust_FFM_Call` veneer ABI widened from 1 invec + 1 outvec to
+  `PSA_MAX_IOVEC` arrays with out-length writeback to the NS caller
+  (`ffm_veneer.h` both copies, `ffm_boot.c`, NS shims in the TEE driver,
+  attestation client, and conformance PAL).
+- SP-side transport cap `WT_SPM_SP_IOVEC` lifted 2 -> 4 (`spm_gate.h`);
+  every SP wrapper now zeroes its gate call struct (`spm_sp_api.c`).
+
+Two latent spec-conformance bugs flushed out by the unmodified suite
+(both diagnosed from the deliberate-fault register dumps):
+- Gate rejected FF-M zero-length transfers: `wt_spm_check_buffer` returned
+  BUFFER for `len == 0` because the domain containment predicate denies empty
+  ranges; i003's server writes 0 bytes on purpose. Zero-length transfers now
+  bypass containment (nothing crosses); host gate test asserts the
+  discriminator (dead handle fails ARGUMENT, not BUFFER) — spm_gate 67 checks.
+- `psa_set_rhandle` on a DISCONNECT message returned STATE and panicked the
+  server; FF-M requires success with no observable effect (i003 checkpoint
+  206). Now a no-op success; the host ffm test had asserted the wrong
+  behavior and was corrected to the spec.
+
+Host `make test` green on the same tree; guest VERBOSITY raised to 3 and the
+NS `wtconf:` traces gated behind `WT_CONF_TRACE` (default off). Production
+regression (positive + crossdomain) rerun on the same tree before commit.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

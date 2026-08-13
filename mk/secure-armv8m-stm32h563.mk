@@ -329,7 +329,7 @@ $(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
 		$(MANIFEST_DIR)/ns/client_tests_list.inc \
 		$(MANIFEST_DIR)/ns/server_tests_list_declare.inc \
 		$(MANIFEST_DIR)/ns/server_tests_list.inc \
-		1 1
+		1 3
 	touch $@
 
 $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/partition/%.c \
