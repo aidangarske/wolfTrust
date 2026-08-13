@@ -1399,6 +1399,11 @@ void Reset_Handler(void)
     extern uint32_t _edata;
     extern uint32_t _sbss;
     extern uint32_t _ebss;
+    extern uint32_t _siconfdata;
+    extern uint32_t _sconfdata;
+    extern uint32_t _econfdata;
+    extern uint32_t _sconfbss;
+    extern uint32_t _econfbss;
     uint32_t* src = &_sidata;
     uint32_t* dst = &_sdata;
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
@@ -1411,6 +1416,16 @@ void Reset_Handler(void)
     }
 
     for (dst = &_sbss; dst < &_ebss; ++dst) {
+        *dst = 0u;
+    }
+
+    /* Conformance SP .data/.bss live in their own MPU-granted window; the main
+     * loops above skip it, so initialize it here. Empty in production builds. */
+    src = &_siconfdata;
+    for (dst = &_sconfdata; dst < &_econfdata; ++dst) {
+        *dst = *src++;
+    }
+    for (dst = &_sconfbss; dst < &_econfbss; ++dst) {
         *dst = 0u;
     }
 

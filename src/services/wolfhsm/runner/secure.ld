@@ -27,7 +27,13 @@ MEMORY {
   /* SRAM1 has Secure and Non-secure aliases to the same physical memory.
    * The first 32 KiB are assigned to the two guests through the 0x20000000
    * Non-secure alias, so keep secure .data/.bss above that physical window. */
-  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 440K
+  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 428K
+  /* Conformance Secure-Partition .data/.bss (P3a). Arm's partition sources hold
+   * their val_api/psa_api tables in .data; a hosted SP must reach its own data
+   * but not the SPM's, so it lives in this 8 KiB window (WT_CONF_SP_DATA_* in
+   * memory_map.h) that the SP MPU domain grants while SPM RAM at 0x30028000
+   * stays denied. Empty in non-conformance builds. */
+  CONFDATA (rw): ORIGIN = 0x30093000, LENGTH = 12K
   /* Secure per-partition stacks (WT-FFM-0011). The top 40 KiB of the secure
    * RAM window, reserved so each Secure Partition runs on its own secure
    * stack the MPU can confine. Mirrors WT_SP_SECURE_RAM_* in memory_map.h. */
@@ -67,6 +73,26 @@ SECTIONS {
          "secure image overflows secure flash region")
   ASSERT(SIZEOF(.gnu.sgstubs) + SIZEOF(.nsc) <= 0x400, "NSC window overflow")
 
+  /* Claim the conformance partitions' .data/.bss before the general rules so
+   * they land in CONFDATA, not shared SPM RAM. Loaded from flash and copied by
+   * Reset_Handler alongside .data; empty (zero size) in non-conformance builds. */
+  .conf_data : {
+    . = ALIGN(4);
+    _sconfdata = .;
+    *conf_sec_*.o(.data .data.*)
+    . = ALIGN(4);
+    _econfdata = .;
+  } > CONFDATA AT > FLASH
+  _siconfdata = LOADADDR(.conf_data);
+
+  .conf_bss (NOLOAD) : {
+    . = ALIGN(4);
+    _sconfbss = .;
+    *conf_sec_*.o(.bss .bss.* COMMON)
+    . = ALIGN(4);
+    _econfbss = .;
+  } > CONFDATA
+
   .data : {
     _sdata = .;
     *(.data*)
@@ -84,6 +110,8 @@ SECTIONS {
     KEEP(*(.sp_stacks*))
   } > SPSTACKS
 
-  ASSERT(ORIGIN(SPSTACKS) == (ORIGIN(RAM) + LENGTH(RAM)),
-         "SP secure stacks must sit directly above the secure RAM window")
+  ASSERT(ORIGIN(CONFDATA) == (ORIGIN(RAM) + LENGTH(RAM)),
+         "conformance SP data must sit directly above the secure RAM window")
+  ASSERT(ORIGIN(SPSTACKS) == (ORIGIN(CONFDATA) + LENGTH(CONFDATA)),
+         "SP secure stacks must sit directly above the conformance data window")
 }

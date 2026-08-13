@@ -58,6 +58,7 @@ void psa_reply(psa_handle_t msg_handle, psa_status_t status);
 void psa_notify(int32_t partition_id);
 void psa_clear(void);
 void psa_eoi(psa_signal_t irq_signal);
+void psa_irq_enable(psa_signal_t irq_signal);
 void psa_panic(void) __attribute__((noreturn));
 
 #endif /* PSA_SERVICE_H */

@@ -73,6 +73,11 @@ LOG_MODULE_REGISTER(guest0_psa, LOG_LEVEL_INF);
 /* NS PSA FF-M client API, aliased to the secure veneers (P3a-2). */
 extern uint32_t psa_framework_version(void);
 
+#if defined(WT_RUN_CONFORMANCE)
+/* Arm psa-arch-tests val NSPE entry (P3a-4a). */
+extern int32_t val_entry(void);
+#endif
+
 /* Mirror guest0's TEE-driver smoke so the runner's existing TEE assertions
  * stay green and we don't need a second runner mode. */
 static void exercise_tee_driver(void)
@@ -447,10 +452,20 @@ int main(void)
 	exercise_tee_driver();
 	exercise_ffm_crypto();
 	exercise_ffm_negatives();
+#if !defined(WT_RUN_CONFORMANCE)
+	/* The COSE attestation path needs a deep stack; skip it in the conformance
+	 * guest so the Arm val NSPE framework fits guest0's 32 KiB NS window. The
+	 * full lifecycle is covered by the positive scenario. */
 	exercise_psa_initial_attestation();
 	exercise_psa_rng();
 	exercise_psa_hash();
 	exercise_psa_cipher();
+#endif
+
+#if defined(WT_RUN_CONFORMANCE)
+	LOG_INF("wolfTrust FF-M conformance: val_entry start");
+	(void)val_entry();
+#endif
 
 	LOG_INF("guest0_psa done");
 

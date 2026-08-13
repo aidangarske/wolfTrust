@@ -95,6 +95,14 @@
 #define WT_SP_FF_CLIENT_STACK_BASE \
     (WT_SP_SECURE_RAM_BASE + 4u * WT_SP_SECURE_STACK_SIZE)      /* 0x3009E000 */
 
+/* Conformance Secure-Partition .data/.bss window (P3a). Arm's partition sources
+ * keep val_api/psa_api in .data; a hosted SP reaches its own data here while
+ * SPM RAM at 0x30028000 stays outside its MPU domain. Sits just below the SP
+ * stacks (the linker's RAM window is shortened to 432 KiB to make room); MUST
+ * match the CONFDATA region in src/services/wolfhsm/runner/secure.ld. */
+#define WT_CONF_SP_DATA_BASE     (WT_RAM_S_BASE + 0x0006B000u)  /* 0x30093000 */
+#define WT_CONF_SP_DATA_SIZE     0x00003000u                    /* 12 KiB */
+
 #define WT_SHARED_STATUS_ADDR    0x20000000u
 
 /* Per-guest CMSE shared transport buffer for wolfHSM. Sits inside each

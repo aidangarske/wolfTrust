@@ -257,7 +257,10 @@ SECURE_CFLAGS += -DWT_CONFORMANCE=1
 UPSTREAM_DIR := $(BUILD_DIR)/upstream/psa-arch-tests/api-tests
 UPSTREAM_STAMP := $(BUILD_DIR)/.psa-arch-tests.stamp
 CONF_GEN_STAMP := $(MANIFEST_DIR)/.conformance-gen.stamp
-CONF_CFLAGS = $(SECURE_CFLAGS) -DIPC -DVERBOSITY=3 \
+# VERBOSITY=9: SP-side val prints route over IPC to the DRIVER UART partition,
+# which does not run until P3b; below-ALWAYS prints short-circuit instead of
+# deadlocking on a service nobody serves.
+CONF_CFLAGS = $(SECURE_CFLAGS) -DIPC -DVERBOSITY=9 \
     -I$(UPSTREAM_DIR)/val/common \
     -I$(UPSTREAM_DIR)/val/nspe \
     -I$(UPSTREAM_DIR)/val/spe \
@@ -269,6 +272,10 @@ CONF_CFLAGS = $(SECURE_CFLAGS) -DIPC -DVERBOSITY=3 \
 CONF_SEC_OBJS := \
     $(BUILD_DIR)/conf_sec_server_partition.o \
     $(BUILD_DIR)/conf_sec_client_partition.o \
+    $(BUILD_DIR)/conf_sec_driver_partition.o \
+    $(BUILD_DIR)/conf_sec_val_driver_service_apis.o \
+    $(BUILD_DIR)/conf_sec_val_log.o \
+    $(BUILD_DIR)/conf_sec_pal_driver_intf.o \
     $(BUILD_DIR)/conf_sec_test_i001.o \
     $(BUILD_DIR)/conf_sec_test_supp_i001.o \
     $(BUILD_DIR)/conf_sec_test_i003.o \
@@ -280,6 +287,9 @@ ALL_SECURE_OBJS += $(CONF_SEC_OBJS)
 CONF_UPSTREAM_SRCS := \
     $(UPSTREAM_DIR)/ff/partition/server_partition.c \
     $(UPSTREAM_DIR)/ff/partition/client_partition.c \
+    $(UPSTREAM_DIR)/ff/partition/driver_partition.c \
+    $(UPSTREAM_DIR)/val/spe/val_driver_service_apis.c \
+    $(UPSTREAM_DIR)/val/common/val_log.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i001/test_i001.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i001/test_supp_i001.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i003/test_i003.c \
@@ -307,8 +317,19 @@ $(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
 		> $(MANIFEST_DIR)/psa_manifest/server_partition_psa.h
 	printf '#include "client_partition.h"\n' \
 		> $(MANIFEST_DIR)/psa_manifest/client_partition_psa.h
-	printf '#include "driver_partition.h"\n' \
+	printf '#include "driver_partition.h"\n#define DRIVER_UART_INTR_SIG 256U\n' \
 		> $(MANIFEST_DIR)/psa_manifest/driver_partition_psa.h
+	mkdir -p $(MANIFEST_DIR)/ns
+	python3 $(UPSTREAM_DIR)/tools/scripts/gen_tests_list.py ipc \
+		$(UPSTREAM_DIR)/ff/ipc/testsuite.db 0 ALL \
+		$(MANIFEST_DIR)/ns/testlist.txt \
+		$(MANIFEST_DIR)/ns/test_entry_list.inc \
+		$(MANIFEST_DIR)/ns/test_entry_fn_declare_list.inc \
+		$(MANIFEST_DIR)/ns/client_tests_list_declare.inc \
+		$(MANIFEST_DIR)/ns/client_tests_list.inc \
+		$(MANIFEST_DIR)/ns/server_tests_list_declare.inc \
+		$(MANIFEST_DIR)/ns/server_tests_list.inc \
+		1 1
 	touch $@
 
 $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/partition/%.c \
@@ -320,6 +341,18 @@ $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i001/%.c \
 	$(CC) $(CONF_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i003/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/val/spe/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/val/common/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(PORT_DIR)/conformance/%.c \
 		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(CONF_CFLAGS) -c -o $@ $<
 endif

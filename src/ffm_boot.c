@@ -53,6 +53,12 @@ static int wt_ffm_boot_check_read(void* context, psa_client_id_t caller,
     wt_guest_id_t guest_id;
 
     (void)context;
+    /* Positive callers are Secure Partitions whose pointers the SVC gate
+     * already bounded to their own MPU domain (WT-FFM-0014); the CMSE
+     * checks below only describe Non-secure windows. */
+    if (caller > 0) {
+        return 1;
+    }
     if (!wt_ffm_boot_caller_guest(caller, &guest_id)) {
         return 0;
     }
@@ -66,6 +72,9 @@ static int wt_ffm_boot_check_write(void* context, psa_client_id_t caller,
     wt_guest_id_t guest_id;
 
     (void)context;
+    if (caller > 0) {
+        return 1;
+    }
     if (!wt_ffm_boot_caller_guest(caller, &guest_id)) {
         return 0;
     }
@@ -133,6 +142,7 @@ int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
  * loops, scheduled like any other SP. */
 extern void server_main(void);
 extern void client_main(void);
+extern void driver_main(void);
 
 static void wt_conformance_server_entry(void* arg)
 {
@@ -144,6 +154,12 @@ static void wt_conformance_client_entry(void* arg)
 {
     (void)arg;
     client_main();
+}
+
+static void wt_conformance_driver_entry(void* arg)
+{
+    (void)arg;
+    driver_main();
 }
 #endif
 
@@ -160,6 +176,10 @@ int wt_ffm_boot_start_sched(void)
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_sched_add(&g_ffm_runtime, CLIENT_PARTITION_ID,
                                wt_conformance_client_entry, NULL);
+    }
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_sched_add(&g_ffm_runtime, DRIVER_PARTITION_ID,
+                               wt_conformance_driver_entry, NULL);
     }
 #endif
     return ret;

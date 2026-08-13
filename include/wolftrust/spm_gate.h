@@ -40,14 +40,22 @@ typedef enum wt_spm_op {
     WT_SPM_OP_WRITE,
     WT_SPM_OP_REPLY,
     WT_SPM_OP_NOTIFY,
-    WT_SPM_OP_CLEAR
+    WT_SPM_OP_CLEAR,
+    WT_SPM_OP_VERSION,
+    WT_SPM_OP_CONNECT,
+    WT_SPM_OP_CALL,
+    WT_SPM_OP_CLOSE
 } wt_spm_op_t;
+
+/* SP-as-client iovec capacity per direction (i003 widens with the NS veneer). */
+#define WT_SPM_SP_IOVEC 2U
 
 typedef struct wt_spm_call {
     wt_spm_op_t  op;
     int32_t      partition_id;   /* acting partition (SVC stamps the caller) */
     int32_t      notify_partition; /* NOTIFY target */
-    psa_handle_t msg_handle;   /* GET/SET_RHANDLE/READ/SKIP/WRITE/REPLY */
+    psa_handle_t msg_handle;   /* GET/SET_RHANDLE/READ/SKIP/WRITE/REPLY;
+                                * CALL/CLOSE: connection handle */
     psa_signal_t signal_mask;  /* WAIT in */
     psa_signal_t signal;       /* GET in */
     uint32_t     vec_idx;      /* READ/SKIP/WRITE in */
@@ -58,9 +66,25 @@ typedef struct wt_spm_call {
     psa_signal_t* asserted;    /* WAIT out (SP-domain pointer) */
     void*        rhandle;      /* SET_RHANDLE in */
 
-    psa_status_t ret_status;   /* GET/REPLY result */
+    /* SP-as-client IPC (WT-FFM-0014): a partition connecting to another
+     * partition's service. The op is issued twice around a block: the first
+     * pass validates + enqueues (pending_valid set, NOT_READY returned), the
+     * wake pass harvests the completed message. */
+    uint32_t     sid;          /* CONNECT/VERSION in */
+    uint32_t     version;      /* CONNECT in */
+    int32_t      call_type;    /* CALL in */
+    psa_invec    sp_in[WT_SPM_SP_IOVEC];   /* CALL in (SP-domain pointers) */
+    psa_outvec   sp_out[WT_SPM_SP_IOVEC];  /* CALL in/out (SP-domain pointers) */
+    uint8_t      sp_in_len;    /* CALL in */
+    uint8_t      sp_out_len;   /* CALL in */
+    uint16_t     pending_msg;  /* async resume state (gate-owned) */
+    uint8_t      pending_valid;
+
+    psa_status_t ret_status;   /* GET/REPLY/CALL result */
     size_t       ret_size;     /* READ/SKIP result */
     int          ret_int;      /* WAIT/SET_RHANDLE/WRITE/NOTIFY/CLEAR result */
+    psa_handle_t ret_handle;   /* CONNECT result */
+    uint32_t     ret_version;  /* VERSION result */
 } wt_spm_call_t;
 
 /* Run one SPM service request against the runtime. When caller_domain is not

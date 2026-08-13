@@ -74,6 +74,12 @@ if [ -n "$WT_EXPECTED_MEASUREMENT_HEX" ]; then
     set -- "$@" "-DWT_EXPECTED_MEASUREMENT_HEX=$WT_EXPECTED_MEASUREMENT_HEX"
 fi
 
+if [ "${WT_RUN_CONFORMANCE:-0}" = "1" ]; then
+    # Reclaim the deep attestation stack (skipped in the conformance guest) so
+    # the Arm val NSPE framework fits guest0's 32 KiB NS RAM window.
+    set -- "$@" "-DWT_RUN_CONFORMANCE=1" "-DCONFIG_MAIN_STACK_SIZE=10240"
+fi
+
 "$WEST_BIN" build -p auto \
     -d "$BUILD_DIR" \
     -b "$BOARD" \

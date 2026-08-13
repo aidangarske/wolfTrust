@@ -104,6 +104,9 @@ IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x20000 WOLFBOOT_SECTOR_SIZE=0x20
     "$repo/build/wolftrust.bin" \
     "$repo/wolfBoot/wolfboot_signing_private_key.der" 1
 test -s "$repo/build/wolftrust_v1_signed.bin"
+# Snapshot the elf that matches the signed image: the guest build below can
+# relink build/wolftrust.elf, which poisons post-mortem symbolization.
+cp "$repo/build/wolftrust.elf" "$repo/build/wolftrust-signed.elf"
 
 WT_EXPECTED_MEASUREMENT_HEX="$(python3 tests/scripts/read_wolfboot_measurement.py \
   build/wolftrust_v1_signed.bin)"
@@ -113,9 +116,11 @@ WT_EXPECTED_MEASUREMENT_HEX="$(python3 tests/scripts/read_wolfboot_measurement.p
 guest_flags=""
 if [ "$scenario" = "restart" ]; then
   guest_flags="WT_GUEST_FAULT_PROBE=1"
+elif [ "$scenario" = "confboot" ]; then
+  guest_flags="WT_RUN_CONFORMANCE=1"
 fi
 make -C tests/firmware/zephyr-stm32h5 clone
-env $guest_flags WT_REUSE_SECURE_BUILD=1 WT_EXPECTED_LIFECYCLE=0x1000u \
+env $guest_flags $secure_flags WT_REUSE_SECURE_BUILD=1 WT_EXPECTED_LIFECYCLE=0x1000u \
   WT_EXPECTED_MEASUREMENT_HEX="$WT_EXPECTED_MEASUREMENT_HEX" \
   WT_ATTESTATION_DEVELOPMENT_PROFILE=1 WT_M33MU_EXPECT_BKPT=1 \
   make -C tests/firmware/zephyr-stm32h5 build-guest0-psa build-freertos-guest1
@@ -146,9 +151,9 @@ set -e
 echo "wolfBoot/wolfTrust M33MU exit status: $emu_status"
 
 case "$scenario" in
-  positive|confboot)
+  positive)
     if grep -Eq '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)' "$log"; then
-      echo "FAIL: fault marker in $scenario boot log"; exit 1
+      echo "FAIL: fault marker in positive boot log"; exit 1
     fi
     grep -Fq "wolfTrust TEE client initialized" "$log"
     grep -Fq "wolfTrust FF-M psa_framework_version=0x0100" "$log"
@@ -160,7 +165,23 @@ case "$scenario" in
     grep -Fq "wolfTrust attestation: COSE_Sign1 verified" "$log"
     grep -Fq "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"
-    echo "PASS: target/$scenario"
+    echo "PASS: target/positive"
+    ;;
+  confboot)
+    # The conformance guest is lean (no deep-stack attestation path) so the val
+    # NSPE framework fits guest0's 32 KiB NS window; the full lifecycle is the
+    # positive scenario's job. This proves the Arm SPs schedule and val runs.
+    if grep -Eq '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)' "$log"; then
+      echo "FAIL: fault marker in confboot boot log"; exit 1
+    fi
+    grep -Fq "wolfTrust TEE client initialized" "$log"
+    grep -Fq "wolfTrust FF-M psa_framework_version=0x0100" "$log"
+    grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$log"
+    grep -Fq "wolfTrust FF-M conformance: val_entry start" "$log"
+    grep -Fq "TOTAL PASSED    : 1" "$log"
+    grep -Fq "TOTAL FAILED    : 0" "$log"
+    grep -Fq "[EXPECT BKPT] Success" "$log"
+    echo "PASS: target/confboot"
     ;;
   restart)
     expected=$((RESTART_LIMIT + 1))

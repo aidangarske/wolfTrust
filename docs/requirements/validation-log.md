@@ -574,6 +574,37 @@ no gate op yet and refuses closed rather than faking success — tracked with P3
 - New `confboot` scenario wired into `run_m33mu_scenario.sh`, `make test-target`,
   and the CI matrix. The unmodified Arm partitions are the true TF-M drop-in.
 
+## Item 10 P3a-4a — first unmodified Arm conformance test green (i001, M33MU)
+
+`PASS: target/confboot` with `Result=Passed`, `TOTAL PASSED : 1`,
+`TOTAL FAILED : 0` (2026-08-13): Arm PSA Arch Test Suite v1.8 test_i001 runs
+end-to-end through wolfTrust's production SPM — NS val framework in the Zephyr
+guest -> CMSE veneers -> client SP -> SP-to-SP IPC -> server SP, with the
+driver SP serving val's NVM bookkeeping. All three unmodified Arm test
+partitions run as unprivileged, MPU-isolated scheduled coroutines.
+
+New SPM capability landed for this (all clean-room, spec-derived):
+- SP-as-client IPC (WT-FFM-0014): deferred connect/call/close in `ffm.c`
+  (begin = validate+enqueue, finish = harvest after completion), four new gate
+  ops with idempotent two-pass pending/harvest and forged-pending ownership
+  checks (`spm_gate.c`), SP-side `psa_connect/call/close/version` plus FF-M 1.1
+  `psa_irq_enable` no-op pending P6 (`spm_sp_api.c`).
+- Cross-partition scheduler: per-slot wake conditions (signal-wait vs
+  message-wait) driven to quiescence on the bootstrap context
+  (`spm_svc.c`) — a client partition blocks on its message while the serving
+  partition runs; SP code never executes in handler mode.
+- Bugs found by target-only diagnosis (deliberate-fault register dumps +
+  signed-elf snapshot for honest symbolization): transport retry only re-issued
+  psa_wait (NOT_READY escaped to callers); wait bookkeeping erased pre-suspend
+  (wt_co_block only pends); psa_close panicked on the refused-connect handles
+  upstream passes it (now a no-op for handle <= 0).
+- Hosting glue: DRIVER partition scheduled with a wolfTrust SPE PAL
+  (RAM-backed NVM until P5, no-op WD until P4, swallowed prints until P3b);
+  CONFDATA window grown to 12 KiB at 0x30093000.
+- Host `make test` green on the same tree (spm_gate 62 checks intact).
+- Production regression (positive + crossdomain) run on the same tree before
+  commit — see the commit that carries this entry.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

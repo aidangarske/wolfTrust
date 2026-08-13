@@ -39,10 +39,21 @@
  * dispatcher resolves the caller from wt_co_current() so every SP runs the same
  * transport with its own manifest MPU thread table. Only `table` is needed at
  * runtime; the resolved domain is a transient reused across setup calls. */
+/* Why a partition is suspended: waiting for a signal (psa_wait) or for its
+ * own SP-to-SP client message to complete. The scheduler loop uses this to
+ * wake exactly the partitions whose condition now holds. */
+#define WT_SPM_WAIT_NONE 0U
+#define WT_SPM_WAIT_SIG  1U
+#define WT_SPM_WAIT_MSG  2U
+
 typedef struct wt_spm_sp {
     wt_co_t* co;
     wt_secure_domain_t table;
     int32_t partition_id;
+    uint16_t partition_index;
+    uint16_t wait_msg;
+    psa_signal_t wait_mask;
+    uint8_t wait_kind;
     uint8_t in_use;
 } wt_spm_sp_t;
 
@@ -91,11 +102,21 @@ void wt_spm_svc_entry(uint32_t* frame)
     /* The caller's identity is the scheduled slot's, never the SP-supplied
      * field: a partition cannot impersonate another through the gate. */
     call->partition_id = slot->partition_id;
+    slot->wait_kind = WT_SPM_WAIT_NONE;
     status = wt_spm_gate(g_spm_svc_runtime, &slot->table, call);
     frame[0] = (uint32_t)status;
     if (status == WT_FFM_SUCCESS && wt_spm_call_would_block(call)) {
-        /* Suspends after the SVC returns (PendSV tail-chains); execution
-         * resumes at the instruction after `svc` when a signal wakes us. */
+        /* Record the wake condition BEFORE pending the block: wt_co_block
+         * only marks the suspension — this handler runs to completion and the
+         * switch happens on exception return, so a post-block clear here
+         * would erase the condition before the partition ever sleeps. */
+        if (call->op == WT_SPM_OP_WAIT) {
+            slot->wait_kind = WT_SPM_WAIT_SIG;
+            slot->wait_mask = call->signal_mask;
+        } else {
+            slot->wait_kind = WT_SPM_WAIT_MSG;
+            slot->wait_msg = call->pending_msg;
+        }
         wt_co_block();
     }
 }
@@ -111,9 +132,10 @@ static int wt_spm_svc_raw(wt_spm_call_t* call __attribute__((unused)))
     );
 }
 
-/* SP-side transport: trap each request to the privileged gate. A blocking
- * psa_wait comes back with the stale NOT_READY result after the coroutine
- * is rewoken, so re-issue until the wait really completes. */
+/* SP-side transport: trap each request to the privileged gate. A blocking op
+ * (wait, or an SP-to-SP connect/call/close) comes back with the stale
+ * NOT_READY result after the coroutine is rewoken, so re-issue until the
+ * request really completes; only blockable ops ever return NOT_READY. */
 static int wt_spm_svc_transport(wt_ffm_runtime_t* runtime, wt_spm_call_t* call)
 {
     int status;
@@ -121,7 +143,7 @@ static int wt_spm_svc_transport(wt_ffm_runtime_t* runtime, wt_spm_call_t* call)
     (void)runtime;
     for (;;) {
         status = wt_spm_svc_raw(call);
-        if (status != WT_FFM_SUCCESS || call->op != WT_SPM_OP_WAIT ||
+        if (status != WT_FFM_SUCCESS ||
                 call->ret_int != WT_FFM_ERROR_NOT_READY) {
             break;
         }
@@ -163,26 +185,123 @@ static void wt_spm_sp_entry(void* arg)
     }
 }
 
-/* Manifest-bound dispatch for the scheduled SP: assertively wake the
- * coroutine and drive it until it blocks on its next psa_wait, at which
- * point the enqueued message has been replied to (the FF-M core verifies
- * message completion after this returns). Runs on the bootstrap context. */
-static int wt_spm_sched_dispatch(void* context, wt_ffm_runtime_t* runtime,
-                                 int32_t partition_id)
+/* True when a suspended partition's wake condition holds: its awaited signal
+ * set is now asserted, or its pending SP-to-SP message completed. */
+static int wt_spm_slot_ready(const wt_ffm_runtime_t* runtime,
+                             const wt_spm_sp_t* slot)
 {
-    wt_co_t* co = (wt_co_t*)context;
-
-    (void)runtime;
-    (void)partition_id;
-    if (co == NULL || wt_co_state(co) == WT_CO_FAULTED) {
-        return WT_FFM_ERROR_STATE;
+    if (slot->wait_kind == WT_SPM_WAIT_SIG) {
+        return (runtime->partitions[slot->partition_index].asserted_signals &
+                slot->wait_mask) != 0U;
     }
+    if (slot->wait_kind == WT_SPM_WAIT_MSG) {
+        return wt_ffm_msg_complete(runtime, slot->wait_msg);
+    }
+    /* No recorded wait (the partition has not run since boot): pending
+     * signals mean queued work; a spurious wake lands in its psa_wait and
+     * re-blocks harmlessly. */
+    return runtime->partitions[slot->partition_index].asserted_signals != 0U;
+}
+
+static int wt_spm_run_co(wt_co_t* co)
+{
     wt_co_wake(co);
     while (wt_co_state(co) == WT_CO_RUNNABLE) {
         if (wt_co_run(co) == 0u) {
             return WT_FFM_ERROR_STATE;
         }
     }
+    return WT_FFM_SUCCESS;
+}
+
+/* Diagnostic trap for a scheduler livelock: pack the scheduler state into the
+ * exception frame's r0-r2 (the emulator's MEMFAULT dump prints them) and
+ * fault on purpose. Removed once the multi-SP dance is proven. */
+__attribute__((noinline))
+static void wt_spm_sched_diag_trap(uint32_t a, uint32_t b, uint32_t c)
+{
+    volatile uint32_t probe;
+
+    (void)a;
+    (void)b;
+    (void)c;
+    probe = *(const volatile uint32_t*)0xEFFFFFF0u;
+    (void)probe;
+}
+
+static uint32_t wt_spm_sched_diag_word(const wt_ffm_runtime_t* runtime,
+                                       int which)
+{
+    uint32_t value = 0u;
+    size_t i;
+
+    if (which == 0) {
+        /* nibbles: per-slot wait_kind (0..2) then co state (3..5) */
+        for (i = 0u; i < g_spm_sp_count && i < 3u; i++) {
+            value |= ((uint32_t)g_spm_sp[i].wait_kind & 0xFu) << (4u * i);
+            value |= ((uint32_t)wt_co_state(g_spm_sp[i].co) & 0xFu) <<
+                     (12u + 4u * i);
+        }
+    } else if (which == 1) {
+        for (i = 0u; i < g_spm_sp_count && i < 2u; i++) {
+            value |= ((uint32_t)g_spm_sp[i + 1u].wait_msg & 0xFFu) << (8u * i);
+            value |= (runtime->partitions[g_spm_sp[i + 1u].partition_index].
+                          asserted_signals & 0xFFu) << (16u + 8u * i);
+        }
+    } else {
+        for (i = 0u; i < WT_FFM_MAX_MESSAGES; i++) {
+            if (runtime->messages[i].allocated != 0U)
+                value |= 1uL << (16u + i);
+            if (runtime->messages[i].complete != 0U)
+                value |= 1uL << i;
+        }
+    }
+    return value;
+}
+
+/* Manifest-bound dispatch for a scheduled SP: wake the target coroutine, then
+ * keep dispatching every partition whose wake condition holds until the
+ * system is quiescent. SP-to-SP IPC depends on this: a client partition
+ * blocks on its message while the serving partition's signal is asserted, so
+ * cross-partition progress happens here on the bootstrap context, never
+ * inside another partition's SVC. Runs until no partition is wakeable. */
+static int wt_spm_sched_dispatch(void* context, wt_ffm_runtime_t* runtime,
+                                 int32_t partition_id)
+{
+    wt_co_t* co = (wt_co_t*)context;
+    uint32_t passes = 0u;
+    int progressed;
+    size_t i;
+
+    (void)partition_id;
+    if (co == NULL || wt_co_state(co) == WT_CO_FAULTED) {
+        return WT_FFM_ERROR_STATE;
+    }
+    if (wt_spm_run_co(co) != WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_STATE;
+    }
+    do {
+        progressed = 0;
+        for (i = 0u; i < g_spm_sp_count; i++) {
+            wt_spm_sp_t* slot = &g_spm_sp[i];
+
+            if (slot->in_use == 0u ||
+                    wt_co_state(slot->co) != WT_CO_BLOCKED ||
+                    wt_spm_slot_ready(runtime, slot) == 0) {
+                continue;
+            }
+            if (wt_spm_run_co(slot->co) != WT_FFM_SUCCESS) {
+                return WT_FFM_ERROR_STATE;
+            }
+            progressed = 1;
+        }
+        if (++passes > 1000u) {
+            wt_spm_sched_diag_trap(wt_spm_sched_diag_word(runtime, 0),
+                                   wt_spm_sched_diag_word(runtime, 1),
+                                   wt_spm_sched_diag_word(runtime, 2));
+            return WT_FFM_ERROR_STATE;
+        }
+    } while (progressed != 0);
     return wt_co_state(co) == WT_CO_BLOCKED ? WT_FFM_SUCCESS :
                                               WT_FFM_ERROR_STATE;
 }
@@ -240,6 +359,18 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
             region_count++;
         }
     }
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    /* Hosted Arm partitions read their val_api/psa_api tables from .data, which
+     * the linker places in the shared CONFDATA window; grant it so the SP
+     * reaches its own data while SPM RAM stays denied. */
+    if (region_count < WT_MAX_MPU_REGIONS) {
+        slot->table.regions[region_count].base = WT_CONF_SP_DATA_BASE;
+        slot->table.regions[region_count].size = WT_CONF_SP_DATA_SIZE;
+        slot->table.regions[region_count].attributes =
+            WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+        region_count++;
+    }
+#endif
     slot->table.region_count = region_count;
 
     slot->co = wt_co_create_blocked_ex(
@@ -250,6 +381,22 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
     }
     wt_co_set_domain(slot->co, &slot->table, 1u);
     slot->partition_id = partition_id;
+    slot->wait_kind = WT_SPM_WAIT_NONE;
+
+    /* Cache the runtime partition index so the scheduler's signal check does
+     * not rescan per wake. */
+    slot->partition_index = 0u;
+    for (i = 0u; i < runtime->partition_count; i++) {
+        if (runtime->partitions[i].manifest != NULL &&
+                runtime->partitions[i].manifest->domain_id ==
+                    (wt_domain_id_t)partition_id) {
+            slot->partition_index = (uint16_t)i;
+            break;
+        }
+    }
+    if (i >= runtime->partition_count) {
+        return WT_FFM_ERROR_STATE;
+    }
 
     /* Transport and compute reach an SP through a dispatch context it builds
      * on its own stack, so no global-pointer read crosses the partition's MPU

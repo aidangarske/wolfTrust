@@ -60,3 +60,59 @@ set_source_files_properties(
   PROPERTIES COMPILE_OPTIONS
     "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter;-Wno-type-limits"
 )
+
+# P3a-4a: run Arm's unmodified psa-arch-tests val NSPE in this guest against the
+# real SPM. WT_RUN_CONFORMANCE selects the conformance secure image (server/
+# client SPs). The val sources and the generated test/manifest headers come from
+# the secure build tree (built first). include/ before build/manifest so
+# wolfTrust's psa/*.h win; build/manifest/ns holds the i001-only test list.
+if(WT_RUN_CONFORMANCE)
+  set(WT_CONF_U ${WT_REPO_ROOT}/build/upstream/psa-arch-tests/api-tests)
+  set(WT_CONF_GEN ${WT_REPO_ROOT}/build/manifest)
+  target_sources(app PRIVATE
+    src/conformance_pal.c
+    ${WT_CONF_U}/val/common/val_log.c
+    ${WT_CONF_U}/val/nspe/val_entry.c
+    ${WT_CONF_U}/val/nspe/val_dispatcher.c
+    ${WT_CONF_U}/val/nspe/val_framework.c
+    ${WT_CONF_U}/val/nspe/val_interfaces.c
+    ${WT_CONF_U}/val/nspe/val_peripherals.c
+    ${WT_CONF_U}/val/nspe/val_platform.c
+    ${WT_CONF_U}/val/nspe/val_crypto.c
+    ${WT_CONF_U}/val/nspe/val_storage.c
+    ${WT_CONF_U}/val/nspe/val_attestation.c
+    ${WT_CONF_U}/platform/targets/common/nspe/pal_weak.c
+    ${WT_CONF_U}/ff/ipc/test_i001/test_entry_i001.c
+    ${WT_CONF_U}/ff/ipc/test_i001/test_i001.c
+  )
+  target_include_directories(app PRIVATE
+    ${WT_REPO_ROOT}/include
+    ${WT_CONF_GEN}/ns
+    ${WT_CONF_GEN}
+    ${WT_CONF_U}/val/common
+    ${WT_CONF_U}/val/nspe
+    ${WT_CONF_U}/val/spe
+    ${WT_CONF_U}/platform/targets/common/nspe
+    ${WT_REPO_ROOT}/port/stm32h563/conformance
+    ${WT_CONF_U}/ff/ipc/test_i001
+  )
+  target_compile_definitions(app PRIVATE
+    WT_RUN_CONFORMANCE VAL_NSPE_BUILD NONSECURE_TEST_BUILD IPC VERBOSITY=1)
+  set_source_files_properties(
+    ${WT_CONF_U}/val/common/val_log.c
+    ${WT_CONF_U}/val/nspe/val_entry.c
+    ${WT_CONF_U}/val/nspe/val_dispatcher.c
+    ${WT_CONF_U}/val/nspe/val_framework.c
+    ${WT_CONF_U}/val/nspe/val_interfaces.c
+    ${WT_CONF_U}/val/nspe/val_peripherals.c
+    ${WT_CONF_U}/val/nspe/val_platform.c
+    ${WT_CONF_U}/val/nspe/val_crypto.c
+    ${WT_CONF_U}/val/nspe/val_storage.c
+    ${WT_CONF_U}/val/nspe/val_attestation.c
+    ${WT_CONF_U}/platform/targets/common/nspe/pal_weak.c
+    ${WT_CONF_U}/ff/ipc/test_i001/test_entry_i001.c
+    ${WT_CONF_U}/ff/ipc/test_i001/test_i001.c
+    PROPERTIES COMPILE_OPTIONS
+      "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter"
+  )
+endif()

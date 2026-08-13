@@ -658,6 +658,218 @@ int wt_ffm_close(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
     return ret;
 }
 
+psa_handle_t wt_ffm_connect_begin(wt_ffm_runtime_t* runtime,
+                                  psa_client_id_t caller, uint32_t sid,
+                                  uint32_t version, uint16_t* msg_index)
+{
+    wt_ffm_connection_runtime_t* connection;
+    wt_ffm_message_runtime_t* message;
+    uint16_t connection_index;
+    uint16_t message_index;
+    uint16_t service_index;
+    psa_handle_t handle;
+    int ret;
+
+    if (runtime == NULL || caller == 0 || msg_index == NULL)
+        return (psa_handle_t)PSA_ERROR_INVALID_ARGUMENT;
+    ret = wt_ffm_find_service(runtime, sid, &service_index);
+    if (ret != WT_FFM_SUCCESS ||
+            !wt_ffm_caller_allowed(runtime, caller, service_index) ||
+            !wt_ffm_version_allowed(
+                runtime->services[service_index].descriptor, version)) {
+        return (psa_handle_t)PSA_ERROR_CONNECTION_REFUSED;
+    }
+    if (runtime->services[service_index].descriptor->connection_based == 0U)
+        return (psa_handle_t)PSA_ERROR_NOT_SUPPORTED;
+
+    if (wt_ffm_alloc_connection(runtime, &connection_index) !=
+            WT_FFM_SUCCESS)
+        return (psa_handle_t)PSA_ERROR_CONNECTION_BUSY;
+    if (wt_ffm_alloc_message(runtime, &message_index) != WT_FFM_SUCCESS) {
+        wt_ffm_release_connection(runtime, connection_index);
+        return (psa_handle_t)PSA_ERROR_CONNECTION_BUSY;
+    }
+
+    connection = &runtime->connections[connection_index];
+    connection->caller = caller;
+    connection->service_index = service_index;
+    connection->state = WT_IPC_CONNECTION_PENDING_CONNECT;
+    handle = wt_ffm_make_handle(WT_FFM_HANDLE_CONNECTION, connection_index,
+                                connection->generation);
+
+    message = &runtime->messages[message_index];
+    message->caller = caller;
+    message->connection_index = connection_index;
+    message->service_index = service_index;
+    message->type = PSA_IPC_CONNECT;
+    wt_ffm_enqueue(runtime, service_index, message_index);
+    *msg_index = message_index;
+    return handle;
+}
+
+psa_status_t wt_ffm_call_begin(wt_ffm_runtime_t* runtime,
+                               psa_client_id_t caller, psa_handle_t handle,
+                               int32_t type, const psa_invec* in_vec,
+                               size_t in_len, psa_outvec* out_vec,
+                               size_t out_len, uint16_t* msg_index)
+{
+    wt_ffm_connection_runtime_t* connection;
+    wt_ffm_message_runtime_t* message;
+    uint16_t connection_index;
+    uint16_t message_index;
+    int ret;
+
+    if (runtime == NULL || caller == 0 || msg_index == NULL)
+        return PSA_ERROR_INVALID_ARGUMENT;
+    if (type < 0 || in_len > PSA_MAX_IOVEC || out_len > PSA_MAX_IOVEC ||
+            in_len + out_len > PSA_MAX_IOVEC)
+        return PSA_ERROR_PROGRAMMER_ERROR;
+    ret = wt_ffm_connection_from_handle(runtime, caller, handle,
+                                        &connection_index);
+    if (ret != WT_FFM_SUCCESS)
+        return ret == WT_FFM_ERROR_POLICY ? PSA_ERROR_NOT_PERMITTED :
+                                            PSA_ERROR_PROGRAMMER_ERROR;
+    connection = &runtime->connections[connection_index];
+    if (connection->state != WT_IPC_CONNECTION_IDLE)
+        return PSA_ERROR_BAD_STATE;
+    if (wt_ffm_alloc_message(runtime, &message_index) != WT_FFM_SUCCESS)
+        return PSA_ERROR_INSUFFICIENT_MEMORY;
+
+    message = &runtime->messages[message_index];
+    message->caller = caller;
+    message->connection_index = connection_index;
+    message->service_index = connection->service_index;
+    message->type = type;
+    ret = wt_ffm_prepare_vectors(runtime, message, in_vec, in_len,
+                                 out_vec, out_len);
+    if (ret != WT_FFM_SUCCESS) {
+        wt_ffm_release_message(runtime, message_index);
+        return ret == WT_FFM_ERROR_BUFFER ? PSA_ERROR_INVALID_ARGUMENT :
+                                            PSA_ERROR_NOT_PERMITTED;
+    }
+
+    connection->state = WT_IPC_CONNECTION_PENDING_REQUEST;
+    wt_ffm_enqueue(runtime, connection->service_index, message_index);
+    *msg_index = message_index;
+    return PSA_SUCCESS;
+}
+
+int wt_ffm_close_begin(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
+                       psa_handle_t handle, uint16_t* msg_index)
+{
+    wt_ffm_connection_runtime_t* connection;
+    wt_ffm_message_runtime_t* message;
+    uint16_t connection_index;
+    uint16_t message_index;
+    int ret;
+
+    if (msg_index == NULL)
+        return WT_FFM_ERROR_ARGUMENT;
+    if (handle == PSA_NULL_HANDLE) {
+        *msg_index = WT_FFM_QUEUE_NONE;
+        return WT_FFM_SUCCESS;
+    }
+    if (runtime == NULL || caller == 0)
+        return WT_FFM_ERROR_ARGUMENT;
+    ret = wt_ffm_connection_from_handle(runtime, caller, handle,
+                                        &connection_index);
+    if (ret != WT_FFM_SUCCESS)
+        return ret;
+    connection = &runtime->connections[connection_index];
+    if (connection->state != WT_IPC_CONNECTION_IDLE &&
+            connection->state != WT_IPC_CONNECTION_ERROR)
+        return WT_FFM_ERROR_STATE;
+    if (wt_ffm_alloc_message(runtime, &message_index) != WT_FFM_SUCCESS)
+        return WT_FFM_ERROR_RESOURCE;
+
+    connection->state = WT_IPC_CONNECTION_DISCONNECTING;
+    message = &runtime->messages[message_index];
+    message->caller = caller;
+    message->connection_index = connection_index;
+    message->service_index = connection->service_index;
+    message->type = PSA_IPC_DISCONNECT;
+    wt_ffm_enqueue(runtime, connection->service_index, message_index);
+    *msg_index = message_index;
+    return WT_FFM_SUCCESS;
+}
+
+int wt_ffm_msg_complete(const wt_ffm_runtime_t* runtime, uint16_t msg_index)
+{
+    if (runtime == NULL || msg_index >= WT_FFM_MAX_MESSAGES)
+        return 0;
+    return runtime->messages[msg_index].allocated != 0U &&
+           runtime->messages[msg_index].complete != 0U;
+}
+
+psa_handle_t wt_ffm_connect_finish(wt_ffm_runtime_t* runtime,
+                                   uint16_t msg_index)
+{
+    wt_ffm_message_runtime_t* message;
+    uint16_t connection_index;
+    psa_status_t status;
+    psa_handle_t handle;
+
+    if (runtime == NULL || msg_index >= WT_FFM_MAX_MESSAGES)
+        return (psa_handle_t)PSA_ERROR_INVALID_ARGUMENT;
+    message = &runtime->messages[msg_index];
+    connection_index = message->connection_index;
+    status = message->reply_status;
+    wt_ffm_release_message(runtime, msg_index);
+    if (status != PSA_SUCCESS) {
+        wt_ffm_release_connection(runtime, connection_index);
+        return (psa_handle_t)status;
+    }
+    handle = wt_ffm_make_handle(WT_FFM_HANDLE_CONNECTION, connection_index,
+                                runtime->connections[connection_index].
+                                    generation);
+    return handle;
+}
+
+psa_status_t wt_ffm_call_finish(wt_ffm_runtime_t* runtime, uint16_t msg_index,
+                                psa_outvec* out_vec, size_t out_len)
+{
+    wt_ffm_message_runtime_t* message;
+    wt_ffm_connection_runtime_t* connection;
+    psa_status_t status;
+    size_t i;
+
+    if (runtime == NULL || msg_index >= WT_FFM_MAX_MESSAGES)
+        return PSA_ERROR_INVALID_ARGUMENT;
+    message = &runtime->messages[msg_index];
+    connection = &runtime->connections[message->connection_index];
+    status = message->reply_status;
+    for (i = 0U; i < message->out_count; i++) {
+        if (message->out_position[i] != 0U) {
+            if (runtime->ops->check_write(runtime->port_context,
+                    message->caller, message->client_output[i],
+                    message->out_position[i]) == 0) {
+                connection->state = WT_IPC_CONNECTION_ERROR;
+                wt_ffm_release_message(runtime, msg_index);
+                return PSA_ERROR_NOT_PERMITTED;
+            }
+            (void)memcpy(message->client_output[i],
+                &message->output[message->out_offset[i]],
+                message->out_position[i]);
+        }
+        if (out_vec != NULL && i < out_len)
+            out_vec[i].len = message->out_position[i];
+    }
+    wt_ffm_release_message(runtime, msg_index);
+    return status;
+}
+
+int wt_ffm_close_finish(wt_ffm_runtime_t* runtime, uint16_t msg_index)
+{
+    uint16_t connection_index;
+
+    if (runtime == NULL || msg_index >= WT_FFM_MAX_MESSAGES)
+        return WT_FFM_ERROR_ARGUMENT;
+    connection_index = runtime->messages[msg_index].connection_index;
+    wt_ffm_release_message(runtime, msg_index);
+    wt_ffm_release_connection(runtime, connection_index);
+    return WT_FFM_SUCCESS;
+}
+
 int wt_ffm_wait(wt_ffm_runtime_t* runtime, int32_t partition_id,
                 psa_signal_t signal_mask, psa_signal_t* asserted)
 {

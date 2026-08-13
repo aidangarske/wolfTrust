@@ -142,6 +142,29 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
 int wt_ffm_close(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
                  psa_handle_t handle);
 
+/* Deferred client IPC for Secure-Partition callers (WT-FFM-0014). A partition
+ * cannot be dispatched from another partition's SVC context, so an SP-side
+ * connect/call/close splits into begin (validate + enqueue, no dispatch) and
+ * finish (harvest after the scheduler ran the target and the message
+ * completed). begin returns the same immediate refusals as the synchronous
+ * forms; on success *msg_index tracks the pending message. */
+psa_handle_t wt_ffm_connect_begin(wt_ffm_runtime_t* runtime,
+                                  psa_client_id_t caller, uint32_t sid,
+                                  uint32_t version, uint16_t* msg_index);
+psa_status_t wt_ffm_call_begin(wt_ffm_runtime_t* runtime,
+                               psa_client_id_t caller, psa_handle_t handle,
+                               int32_t type, const psa_invec* in_vec,
+                               size_t in_len, psa_outvec* out_vec,
+                               size_t out_len, uint16_t* msg_index);
+int wt_ffm_close_begin(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
+                       psa_handle_t handle, uint16_t* msg_index);
+int wt_ffm_msg_complete(const wt_ffm_runtime_t* runtime, uint16_t msg_index);
+psa_handle_t wt_ffm_connect_finish(wt_ffm_runtime_t* runtime,
+                                   uint16_t msg_index);
+psa_status_t wt_ffm_call_finish(wt_ffm_runtime_t* runtime, uint16_t msg_index,
+                                psa_outvec* out_vec, size_t out_len);
+int wt_ffm_close_finish(wt_ffm_runtime_t* runtime, uint16_t msg_index);
+
 int wt_ffm_wait(wt_ffm_runtime_t* runtime, int32_t partition_id,
                 psa_signal_t signal_mask, psa_signal_t* asserted);
 int wt_ffm_notify(wt_ffm_runtime_t* runtime, int32_t partition_id);

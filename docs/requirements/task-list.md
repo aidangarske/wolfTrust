@@ -567,12 +567,19 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       partitions into the secure image as scheduled SPs, val NSPE + `psa/client.h`
       shim into the Zephyr NS guest. Dominant unknown; Mac cannot target-compile,
       so it is M33MU-only. Gate: links + boots clean. (`claude-fable-5`.)
-    - P3a-4. [ ] **Bind ONE test path end-to-end**: run i001
-      (`psa_framework_version`, no server) then i003 (`psa_call` -> real
-      `server_main` reply) on M33MU. i002 is a `panic_test` in the upstream
-      testsuite.db (needs P5 panic-reboot infra), so the first non-panic
-      connect/call test is i003. Gate: the unmodified Arm client test passes
-      with the real server SP handshaking through the SPM.
+    - P3a-4a. [ ] **Stand up val NSPE in the guest, run i001**: compile Arm's
+      unmodified val NSPE lib + i001 body + a minimal NS PAL (`pal_print`->
+      console; uart/wd/terminate stubs) + NSPE `psa_connect/call/close` shim into
+      the Zephyr guest; generate the NSPE `test_entry` `.inc` lists; call
+      `val_entry()`. i001 is version-only (no `psa_call`) so the existing 1+1
+      veneer suffices. Gate: `val_entry` runs a real Arm test against the SPM and
+      i001 PASSes on M33MU.
+    - P3a-4b. [ ] **Widen the call veneer to N-vec, run i003**: extend the
+      `WolfTrust_FFM_Call` ABI from 1 invec+1 outvec to arrays (up to
+      `PSA_MAX_IOVEC=4`); `wt_ffm_call` already takes arrays. Run i003 (1 in +
+      2 out `psa_call`) end-to-end: the client test's `psa_call` reaches the real
+      `server_main` through the SPM. i002 is a `panic_test` (needs P5), so i003 is
+      the first non-panic connect/call test. Gate: i003 PASSes on M33MU.
   - P3b. [ ] **PAL driver plane + DRIVER partition.** `nspe/pal_config.h`,
     `nspe/pal_driver_ipc_intf.c`, `spe/pal_driver_intf.c`, `target.cmake`, and
     STM32H5 replacements for the shared UART/NVMEM/WDG drivers so the DRIVER SP
