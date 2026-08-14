@@ -713,19 +713,22 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       Host: `spm_gate` suite asserts `must_panic` is set on the three bad-buffer
       ops and clear on valid / zero-length transfers (133 checks). The target
       panic→reboot proof is K4's single M33MU run (i047).
-    - K4. [~] **End-to-end resume proof — panic→reboot PROVEN, boot-2 re-init
-      fault OPEN (2026-08-14).** i047 wired into the schedule (marker stripped so
-      gen selects it; guest + secure objects + pattern rule + confboot asserts
-      7). First run: i001/i003 `Result=Passed`, i047's server commits the
-      must-panic `psa_get`, the SPM resets, and the emulator **reboots**
-      (wolfBoot restart at `PC=0x0c000ba9`) — the panic-reset loop works on
-      target. BLOCKER: the second boot faults before any guest banner —
-      UsageFault at `psa_call+0x56` (`conformance_pal.c:79` invec copy), an early
-      `psa_call` with a corrupt vector. Root cause is state surviving the warm
-      reset (flash NVM at `0x0C1FA000`/`0x0C1FC000`) left inconsistent because the
-      reset fired mid-flight from the SVC handler. Details + next steps in
-      validation-log.md. Deep target-reset debugging (Fable-class). Gate RED
-      until fixed.
+    - K4. [~] **End-to-end resume proof — BLOCKED on per-SP MMIO isolation
+      (2026-08-14).** i047 wired in (guest + secure objects + pattern rule +
+      schedule marker strip + confboot asserts 7); the full schedule runs and
+      exits clean at 6/7. i047 is the one failure, and the reason is structural,
+      not the reboot path: i047's server `psa_get`s the "invalid" pointer
+      `PLATFORM_DRIVER_PARTITION_MMIO_START 0x30095E00`, which sits inside the
+      SHARED CONFDATA window (`0x30093000..0x30096000`) that every conformance
+      SP's domain is granted (`spm_svc.c:485`) — so it is NOT out-of-domain for
+      the SERVER, `must_panic` never fires, and the connect returns `-130`
+      instead of resetting. **i047/i055/i057 are MMIO-isolation tests**; they
+      need the DRIVER's MMIO outside the SERVER domain (task #33 / P4 bucket b)
+      before the reboot keystone can be demonstrated through them. Secondary: a
+      timing heisenbug tied to unbounded FF-M handle growth (176 connects,
+      +128/handle, no reuse). Full analysis in validation-log.md. The reboot
+      primitives (K1–K3) are done and correct; K4 waits on MMIO isolation.
+      Fable-class.
   - P4.1. [ ] **Six panic isolation tests (needs K).** Un-skip
     `i047,i055,i057,i064,i065,i066`, wire into the schedule (gen_tests_list
     panic mode), M33MU green across their reboots. Confirm each induces the SP

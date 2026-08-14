@@ -753,38 +753,47 @@ present and models the STM32H563 faithfully:
 production SPM panic→reset path rather than a disposable probe; K2 backs the
 NVMEM service with reserved secure flash; K4 proves the full resume loop on i047.
 
-## P4/P5 K4 — panic→reboot proven, boot-2 re-init fault open (2026-08-14)
+## P4/P5 K4 — i047 needs per-SP MMIO isolation, not just the reboot keystone (2026-08-14)
 
-First end-to-end confboot run with i047 un-skipped (M33MU, box wolf-prec5560,
-`k4-confboot.log`). **The panic-reset keystone works**: i001 `Result=Passed`,
-i003 `Result=Passed`, then i047's SERVER SP commits the must-panic `psa_get`
-(invalid message pointer), the gate sets `must_panic`, `wt_spm_svc_entry` calls
-`wt_platform_system_reset`, and the emulator **reboots** — a second
-wolfBoot→wolfTrust→guest load and restart at `PC=0x0c000ba9` is in the log. So
-K1 (SYSRESETREQ reboots), K3 (must-panic → reset), and the gate wiring are all
-confirmed on target.
+The reboot-continuity keystone (K1–K3) is mechanically complete. Trying to prove
+it end-to-end with i047 uncovered that i047 is fundamentally an MMIO-isolation
+test, so it cannot pass on the current shared-CONFDATA domain model.
 
-**Open blocker (K4):** the second boot faults before the guest prints any
-banner — UsageFault/`CFSR=0x00010082` at `psa_call+0x56`
-(`conformance_pal.c:79`, the `iovec.in[i].base = in_vec[i].base` copy loop,
-`ldr.w r1,[r10,r2,lsl #3]`), i.e. an early `psa_call` runs with a corrupt
-`in_vec`/`in_len`. The guest cold-launches cleanly (monitor always BXNS to the
-guest reset vector, NS RAM + secure `.bss` zeroed every boot — confirmed by
-inspection), so the corruption comes from state that SURVIVES the warm reset:
-the flash NVM stores. Two persist across AIRCR.SYSRESETREQ — val's boot flag at
-`WT_CONF_NVM_FLASH_BASE_S 0x0C1FA000` (K2) and wolfHSM's own NVM at
-`WT_HSM_NVM_FLASH_BASE_S 0x0C1FC000`. The reset fires from inside an SVC handler
-with the secure scheduler / wolfHSM mid-flight, so a half-completed NVM/flash
-operation is the prime suspect: boot-2 re-init (wt_hsm_init /
-wt_hsm_attest_bootstrap, or val's boot-flag reload) reads inconsistent state and
-the first NS↔S `psa_call` handshake gets a bad vector.
+Runs on the box (`k4-trace2.log`, WT_CONF_TRACE on): the full schedule executes
+and exits clean — `TOTAL TESTS 7, PASSED 6, FAILED 1`, `[EXPECT BKPT] Success`,
+exit 0. The one failure is i047. (An earlier caveat: the plain run's log looked
+like it "rebooted" — that was stdout buffering; the emulator's block-buffered
+`printf` for `Loaded BIN`/`Initial SP`/`[USGFLT]` flushes at exit, AFTER the
+live guest UART, so the single boot's startup lines appear at the tail. Counts
+confirm one boot, zero resets.)
 
-Next: determine which persisted store is inconsistent on boot 2 (instrument the
-boot-2 wolfHSM init and the first guest `psa_call` args), and make the reset
-path leave a consistent NVM (flush/quiesce before reset, or make boot-2 re-init
-tolerate a mid-write store). Deep target-reset debugging — a Fable-class task.
-i047 stays wired in the schedule (confboot asserts 7) but the gate is RED until
-this is fixed.
+**Root cause of the i047 failure (precise):** i047's server does
+`psa_get(SIGNAL, invalid_msg)` where, at isolation level > 1, `invalid_msg =
+PLATFORM_DRIVER_PARTITION_MMIO_START = 0x30095E00`
+(`port/stm32h563/conformance/pal_config.h:64`, level 3 at `:29`). But every
+conformance SP's domain is granted the WHOLE shared CONFDATA window
+`0x30093000..0x30096000` (`src/arch/armv8m/spm_svc.c:485`,
+`WT_CONF_SP_DATA_BASE`/`_SIZE` in `memory_map.h:110`), and `0x30095E00` lies
+INSIDE it. So the SERVER can legally reach the DRIVER's MMIO address — the gate
+buffer check passes, `must_panic` never fires, the server returns normally, the
+client's `psa_connect(0xFB04)` gets `-130` instead of never returning, and val
+marks i047 FAILED. To pass, the DRIVER's MMIO region must be OUTSIDE the SERVER
+partition's domain (true per-SP MMIO isolation — task #33 / P4 bucket b). Every
+available panic test hits this same wall (i047/i055/i057 use the DRIVER MMIO at
+L3; i064–066 need `psa_eoi`), so the keystone can only be demonstrated once
+per-SP MMIO isolation lands (or the driver MMIO is relocated outside all SP
+domains).
+
+**Secondary:** a timing-dependent heisenbug — the plain (untraced) build faults
+in the guest `psa_call` invec copy, but the traced build completes; correlated
+with unbounded FF-M handle growth (176 connects over the run, handle values
+climbing +128 each with no reuse). Likely a fixed-size table indexed off the
+handle overflowing once i047's extra connects push the count up. Needs the
+handle allocation bounded/reused.
+
+**Status:** K1–K3 done. K4 (and P4.1's panic tests) are gated on per-SP MMIO
+isolation. i047 build wiring is in; the confboot schedule asserts 7 so the gate
+is RED until the isolation work lands. Deep target work — Fable-class.
 
 ## Phase gate rule
 

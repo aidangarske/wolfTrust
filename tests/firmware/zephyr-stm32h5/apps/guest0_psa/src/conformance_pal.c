@@ -74,6 +74,9 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type,
             out_len > WT_FFM_VENEER_IOVEC_MAX) {
         return PSA_ERROR_PROGRAMMER_ERROR;
     }
+    WT_CONF_TRACE_PRINT("wtconf: enter h=%d in=%u iv=%p out=%u ov=%p\n",
+                        (int)handle, (unsigned)in_len, (const void*)in_vec,
+                        (unsigned)out_len, (const void*)out_vec);
     memset(&iovec, 0, sizeof(iovec));
     for (i = 0u; i < in_len; i++) {
         iovec.in[i].base = in_vec[i].base;
