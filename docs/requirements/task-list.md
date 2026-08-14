@@ -700,12 +700,19 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       lands in K4, where reset runs through the production panic path. Reserved
       sector, gate op, and hsm_flash primitive all compile+link clean in the
       conformance image (no warnings).
-    - K3. [ ] **Controlled panic-reset in the SPM (host + M33MU).** On a Secure
-      Partition programmer error / panic, record the fault reason to NVM and call
-      `wt_platform_system_reset` instead of spinning — but ONLY in the
-      conformance image (`WT_CONFORMANCE`); production keeps fail-closed
-      quarantine (item 5 / task #26). Host test drives the panic→reset-request
-      decision; M33MU: induce one SP panic, confirm reboot.
+    - K3. [x] **Controlled panic-reset in the SPM — code + host-proven,
+      cross-build clean (2026-08-14).** `wt_platform_system_reset`
+      (AIRCR.SYSRESETREQ, `platform_stm32h563.c`) is the reset primitive. The
+      neutral gate now sets a `must_panic` flag on the FF-M must-panic
+      PROGRAMMER ERRORs — `psa_get`/`psa_read`/`psa_write` with an out-of-domain
+      buffer (i047/i055/i057) — instead of only returning the error; the arch
+      SVC layer (`wt_spm_svc_entry`), ONLY under `WT_CONFORMANCE`, resets on that
+      flag. Production ignores it (fail-closed quarantine stays task #26). No
+      NVM write in the fault path: val itself writes `BOOT_EXPECTED_NS` to flash
+      (K2) before the offending call, so the reset alone is the recovery signal.
+      Host: `spm_gate` suite asserts `must_panic` is set on the three bad-buffer
+      ops and clear on valid / zero-length transfers (133 checks). The target
+      panic→reboot proof is K4's single M33MU run (i047).
     - K4. [ ] **End-to-end resume proof (M33MU).** Un-skip ONE panic test
       (`i047`) only: run → SP panics → reset → reboot → val reads the boot flag →
       marks i047 passed → continues to the remaining schedule → clean

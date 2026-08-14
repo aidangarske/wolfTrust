@@ -83,6 +83,11 @@ void wt_platform_log_fault(wt_guest_id_t guest_id,
 uintptr_t wt_platform_read_fault_address(void);
 void wt_platform_all_guests_faulted(void) __attribute__((noreturn));
 void wt_platform_panic(void) __attribute__((noreturn));
+
+/* Request a full SoC reset (AIRCR.SYSRESETREQ) and spin until it takes. Used
+ * by the conformance panic-reset path (P5 K3) so val's boot-flag resume can run
+ * after reboot; production keeps the fail-closed quarantine in wt_platform_panic. */
+void wt_platform_system_reset(void) __attribute__((noreturn));
 #ifdef WT_ENGINE_HSM
 bool wt_platform_secure_service_active(void);
 void wt_platform_note_hsm_wait_skip(wt_guest_id_t guest_id);

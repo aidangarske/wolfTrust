@@ -91,6 +91,7 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
     call->ret_status = PSA_ERROR_PROGRAMMER_ERROR;
     call->ret_size = 0U;
     call->ret_int = WT_FFM_ERROR_ARGUMENT;
+    call->must_panic = 0U;
 
     switch (call->op) {
     case WT_SPM_OP_WAIT:
@@ -104,11 +105,16 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
     case WT_SPM_OP_GET:
         ret = wt_spm_check_buffer(caller_domain, call->msg, sizeof(*call->msg),
                                   1);
-        if (ret == WT_FFM_SUCCESS)
+        if (ret == WT_FFM_SUCCESS) {
             call->ret_status = wt_ffm_get(runtime, call->partition_id,
                                           call->signal, call->msg);
-        else
+        }
+        else {
+            /* psa_get with an invalid message buffer is a programmer error
+             * the SPM must panic the caller for (FF-M). */
             call->ret_status = (psa_status_t)ret;
+            call->must_panic = 1U;
+        }
         call->ret_int = ret;
         break;
     case WT_SPM_OP_SET_RHANDLE:
@@ -124,7 +130,9 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
                                          call->buffer, call->num_bytes);
             call->ret_int = WT_FFM_SUCCESS;
         } else {
+            /* psa_read into an out-of-domain buffer must panic the caller. */
             call->ret_int = ret;
+            call->must_panic = 1U;
         }
         break;
     case WT_SPM_OP_SKIP:
@@ -136,9 +144,14 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
     case WT_SPM_OP_WRITE:
         ret = wt_spm_check_buffer(caller_domain, call->buffer, call->num_bytes,
                                   0);
-        if (ret == WT_FFM_SUCCESS)
+        if (ret != WT_FFM_SUCCESS) {
+            /* psa_write from an out-of-domain buffer must panic the caller. */
+            call->must_panic = 1U;
+        }
+        else {
             ret = wt_ffm_write(runtime, call->partition_id, call->msg_handle,
                                call->vec_idx, call->buffer, call->num_bytes);
+        }
         call->ret_int = ret;
         break;
     case WT_SPM_OP_REPLY:

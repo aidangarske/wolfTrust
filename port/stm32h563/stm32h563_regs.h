@@ -35,6 +35,8 @@
 #define WT_SCB_BFAR_S            (*(volatile uint32_t*)0xE000ED38u)
 #define WT_SCB_ICSR_S            (*(volatile uint32_t*)0xE000ED04u)
 #define WT_SCB_ICSR_NS           (*(volatile uint32_t*)0xE002ED04u)
+#define WT_SCB_AIRCR_S           (*(volatile uint32_t*)0xE000ED0Cu)
+#define WT_SCB_AIRCR_SYSRESETREQ ((0x05FAu << 16) | (1u << 2))
 #define WT_SCB_ICSR_PENDSVCLR    (1u << 27)
 #define WT_SCB_ICSR_PENDSVSET    (1u << 28)
 #define WT_SCB_ICSR_PENDSTCLR    (1u << 25)

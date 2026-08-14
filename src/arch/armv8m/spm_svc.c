@@ -145,6 +145,13 @@ void wt_spm_svc_entry(uint32_t* frame)
     status = wt_spm_gate(g_spm_svc_runtime, &slot->table, call);
     frame[0] = (uint32_t)status;
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    /* FF-M PROGRAMMER ERROR the SPM must panic the caller for (P5 K3). val has
+     * already written its BOOT_EXPECTED_NS flag to flash NVM (K2), so the reset
+     * is the recovery: on reboot val reads that flag and marks the test passed.
+     * Production keeps the fail-closed quarantine instead (task #26). */
+    if (call->must_panic) {
+        wt_platform_system_reset();
+    }
     g_spm_conf_activity++;
     /* A service loop interleaves psa_wait with get/reply; an unbounded run of
      * consecutive waits — polling misses or successes nobody consumes — is a

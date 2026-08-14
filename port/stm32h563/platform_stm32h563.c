@@ -1363,6 +1363,15 @@ void wt_platform_panic(void)
     }
 }
 
+void wt_platform_system_reset(void)
+{
+    wt_dsb();
+    WT_SCB_AIRCR_S = WT_SCB_AIRCR_SYSRESETREQ;
+    wt_dsb();
+    for (;;) {
+    }
+}
+
 uint32_t wt_platform_active_guest_id(void)
 {
     return g_active_guest;
