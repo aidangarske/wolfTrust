@@ -650,18 +650,68 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
         `TOTAL FAILED : 0`, `[EXPECT BKPT] Success`; `PASS: target/positive`
         and `PASS: target/crossdomain` rerun on the same tree; host
         `make test` green. Validation-log entry recorded.
-- P4. [ ] **Bucket (b): driver-partition MMIO + UART-IRQ isolation — +7 tests
-  (`i021,i047,i055,i057,i064,i065,i066`) (large).** Enforce a manifest-declared
-  device MMIO region as SP-exclusive at MPU_S AND GTZC/TZSC (today only a coarse
-  boot-time secure/NS split, `platform_stm32h563.c:183-194`) + real UART TX IRQ
-  to the driver SP's signal. i048-i053 live in (b∩c) — need both this and P5.
-- P5. [ ] **Bucket (c): reboot/NVM continuity — 41 tests (`i002,i004-i012,
-  i024-i027,i048-i054,i068-i090`, 14 overlap (b)) (large).** Real flash-backed NVM
-  surviving a Secure reset (0xFF at power-on) + a watchdog that resets on timeout
-  + whole-secure-image reset (`NVIC_SystemReset` absent today; panics spin forever,
-  `platform_stm32h563.c:1286-1299`); the NS image must cold-boot and resume from
-  the boot flag. This unlocks the PROGRAMMER_ERROR/panic-reboot tests and is the
-  hardest piece.
+- P4/P5. [ ] **Buckets (b)+(c): MMIO/IRQ isolation + reboot/NVM continuity.**
+  Scout finding (2026-08-14): of P4's 7 tests, **6 are `panic_test`s**
+  (`i047,i055,i057,i064,i065,i066` — deliberate programmer errors that pass only
+  if the SPM panics the offending SP and the framework then RESUMES); only
+  `i021` is a live UART-IRQ test. Nearly all of P5's 41 tests are the same
+  panic-reboot shape plus survive-reset NVM. So P4 and P5 share ONE keystone —
+  **panic → controlled reset → survive-reset NVM → val resumes from the boot
+  flag** — with a real emulator-feasibility gate. Decomposed below; the Keystone
+  (K) is done first, then P4/P5 test buckets hang off it. One M33MU-gated slice
+  at a time; host evidence before every target run.
+
+  - K. **Reboot-continuity keystone (panic→reset→resume).** The val panic_test
+    protocol: set a boot flag in NVM → induce the panic → on the NEXT boot val
+    reads the flag (`NVM_BOOT`/`NVM_PREVIOUS_TEST_ID`) and marks the panicked
+    check passed, continuing. So each panic test resets the whole image; a run
+    reboots once per panic test and resumes further each time. Today
+    `wt_platform_panic` spins (`bkpt; for(;;)`) and NVM is RAM-backed — neither
+    survives, so this is the gating subsystem.
+    - K1. [ ] **Reset feasibility probe (M33MU, GO/NO-GO).** Implement
+      `wt_platform_system_reset` (`NVIC_SystemReset`, AIRCR.SYSRESETREQ) behind a
+      `WT_RESET_PROBE` build flag: boot → write a sentinel to a reserved secure
+      flash word → trigger the reset → on reboot read the sentinel back. Confirm
+      the emulator (a) re-runs the wolfBoot→wolfTrust→guest chain on the reset
+      and (b) preserves the flash word. **If NO-GO, the entire panic-reboot
+      bucket is hardware-gated — document in the ledger and stop here; only
+      i021's non-reboot half and any pure-isolation checks remain reachable.**
+    - K2. [ ] **Flash-backed survive-reset NVM (host + M33MU).** Back the driver
+      NVMEM service (`DRIVER_NVMEM_SID`, P3b) with a reserved secure flash sector
+      instead of RAM, 0xFF at power-on, so val's boot flag + `NVM_TEST_DATA*`
+      survive a reset. Host test for erase/write/read/persist semantics; M33MU:
+      write NVM → K1 reset → read back intact. Needs the secure flash driver
+      already used for wolfBoot measurement.
+    - K3. [ ] **Controlled panic-reset in the SPM (host + M33MU).** On a Secure
+      Partition programmer error / panic, record the fault reason to NVM and call
+      `wt_platform_system_reset` instead of spinning — but ONLY in the
+      conformance image (`WT_CONFORMANCE`); production keeps fail-closed
+      quarantine (item 5 / task #26). Host test drives the panic→reset-request
+      decision; M33MU: induce one SP panic, confirm reboot.
+    - K4. [ ] **End-to-end resume proof (M33MU).** Un-skip ONE panic test
+      (`i047`) only: run → SP panics → reset → reboot → val reads the boot flag →
+      marks i047 passed → continues to the remaining schedule → clean
+      `[EXPECT BKPT] Success`. Proves the whole loop before scaling. Gate:
+      confboot with i047 included reaches its `Result=Passed` across a reboot.
+  - P4.1. [ ] **Six panic isolation tests (needs K).** Un-skip
+    `i047,i055,i057,i064,i065,i066`, wire into the schedule (gen_tests_list
+    panic mode), M33MU green across their reboots. Confirm each induces the SP
+    panic our SPM already raises (bad msg pointer, oversized vector, etc.).
+  - P4.2. [ ] **i021 UART-IRQ + `psa_eoi` (own feasibility gate; supersedes
+    task #13).** Probe whether M33MU delivers a USART peripheral NVIC line
+    (SysTick works, but a peripheral IRQ is unproven). If yes: route real UART TX
+    IRQ → driver SP's IRQ signal → `psa_wait`/`psa_eoi`. If no: hardware-gate it
+    like K1, document, keep `i021` skipped. Independent of the reboot keystone.
+  - P5.1. [ ] **Flash-NVM continuity, non-panic tests (needs K2).** The P5 tests
+    that only need survive-reset NVM, not a panic (`i002` PSA_POLL/state,
+    `i004-i012`, `i024-i027` where non-panic). Host + M33MU per increment.
+  - P5.2. [ ] **Panic-reboot P5 tests (needs K).** The PROGRAMMER_ERROR + panic
+    subset of `i048-i054,i068-i090`. Scale the K4 loop to the full panic set;
+    watch the reboot count and the per-test boot-flag resume.
+  - P5.3. [ ] **Watchdog-reset tests (own feasibility gate).** Any test that
+    exercises the watchdog specifically needs a WDG model that resets on timeout
+    (`platform_stm32h563.c` WDG is a no-op today; task-list P3b note). Probe
+    emulator WDG support; hardware-gate if absent.
 - P6. [ ] **Interrupt + scheduler completeness (large; needs P1).** Real
   partition IRQ delivery: FLIH asserts a `psa_signal_t` into a partition's
   `asserted_signals`, `psa_eoi` unmasks instead of panicking (`ffm_api.c:173-177`),
