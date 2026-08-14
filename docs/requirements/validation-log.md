@@ -658,6 +658,32 @@ conformance guest (`WT_RUN_CONFORMANCE`), so the production positive and
 crossdomain binaries are identical to those proven green on `48b63e6`; no
 rerun was performed.
 
+## Item 10 P3c-2 Phases A-C — doorbell + signal-mask scheduler completeness (host)
+
+Host `make test` green across three committed slices; no target run (box
+`wolf-prec5560` offline since 2026-08-13, so Phases D-F are blocked).
+
+- Phase A (`8f01063`): `psa_wait` signal-mask filtering locked against
+  regression. `tests/host/ffm` `test_wait_signal_mask` and `tests/host/spm_gate`
+  prove an out-of-mask asserted signal keeps a wait blocking and that
+  `psa_wait` returns only `asserted & mask`.
+- Phase B (`9c8781c`): i058 Check-1 doorbell state machine through the gate
+  (`test_gate_doorbell_state_machine`), plus the real POLL/BLOCK fix — the
+  `psa_wait` `timeout` is threaded through `wt_spm_call_t` and
+  `wt_spm_call_would_block` so `PSA_POLL` returns instead of blocking (i058's
+  final poll would otherwise hang). spm_gate 90 checks.
+- Phase C (`52d3f67`): doorbell-driven origination with masked starvation, the
+  portable core of i063 (`test_doorbell_origination`). A doorbell-woken client
+  originates an outbound connect through the SP-as-client gate; it stays starved
+  on a masked server signal across the server's masked waits and is delivered
+  only on an explicit wait, completing `CONNECTION_REFUSED`. The existing gate +
+  runtime already carry this — no scheduler change was required — so the
+  outstanding target faults are choreography/epilogue bugs, not a missing
+  capability. spm_gate 126 checks.
+
+The coroutine choreography these prove out (`wt_spm_sched_dispatch`) is
+Armv8-M-only and remains to be validated on M33MU (Phases D-F).
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

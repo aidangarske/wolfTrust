@@ -591,10 +591,64 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     manifest MMIO grant, which is P4's ingestion mechanism -> moved to P4;
     WDG stays a no-op (M33MU models no watchdog; timers are P6). Gate:
     confboot `TOTAL PASSED : 2` with the shared store live.
-  - P3c. [ ] **Full val dispatcher + test list; iterate the non-IRQ /
+  - P3c. [~] **Full val dispatcher + test list; iterate the non-IRQ /
     non-isolation subset to green** (`val_dispatcher`, `.acs_test_info` publish,
     `execute_non_secure_tests` + `switch_to_secure_client`). Exclude IRQ
     (`psa_eoi`) and MMIO-isolation tests (P4). M33MU-gated per green increment.
+    - P3c-1. [x] **First subset green (i001, i003, i071, i088).** Full test
+      list wired; `gen_tests_list` range `1 90` with a build-time `skip`
+      schedule (mk `testsuite_sched.db`, DB untouched) dropping the tests that
+      need a runtime capability we lack; `memmove` via `libc_stubs.c`; pid.h
+      bare-name aliases (`CLIENT_PARTITION`); `PSA_LIFECYCLE_*` masks. Gate:
+      confboot `TOTAL PASSED : 4`. (Blocked on the P3c-3 epilogue USGFLT — see
+      below — so not yet landed.)
+    - P3c-2. [ ] **Doorbell + psa_wait signal-mask scheduler completeness —
+      land i058, i063** (pulls P6 #35 scope forward for these two; i021/i067
+      stay deferred for IRQ/heap). The psa_wait signal-mask *primitive* is
+      already correct (`wt_ffm_wait` returns NOT_READY on `(asserted&mask)==0`;
+      `wt_spm_slot_ready` wakes only on a masked signal) — the gap is
+      cross-partition doorbell-driven origination plus the three-party
+      interleave, decomposed into ordered phases:
+      - Phase A. [x] **Lock in psa_wait signal-mask semantics (host)**
+        (`8f01063`). `tests/host/ffm` `test_wait_signal_mask` +
+        `tests/host/spm_gate` regressions: an out-of-mask asserted signal keeps
+        the wait blocking; `psa_wait` returns only `asserted & mask`. Guards the
+        already-correct primitive. `make test` green.
+      - Phase B. [x] **Doorbell state machine (host)** (`9c8781c`). Gate test
+        `test_gate_doorbell_state_machine` proves the i058 Check-1 rule end to
+        end (notify->DOORBELL, stays asserted across a second wait, `psa_clear`
+        drops it). Also closed the real POLL/BLOCK gap: threaded the `psa_wait`
+        `timeout` through `wt_spm_call_t` so `PSA_POLL` returns instead of
+        blocking (i058's final poll); `wt_spm_call_would_block` now honors it.
+        (Task #14.) `make test` green (spm_gate 90 checks).
+      - Phase C. [x] **Doorbell-driven origination in the scheduler (host)**
+        (`52d3f67`). `test_doorbell_origination` models i063's portable core: a
+        doorbell-woken client originates an outbound connect through the
+        SP-as-client gate; it asserts a server signal the server masks out, so
+        it stays starved across the server's masked waits and is delivered only
+        when the server waits on it, completing with `CONNECTION_REFUSED`.
+        **Finding: the existing gate + runtime already carry this — no
+        `wt_spm_sched_dispatch`/`wt_spm_slot_ready` change was needed.** So the
+        target faults below are coroutine-choreography/epilogue bugs, not a
+        missing capability. `make test` green (spm_gate 126 checks).
+      - Phase D. [ ] **Fix the three-party stale-handle race (target).** Build
+        wiring is staged (uncommitted): i058/i063 re-added to `CONF_SEC_OBJS`/
+        `CONF_UPSTREAM_SRCS` + pattern rules, dropped from the `skip` sed, NS
+        sources in guest0_psa CMakeLists, runner assertion `TOTAL PASSED : 6`.
+        **Blocked: box `wolf-prec5560` offline (Tailscale, last seen 2026-08-13).**
+        Next box cycle: capture the `REPLY`/`HANDLE` fault dump (op=6/err=-604 =
+        `message_from_handle` rejecting on `allocated==0 || active==0 ||
+        generation` mismatch), fix the message/handle lifecycle bug in the
+        NS-driven-server + client-irritator interleave. Gate: i058, i063
+        `Result=Passed` under confboot.
+      - Phase E. [ ] **Fix the NS-side epilogue USGFLT (target).** Diagnose the
+        usage fault seen after all tests pass on the guest side (4-test run
+        2026-08-13, `fault_pc` in NS flash, `exc_ret=0xffffffb8`); independent
+        of the doorbell but blocks a clean green for P3c-1 too.
+      - Phase F. [ ] **Full subset green + close P3 (target).** 6-test schedule
+        (i001,i003,i058,i063,i071,i088), confboot `TOTAL PASSED : 6`,
+        positive+crossdomain regression, host `make test`, validation-log
+        entry, tick P3c-1/P3c-2/P3c and P3. Commit.
 - P4. [ ] **Bucket (b): driver-partition MMIO + UART-IRQ isolation — +7 tests
   (`i021,i047,i055,i057,i064,i065,i066`) (large).** Enforce a manifest-declared
   device MMIO region as SP-exclusive at MPU_S AND GTZC/TZSC (today only a coarse
