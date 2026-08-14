@@ -110,6 +110,18 @@
 #define WT_CONF_SP_DATA_BASE     (WT_RAM_S_BASE + 0x0006B000u)  /* 0x30093000 */
 #define WT_CONF_SP_DATA_SIZE     0x00003000u                    /* 12 KiB */
 
+/* Per-partition pseudo-MMIO holes at the top of the CONFDATA window (P4/K4).
+ * Each belongs to exactly one Arm conformance partition; the scheduler grants
+ * every other SP the window WITHOUT its hole, so the L3 MMIO-isolation panic
+ * tests (i047/i055/i057) see a genuine out-of-domain access. MUST match
+ * SERVER/DRIVER_PARTITION_MMIO_0_* in conformance/pal_config.h (guarded by an
+ * #error cross-check in conformance/conf_nvm_sync.c) and stay above _econfbss
+ * (link-time assert in runner/secure.ld). */
+#define WT_CONF_SERVER_MMIO_BASE (WT_CONF_SP_DATA_BASE + 0x00002C00u) /* 0x30095C00 */
+#define WT_CONF_SERVER_MMIO_SIZE 0x00000100u
+#define WT_CONF_DRV_MMIO_BASE    (WT_CONF_SP_DATA_BASE + 0x00002E00u) /* 0x30095E00 */
+#define WT_CONF_DRV_MMIO_SIZE    0x00000100u
+
 #define WT_SHARED_STATUS_ADDR    0x20000000u
 
 /* Per-guest CMSE shared transport buffer for wolfHSM. Sits inside each

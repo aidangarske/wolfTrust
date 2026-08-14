@@ -795,6 +795,64 @@ handle allocation bounded/reused.
 isolation. i047 build wiring is in; the confboot schedule asserts 7 so the gate
 is RED until the isolation work lands. Deep target work — Fable-class.
 
+## P4/P5 K4 second pass — MMIO carve landed; blocked on an M33MU emulator defect (2026-08-14)
+
+**The per-SP MMIO isolation carve is implemented and works.** Every conformance
+SP still gets the shared CONFDATA window, but the per-partition pseudo-MMIO
+holes at its top are granted only to their owner (`wt_spm_conf_grant` +
+per-partition carve in `wt_spm_sched_add`, `src/arch/armv8m/spm_svc.c`;
+authoritative constants `WT_CONF_SERVER/DRV_MMIO_*` in
+`port/stm32h563/memory_map.h`; `#error` cross-check against `pal_config.h` in
+`conf_nvm_sync.c`; link-time overflow assert in `runner/secure.ld`). The SERVER
+MMIO was relocated `0x30094E00 → 0x30095C00` because conf `.bss` had grown over
+the old address (`_econfbss = 0x300954DC`). With the carve, a WT_CONF_TRACE
+build ran the i047 flow end-to-end: server `psa_get(0x30095E00)` → out-of-domain
+→ `must_panic` → `wt_platform_system_reset` → **emulator rebooted through
+wolfBoot and re-ran the guest** (second VTOR_NS writes + NVIC reads in the
+trace). The panic→reset→reboot mechanism is real on target.
+
+**A real cross-guest bug was found and fixed on the way:**
+`wt_dispatch_hsm_tasklet` resumed a guest's blocked secure tasklet without
+reinstating that guest's NS-banked registers; the tasklet completes back to NS
+via BXNS (not the exception-return path), so the previous guest's
+`CONTROL_NS`/`MSP_NS`/`PSPLIM_NS` leaked in (`wt_jump_to_ns` explicitly launches
+guests with `CONTROL_NS=0`). Fix: `wt_platform_restore_ns_bank` (mirrors
+`wt_exception_return_ns_msp`'s NS-bank restore) called before
+`wt_tasklet_resume` (`src/monitor.c`). K2's flash-backed NVM had widened the
+exposure window (sector erase + program per NVMEM write vs the old RAM store).
+
+**The remaining blocker is an emulator defect, not wolfTrust logic.** The
+untraced confboot deterministically stops at virtual cycle ~14,244,2xx (4 runs,
+byte-identical dumps) during boot-1 i047 machinery: the NS guest faults
+`CFSR=0x00010082` (UNDEFINSTR + stale DACCVIOL) at `pal_nvm_write+0x2c` — a
+plain `add r3, sp, #8` that cannot fault on silicon. `--record` instruction
+traces show: (a) the NS thread entered the FF-M veneer on its PSP
+(`r7=0x20007bc4` frame) and resumed after the secure round trip with the MSP
+selected (`sp=0x20005388`, `ctrl_ns=0`); (b) the final recorded events are a
+SECURE SVC handler (IPSR=0x0B, secure PC `0x0c0636xx`) executing with the **NS
+stack pointer bank selected** (`sp = msp_ns + 0x14 = 0x200053c8`) while the
+registers still hold the scrubbed pre-BXNS veneer state
+(`r1=r2=r3=r12=lr=0x080808ca`) — i.e. an SVC taken from secure thread mode at
+the BXNS boundary stacked onto the NS bank. wolfTrust cannot select the SP bank
+on exception entry; that is the CPU model. Reproduces identically on the pinned
+emulator (`c84792f7`) AND current master (`f96ab8e`). A WT_CONF_TRACE build
+passes because printk's UART stalls between the veneer return and the next
+secure entry change the emulator's event interleaving — consistent with an
+event-ordering defect at the S↔NS boundary, likely around the monitor's
+`svc #0x7F` guest-return adjacent to BXNS.
+
+**Evidence:** box `wolf-prec5560`: `k4-carve.log` (carved run, fault),
+`k4-nsbank.log` (fix run, same fault → NS-bank leak was real but not this
+trigger), `k4-rec.log` + `k4-bigtrace.log` (instruction traces),
+`k4-master.log` (current-master repro). Reproducer: the confboot images from
+this tree + `--record --record-quiet --record-dump 120`.
+
+**Next:** report the reproducer upstream (danielinux/m33mu) and/or patch the
+emulator locally; alternatively find a wolfTrust-side sequence change that
+avoids the SVC-adjacent-to-BXNS trigger (Fable-class). Gate stays RED on
+confboot-with-i047 until then; the keystone code (K1–K3 + carve + NS-bank fix)
+is correct and stays in.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

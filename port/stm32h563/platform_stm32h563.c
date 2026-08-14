@@ -1372,6 +1372,27 @@ void wt_platform_system_reset(void)
     }
 }
 
+/* Rewrite the NS-banked stack/control registers from a guest's saved context.
+ * A guest resumed through its blocked secure tasklet returns to NS via BXNS,
+ * not the exception-return path, so nothing else reinstates its NS bank — the
+ * previous guest's CONTROL_NS/MSP_NS would leak in and the thread resumes on
+ * the wrong stack. Mirrors wt_exception_return_ns_msp (MSPLIM_NS stays 0). */
+void wt_platform_restore_ns_bank(const wt_guest_context_t* context)
+{
+    uint32_t zero = 0u;
+
+    __asm volatile(
+        "msr psp_ns, %0     \n"
+        "msr msp_ns, %1     \n"
+        "msr psplim_ns, %2  \n"
+        "msr msplim_ns, %3  \n"
+        "msr control_ns, %4 \n"
+        "isb                \n"
+        :
+        : "r"(context->psp_ns), "r"(context->msp_ns),
+          "r"(context->psplim_ns), "r"(zero), "r"(context->control_ns));
+}
+
 uint32_t wt_platform_active_guest_id(void)
 {
     return g_active_guest;

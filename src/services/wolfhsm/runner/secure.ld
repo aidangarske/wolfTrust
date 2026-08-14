@@ -112,6 +112,11 @@ SECTIONS {
 
   ASSERT(ORIGIN(CONFDATA) == (ORIGIN(RAM) + LENGTH(RAM)),
          "conformance SP data must sit directly above the secure RAM window")
+  /* The top 1 KiB of CONFDATA holds the per-partition pseudo-MMIO holes
+   * (WT_CONF_SERVER/DRV_MMIO in memory_map.h); real data crossing into them
+   * would be carved out of other partitions' domains and fault at runtime. */
+  ASSERT(_econfbss <= (ORIGIN(CONFDATA) + 0x2C00),
+         "conformance data/bss overflows into the reserved MMIO holes")
   ASSERT(ORIGIN(SPSTACKS) == (ORIGIN(CONFDATA) + LENGTH(CONFDATA)),
          "SP secure stacks must sit directly above the conformance data window")
 }

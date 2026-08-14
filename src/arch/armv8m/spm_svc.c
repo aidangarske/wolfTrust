@@ -35,6 +35,10 @@
 
 #include "memory_map.h"
 
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+#include "psa_manifest/pid.h"
+#endif
+
 /* Table of scheduled Secure Partitions, each keyed by its coroutine. The SVC
  * dispatcher resolves the caller from wt_co_current() so every SP runs the same
  * transport with its own manifest MPU thread table. Only `table` is needed at
@@ -424,6 +428,23 @@ static int wt_spm_sched_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                               WT_FFM_ERROR_STATE;
 }
 
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+/* Append one RW grant segment to an SP's thread table (skips empty segments,
+ * fails closed by granting nothing when the table is full). */
+static size_t wt_spm_conf_grant(wt_secure_domain_t* table, size_t count,
+                                uintptr_t base, uintptr_t end)
+{
+    if (base < end && count < WT_MAX_MPU_REGIONS) {
+        table->regions[count].base = base;
+        table->regions[count].size = (uint32_t)(end - base);
+        table->regions[count].attributes = WT_MEM_ATTR_READ |
+                                           WT_MEM_ATTR_WRITE;
+        count++;
+    }
+    return count;
+}
+#endif
+
 int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
                      wt_spm_sp_entry_fn entry, void* arg)
 {
@@ -431,6 +452,9 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
     const wt_mpu_region_t* stack_region;
     size_t region_count;
     size_t i;
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    uintptr_t conf_seg;
+#endif
 
     if (runtime == NULL || runtime->manifest == NULL || entry == NULL) {
         return WT_FFM_ERROR_ARGUMENT;
@@ -480,14 +504,25 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     /* Hosted Arm partitions read their val_api/psa_api tables from .data, which
      * the linker places in the shared CONFDATA window; grant it so the SP
-     * reaches its own data while SPM RAM stays denied. */
-    if (region_count < WT_MAX_MPU_REGIONS) {
-        slot->table.regions[region_count].base = WT_CONF_SP_DATA_BASE;
-        slot->table.regions[region_count].size = WT_CONF_SP_DATA_SIZE;
-        slot->table.regions[region_count].attributes =
-            WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
-        region_count++;
+     * reaches its own data while SPM RAM stays denied. The per-partition
+     * pseudo-MMIO holes at the top of the window (memory_map.h) each belong to
+     * exactly one partition — every other SP gets the window with that hole
+     * carved out, so the L3 MMIO-isolation panic tests (i047/i055/i057) hit a
+     * genuine out-of-domain access and the must-panic reset path fires. */
+    conf_seg = WT_CONF_SP_DATA_BASE;
+    if (partition_id != SERVER_PARTITION_ID) {
+        region_count = wt_spm_conf_grant(&slot->table, region_count, conf_seg,
+                                         WT_CONF_SERVER_MMIO_BASE);
+        conf_seg = WT_CONF_SERVER_MMIO_BASE + WT_CONF_SERVER_MMIO_SIZE;
     }
+    if (partition_id != DRIVER_PARTITION_ID) {
+        region_count = wt_spm_conf_grant(&slot->table, region_count, conf_seg,
+                                         WT_CONF_DRV_MMIO_BASE);
+        conf_seg = WT_CONF_DRV_MMIO_BASE + WT_CONF_DRV_MMIO_SIZE;
+    }
+    region_count = wt_spm_conf_grant(&slot->table, region_count, conf_seg,
+                                     WT_CONF_SP_DATA_BASE +
+                                     WT_CONF_SP_DATA_SIZE);
 #endif
     slot->table.region_count = region_count;
 

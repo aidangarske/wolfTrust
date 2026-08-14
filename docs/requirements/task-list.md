@@ -713,22 +713,25 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       Host: `spm_gate` suite asserts `must_panic` is set on the three bad-buffer
       ops and clear on valid / zero-length transfers (133 checks). The target
       panic→reboot proof is K4's single M33MU run (i047).
-    - K4. [~] **End-to-end resume proof — BLOCKED on per-SP MMIO isolation
-      (2026-08-14).** i047 wired in (guest + secure objects + pattern rule +
-      schedule marker strip + confboot asserts 7); the full schedule runs and
-      exits clean at 6/7. i047 is the one failure, and the reason is structural,
-      not the reboot path: i047's server `psa_get`s the "invalid" pointer
-      `PLATFORM_DRIVER_PARTITION_MMIO_START 0x30095E00`, which sits inside the
-      SHARED CONFDATA window (`0x30093000..0x30096000`) that every conformance
-      SP's domain is granted (`spm_svc.c:485`) — so it is NOT out-of-domain for
-      the SERVER, `must_panic` never fires, and the connect returns `-130`
-      instead of resetting. **i047/i055/i057 are MMIO-isolation tests**; they
-      need the DRIVER's MMIO outside the SERVER domain (task #33 / P4 bucket b)
-      before the reboot keystone can be demonstrated through them. Secondary: a
-      timing heisenbug tied to unbounded FF-M handle growth (176 connects,
-      +128/handle, no reuse). Full analysis in validation-log.md. The reboot
-      primitives (K1–K3) are done and correct; K4 waits on MMIO isolation.
-      Fable-class.
+    - K4. [~] **Per-SP MMIO carve LANDED and panic→reset→reboot PROVEN;
+      blocked on an M33MU emulator defect (2026-08-14, second pass).** The
+      CONFDATA grant now carves the per-partition pseudo-MMIO holes out of every
+      other SP's domain (`wt_spm_conf_grant`, memory_map.h constants, pal_config
+      cross-`#error`, secure.ld overflow assert; SERVER MMIO relocated to
+      `0x30095C00` clear of `_econfbss`). Traced run: i047's server
+      `psa_get(0x30095E00)` → out-of-domain → `must_panic` → SPM reset →
+      emulator REBOOTED through wolfBoot (second VTOR/NVIC trace) — the whole
+      keystone works. Bonus real fix: `wt_dispatch_hsm_tasklet` now reinstates
+      the guest's NS-banked registers (`wt_platform_restore_ns_bank`) before
+      resuming its secure tasklet — previously the prior guest's
+      `CONTROL_NS/MSP_NS` leaked across the BXNS completion path. REMAINING
+      BLOCKER: deterministic M33MU mis-execution at the S↔NS boundary (secure
+      SVC stacking onto the NS SP bank right after the veneer BXNS) faults the
+      untraced build at cycle ~14.24M; reproduces on pinned `c84792f7` AND
+      master `f96ab8e`; a WT_CONF_TRACE build passes (event-ordering
+      sensitivity). Full dossier + reproducer in validation-log.md. Next:
+      upstream emulator report/fix or a wolfTrust-side trigger-avoidance
+      (Fable-class). Gate RED on confboot-with-i047 until then.
   - P4.1. [ ] **Six panic isolation tests (needs K).** Un-skip
     `i047,i055,i057,i064,i065,i066`, wire into the schedule (gen_tests_list
     panic mode), M33MU green across their reboots. Confirm each induces the SP

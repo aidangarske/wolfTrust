@@ -28,7 +28,24 @@
 #include "wolftrust/arch/armv8m/spm_svc.h"
 #include "wolftrust/spm_gate.h"
 
+#include "memory_map.h"
+#include "pal_config.h"
+
 #include <string.h>
+
+/* The scheduler carves these holes out of other partitions' domains using the
+ * memory_map.h constants; the Arm tests probe them via the pal_config.h ones.
+ * A drift between the two silently breaks the L3 MMIO-isolation panic tests. */
+#if SERVER_PARTITION_MMIO_0_START != WT_CONF_SERVER_MMIO_BASE || \
+    SERVER_PARTITION_MMIO_0_END != (WT_CONF_SERVER_MMIO_BASE + \
+                                    WT_CONF_SERVER_MMIO_SIZE)
+#error "pal_config SERVER MMIO does not match memory_map WT_CONF_SERVER_MMIO"
+#endif
+#if DRIVER_PARTITION_MMIO_0_START != WT_CONF_DRV_MMIO_BASE || \
+    DRIVER_PARTITION_MMIO_0_END != (WT_CONF_DRV_MMIO_BASE + \
+                                    WT_CONF_DRV_MMIO_SIZE)
+#error "pal_config DRIVER MMIO does not match memory_map WT_CONF_DRV_MMIO"
+#endif
 
 int wt_conf_nvm_sync(uint8_t *buf, uint32_t len, int store)
 {

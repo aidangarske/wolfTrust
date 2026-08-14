@@ -139,6 +139,9 @@ timeout_s=60
 if [ "$scenario" = "restart" ]; then
   quit_flag=""
   timeout_s=40
+elif [ "$scenario" = "confboot" ]; then
+  # i047's must-panic reset reboots the whole chain mid-suite: two boots.
+  timeout_s=90
 fi
 
 log="$repo/ci-m33mu-$scenario.log"

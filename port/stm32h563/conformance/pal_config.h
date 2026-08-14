@@ -55,9 +55,13 @@
 #define NSPE_MMIO_0_END                        0x20038F1F
 #define NSPE_MMIO_0_PERMISSION                 TYPE_READ_WRITE
 
+/* Per-partition pseudo-MMIO holes carved from the top of the shared CONFDATA
+ * window, above the conformance .data/.bss fill. MUST match the
+ * WT_CONF_*_MMIO_* constants in port/stm32h563/memory_map.h (an #error
+ * cross-check in conf_nvm_sync.c enforces it). */
 #define SERVER_PARTITION_MMIO_NUM              1
-#define SERVER_PARTITION_MMIO_0_START          0x30094E00
-#define SERVER_PARTITION_MMIO_0_END            0x30094F00
+#define SERVER_PARTITION_MMIO_0_START          0x30095C00
+#define SERVER_PARTITION_MMIO_0_END            0x30095D00
 #define SERVER_PARTITION_MMIO_0_PERMISSION     TYPE_READ_WRITE
 
 #define DRIVER_PARTITION_MMIO_NUM              1

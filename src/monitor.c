@@ -233,6 +233,10 @@ static void wt_dispatch_hsm_tasklet(wt_guest_id_t guest_id)
     g_scheduler.current_guest = guest_id;
     g_scheduler.current_rep = WT_SCHED_REP_HSM;
     wt_platform_start_secure_timer(config->timeslice_ms);
+    /* The tasklet completes back into this guest's NS thread via BXNS, not an
+     * exception return, so its NS bank must be reinstated here or it resumes
+     * on the previous guest's CONTROL_NS/MSP_NS. */
+    wt_platform_restore_ns_bank(&runtime->context);
     (void)wt_tasklet_resume(tasklet);
 }
 #endif

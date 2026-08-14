@@ -88,6 +88,11 @@ void wt_platform_panic(void) __attribute__((noreturn));
  * by the conformance panic-reset path (P5 K3) so val's boot-flag resume can run
  * after reboot; production keeps the fail-closed quarantine in wt_platform_panic. */
 void wt_platform_system_reset(void) __attribute__((noreturn));
+
+/* Reinstate a guest's NS-banked stack/control registers before resuming its
+ * blocked secure tasklet: that path returns to NS via BXNS, bypassing the
+ * exception-return restore, so the previous guest's bank would leak in. */
+void wt_platform_restore_ns_bank(const wt_guest_context_t* context);
 #ifdef WT_ENGINE_HSM
 bool wt_platform_secure_service_active(void);
 void wt_platform_note_hsm_wait_skip(wt_guest_id_t guest_id);
