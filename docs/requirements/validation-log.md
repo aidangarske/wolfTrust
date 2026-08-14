@@ -849,9 +849,57 @@ this tree + `--record --record-quiet --record-dump 120`.
 
 **Next:** report the reproducer upstream (danielinux/m33mu) and/or patch the
 emulator locally; alternatively find a wolfTrust-side sequence change that
-avoids the SVC-adjacent-to-BXNS trigger (Fable-class). Gate stays RED on
-confboot-with-i047 until then; the keystone code (K1–K3 + carve + NS-bank fix)
-is correct and stays in.
+avoids the SVC-adjacent-to-BXNS trigger (Fable-class). Tracked as task #63;
+i047 is parked behind it (schedule back to 6) so the confboot gate stays green
+while the keystone code (K1–K3 + carve + NS-bank fix) remains in-tree.
+
+## M33MU emulator defect register
+
+Defects in the pinned M33MU emulator that block conformance work. These are
+CPU-model bugs, not wolfTrust logic; each carries a deterministic reproducer.
+Emulator: `github.com/danielinux/m33mu`, pinned `M33MU_REF`
+`c84792f7f9e9ce24cf94ffc492c36231de1854c2` (tests/target/run_m33mu_scenario.sh).
+
+### M33MU-1: secure SVC at the BXNS boundary stacks onto the NS SP bank (OPEN)
+
+- **Symptom:** with i047 in the confboot schedule, the untraced image
+  deterministically stops at virtual cycle ~14,244,2xx: the NS guest reports
+  `CFSR=0x00010082` (UNDEFINSTR + stale DACCVIOL) at `pal_nvm_write+0x2c`
+  (`add r3, sp, #8` — cannot fault on silicon), `exc_ret=0xFFFFFFB8`,
+  `ctrl_ns=0` while the thread's frame registers still point at its PSP stack.
+- **Mechanism (from `--record` traces):** the NS thread enters an FF-M NSC
+  veneer on PSP_NS; after the secure round trip the MSP is selected. The final
+  recorded events show a SECURE SVC handler (IPSR=0x0B, PC `0x0c0636xx`)
+  executing with the NS stack pointer bank selected (`sp = msp_ns + 0x14`)
+  while registers hold the scrubbed pre-BXNS veneer state
+  (`r1=r2=r3=r12=lr=0x080808ca`) — an SVC taken from secure thread mode
+  adjacent to the BXNS transition stacked onto the wrong security state's SP.
+  wolfTrust cannot influence exception-entry bank selection.
+- **Reproduce:** tree @ `6bb8493` with i047 restored to the schedule (drop the
+  `panic_test` marker via the mk sed) and confboot asserting 7. Build the
+  confboot images (`WT_CONFORMANCE=1`), then:
+  `m33mu wolfboot.bin wolftrust_v1_signed.bin:0x60000 zephyr.bin:0x80000
+  freertos_guest1.bin:0xA0000 --uart-stdout --expect-bkpt 0x7f
+  --quit-on-faults --timeout 90 --record --record-quiet --record-dump 120`.
+  Byte-identical fault across 4 runs; reproduces on pinned `c84792f7` and
+  master `f96ab8e`. A `WT_CONF_TRACE` guest build passes — printk UART stalls
+  change the emulator's event interleaving (ordering sensitivity).
+- **Evidence:** box `wolf-prec5560`: `k4-carve.log`, `k4-nsbank.log`,
+  `k4-rec.log`, `k4-bigtrace.log` (traces), `k4-master.log` (master repro).
+- **Impact:** blocks K4 (i047) and P4.1 (i055/i057 + panic set). Tracked:
+  task #63.
+- **Parked state:** i047 removed from the schedule (mk sed reverted; confboot
+  asserts 6 again) so the gate is green while the keystone stays in-tree.
+  Verified on this tree: host `make test` green and `PASS: target/positive`
+  (k4-positive.log, carve + NS-bank fix included). The confboot-at-6 rerun on
+  the parked schedule is PENDING — the box dropped offline mid-wrap; run
+  `tests/target/run_m33mu_scenario.sh confboot` when it returns.
+
+### M33MU-2 (candidate, unconfirmed): peripheral-IRQ NVIC delivery unproven
+
+- P4.2/i021 needs a USART peripheral NVIC line delivered to the NS guest;
+  SysTick works, peripheral IRQ delivery has never been exercised. To be
+  probed when P4.2 starts (own feasibility gate; task #59).
 
 ## Phase gate rule
 
