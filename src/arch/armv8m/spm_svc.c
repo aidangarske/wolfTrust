@@ -67,6 +67,12 @@ static uint32_t wt_spm_sched_diag_word(const wt_ffm_runtime_t* runtime,
                                        int which);
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+/* Privileged flash NVM sync, implemented in the port's hsm_flash.c. Declared
+ * here to keep the wolfHSM flash headers out of the arch transport. */
+int wt_conf_nvm_flash_sync(uint8_t *buf, uint32_t len, int store);
+#endif
+
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 /* Conformance-only hang tripwires: silent stalls on target are undebuggable,
  * so convert them into diag-trap register dumps. Activity is any SVC or
  * NS-driven dispatch; a non-blocking NOT_READY wait repeated without bound is
@@ -111,6 +117,26 @@ void wt_spm_svc_entry(uint32_t* frame)
         frame[0] = (uint32_t)WT_FFM_ERROR_ARGUMENT;
         return;
     }
+
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    /* Platform NVM service (P5 K2): the unprivileged DRIVER partition cannot
+     * touch the flash controller, so it traps its shadow buffer here for the
+     * privileged sync. Validate the buffer inside the caller's domain (written
+     * on load, read on store), run the flash driver, and return without ever
+     * entering the neutral FF-M gate. */
+    if (call->op == WT_SPM_OP_CONF_NVM_SYNC) {
+        int nvm_ret = WT_FFM_ERROR_BUFFER;
+
+        if (wt_secure_domain_contains(&slot->table, (uintptr_t)call->buffer,
+                call->num_bytes, call->call_type == 0 ? 1 : 0) != 0) {
+            nvm_ret = wt_conf_nvm_flash_sync((uint8_t*)call->buffer,
+                          (uint32_t)call->num_bytes, call->call_type);
+        }
+        call->ret_int = nvm_ret;
+        frame[0] = (uint32_t)WT_FFM_SUCCESS;
+        return;
+    }
+#endif
 
     /* The caller's identity is the scheduled slot's, never the SP-supplied
      * field: a partition cannot impersonate another through the gate. */

@@ -548,3 +548,41 @@ const void *wt_hsm_flash_config(void)
 {
     return &g_hsm_flash_cfg;
 }
+
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+static const wt_hsm_flash_config_t g_conf_nvm_cfg = {
+    .base = WT_CONF_NVM_FLASH_BASE_S,
+    .size = WT_CONF_NVM_FLASH_SIZE,
+    .sector_size = WT_FLASH_SECTOR_SIZE,
+    .program_unit = 16u,
+};
+static wt_hsm_flash_context_t g_conf_nvm_ctx;
+static bool g_conf_nvm_ready;
+
+int wt_conf_nvm_flash_sync(uint8_t *buf, uint32_t len, int store)
+{
+    int ret;
+
+    if (buf == NULL || len == 0u || len > g_conf_nvm_cfg.size ||
+            (len % g_conf_nvm_cfg.program_unit) != 0u) {
+        return -1;
+    }
+    if (!g_conf_nvm_ready) {
+        if (wt_hsm_flash_init(&g_conf_nvm_ctx, &g_conf_nvm_cfg) != WH_ERROR_OK) {
+            return -1;
+        }
+        g_conf_nvm_ready = true;
+    }
+    if (store == 0) {
+        ret = wt_hsm_flash_read(&g_conf_nvm_ctx, 0u, len, buf);
+    }
+    else {
+        ret = wt_hsm_flash_erase(&g_conf_nvm_ctx, 0u,
+                                 g_conf_nvm_cfg.sector_size);
+        if (ret == WH_ERROR_OK) {
+            ret = wt_hsm_flash_program(&g_conf_nvm_ctx, 0u, len, buf);
+        }
+    }
+    return (ret == WH_ERROR_OK) ? 0 : -1;
+}
+#endif /* WT_CONFORMANCE */

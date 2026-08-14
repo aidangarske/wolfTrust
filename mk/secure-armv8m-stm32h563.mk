@@ -276,6 +276,7 @@ CONF_SEC_OBJS := \
     $(BUILD_DIR)/conf_sec_val_driver_service_apis.o \
     $(BUILD_DIR)/conf_sec_val_log.o \
     $(BUILD_DIR)/conf_sec_pal_driver_intf.o \
+    $(BUILD_DIR)/conf_sec_conf_nvm_sync.o \
     $(BUILD_DIR)/conf_sec_test_i001.o \
     $(BUILD_DIR)/conf_sec_test_supp_i001.o \
     $(BUILD_DIR)/conf_sec_test_i003.o \

@@ -685,12 +685,21 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       hardware-gated.** `wt_platform_system_reset` is built in K3 (where it runs
       through the production SPM path); the first target run of reset lands in
       K3/K4, not a disposable probe. Ledger: validation-log.md.
-    - K2. [ ] **Flash-backed survive-reset NVM (host + M33MU).** Back the driver
-      NVMEM service (`DRIVER_NVMEM_SID`, P3b) with a reserved secure flash sector
-      instead of RAM, 0xFF at power-on, so val's boot flag + `NVM_TEST_DATA*`
-      survive a reset. Host test for erase/write/read/persist semantics; M33MU:
-      write NVM → K1 reset → read back intact. Needs the secure flash driver
-      already used for wolfBoot measurement.
+    - K2. [x] **Flash-backed survive-reset NVM — host-proven + conformance
+      cross-build clean (2026-08-14).** The DRIVER partition's NVMEM PAL
+      (`pal_nvmem_*`) now keeps a RAM shadow loaded from a reserved secure-flash
+      sector (`WT_CONF_NVM_FLASH_BASE_S`, one sector below the wolfHSM NVM) at
+      first use and writes through on every write. The unprivileged SP reaches
+      the flash controller through a `WT_CONFORMANCE`-only NVM-sync op
+      intercepted in the arch SVC layer (`wt_spm_svc_entry`) before the neutral
+      FF-M gate; the flash erase/program stays in the tested `hsm_flash.c`
+      (`wt_conf_nvm_flash_sync`). Host suite `tests/host/flash_nvm` drives the
+      real PAL against a faithful flash model — write-through, whole-sector RMW
+      preserves other fields, and reload-after-simulated-reset all green. The
+      cross-reset **M33MU** proof (write NVM → real SYSRESETREQ → read back)
+      lands in K4, where reset runs through the production panic path. Reserved
+      sector, gate op, and hsm_flash primitive all compile+link clean in the
+      conformance image (no warnings).
     - K3. [ ] **Controlled panic-reset in the SPM (host + M33MU).** On a Secure
       Partition programmer error / panic, record the fault reason to NVM and call
       `wt_platform_system_reset` instead of spinning — but ONLY in the

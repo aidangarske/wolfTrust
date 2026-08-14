@@ -61,6 +61,13 @@
 #define WT_HSM_NVM_FLASH_BASE_S    0x0C1FC000u
 #define WT_HSM_NVM_FLASH_SIZE      0x00004000u
 
+/* Conformance-only survive-reset NVM (P5 K2): one reserved sector directly
+ * below the wolfHSM NVM store, backing the Arm DRIVER partition's NVMEM so
+ * val's boot flag survives an AIRCR.SYSRESETREQ reboot. */
+#define WT_CONF_NVM_FLASH_BASE_NS  0x081FA000u
+#define WT_CONF_NVM_FLASH_BASE_S   0x0C1FA000u
+#define WT_CONF_NVM_FLASH_SIZE     0x00002000u
+
 #define WT_RAM_NS_BASE           0x20000000u
 #define WT_GUEST0_RAM_BASE       0x20000000u
 #define WT_GUEST1_RAM_BASE       0x20008000u

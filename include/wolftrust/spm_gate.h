@@ -45,6 +45,13 @@ typedef enum wt_spm_op {
     WT_SPM_OP_CONNECT,
     WT_SPM_OP_CALL,
     WT_SPM_OP_CLOSE
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    /* Platform NVM service (P5 K2), NOT an FF-M IPC op: the arch SVC layer
+     * intercepts it before this gate, so no case handles it here. A real
+     * enumerator (not an out-of-range constant) keeps its value inside the
+     * enum range so the interception compare is never folded away. */
+    , WT_SPM_OP_CONF_NVM_SYNC = 0x100
+#endif
 } wt_spm_op_t;
 
 /* SP-as-client iovec capacity per direction (i003 widens with the NS veneer). */

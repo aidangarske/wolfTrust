@@ -19,10 +19,14 @@
  */
 
 /* SPE PAL for the Arm psa-arch-tests DRIVER partition on wolfTrust (P3a).
- * NVMEM is a RAM-backed store (reset-surviving flash NVM is the P5 reboot
- * work); the watchdog and interrupt hooks are no-ops until P4/P6 provide the
- * real devices; prints are swallowed until the secure UART routing lands in
- * P3b. All state lives in the driver partition's own CONFDATA/.bss window. */
+ * NVMEM is a flash-backed store surviving an AIRCR reset (P5 K2): a RAM shadow
+ * loaded from the reserved flash sector at first use and written through on
+ * every write via wt_conf_nvm_sync (SVC to the privileged flash driver). The
+ * watchdog and interrupt hooks are no-ops until P4/P6 provide the real
+ * devices; prints are swallowed until the secure UART routing lands in P3b.
+ * All state lives in the driver partition's own CONFDATA/.bss window. */
+
+#include "conf_nvm.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -38,11 +42,24 @@ static uint8_t g_drv_wd_enabled;
 static int wt_conf_drv_nvm_init(void)
 {
     if (g_drv_nvm_ready == 0u) {
-        (void)memset(g_drv_nvm, 0xFF, sizeof(g_drv_nvm));
+        /* Reload the persisted contents; a blank sector reads back 0xFF, the
+         * same power-on state the RAM store used to fabricate. */
+        if (wt_conf_nvm_sync(g_drv_nvm, sizeof(g_drv_nvm), 0) != 0) {
+            (void)memset(g_drv_nvm, 0xFF, sizeof(g_drv_nvm));
+        }
         g_drv_nvm_ready = 1u;
     }
     return 0;
 }
+
+#if defined(WT_CONF_NVM_HOST_TEST)
+/* Host-test seam: force the next access to reload from the flash simulator,
+ * modelling what a post-reset boot does. Never compiled into the target. */
+void wt_conf_drv_nvm_test_reset(void)
+{
+    g_drv_nvm_ready = 0u;
+}
+#endif
 
 void pal_uart_init(uint32_t uart_base_addr)
 {
@@ -70,6 +87,10 @@ int pal_nvmem_write(addr_t base, uint32_t offset, void* buffer, int size)
         return 0;
     }
     (void)memcpy(&g_drv_nvm[offset], buffer, (size_t)size);
+    /* Write through to flash so the value survives an AIRCR reset. */
+    if (wt_conf_nvm_sync(g_drv_nvm, sizeof(g_drv_nvm), 1) != 0) {
+        return 0;
+    }
     return 1;
 }
 
