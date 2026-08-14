@@ -684,6 +684,41 @@ Host `make test` green across three committed slices; no target run (box
 The coroutine choreography these prove out (`wt_spm_sched_dispatch`) is
 Armv8-M-only and remains to be validated on M33MU (Phases D-F).
 
+## Item 10 P3c-2 Phases D-F — six-test conformance green (M33MU)
+
+`PASS: target/confboot` with `TOTAL TESTS : 6`, `TOTAL PASSED : 6`,
+`TOTAL FAILED : 0`, `[EXPECT BKPT] Success`, exit 0 (2026-08-14): the full
+non-IRQ/non-heap subset — i001, i003, **i058 (PSA_DOORBELL)**, **i063 (psa_wait
+signal mask)**, i071, i088 — all `Result=Passed` through the unmodified Arm
+suite on the real SPM. Tree = `3bac964` + `96fee67` (+ `1d37648`).
+
+Root cause of the i058/i063 hangs, found via WT_CONFORMANCE-gated hang
+tripwires (register-dump diag traps for silent stalls): the SP-side SVC
+transport re-issued any gate call that returned NOT_READY, so a `PSA_POLL`
+wait miss — which reports NOT_READY but must return, not suspend — spun the
+partition coroutine forever (i058's post-`psa_clear` doorbell poll). The
+transport now re-issues only calls that actually suspended
+(`wt_spm_call_would_block`). A second instance of the same class: the crypto
+SP's hand-built WAIT never set `timeout`, read as PSA_POLL after the
+POLL/BLOCK split, and killed the partition at boot (`1d37648`, host-guarded in
+`tests/host/crypto_service`).
+
+The earlier i063 REPLY/HANDLE fault and the NS epilogue USGFLT (both
+2026-08-13) did not reproduce on the fixed tree: confboot exits clean through
+the expected BKPT.
+
+Diagnostic evidence (tripwire register dumps, M33MU): spin trap
+`r5=7 (CLIENT), r6=DOORBELL|NOT_READY`, then payload trap
+`r4=0x21221011` (client RUNNABLE + never-suspended, others blocked),
+`r5=0x0000FFFF` (client doorbell already cleared; server in WAIT_ANY),
+`r6=0x00010001` (one replied-but-unharvested NS EXECUTE message) — matching
+the POLL-spin prediction exactly.
+
+Host `make test` green on the same tree. Production regression rerun on the
+same tree: `PASS: target/positive` (full lifecycle green, exit 0) and
+`PASS: target/crossdomain` (cross-domain read of 0x30028000 denied by the SP
+domain).
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

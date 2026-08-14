@@ -539,7 +539,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   `target.cmake`, modeled on `tgt_ff_tfm_an521/`); STM32 UART/watchdog drivers
   already exist upstream (`platform/drivers/{uart,watchdog}/stm/`), but NVM must be
   real flash (upstream `pal_nvmem.c` is SRAM-only). Test-bucket order (of 90):
-- P3. [ ] **Bucket (a): NS client + val + SERVER SP + DRIVER SP (print/NVM only)
+- P3. [x] **Bucket (a): NS client + val + SERVER SP + DRIVER SP (print/NVM only)
   — the true minimum-viable real SPM run.** Needs P1/P2 + the 3-SP hosting +
   target PAL + manifest ingestion + real UART/NVM drivers. First real on-target
   conformance (version-policy, lifecycle, data-plane, signal/status). Then bucket
@@ -591,7 +591,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     manifest MMIO grant, which is P4's ingestion mechanism -> moved to P4;
     WDG stays a no-op (M33MU models no watchdog; timers are P6). Gate:
     confboot `TOTAL PASSED : 2` with the shared store live.
-  - P3c. [~] **Full val dispatcher + test list; iterate the non-IRQ /
+  - P3c. [x] **Full val dispatcher + test list; iterate the non-IRQ /
     non-isolation subset to green** (`val_dispatcher`, `.acs_test_info` publish,
     `execute_non_secure_tests` + `switch_to_secure_client`). Exclude IRQ
     (`psa_eoi`) and MMIO-isolation tests (P4). M33MU-gated per green increment.
@@ -600,9 +600,10 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       schedule (mk `testsuite_sched.db`, DB untouched) dropping the tests that
       need a runtime capability we lack; `memmove` via `libc_stubs.c`; pid.h
       bare-name aliases (`CLIENT_PARTITION`); `PSA_LIFECYCLE_*` masks. Gate:
-      confboot `TOTAL PASSED : 4`. (Blocked on the P3c-3 epilogue USGFLT — see
-      below — so not yet landed.)
-    - P3c-2. [ ] **Doorbell + psa_wait signal-mask scheduler completeness —
+      confboot `TOTAL PASSED : 4`. Landed with P3c-2 as part of the six-test
+      green (`96fee67`); the epilogue USGFLT did not reproduce on the fixed
+      tree.
+    - P3c-2. [x] **Doorbell + psa_wait signal-mask scheduler completeness —
       land i058, i063** (pulls P6 #35 scope forward for these two; i021/i067
       stay deferred for IRQ/heap). The psa_wait signal-mask *primitive* is
       already correct (`wt_ffm_wait` returns NOT_READY on `(asserted&mask)==0`;
@@ -631,24 +632,24 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
         `wt_spm_sched_dispatch`/`wt_spm_slot_ready` change was needed.** So the
         target faults below are coroutine-choreography/epilogue bugs, not a
         missing capability. `make test` green (spm_gate 126 checks).
-      - Phase D. [ ] **Fix the three-party stale-handle race (target).** Build
-        wiring is staged (uncommitted): i058/i063 re-added to `CONF_SEC_OBJS`/
-        `CONF_UPSTREAM_SRCS` + pattern rules, dropped from the `skip` sed, NS
-        sources in guest0_psa CMakeLists, runner assertion `TOTAL PASSED : 6`.
-        **Blocked: box `wolf-prec5560` offline (Tailscale, last seen 2026-08-13).**
-        Next box cycle: capture the `REPLY`/`HANDLE` fault dump (op=6/err=-604 =
-        `message_from_handle` rejecting on `allocated==0 || active==0 ||
-        generation` mismatch), fix the message/handle lifecycle bug in the
-        NS-driven-server + client-irritator interleave. Gate: i058, i063
-        `Result=Passed` under confboot.
-      - Phase E. [ ] **Fix the NS-side epilogue USGFLT (target).** Diagnose the
-        usage fault seen after all tests pass on the guest side (4-test run
-        2026-08-13, `fault_pc` in NS flash, `exc_ret=0xffffffb8`); independent
-        of the doorbell but blocks a clean green for P3c-1 too.
-      - Phase F. [ ] **Full subset green + close P3 (target).** 6-test schedule
-        (i001,i003,i058,i063,i071,i088), confboot `TOTAL PASSED : 6`,
-        positive+crossdomain regression, host `make test`, validation-log
-        entry, tick P3c-1/P3c-2/P3c and P3. Commit.
+      - Phase D. [x] **Fix i058/i063 on target** (`3bac964` + `96fee67`, M33MU
+        2026-08-14). Root cause was NOT a stale-handle race: the SP-side SVC
+        transport re-issued any NOT_READY gate call, so a `PSA_POLL` wait miss
+        (i058's post-`psa_clear` doorbell poll) spun the client coroutine
+        forever — silent hang, no fault. Found via WT_CONFORMANCE-gated hang
+        tripwires (WAIT-run spin guard + SysTick idle probe + diag-trap
+        register dumps, kept in-tree). Transport now re-issues only calls that
+        suspended (`wt_spm_call_would_block`). Same-class sibling: the crypto
+        SP's WAIT lacked `timeout` after the POLL/BLOCK split (`1d37648`,
+        host-guarded). i058 and i063 both `Result=Passed` under confboot.
+      - Phase E. [x] **NS epilogue USGFLT** — did not reproduce on the fixed
+        tree: confboot exits clean through `[EXPECT BKPT] Success`, exit 0.
+        The 2026-08-13 fault was collateral of the pre-fix stall class.
+      - Phase F. [x] **Full subset green + close P3 (target)** (2026-08-14).
+        Six-test schedule confboot `TOTAL TESTS : 6` / `TOTAL PASSED : 6` /
+        `TOTAL FAILED : 0`, `[EXPECT BKPT] Success`; `PASS: target/positive`
+        and `PASS: target/crossdomain` rerun on the same tree; host
+        `make test` green. Validation-log entry recorded.
 - P4. [ ] **Bucket (b): driver-partition MMIO + UART-IRQ isolation — +7 tests
   (`i021,i047,i055,i057,i064,i065,i066`) (large).** Enforce a manifest-declared
   device MMIO region as SP-exclusive at MPU_S AND GTZC/TZSC (today only a coarse
