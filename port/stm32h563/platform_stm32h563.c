@@ -31,6 +31,7 @@
 #include "memory_map.h"
 #include "stm32h563_regs.h"
 
+#include "wolftrust/arch/armv8m/spm_svc.h"
 #include "wolftrust/ffm.h"
 #include "wolftrust/ffm_boot.h"
 #include "wolftrust/ffm_domain.h"
@@ -874,6 +875,9 @@ static void wt_secure_fault_dispatch(const wt_trap_frame_t* frame)
 static void wt_secure_systick_dispatch(const wt_trap_frame_t* frame)
 {
     g_secure_wall_cycles += g_systick_reload;
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    wt_spm_sched_hang_probe();
+#endif
     wt_monitor_on_secure_timer(frame);
 }
 

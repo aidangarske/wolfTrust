@@ -62,6 +62,19 @@ static wt_spm_sp_t g_spm_sp[WT_FFM_MAX_PARTITIONS];
 static size_t g_spm_sp_count;
 static wt_secure_domain_t g_spm_sp_domain;
 
+static void wt_spm_sched_diag_trap(uint32_t a, uint32_t b, uint32_t c);
+static uint32_t wt_spm_sched_diag_word(const wt_ffm_runtime_t* runtime,
+                                       int which);
+
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+/* Conformance-only hang tripwires: silent stalls on target are undebuggable,
+ * so convert them into diag-trap register dumps. Activity is any SVC or
+ * NS-driven dispatch; a non-blocking NOT_READY wait repeated without bound is
+ * a partition spinning. */
+static uint32_t g_spm_conf_activity;
+static uint32_t g_spm_conf_wait_spins;
+#endif
+
 /* Resolve the scheduled SP whose coroutine is currently running, or NULL. */
 static wt_spm_sp_t* wt_spm_slot_for_current(void)
 {
@@ -105,6 +118,37 @@ void wt_spm_svc_entry(uint32_t* frame)
     slot->wait_kind = WT_SPM_WAIT_NONE;
     status = wt_spm_gate(g_spm_svc_runtime, &slot->table, call);
     frame[0] = (uint32_t)status;
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    g_spm_conf_activity++;
+    /* A service loop interleaves psa_wait with get/reply; an unbounded run of
+     * consecutive waits — polling misses or successes nobody consumes — is a
+     * spinning partition. Blocking suspensions reset via the non-WAIT ops that
+     * follow a real wake. Trap payload: r4 = slot wait_kind/co-state nibbles,
+     * r5 = spinner asserted<<16 | slot-1 wait_mask, r6 = msg bitmap. */
+    if (call->op == WT_SPM_OP_WAIT) {
+        if (++g_spm_conf_wait_spins > 5000u) {
+            uint32_t word_a = 0u;
+            uint32_t word_b;
+            size_t i;
+
+            for (i = 0u; i < g_spm_sp_count && i < 4u; i++) {
+                word_a |= ((uint32_t)g_spm_sp[i].wait_kind & 0xFu) <<
+                          (4u * i);
+                word_a |= ((uint32_t)wt_co_state(g_spm_sp[i].co) & 0xFu) <<
+                          (16u + 4u * i);
+            }
+            word_b = (g_spm_svc_runtime->partitions[slot->partition_index].
+                          asserted_signals & 0xFFFFu) << 16;
+            if (g_spm_sp_count > 1u)
+                word_b |= g_spm_sp[1].wait_mask & 0xFFFFu;
+            wt_spm_sched_diag_trap(word_a, word_b,
+                wt_spm_sched_diag_word(g_spm_svc_runtime, 2));
+        }
+    }
+    else {
+        g_spm_conf_wait_spins = 0u;
+    }
+#endif
     if (status == WT_FFM_SUCCESS && wt_spm_call_would_block(call)) {
         /* Record the wake condition BEFORE pending the block: wt_co_block
          * only marks the suspension — this handler runs to completion and the
@@ -135,7 +179,8 @@ static int wt_spm_svc_raw(wt_spm_call_t* call __attribute__((unused)))
 /* SP-side transport: trap each request to the privileged gate. A blocking op
  * (wait, or an SP-to-SP connect/call/close) comes back with the stale
  * NOT_READY result after the coroutine is rewoken, so re-issue until the
- * request really completes; only blockable ops ever return NOT_READY. */
+ * request really completes. Only a call that actually suspended is re-issued:
+ * a PSA_POLL wait miss also reports NOT_READY but must return, not spin. */
 static int wt_spm_svc_transport(wt_ffm_runtime_t* runtime, wt_spm_call_t* call)
 {
     int status;
@@ -143,8 +188,7 @@ static int wt_spm_svc_transport(wt_ffm_runtime_t* runtime, wt_spm_call_t* call)
     (void)runtime;
     for (;;) {
         status = wt_spm_svc_raw(call);
-        if (status != WT_FFM_SUCCESS ||
-                call->ret_int != WT_FFM_ERROR_NOT_READY) {
+        if (status != WT_FFM_SUCCESS || wt_spm_call_would_block(call) == 0) {
             break;
         }
     }
@@ -220,12 +264,15 @@ static int wt_spm_run_co(wt_co_t* co)
 __attribute__((noinline))
 static void wt_spm_sched_diag_trap(uint32_t a, uint32_t b, uint32_t c)
 {
+    /* Pin the scheduler state into callee-saved registers the emulator's
+     * fault dump prints; the 0xEFFFFFF4 read faults with a full dump. */
+    register uint32_t diag_a __asm__("r4") = a;
+    register uint32_t diag_b __asm__("r5") = b;
+    register uint32_t diag_c __asm__("r6") = c;
     volatile uint32_t probe;
 
-    (void)a;
-    (void)b;
-    (void)c;
-    probe = *(const volatile uint32_t*)0xEFFFFFF0u;
+    __asm__ volatile("" : : "r"(diag_a), "r"(diag_b), "r"(diag_c));
+    probe = *(const volatile uint32_t*)0xEFFFFFF4u;
     (void)probe;
 }
 
@@ -259,6 +306,41 @@ static uint32_t wt_spm_sched_diag_word(const wt_ffm_runtime_t* runtime,
     return value;
 }
 
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+void wt_spm_sched_hang_probe(void)
+{
+    static uint32_t last_activity;
+    static uint32_t idle_ticks;
+    size_t i;
+    int in_flight = 0;
+
+    if (g_spm_svc_runtime == NULL)
+        return;
+    if (g_spm_conf_activity != last_activity) {
+        last_activity = g_spm_conf_activity;
+        idle_ticks = 0u;
+        return;
+    }
+    for (i = 0u; i < WT_FFM_MAX_MESSAGES; i++) {
+        if (g_spm_svc_runtime->messages[i].allocated != 0U &&
+                g_spm_svc_runtime->messages[i].complete == 0U) {
+            in_flight = 1;
+            break;
+        }
+    }
+    if (in_flight == 0) {
+        idle_ticks = 0u;
+        return;
+    }
+    if (++idle_ticks > 500u) {
+        wt_spm_sched_diag_trap(
+            wt_spm_sched_diag_word(g_spm_svc_runtime, 0),
+            wt_spm_sched_diag_word(g_spm_svc_runtime, 1),
+            wt_spm_sched_diag_word(g_spm_svc_runtime, 2));
+    }
+}
+#endif
+
 /* Manifest-bound dispatch for a scheduled SP: wake the target coroutine, then
  * keep dispatching every partition whose wake condition holds until the
  * system is quiescent. SP-to-SP IPC depends on this: a client partition
@@ -274,6 +356,9 @@ static int wt_spm_sched_dispatch(void* context, wt_ffm_runtime_t* runtime,
     size_t i;
 
     (void)partition_id;
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    g_spm_conf_activity++;
+#endif
     if (co == NULL || wt_co_state(co) == WT_CO_FAULTED) {
         return WT_FFM_ERROR_STATE;
     }

@@ -56,4 +56,10 @@ int wt_spm_sp_call(struct wt_spm_call* call);
  * r0 = the exception frame; not for direct C callers. */
 void wt_spm_svc_entry(uint32_t* frame);
 
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+/* Conformance-only hang tripwire: called from the secure SysTick; traps with
+ * a scheduler-state register dump when IPC activity stalls (lost wake). */
+void wt_spm_sched_hang_probe(void);
+#endif
+
 #endif /* WOLFTRUST_ARCH_ARMV8M_SPM_SVC_H */
