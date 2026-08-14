@@ -180,7 +180,7 @@ case "$scenario" in
     grep -Fq "wolfTrust FF-M psa_framework_version=0x0100" "$log"
     grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$log"
     grep -Fq "wolfTrust FF-M conformance: val_entry start" "$log"
-    grep -Fq "TOTAL PASSED    : 2" "$log"
+    grep -Fq "TOTAL PASSED    : 6" "$log"
     grep -Fq "TOTAL FAILED    : 0" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"
     echo "PASS: target/confboot"

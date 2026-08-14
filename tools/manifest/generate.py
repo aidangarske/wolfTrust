@@ -825,6 +825,10 @@ def generate_pid_header(manifest):
     for partition in manifest["partitions"]:
         lines.append("#define {}_ID {}".format(
             partition["name"], partition["domain_id"]))
+    lines.append("")
+    for partition in manifest["partitions"]:
+        lines.append("#define {} {}_ID".format(
+            partition["name"], partition["name"]))
     lines.extend(("", "#endif", ""))
     return "\n".join(lines)
 

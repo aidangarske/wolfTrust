@@ -86,6 +86,14 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/ff/ipc/test_i001/test_i001.c
     ${WT_CONF_U}/ff/ipc/test_i003/test_entry_i003.c
     ${WT_CONF_U}/ff/ipc/test_i003/test_i003.c
+    ${WT_CONF_U}/ff/ipc/test_i058/test_entry_i058.c
+    ${WT_CONF_U}/ff/ipc/test_i058/test_i058.c
+    ${WT_CONF_U}/ff/ipc/test_i063/test_entry_i063.c
+    ${WT_CONF_U}/ff/ipc/test_i063/test_i063.c
+    ${WT_CONF_U}/ff/ipc/test_i071/test_entry_i071.c
+    ${WT_CONF_U}/ff/ipc/test_i071/test_i071.c
+    ${WT_CONF_U}/ff/ipc/test_i088/test_entry_i088.c
+    ${WT_CONF_U}/ff/ipc/test_i088/test_i088.c
   )
   target_include_directories(app PRIVATE
     ${WT_REPO_ROOT}/include
@@ -98,6 +106,10 @@ if(WT_RUN_CONFORMANCE)
     ${WT_REPO_ROOT}/port/stm32h563/conformance
     ${WT_CONF_U}/ff/ipc/test_i001
     ${WT_CONF_U}/ff/ipc/test_i003
+    ${WT_CONF_U}/ff/ipc/test_i058
+    ${WT_CONF_U}/ff/ipc/test_i063
+    ${WT_CONF_U}/ff/ipc/test_i071
+    ${WT_CONF_U}/ff/ipc/test_i088
   )
   target_compile_definitions(app PRIVATE
     WT_RUN_CONFORMANCE VAL_NSPE_BUILD NONSECURE_TEST_BUILD IPC VERBOSITY=3)
@@ -117,6 +129,14 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/ff/ipc/test_i001/test_i001.c
     ${WT_CONF_U}/ff/ipc/test_i003/test_entry_i003.c
     ${WT_CONF_U}/ff/ipc/test_i003/test_i003.c
+    ${WT_CONF_U}/ff/ipc/test_i058/test_entry_i058.c
+    ${WT_CONF_U}/ff/ipc/test_i058/test_i058.c
+    ${WT_CONF_U}/ff/ipc/test_i063/test_entry_i063.c
+    ${WT_CONF_U}/ff/ipc/test_i063/test_i063.c
+    ${WT_CONF_U}/ff/ipc/test_i071/test_entry_i071.c
+    ${WT_CONF_U}/ff/ipc/test_i071/test_i071.c
+    ${WT_CONF_U}/ff/ipc/test_i088/test_entry_i088.c
+    ${WT_CONF_U}/ff/ipc/test_i088/test_i088.c
     PROPERTIES COMPILE_OPTIONS
       "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter"
   )
