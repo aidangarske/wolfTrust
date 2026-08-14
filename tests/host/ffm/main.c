@@ -482,6 +482,43 @@ static void test_doorbell_signal(void)
     (void)printf("PASS: WT-FFM-0027 doorbell notify and clear\n");
 }
 
+/* psa_wait must honor the signal mask: it returns only the asserted signals
+ * that intersect the mask, and reports NOT_READY when the intersection is
+ * empty even though other signals are asserted. This is the primitive the
+ * scheduler relies on to keep a masked-out partition blocked. */
+static void test_wait_signal_mask(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_signal_t asserted;
+
+    test_init(&runtime, &context);
+
+    EXPECT_INT(wt_ffm_notify(&runtime, TEST_CLIENT_PARTITION),
+               WT_FFM_SUCCESS);
+
+    asserted = 0xFFFFFFFFU;
+    EXPECT_INT(wt_ffm_wait(&runtime, TEST_CLIENT_PARTITION,
+                           TEST_SERVICE_SIGNAL, &asserted),
+               WT_FFM_ERROR_NOT_READY);
+    EXPECT_INT(asserted, 0);
+
+    EXPECT_INT(wt_ffm_wait(&runtime, TEST_CLIENT_PARTITION,
+                           PSA_DOORBELL | TEST_SERVICE_SIGNAL, &asserted),
+               WT_FFM_SUCCESS);
+    EXPECT_INT(asserted, PSA_DOORBELL);
+
+    EXPECT_INT(wt_ffm_wait(&runtime, TEST_CLIENT_PARTITION, PSA_DOORBELL,
+                           &asserted), WT_FFM_SUCCESS);
+    EXPECT_INT(asserted, PSA_DOORBELL);
+
+    EXPECT_INT(wt_ffm_clear(&runtime, TEST_CLIENT_PARTITION), WT_FFM_SUCCESS);
+    EXPECT_INT(wt_ffm_wait(&runtime, TEST_CLIENT_PARTITION, PSA_WAIT_ANY,
+                           &asserted), WT_FFM_ERROR_NOT_READY);
+
+    (void)printf("PASS: WT-FFM-0027 psa_wait signal-mask filtering\n");
+}
+
 static unsigned int g_registry_dispatches;
 
 /* A registered service loop for TEST_PARTITION_ID: completes connect and
@@ -551,6 +588,7 @@ int main(void)
 {
     test_arguments();
     test_doorbell_signal();
+    test_wait_signal_mask();
     test_framework_and_policy();
     test_connection_and_vectors();
     test_connection_drop();

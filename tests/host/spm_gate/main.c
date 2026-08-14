@@ -265,6 +265,19 @@ static void test_gate_would_block(void)
     EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
     EXPECT_INT(wt_spm_call_would_block(&call), 0);
     EXPECT_INT(asserted, PSA_DOORBELL);
+
+    /* Doorbell asserted but masked out: the gate must keep the wait blocking,
+     * not spuriously wake the partition on an unrequested signal. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_WAIT;
+    call.partition_id = TEST_PARTITION_ID;
+    call.signal_mask = TEST_SERVICE_SIGNAL;
+    call.asserted = &asserted;
+    asserted = 0xFFFFFFFFU;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_NOT_READY);
+    EXPECT_INT(wt_spm_call_would_block(&call), 1);
+    EXPECT_INT(asserted, 0);
     (void)printf("PASS: WT-FFM-0014 gate classifies an empty wait as blocking\n");
 }
 
