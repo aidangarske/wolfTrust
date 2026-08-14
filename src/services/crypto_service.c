@@ -155,6 +155,7 @@ int wt_crypto_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
     call.op = WT_SPM_OP_WAIT;
     call.partition_id = partition_id;
     call.signal_mask = PSA_WAIT_ANY;
+    call.timeout = PSA_BLOCK;
     call.asserted = &asserted;
     if (transport(runtime, &call) != WT_FFM_SUCCESS ||
             call.ret_int != WT_FFM_SUCCESS) {

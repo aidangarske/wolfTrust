@@ -57,6 +57,19 @@ static void test_panic(void* context, int32_t partition_id)
     (void)partition_id;
 }
 
+/* The crypto SP's service loop must issue a *blocking* psa_wait so the
+ * coroutine scheduler suspends it until a message arrives; a POLL wait returns
+ * NOT_READY at boot and kills the partition. This shim records the timeout the
+ * loop actually asked for. */
+static int g_wait_block_seen;
+
+static int guard_transport(wt_ffm_runtime_t* runtime, wt_spm_call_t* call)
+{
+    if (call->op == WT_SPM_OP_WAIT && (call->timeout & PSA_BLOCK) != 0U)
+        g_wait_block_seen = 1;
+    return wt_spm_transport_direct(runtime, call);
+}
+
 static const wt_ffm_port_ops_t g_port_ops = {
     test_check_read,
     test_check_write,
@@ -116,6 +129,8 @@ int main(void)
         return 1;
     }
 
+    wt_crypto_service_set_transport(guard_transport);
+
     handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_CRYPTO_SID, 1U);
     if (!PSA_HANDLE_IS_VALID(handle)) {
         (void)fprintf(stderr, "psa_connect(SERVICE_CRYPTO) failed\n");
@@ -133,6 +148,11 @@ int main(void)
             memcmp(digest, expected, sizeof(expected)) != 0) {
         (void)fprintf(stderr,
                       "SHA-256 digest mismatch through FF-M dispatch\n");
+        return 1;
+    }
+    if (g_wait_block_seen == 0) {
+        (void)fprintf(stderr,
+                      "crypto SP issued a non-blocking psa_wait\n");
         return 1;
     }
 
