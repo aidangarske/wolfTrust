@@ -357,6 +357,161 @@ static void test_gate_doorbell_state_machine(void)
     (void)printf("PASS: WT-FFM-0027 gate doorbell asserts until psa_clear\n");
 }
 
+/* i063 topology: a server partition exporting three connection-based services
+ * (two the server consumes, one starved irritator) and a client partition that
+ * may connect to the irritator. Mirrors SERVER_UNSPECIFIED/RELAX plus the
+ * SECURE_CONNECT_ONLY irritator, and CLIENT_PARTITION. */
+#define I063_SERVER_ID    10
+#define I063_CLIENT_ID    11
+#define I063_SVC_A_SID    0x2000U
+#define I063_SVC_B_SID    0x2001U
+#define I063_SVC_IRR_SID  0x2002U
+#define I063_SIG_A        0x10U
+#define I063_SIG_B        0x20U
+#define I063_SIG_IRR      0x40U
+#define I063_NS_CLIENT    (-1)
+
+static const wt_service_descriptor_t g_i063_services[] = {
+    { "svc_a",   I063_SVC_A_SID,   1U, WT_SERVICE_VERSION_RELAXED, I063_SIG_A,
+      0U, 1U, 1U },
+    { "svc_b",   I063_SVC_B_SID,   1U, WT_SERVICE_VERSION_RELAXED, I063_SIG_B,
+      0U, 1U, 1U },
+    { "svc_irr", I063_SVC_IRR_SID, 1U, WT_SERVICE_VERSION_RELAXED, I063_SIG_IRR,
+      0U, 1U, 1U }
+};
+
+static const uint32_t g_i063_client_deps[] = { I063_SVC_IRR_SID };
+
+static const wt_partition_manifest_t g_i063_partitions[] = {
+    { "i063_server", I063_SERVER_ID, WT_FFM_VERSION_1_1,
+      WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
+      g_i063_services, sizeof(g_i063_services) / sizeof(g_i063_services[0]),
+      NULL, 0U, NULL, 0U },
+    { "i063_client", I063_CLIENT_ID, WT_FFM_VERSION_1_0,
+      WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
+      NULL, 0U, g_i063_client_deps,
+      sizeof(g_i063_client_deps) / sizeof(g_i063_client_deps[0]), NULL, 0U }
+};
+
+static const wt_system_manifest_t g_i063_manifest = {
+    .format_version = WT_MANIFEST_FORMAT_VERSION,
+    .generator_version = "host-test",
+    .features = WT_MANIFEST_FEATURE_IPC,
+    .partitions = g_i063_partitions,
+    .partition_count = sizeof(g_i063_partitions) /
+                       sizeof(g_i063_partitions[0])
+};
+
+static void i063_server_serve(wt_ffm_runtime_t* runtime, psa_signal_t signal,
+                              psa_status_t reply)
+{
+    psa_msg_t msg;
+
+    EXPECT_INT(wt_ffm_get(runtime, I063_SERVER_ID, signal, &msg), PSA_SUCCESS);
+    EXPECT_INT(wt_ffm_reply(runtime, I063_SERVER_ID, msg.handle, reply),
+               WT_FFM_SUCCESS);
+}
+
+/* Phase C (WT-FFM-0014/0027): doorbell-driven origination with masked
+ * starvation, the portable core of Arm test i063. A doorbell-woken client
+ * partition originates a fresh outbound connect through the SP-as-client gate;
+ * that connect asserts a server signal the server masks out, so it stays
+ * starved across the server's masked waits and is only delivered once the
+ * server waits on it explicitly. The coroutine choreography this drives lives
+ * on Armv8-M (wt_spm_sched_dispatch) and is proven on M33MU; here the gate and
+ * runtime state machine it relies on are proven directly. */
+static void test_doorbell_origination(void)
+{
+    wt_ffm_runtime_t runtime;
+    wt_spm_call_t client;
+    psa_signal_t asserted;
+    uint16_t ns_a_msg;
+    uint16_t ns_b_msg;
+    psa_handle_t handle;
+
+    EXPECT_INT(wt_ffm_init(&runtime, &g_i063_manifest, &g_port_ops, NULL),
+               WT_FFM_SUCCESS);
+
+    /* Server doorbells the client (server_test's psa->notify(CLIENT)). */
+    EXPECT_INT(wt_ffm_notify(&runtime, I063_CLIENT_ID), WT_FFM_SUCCESS);
+    asserted = 0U;
+    EXPECT_INT(wt_ffm_wait(&runtime, I063_CLIENT_ID, PSA_WAIT_ANY, &asserted),
+               WT_FFM_SUCCESS);
+    EXPECT_INT(asserted, PSA_DOORBELL);
+
+    /* Doorbell-woken client originates the irritator connect: gate CONNECT
+     * pass 1 enqueues on the server and blocks the client. */
+    (void)memset(&client, 0, sizeof(client));
+    client.op = WT_SPM_OP_CONNECT;
+    client.partition_id = I063_CLIENT_ID;
+    client.sid = I063_SVC_IRR_SID;
+    client.version = 1U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &client), WT_FFM_SUCCESS);
+    EXPECT_INT(client.ret_int, WT_FFM_ERROR_NOT_READY);
+    EXPECT_INT(client.pending_valid, 1U);
+    EXPECT_INT(wt_spm_call_would_block(&client), 1);
+
+    /* Starvation: the irritator asserted the server's IRR signal, but a wait
+     * masking it out must not observe it. */
+    asserted = 0xFFFFFFFFU;
+    EXPECT_INT(wt_ffm_wait(&runtime, I063_SERVER_ID, I063_SIG_A | I063_SIG_B,
+                           &asserted), WT_FFM_ERROR_NOT_READY);
+    EXPECT_INT(asserted, 0);
+
+    /* Two NS connects feed the server's masked loop; the irritator stays
+     * starved through both iterations. */
+    ns_a_msg = 0xFFFFU;
+    handle = wt_ffm_connect_begin(&runtime, I063_NS_CLIENT, I063_SVC_A_SID, 1U,
+                                  &ns_a_msg);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    asserted = 0U;
+    EXPECT_INT(wt_ffm_wait(&runtime, I063_SERVER_ID, I063_SIG_A | I063_SIG_B,
+                           &asserted), WT_FFM_SUCCESS);
+    EXPECT_INT(asserted, I063_SIG_A);
+    i063_server_serve(&runtime, I063_SIG_A, PSA_ERROR_CONNECTION_REFUSED);
+    EXPECT_INT((int)wt_ffm_connect_finish(&runtime, ns_a_msg),
+               (int)PSA_ERROR_CONNECTION_REFUSED);
+    EXPECT_INT(wt_ffm_msg_complete(&runtime, client.pending_msg), 0);
+
+    ns_b_msg = 0xFFFFU;
+    handle = wt_ffm_connect_begin(&runtime, I063_NS_CLIENT, I063_SVC_B_SID, 1U,
+                                  &ns_b_msg);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    asserted = 0U;
+    EXPECT_INT(wt_ffm_wait(&runtime, I063_SERVER_ID, I063_SIG_A | I063_SIG_B,
+                           &asserted), WT_FFM_SUCCESS);
+    EXPECT_INT(asserted, I063_SIG_B);
+    i063_server_serve(&runtime, I063_SIG_B, PSA_ERROR_CONNECTION_REFUSED);
+    EXPECT_INT((int)wt_ffm_connect_finish(&runtime, ns_b_msg),
+               (int)PSA_ERROR_CONNECTION_REFUSED);
+    EXPECT_INT(wt_ffm_msg_complete(&runtime, client.pending_msg), 0);
+
+    /* Server finishes its loop and finally waits on the irritator signal. */
+    asserted = 0U;
+    EXPECT_INT(wt_ffm_wait(&runtime, I063_SERVER_ID, I063_SIG_IRR, &asserted),
+               WT_FFM_SUCCESS);
+    EXPECT_INT(asserted, I063_SIG_IRR);
+    i063_server_serve(&runtime, I063_SIG_IRR, PSA_ERROR_CONNECTION_REFUSED);
+
+    /* The starved origination now completes: gate CONNECT pass 2 harvests the
+     * refused connect, matching i063's psa_connect == CONNECTION_REFUSED. */
+    EXPECT_INT(wt_ffm_msg_complete(&runtime, client.pending_msg), 1);
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &client), WT_FFM_SUCCESS);
+    EXPECT_INT(client.ret_int, WT_FFM_SUCCESS);
+    EXPECT_INT(client.pending_valid, 0U);
+    EXPECT_INT(wt_spm_call_would_block(&client), 0);
+    EXPECT_INT((int)client.ret_handle, (int)PSA_ERROR_CONNECTION_REFUSED);
+
+    /* Client clears the doorbell (client_main's psa_clear after the connect). */
+    EXPECT_INT(wt_ffm_clear(&runtime, I063_CLIENT_ID), WT_FFM_SUCCESS);
+    asserted = 0xFFFFFFFFU;
+    EXPECT_INT(wt_ffm_wait(&runtime, I063_CLIENT_ID, PSA_WAIT_ANY, &asserted),
+               WT_FFM_ERROR_NOT_READY);
+
+    (void)printf("PASS: WT-FFM-0014 doorbell-driven origination, masked "
+                 "starvation (i063)\n");
+}
+
 static void test_gate_validates_buffers(void)
 {
     static uint8_t scratch[64];
@@ -451,6 +606,7 @@ int main(void)
     test_gate_equivalence();
     test_gate_would_block();
     test_gate_doorbell_state_machine();
+    test_doorbell_origination();
     test_gate_validates_buffers();
 
     if (g_failures != 0U) {
