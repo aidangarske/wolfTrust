@@ -249,10 +249,22 @@ static void test_gate_would_block(void)
     call.op = WT_SPM_OP_WAIT;
     call.partition_id = TEST_PARTITION_ID;
     call.signal_mask = PSA_DOORBELL;
+    call.timeout = PSA_BLOCK;
     call.asserted = &asserted;
     EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
     EXPECT_INT(call.ret_int, WT_FFM_ERROR_NOT_READY);
     EXPECT_INT(wt_spm_call_would_block(&call), 1);
+
+    /* PSA_POLL on the same unasserted signal must return, never block. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_WAIT;
+    call.partition_id = TEST_PARTITION_ID;
+    call.signal_mask = PSA_DOORBELL;
+    call.timeout = PSA_POLL;
+    call.asserted = &asserted;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_NOT_READY);
+    EXPECT_INT(wt_spm_call_would_block(&call), 0);
 
     EXPECT_INT(wt_ffm_notify(&runtime, TEST_PARTITION_ID), WT_FFM_SUCCESS);
 
@@ -260,25 +272,89 @@ static void test_gate_would_block(void)
     call.op = WT_SPM_OP_WAIT;
     call.partition_id = TEST_PARTITION_ID;
     call.signal_mask = PSA_DOORBELL;
+    call.timeout = PSA_BLOCK;
     call.asserted = &asserted;
     EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
     EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
     EXPECT_INT(wt_spm_call_would_block(&call), 0);
     EXPECT_INT(asserted, PSA_DOORBELL);
 
-    /* Doorbell asserted but masked out: the gate must keep the wait blocking,
+    /* Doorbell asserted but masked out: a blocking wait must stay blocking,
      * not spuriously wake the partition on an unrequested signal. */
     (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_WAIT;
     call.partition_id = TEST_PARTITION_ID;
     call.signal_mask = TEST_SERVICE_SIGNAL;
+    call.timeout = PSA_BLOCK;
     call.asserted = &asserted;
     asserted = 0xFFFFFFFFU;
     EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
     EXPECT_INT(call.ret_int, WT_FFM_ERROR_NOT_READY);
     EXPECT_INT(wt_spm_call_would_block(&call), 1);
     EXPECT_INT(asserted, 0);
-    (void)printf("PASS: WT-FFM-0014 gate classifies an empty wait as blocking\n");
+    (void)printf("PASS: WT-FFM-0014 gate blocks PSA_BLOCK waits, polls return\n");
+}
+
+/* i058 Check 1 through the gate: a notified doorbell stays asserted across a
+ * second psa_wait and only psa_clear drops it (WT-FFM-0027). */
+static void test_gate_doorbell_state_machine(void)
+{
+    wt_ffm_runtime_t runtime;
+    psa_signal_t asserted = 0U;
+    wt_spm_call_t call;
+
+    EXPECT_INT(wt_ffm_init(&runtime, &g_manifest, &g_port_ops, NULL),
+               WT_FFM_SUCCESS);
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_NOTIFY;
+    call.partition_id = TEST_PARTITION_ID;
+    call.notify_partition = TEST_PARTITION_ID;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_WAIT;
+    call.partition_id = TEST_PARTITION_ID;
+    call.signal_mask = PSA_DOORBELL;
+    call.timeout = PSA_BLOCK;
+    call.asserted = &asserted;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+    EXPECT_INT(wt_spm_call_would_block(&call), 0);
+    EXPECT_INT(asserted, PSA_DOORBELL);
+
+    /* Second wait: doorbell must remain asserted (psa_wait does not clear). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_WAIT;
+    call.partition_id = TEST_PARTITION_ID;
+    call.signal_mask = PSA_DOORBELL;
+    call.timeout = PSA_BLOCK;
+    call.asserted = &asserted;
+    asserted = 0U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+    EXPECT_INT(asserted, PSA_DOORBELL);
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_CLEAR;
+    call.partition_id = TEST_PARTITION_ID;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+
+    /* Poll after clear: no signal, and it must not block. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_WAIT;
+    call.partition_id = TEST_PARTITION_ID;
+    call.signal_mask = PSA_DOORBELL;
+    call.timeout = PSA_POLL;
+    call.asserted = &asserted;
+    asserted = 0xFFFFFFFFU;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_NOT_READY);
+    EXPECT_INT(wt_spm_call_would_block(&call), 0);
+    EXPECT_INT(asserted, 0);
+    (void)printf("PASS: WT-FFM-0027 gate doorbell asserts until psa_clear\n");
 }
 
 static void test_gate_validates_buffers(void)
@@ -374,6 +450,7 @@ int main(void)
 {
     test_gate_equivalence();
     test_gate_would_block();
+    test_gate_doorbell_state_machine();
     test_gate_validates_buffers();
 
     if (g_failures != 0U) {

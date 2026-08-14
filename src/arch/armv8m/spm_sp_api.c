@@ -59,12 +59,10 @@ psa_signal_t psa_wait(psa_signal_t signal_mask, uint32_t timeout)
     wt_spm_call_t call;
     psa_signal_t asserted = 0U;
 
-    /* PSA_POLL timing is tracked with the psa_wait timeout task; every
-     * partition loop in the suite waits with PSA_BLOCK. */
-    (void)timeout;
     (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_WAIT;
     call.signal_mask = signal_mask;
+    call.timeout = timeout;
     call.asserted = &asserted;
     if (wt_spm_sp_call(&call) != WT_FFM_SUCCESS ||
             call.ret_int != WT_FFM_SUCCESS) {

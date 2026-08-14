@@ -57,6 +57,7 @@ typedef struct wt_spm_call {
     psa_handle_t msg_handle;   /* GET/SET_RHANDLE/READ/SKIP/WRITE/REPLY;
                                 * CALL/CLOSE: connection handle */
     psa_signal_t signal_mask;  /* WAIT in */
+    uint32_t     timeout;      /* WAIT in: PSA_BLOCK blocks, PSA_POLL returns */
     psa_signal_t signal;       /* GET in */
     uint32_t     vec_idx;      /* READ/SKIP/WRITE in */
     void*        buffer;       /* READ out / WRITE in (SP-domain pointer) */

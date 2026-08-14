@@ -244,7 +244,9 @@ int wt_spm_call_would_block(const wt_spm_call_t* call)
         return 0;
     if (call->ret_int != WT_FFM_ERROR_NOT_READY)
         return 0;
-    return call->op == WT_SPM_OP_WAIT || call->op == WT_SPM_OP_CONNECT ||
+    if (call->op == WT_SPM_OP_WAIT)
+        return (call->timeout & PSA_BLOCK) != 0U; /* PSA_POLL never blocks */
+    return call->op == WT_SPM_OP_CONNECT ||
            call->op == WT_SPM_OP_CALL || call->op == WT_SPM_OP_CLOSE;
 }
 
