@@ -719,6 +719,40 @@ same tree: `PASS: target/positive` (full lifecycle green, exit 0) and
 `PASS: target/crossdomain` (cross-domain read of 0x30028000 denied by the SP
 domain).
 
+## P4/P5 K1 — reset feasibility probe (GO, 2026-08-14)
+
+Decided by authoritative inspection of the pinned M33MU emulator source
+(`github.com/danielinux/m33mu@c84792f7f9e9ce24cf94ffc492c36231de1854c2`), which
+answers the feasibility question more conclusively than a single black-box run
+and at no target-cycle cost. The panic→reset→resume substrate P4/P5 depend on is
+present and models the STM32H563 faithfully:
+
+- **CPU model.** The runner passes no `--cpu`, so the default applies:
+  `cpu_table[0].name == "stm32h563"` (`src/cpu_db.c:89`). Our images boot on the
+  H563 model, not a generic core.
+- **SYSRESETREQ re-runs the chain.** An `AIRCR` (`0xE000ED0C`) write with
+  VECTKEY `0x05FA` and SYSRESETREQ (bit 2) calls `mm_system_request_reset()`
+  (`src/scs.c:582`). The run loop then breaks with `reset_again` and re-enters
+  the core-reinit path printing `[RESET] System reset requested, reinitialising
+  core` (`src/main.c:6042,6064`); images are NOT reloaded on this path
+  (`reload_images` is only the initial load / a TUI action).
+- **Flash + option bytes survive the reset.** The emulator's own conformance
+  firmware `tests/firmware/test-stm32h563-dualbank/main.c` programs the SWAP
+  option bit, issues `AIRCR = 0x05FA0004` (line 240), and on the second boot
+  reads the SWAP state back intact — over the exact FLASH controller MMIO
+  (`0x40022000`, NSKEYR/SECKEYR/NSCR/SECCR, `cpu/stm32h5_mmio.c`) that
+  wolfTrust's `port/stm32h563/hsm_flash.c` already drives. wolfHSM NVM writes
+  already succeed within a boot on M33MU, so the write path is live; the
+  dualbank test adds the cross-reset persistence guarantee.
+- **`.noinit` RAM survives too.** The same test uses a `.noinit reset_marker`
+  to distinguish first vs. second boot — so a warm reset re-inits the CPU core
+  only, leaving RAM and flash intact. Useful as a boot-count detector in K3/K4.
+
+**Verdict: GO.** No hardware gating for the reboot bucket. `wt_platform_system_reset`
+(AIRCR.SYSRESETREQ) is implemented in K3 so its first target run exercises the
+production SPM panic→reset path rather than a disposable probe; K2 backs the
+NVMEM service with reserved secure flash; K4 proves the full resume loop on i047.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

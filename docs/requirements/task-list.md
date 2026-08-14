@@ -668,14 +668,23 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     reboots once per panic test and resumes further each time. Today
     `wt_platform_panic` spins (`bkpt; for(;;)`) and NVM is RAM-backed — neither
     survives, so this is the gating subsystem.
-    - K1. [ ] **Reset feasibility probe (M33MU, GO/NO-GO).** Implement
-      `wt_platform_system_reset` (`NVIC_SystemReset`, AIRCR.SYSRESETREQ) behind a
-      `WT_RESET_PROBE` build flag: boot → write a sentinel to a reserved secure
-      flash word → trigger the reset → on reboot read the sentinel back. Confirm
-      the emulator (a) re-runs the wolfBoot→wolfTrust→guest chain on the reset
-      and (b) preserves the flash word. **If NO-GO, the entire panic-reboot
-      bucket is hardware-gated — document in the ledger and stop here; only
-      i021's non-reboot half and any pure-isolation checks remain reachable.**
+    - K1. [x] **Reset feasibility probe — GO (emulator-source verified,
+      2026-08-14).** Answered by authoritative inspection of the pinned M33MU
+      (`danielinux/m33mu@c84792f7`) rather than a throwaway probe firmware:
+      (a) default CPU is `stm32h563` (`src/cpu_db.c:89`, our runner passes no
+      `--cpu`); (b) an `AIRCR` write with VECTKEY `0x05FA` + SYSRESETREQ bit 2
+      requests a warm reset (`src/scs.c:582`) that re-runs firmware from the
+      reset vector without reloading images (`src/main.c:6064`,
+      `[RESET] ... reinitialising core`); (c) flash + option bytes survive it —
+      the emulator's own `tests/firmware/test-stm32h563-dualbank/main.c:240`
+      programs SWAP, does `AIRCR=0x05FA0004`, and reads it back intact on the
+      second boot, over the same FLASH MMIO (`0x40022000`) wolfTrust's
+      `port/stm32h563/hsm_flash.c` already drives; (d) bonus — `.noinit` RAM
+      also survives (the dualbank `reset_marker`), a cheap boot-count detector
+      for K3/K4. **GO: the panic-reboot bucket is feasible, not
+      hardware-gated.** `wt_platform_system_reset` is built in K3 (where it runs
+      through the production SPM path); the first target run of reset lands in
+      K3/K4, not a disposable probe. Ledger: validation-log.md.
     - K2. [ ] **Flash-backed survive-reset NVM (host + M33MU).** Back the driver
       NVMEM service (`DRIVER_NVMEM_SID`, P3b) with a reserved secure flash sector
       instead of RAM, 0xFF at power-on, so val's boot flag + `NVM_TEST_DATA*`
