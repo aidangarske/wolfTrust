@@ -753,6 +753,39 @@ present and models the STM32H563 faithfully:
 production SPM panic→reset path rather than a disposable probe; K2 backs the
 NVMEM service with reserved secure flash; K4 proves the full resume loop on i047.
 
+## P4/P5 K4 — panic→reboot proven, boot-2 re-init fault open (2026-08-14)
+
+First end-to-end confboot run with i047 un-skipped (M33MU, box wolf-prec5560,
+`k4-confboot.log`). **The panic-reset keystone works**: i001 `Result=Passed`,
+i003 `Result=Passed`, then i047's SERVER SP commits the must-panic `psa_get`
+(invalid message pointer), the gate sets `must_panic`, `wt_spm_svc_entry` calls
+`wt_platform_system_reset`, and the emulator **reboots** — a second
+wolfBoot→wolfTrust→guest load and restart at `PC=0x0c000ba9` is in the log. So
+K1 (SYSRESETREQ reboots), K3 (must-panic → reset), and the gate wiring are all
+confirmed on target.
+
+**Open blocker (K4):** the second boot faults before the guest prints any
+banner — UsageFault/`CFSR=0x00010082` at `psa_call+0x56`
+(`conformance_pal.c:79`, the `iovec.in[i].base = in_vec[i].base` copy loop,
+`ldr.w r1,[r10,r2,lsl #3]`), i.e. an early `psa_call` runs with a corrupt
+`in_vec`/`in_len`. The guest cold-launches cleanly (monitor always BXNS to the
+guest reset vector, NS RAM + secure `.bss` zeroed every boot — confirmed by
+inspection), so the corruption comes from state that SURVIVES the warm reset:
+the flash NVM stores. Two persist across AIRCR.SYSRESETREQ — val's boot flag at
+`WT_CONF_NVM_FLASH_BASE_S 0x0C1FA000` (K2) and wolfHSM's own NVM at
+`WT_HSM_NVM_FLASH_BASE_S 0x0C1FC000`. The reset fires from inside an SVC handler
+with the secure scheduler / wolfHSM mid-flight, so a half-completed NVM/flash
+operation is the prime suspect: boot-2 re-init (wt_hsm_init /
+wt_hsm_attest_bootstrap, or val's boot-flag reload) reads inconsistent state and
+the first NS↔S `psa_call` handshake gets a bad vector.
+
+Next: determine which persisted store is inconsistent on boot 2 (instrument the
+boot-2 wolfHSM init and the first guest `psa_call` args), and make the reset
+path leave a consistent NVM (flush/quiesce before reset, or make boot-2 re-init
+tolerate a mid-write store). Deep target-reset debugging — a Fable-class task.
+i047 stays wired in the schedule (confboot asserts 7) but the gate is RED until
+this is fixed.
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

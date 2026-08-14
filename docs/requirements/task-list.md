@@ -713,11 +713,19 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       Host: `spm_gate` suite asserts `must_panic` is set on the three bad-buffer
       ops and clear on valid / zero-length transfers (133 checks). The target
       panic→reboot proof is K4's single M33MU run (i047).
-    - K4. [ ] **End-to-end resume proof (M33MU).** Un-skip ONE panic test
-      (`i047`) only: run → SP panics → reset → reboot → val reads the boot flag →
-      marks i047 passed → continues to the remaining schedule → clean
-      `[EXPECT BKPT] Success`. Proves the whole loop before scaling. Gate:
-      confboot with i047 included reaches its `Result=Passed` across a reboot.
+    - K4. [~] **End-to-end resume proof — panic→reboot PROVEN, boot-2 re-init
+      fault OPEN (2026-08-14).** i047 wired into the schedule (marker stripped so
+      gen selects it; guest + secure objects + pattern rule + confboot asserts
+      7). First run: i001/i003 `Result=Passed`, i047's server commits the
+      must-panic `psa_get`, the SPM resets, and the emulator **reboots**
+      (wolfBoot restart at `PC=0x0c000ba9`) — the panic-reset loop works on
+      target. BLOCKER: the second boot faults before any guest banner —
+      UsageFault at `psa_call+0x56` (`conformance_pal.c:79` invec copy), an early
+      `psa_call` with a corrupt vector. Root cause is state surviving the warm
+      reset (flash NVM at `0x0C1FA000`/`0x0C1FC000`) left inconsistent because the
+      reset fired mid-flight from the SVC handler. Details + next steps in
+      validation-log.md. Deep target-reset debugging (Fable-class). Gate RED
+      until fixed.
   - P4.1. [ ] **Six panic isolation tests (needs K).** Un-skip
     `i047,i055,i057,i064,i065,i066`, wire into the schedule (gen_tests_list
     panic mode), M33MU green across their reboots. Confirm each induces the SP

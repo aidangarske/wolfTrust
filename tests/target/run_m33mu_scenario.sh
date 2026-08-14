@@ -180,7 +180,10 @@ case "$scenario" in
     grep -Fq "wolfTrust FF-M psa_framework_version=0x0100" "$log"
     grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$log"
     grep -Fq "wolfTrust FF-M conformance: val_entry start" "$log"
-    grep -Fq "TOTAL PASSED    : 6" "$log"
+    # i047 is a panic test: the SERVER SP commits a must-panic programmer error,
+    # the SPM resets (P5 K3), and val resumes across the reboot off its
+    # flash-backed boot flag (K2) to mark it passed — so 7 total, not 6.
+    grep -Fq "TOTAL PASSED    : 7" "$log"
     grep -Fq "TOTAL FAILED    : 0" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"
     echo "PASS: target/confboot"

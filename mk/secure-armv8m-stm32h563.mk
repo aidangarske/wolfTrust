@@ -281,6 +281,8 @@ CONF_SEC_OBJS := \
     $(BUILD_DIR)/conf_sec_test_supp_i001.o \
     $(BUILD_DIR)/conf_sec_test_i003.o \
     $(BUILD_DIR)/conf_sec_test_supp_i003.o \
+    $(BUILD_DIR)/conf_sec_test_i047.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i047.o \
     $(BUILD_DIR)/conf_sec_test_i058.o \
     $(BUILD_DIR)/conf_sec_test_supp_i058.o \
     $(BUILD_DIR)/conf_sec_test_i063.o \
@@ -303,6 +305,8 @@ CONF_UPSTREAM_SRCS := \
     $(UPSTREAM_DIR)/ff/ipc/test_i001/test_supp_i001.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i003/test_i003.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i003/test_supp_i003.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i047/test_i047.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i047/test_supp_i047.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i058/test_i058.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i058/test_supp_i058.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i063/test_i063.c \
@@ -323,9 +327,13 @@ $(UPSTREAM_STAMP): | $(BUILD_DIR)
 # the current image lacks, each tracked as its own P6 item in task-list.md.
 #   i021        -> IRQ routing/delivery (P6)
 #   i067        -> dynamic heap the zero-allocation secure image forbids
+# Dropping i047's panic_test marker selects it (gen keeps panic_tests out by
+# default); its reboot is handled at runtime by val's boot flag, not the DB
+# marker. The panic-reset path (P5 K3) makes it pass across an AIRCR reset.
 $(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
 	sed -e 's/^test_i021$$/test_i021, skip/' \
 	    -e 's/^test_i067$$/test_i067, skip/' \
+	    -e 's/^test_i047, panic_test$$/test_i047/' \
 	    $(UPSTREAM_DIR)/ff/ipc/testsuite.db \
 	    > $(MANIFEST_DIR)/testsuite_sched.db
 	python3 $(UPSTREAM_DIR)/tools/scripts/gen_tests_list.py ipc \
@@ -366,6 +374,10 @@ $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i001/%.c \
 	$(CC) $(CONF_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i003/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i047/%.c \
 		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(CONF_CFLAGS) -c -o $@ $<
 

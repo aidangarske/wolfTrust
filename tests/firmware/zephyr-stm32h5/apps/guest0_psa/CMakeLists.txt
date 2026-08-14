@@ -86,6 +86,8 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/ff/ipc/test_i001/test_i001.c
     ${WT_CONF_U}/ff/ipc/test_i003/test_entry_i003.c
     ${WT_CONF_U}/ff/ipc/test_i003/test_i003.c
+    ${WT_CONF_U}/ff/ipc/test_i047/test_entry_i047.c
+    ${WT_CONF_U}/ff/ipc/test_i047/test_i047.c
     ${WT_CONF_U}/ff/ipc/test_i058/test_entry_i058.c
     ${WT_CONF_U}/ff/ipc/test_i058/test_i058.c
     ${WT_CONF_U}/ff/ipc/test_i063/test_entry_i063.c
@@ -106,6 +108,7 @@ if(WT_RUN_CONFORMANCE)
     ${WT_REPO_ROOT}/port/stm32h563/conformance
     ${WT_CONF_U}/ff/ipc/test_i001
     ${WT_CONF_U}/ff/ipc/test_i003
+    ${WT_CONF_U}/ff/ipc/test_i047
     ${WT_CONF_U}/ff/ipc/test_i058
     ${WT_CONF_U}/ff/ipc/test_i063
     ${WT_CONF_U}/ff/ipc/test_i071
@@ -129,6 +132,8 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/ff/ipc/test_i001/test_i001.c
     ${WT_CONF_U}/ff/ipc/test_i003/test_entry_i003.c
     ${WT_CONF_U}/ff/ipc/test_i003/test_i003.c
+    ${WT_CONF_U}/ff/ipc/test_i047/test_entry_i047.c
+    ${WT_CONF_U}/ff/ipc/test_i047/test_i047.c
     ${WT_CONF_U}/ff/ipc/test_i058/test_entry_i058.c
     ${WT_CONF_U}/ff/ipc/test_i058/test_i058.c
     ${WT_CONF_U}/ff/ipc/test_i063/test_entry_i063.c
