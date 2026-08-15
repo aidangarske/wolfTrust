@@ -327,13 +327,12 @@ $(UPSTREAM_STAMP): | $(BUILD_DIR)
 # the current image lacks, each tracked as its own P6 item in task-list.md.
 #   i021        -> IRQ routing/delivery (P6)
 #   i067        -> dynamic heap the zero-allocation secure image forbids
-# i047 (panic_test) stays out until the M33MU-1 emulator defect is fixed
-# (task #63; validation-log.md defect register). The keystone that makes it
-# pass — must-panic reset + flash NVM resume — is in-tree and target-proven;
-# re-enable by adding: -e 's/^test_i047, panic_test$$/test_i047/'
+# i047 runs across its panic-reset reboot: the runner applies the M33MU-1
+# emulator fix (m33mu-tb-sec-chain.patch) before building the emulator.
 $(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
 	sed -e 's/^test_i021$$/test_i021, skip/' \
 	    -e 's/^test_i067$$/test_i067, skip/' \
+	    -e 's/^test_i047, panic_test$$/test_i047/' \
 	    $(UPSTREAM_DIR)/ff/ipc/testsuite.db \
 	    > $(MANIFEST_DIR)/testsuite_sched.db
 	python3 $(UPSTREAM_DIR)/tools/scripts/gen_tests_list.py ipc \

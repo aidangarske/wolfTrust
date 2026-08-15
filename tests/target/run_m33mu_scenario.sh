@@ -64,6 +64,10 @@ else
   cd /tmp/m33mu_src
   git fetch --depth 1 origin "$M33MU_REF"
   git checkout --detach "$M33MU_REF"
+  # M33MU-1 (validation-log.md defect register): TB successor chaining used the
+  # finished block's security state, mis-decoding across BXNS/SG edges. Local
+  # fix until it lands upstream; drop once M33MU_REF includes it.
+  git apply "$repo/tests/target/m33mu-tb-sec-chain.patch"
   cmake -S . -B build -DM33MU_ENABLE_WOLFSSL=OFF
   cmake --build build --target m33mu -j"$(nproc)"
   M33MU=/tmp/m33mu_src/build/m33mu
@@ -183,10 +187,11 @@ case "$scenario" in
     grep -Fq "wolfTrust FF-M psa_framework_version=0x0100" "$log"
     grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$log"
     grep -Fq "wolfTrust FF-M conformance: val_entry start" "$log"
-    # 6 until i047 rejoins the schedule: its panic-reset keystone is in-tree
-    # and proven, but the M33MU-1 emulator defect (task #63) blocks the
-    # untraced run. Becomes 7 when the mk sed re-enables i047.
-    grep -Fq "TOTAL PASSED    : 6" "$log"
+    # i047 is a panic test: its server commits a must-panic programmer error,
+    # the SPM resets (P5 K3), and val resumes across the reboot off its
+    # flash-backed boot flag (K2) — 7 total. Needs the M33MU-1 SPSEL patch
+    # the emulator build step applies above.
+    grep -Fq "TOTAL PASSED    : 7" "$log"
     grep -Fq "TOTAL FAILED    : 0" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"
     echo "PASS: target/confboot"

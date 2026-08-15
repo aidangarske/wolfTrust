@@ -860,7 +860,42 @@ CPU-model bugs, not wolfTrust logic; each carries a deterministic reproducer.
 Emulator: `github.com/danielinux/m33mu`, pinned `M33MU_REF`
 `c84792f7f9e9ce24cf94ffc492c36231de1854c2` (tests/target/run_m33mu_scenario.sh).
 
-### M33MU-1: secure SVC at the BXNS boundary stacks onto the NS SP bank (OPEN)
+### M33MU-1: cross-domain exception entry/return loses CONTROL.SPSEL (FIXED locally, 2026-08-14)
+
+**RESOLVED — root cause found and patched.** The earlier "SVC on the NS SP
+bank" description below was the downstream symptom; the true defect is in the
+emulator's EXC_RETURN.SPSEL handling for CROSS-DOMAIN exceptions. Per the
+Armv8-M exception model (EXC_RETURN field table: "SPSEL … saves the value of
+CONTROL.SPSEL in the domain that is handling the exception … the saved value
+is restored during exception return"), bit 2 must record the HANDLER domain's
+CONTROL.SPSEL and be restored into CONTROL[ES] on return. m33mu instead
+recorded the PREEMPTED domain's SPSEL at entry and restored into the RETURN
+state's CONTROL — correct only when the two domains coincide. Consequence: an
+NS-targeting exception (SysTick_NS) taken while executing Secure code (inside
+a synchronous NSC veneer call, e.g. K2's flash-NVM SVC section) cleared
+CONTROL_NS.SPSEL at entry and returned to Secure without ever restoring it;
+the NS val thread — which had entered the veneer on its PSP — was resumed via
+BXNS on the MSP, ran its epilogue against the wrong stack, popped 0x00000000
+into PC, and died with the phantom UNDEFINSTR (the emulator's
+interworking-check `[PC_WRITE_FAULT]` path). Caught by the emulator's own
+`M33MU_STACK_TRACE` instrumentation: `[EXC_ENTER_SPSEL] sec=0 control_ns=0`
+immediately after a `ctrl_ns=0x2` entry state, then the epilogue on
+`sp=msp_ns`.
+
+**Fix** (in-repo `tests/target/m33mu-tb-sec-chain.patch`, applied by the
+runner after the pinned checkout; also contains a TB-chain hardening that
+resolves successors in the current security state): (1) entry — EXC_RETURN
+bit 2 = `CONTROL[handler_sec].SPSEL` pre-clear; (2) return — restore bit 2
+into `CONTROL[exception_sec]`, leaving the return domain's CONTROL untouched
+on cross-domain returns; (3) cross-domain frame pops use the return state's
+live CONTROL.SPSEL. Same-domain behavior is bit-identical. **Verified:**
+confboot images that deterministically faulted on pinned `c84792f7` AND
+master `f96ab8e` run to `TOTAL PASSED : 7 / FAILED : 0` with a mid-suite
+`[RESET] System reset requested` and clean `[EXPECT BKPT] Success` under the
+patched emulator (local Docker, same CI container/image). Upstream submission
+of the patch to danielinux/m33mu is pending approval (task #63).
+
+Historical symptom analysis (pre-root-cause):
 
 - **Symptom:** with i047 in the confboot schedule, the untraced image
   deterministically stops at virtual cycle ~14,244,2xx: the NS guest reports

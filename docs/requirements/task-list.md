@@ -713,25 +713,25 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       Host: `spm_gate` suite asserts `must_panic` is set on the three bad-buffer
       ops and clear on valid / zero-length transfers (133 checks). The target
       panic→reboot proof is K4's single M33MU run (i047).
-    - K4. [~] **Per-SP MMIO carve LANDED and panic→reset→reboot PROVEN;
-      blocked on an M33MU emulator defect (2026-08-14, second pass).** The
-      CONFDATA grant now carves the per-partition pseudo-MMIO holes out of every
-      other SP's domain (`wt_spm_conf_grant`, memory_map.h constants, pal_config
-      cross-`#error`, secure.ld overflow assert; SERVER MMIO relocated to
-      `0x30095C00` clear of `_econfbss`). Traced run: i047's server
-      `psa_get(0x30095E00)` → out-of-domain → `must_panic` → SPM reset →
-      emulator REBOOTED through wolfBoot (second VTOR/NVIC trace) — the whole
-      keystone works. Bonus real fix: `wt_dispatch_hsm_tasklet` now reinstates
-      the guest's NS-banked registers (`wt_platform_restore_ns_bank`) before
-      resuming its secure tasklet — previously the prior guest's
-      `CONTROL_NS/MSP_NS` leaked across the BXNS completion path. REMAINING
-      BLOCKER: deterministic M33MU mis-execution at the S↔NS boundary (secure
-      SVC stacking onto the NS SP bank right after the veneer BXNS) faults the
-      untraced build at cycle ~14.24M; reproduces on pinned `c84792f7` AND
-      master `f96ab8e`; a WT_CONF_TRACE build passes (event-ordering
-      sensitivity). Full dossier + reproducer in validation-log.md. Next:
-      upstream emulator report/fix or a wolfTrust-side trigger-avoidance
-      (Fable-class). Gate RED on confboot-with-i047 until then.
+    - K4. [x] **DONE — 7/7 across a real panic-reset reboot (2026-08-14).**
+      Three pieces closed it: (1) per-SP MMIO carve — the CONFDATA grant now
+      excludes each pseudo-MMIO hole from every non-owner SP's domain
+      (`wt_spm_conf_grant`; constants in memory_map.h; `#error` cross-check;
+      secure.ld overflow assert; SERVER MMIO relocated to `0x30095C00` clear of
+      `_econfbss`), making i047's server `psa_get(0x30095E00)` a genuine
+      out-of-domain violation → `must_panic` → SPM reset. (2) A real wolfTrust
+      cross-guest bug fixed: `wt_dispatch_hsm_tasklet` now reinstates the
+      guest's NS-banked registers (`wt_platform_restore_ns_bank`) before
+      resuming its secure tasklet. (3) The **M33MU-1 emulator defect** — the
+      CPU model lost CONTROL.SPSEL across cross-domain exception entry/return
+      (spec: EXC_RETURN bit2 saves/restores the HANDLER domain's SPSEL) —
+      root-caused via the emulator's own instrumentation and fixed by the
+      in-repo `tests/target/m33mu-tb-sec-chain.patch`, which the runner applies
+      after the pinned checkout (upstream submission tracked in #63). Evidence:
+      confboot `TOTAL PASSED : 7 / FAILED : 0` with the mid-suite
+      `[RESET] System reset requested` and clean `[EXPECT BKPT] Success`
+      (local Docker, same CI container); host `make test` green. Details in
+      validation-log.md M33MU defect register.
   - P4.1. [ ] **Six panic isolation tests (needs K).** Un-skip
     `i047,i055,i057,i064,i065,i066`, wire into the schedule (gen_tests_list
     panic mode), M33MU green across their reboots. Confirm each induces the SP
