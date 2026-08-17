@@ -736,11 +736,42 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     `i047,i055,i057,i064,i065,i066`, wire into the schedule (gen_tests_list
     panic mode), M33MU green across their reboots. Confirm each induces the SP
     panic our SPM already raises (bad msg pointer, oversized vector, etc.).
+    **i047 is DONE** (K4). Mini-plan for the rest, ordered:
+    - P4.1a. [ ] **i055 + i057 — buffer-panic pair (rideable NOW).** Same
+      must-panic path as i047: `psa_read`/`psa_write` with an out-of-domain
+      buffer, which the gate already flags (`spm_gate.c` READ/WRITE →
+      `must_panic`; host-asserted in the spm_gate suite). Steps: (1) mirror the
+      i047 build wiring for i055 + i057 — add `conf_sec_test_i055/i057.o` +
+      `_supp_` to `CONF_SEC_OBJS`, sources to `CONF_UPSTREAM_SRCS`, a pattern
+      rule per test dir, and the entry/`test_iNNN.c` to the guest0_psa
+      CMakeLists (sources + include dirs + source-properties, 3 spots); (2) add
+      `-e 's/^test_i055, panic_test$/test_i055/'` and same for i057 to the
+      schedule sed in `mk/secure-armv8m-stm32h563.mk`; (3) bump the confboot
+      assert to `TOTAL PASSED : 9`; (4) M33MU confboot green — this proves the
+      K4 reboot loop scales to THREE panics in one boot (watch each test's
+      boot-flag resume). One target run. Then a host regression only if i055/i057
+      exercise a gate path not already covered by the 133-check suite.
+    - P4.1b. [ ] **i064–066 — psa_eoi misuse panics (BLOCKED on P4.2).** Each
+      calls `psa_eoi` with an illegal argument (non-interrupt / unasserted /
+      multiple signals) that must panic. Needs `psa_eoi` to at least VALIDATE
+      its argument and panic on misuse — a subset of the full IRQ work — so it
+      couples with P4.2, not P4.1a. Do after P4.2 lands `psa_eoi`.
   - P4.2. [ ] **i021 UART-IRQ + `psa_eoi` (own feasibility gate; supersedes
     task #13).** Probe whether M33MU delivers a USART peripheral NVIC line
-    (SysTick works, but a peripheral IRQ is unproven). If yes: route real UART TX
-    IRQ → driver SP's IRQ signal → `psa_wait`/`psa_eoi`. If no: hardware-gate it
-    like K1, document, keep `i021` skipped. Independent of the reboot keystone.
+    (SysTick works, but a peripheral IRQ is unproven — logged as candidate
+    defect M33MU-2). If yes: route real UART TX IRQ → driver SP's IRQ signal →
+    `psa_wait`/`psa_eoi`. If no: hardware-gate it like K1, document, keep `i021`
+    skipped. Independent of the reboot keystone. Mini-plan:
+    - P4.2a. [ ] **NVIC-delivery feasibility probe (GO/NO-GO).** Smallest thing
+      that fires one USART NVIC line into the NS guest and observes it (mirror
+      the K1 approach — read the emulator source `cpu/stm32h5_mmio.c` +
+      `src/nvic.c` for USART IRQ wiring first; it's free vs a 20-min run). NO-GO
+      → hardware-gate i021/i064–066, record in the M33MU defect register, stop.
+    - P4.2b. [ ] **`psa_eoi` argument validation + panic (unblocks i064–066).**
+      Implement `psa_eoi` to reject non-interrupt / unasserted / multi-signal
+      args via the must-panic path; host test the three rejection cases.
+    - P4.2c. [ ] **i021 end-to-end (needs P4.2a GO).** Real UART IRQ → driver SP
+      `psa_wait` → `psa_eoi` acks; M33MU green.
   - P5.1. [ ] **Flash-NVM continuity, non-panic tests (needs K2).** The P5 tests
     that only need survive-reset NVM, not a panic (`i002` PSA_POLL/state,
     `i004-i012`, `i024-i027` where non-panic). Host + M33MU per increment.
