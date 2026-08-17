@@ -1,8 +1,8 @@
 diff --git a/src/main.c b/src/main.c
-index f195a05..c3cac40 100644
+index b8c42b8..c9772e7 100644
 --- a/src/main.c
 +++ b/src/main.c
-@@ -2980,6 +2980,7 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
+@@ -2978,6 +2978,7 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
                                    mm_u32 exc_ret)
  {
      struct mm_exc_return_info info;
@@ -10,28 +10,23 @@ index f195a05..c3cac40 100644
      mm_u32 tail_exc_num = 0u;
      enum mm_sec_state tail_handler_sec = MM_SECURE;
      mm_bool tail_is_irq = MM_FALSE;
-@@ -3117,7 +3118,19 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
+@@ -3115,7 +3116,14 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
                 (unsigned)cpu->exc_depth);
          dump_exc_stack_state(cpu, "EXC_STACK_POP_POST");
      }
 -    if (info.use_psp) {
-+    /* EXC_RETURN.SPSEL belongs to the exception's OWN domain (ES). The frame
-+     * lives on the preempted state's stack: same-domain returns keep the
-+     * classic bit2 selection, but a cross-domain return must use the return
-+     * state's live CONTROL.SPSEL (untouched by the exception) — bit2 there
-+     * describes the handler domain, not the frame's stack. */
-+    if (info.exception_sec != info.target_sec) {
-+        frame_psp = info.to_thread &&
-+            ((((info.target_sec == MM_NONSECURE) ? cpu->control_ns
-+                                                 : cpu->control_s) & 0x2u) != 0u);
-+    } else {
-+        frame_psp = info.to_thread && info.use_psp;
-+    }
++    /* EXC_RETURN.SPSEL captures the PREEMPTED domain's CONTROL.SPSEL at
++     * entry, so bit2 always names the stack holding the frame — for
++     * same-domain and cross-domain returns alike. Never consult the live
++     * CONTROL here: a nested same-domain exception entry (e.g. a Secure
++     * SysTick taken while Non-secure code runs above a parked Secure
++     * thread) legitimately rewrites it between stacking and unstacking. */
++    frame_psp = info.to_thread && info.use_psp;
 +    if (frame_psp) {
          sp = (info.target_sec == MM_NONSECURE) ? cpu->psp_ns : cpu->psp_s;
      } else {
          sp = (info.target_sec == MM_NONSECURE) ? cpu->msp_ns : cpu->msp_s;
-@@ -3297,7 +3310,7 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
+@@ -3295,7 +3303,7 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
      if ((frame[7] & (1u << 9)) != 0u) {
          sp += 4u;
      }
@@ -40,7 +35,7 @@ index f195a05..c3cac40 100644
          if (info.target_sec == MM_NONSECURE) cpu->psp_ns = sp;
          else cpu->psp_s = sp;
      } else {
-@@ -3311,12 +3324,30 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
+@@ -3309,10 +3317,15 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
                 (unsigned long)sp);
      }
      /*
@@ -48,79 +43,71 @@ index f195a05..c3cac40 100644
 -     * stack used for unstacking. Some firmware (e.g., frosted) programs
 -     * CONTROL.SPSEL in the handler to switch to PSP after return; preserve
 -     * an already-set SPSEL bit rather than unconditionally clearing it.
-+     * EXC_RETURN.SPSEL restores CONTROL.SPSEL of the domain that HANDLED the
-+     * exception (Armv8-M exception model: the value saved and cleared at
-+     * entry). For a same-domain thread return that is the classic behavior;
-+     * for a cross-domain return the handler domain's SPSEL is restored while
-+     * the return domain's CONTROL is left untouched (it was never cleared).
-+     * Without this, an NS-targeting exception preempting Secure code leaves
-+     * CONTROL_NS.SPSEL stuck at 0 and an NS thread later resumed via BXNS
-+     * runs on the wrong stack.
++     * EXC_RETURN.SPSEL restores CONTROL.SPSEL of the domain being RETURNED
++     * to (Armv8-M exception model: the value captured from the preempted
++     * domain at entry). Same- and cross-domain thread returns behave alike;
++     * handler-mode returns leave CONTROL untouched. Pairs with the
++     * same-domain-only SPSEL clear at entry: together they keep a parked
++     * thread's SPSEL alive across unrelated cross-domain preemptions (the
++     * original defect left CONTROL_NS.SPSEL stuck at 0 after an NS-targeting
++     * exception preempted Secure code, so an NS thread later resumed via
++     * BXNS ran on the wrong stack).
       */
--    if (info.to_thread) {
-+    if (info.exception_sec != info.return_sec) {
-+        if (info.exception_sec == MM_NONSECURE) {
-+            if (info.use_psp) {
-+                cpu->control_ns |= 0x2u;
-+            } else {
-+                cpu->control_ns &= ~0x2u;
-+            }
-+        } else {
-+            if (info.use_psp) {
-+                cpu->control_s |= 0x2u;
-+            } else {
-+                cpu->control_s &= ~0x2u;
-+            }
-+        }
-+    } else if (info.to_thread) {
+     if (info.to_thread) {
          if (info.return_sec == MM_NONSECURE) {
-             if (info.use_psp) {
-                 cpu->control_ns |= 0x2u;
-@@ -4407,18 +4438,31 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
+@@ -4405,12 +4418,25 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
      fp_stack = (!tail_chain) && fpu_auto_preserve_enabled(cpu, scs);
      fp_lazy = fp_stack && fpu_lazy_preserve_enabled(cpu, scs);
      addl_state = cross_domain_additional_state_required(sec, handler_sec);
--    if (pre_mode == MM_HANDLER) {
--        use_psp_entry = MM_FALSE;
--        exc_ret_val = exc_return_encode(sec, handler_sec, MM_FALSE, MM_FALSE, fp_stack ? MM_FALSE : MM_TRUE, addl_state ? MM_FALSE : MM_TRUE);
--    } else {
--        use_psp_entry = (((sec == MM_NONSECURE) ? cpu->control_ns : cpu->control_s) & 0x2u) != 0u;
++    /* EXC_RETURN.SPSEL captures CONTROL.SPSEL of the PREEMPTED domain at
++     * entry (Armv8-M exception model): bit2 names the stack the frame was
++     * pushed to, and the matching return restores the return domain's
++     * CONTROL.SPSEL from it. */
+     if (pre_mode == MM_HANDLER) {
+         use_psp_entry = MM_FALSE;
+         exc_ret_val = exc_return_encode(sec, handler_sec, MM_FALSE, MM_FALSE, fp_stack ? MM_FALSE : MM_TRUE, addl_state ? MM_FALSE : MM_TRUE);
+     } else {
+         use_psp_entry = (((sec == MM_NONSECURE) ? cpu->control_ns : cpu->control_s) & 0x2u) != 0u;
 -        exc_ret_val = tail_chain ? cpu->r[14] :
--            exc_return_encode(sec,
--                              handler_sec,
--                              use_psp_entry,
--                              MM_TRUE,
--                              fp_stack ? MM_FALSE : MM_TRUE,
--                              addl_state ? MM_FALSE : MM_TRUE);
-+    /* EXC_RETURN.SPSEL saves CONTROL.SPSEL of the domain HANDLING the
-+     * exception (Armv8-M exception model), not the preempted domain's:
-+     * for a cross-state preemption (e.g. an NS-targeting exception taken
-+     * while executing Secure code) the handler domain's SPSEL is cleared
-+     * below and must be restored from this bit on return; the preempted
-+     * domain's CONTROL is never touched. Same-domain entries are
-+     * unchanged (the two values coincide). Stacking still uses the
-+     * preempted state's active stack (use_psp_entry). */
-+    {
-+        mm_bool spsel_save =
-+            (((handler_sec == MM_NONSECURE) ? cpu->control_ns
-+                                            : cpu->control_s) & 0x2u) != 0u;
-+        if (pre_mode == MM_HANDLER) {
-+            use_psp_entry = MM_FALSE;
-+            exc_ret_val = exc_return_encode(sec, handler_sec, spsel_save, MM_FALSE, fp_stack ? MM_FALSE : MM_TRUE, addl_state ? MM_FALSE : MM_TRUE);
++        /* Tail-chaining preserves the return context described by the
++         * previous EXC_RETURN (S, mode, SPSEL, frame bits) but ES always
++         * names the NEW exception's target domain (Armv8-M exception
++         * model). Reusing bit0 verbatim hands a Secure handler chained
++         * after a Non-secure one an ES=0 EXC_RETURN; a later return with
++         * that value is treated as a Non-secure exception return and
++         * resumes a stale NS handler frame. */
++        exc_ret_val = tail_chain ?
++            ((cpu->r[14] & ~0x1u) |
++             ((handler_sec == MM_SECURE) ? 0x1u : 0x0u)) :
+             exc_return_encode(sec,
+                               handler_sec,
+                               use_psp_entry,
+@@ -4569,11 +4595,19 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
+     cpu->xpsr = (xpsr_in & 0xF8000000u) | 0x01000000u | (exc_num & 0x1FFu);
+     cpu->r[14] = exc_ret_val;
+     cpu->mode = MM_HANDLER;
+-    /* On exception entry, CONTROL.SPSEL becomes 0 for the handler security state. */
+-    if (handler_sec == MM_NONSECURE) {
+-        cpu->control_ns &= ~0x2u;
+-    } else {
+-        cpu->control_s &= ~0x2u;
++    /* On exception entry, CONTROL.SPSEL becomes 0 for the handler security
++     * state — but only when the exception was taken FROM that state. A
++     * cross-domain preemption must leave the other domain's CONTROL.SPSEL
++     * intact: it describes a parked thread context (e.g. a Secure Partition
++     * suspended mid-SVC) whose later cross-domain return restores from
++     * EXC_RETURN.SPSEL, and a Non-secure thread resumed via BXNS reads its
++     * own live CONTROL_NS.SPSEL. */
++    if (handler_sec == sec) {
++        if (handler_sec == MM_NONSECURE) {
++            cpu->control_ns &= ~0x2u;
 +        } else {
-+            use_psp_entry = (((sec == MM_NONSECURE) ? cpu->control_ns : cpu->control_s) & 0x2u) != 0u;
-+            exc_ret_val = tail_chain ? cpu->r[14] :
-+                exc_return_encode(sec,
-+                                  handler_sec,
-+                                  spsel_save,
-+                                  MM_TRUE,
-+                                  fp_stack ? MM_FALSE : MM_TRUE,
-+                                  addl_state ? MM_FALSE : MM_TRUE);
++            cpu->control_s &= ~0x2u;
 +        }
      }
- 
-     sp = use_psp_entry ? ((sec == MM_NONSECURE) ? cpu->psp_ns : cpu->psp_s)
-@@ -6657,20 +6701,27 @@ check_irq_pending:
+     if (stack_trace_enabled()) {
+         printf("[EXC_ENTER_SPSEL] sec=%d control_s=0x%08lx control_ns=0x%08lx\n",
+@@ -6579,20 +6613,27 @@ check_irq_pending:
                              fast_fpu_ok = fpu_access_allowed(&cpu, &scs) ? MM_TRUE : MM_FALSE;
                              code_cache.fpu_ok = fast_fpu_ok;
                              pc_after = cpu.r[15];
@@ -150,7 +137,7 @@ index f195a05..c3cac40 100644
                                      if (candidate_tb != 0) {
                                          target_idx = (tb->end_pc >> 1u) & (M33MU_TB_ENTRIES - 1u);
                                          tb->fallthrough_idx = target_idx;
-@@ -6684,14 +6735,14 @@ check_irq_pending:
+@@ -6606,14 +6647,14 @@ check_irq_pending:
                                                                        tb->branch_idx,
                                                                        tb->branch_gen,
                                                                        tb->branch_pc & ~1u,
