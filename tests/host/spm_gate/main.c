@@ -33,6 +33,8 @@
 
 #define TEST_SERVICE_SID    0x1000U
 #define TEST_SERVICE_SIGNAL 0x10U
+#define TEST_NONINTR_SIGNAL 0x80U
+#define TEST_IRQ_SIGNAL     0x100U
 #define TEST_PARTITION_ID   1
 #define TEST_NS_CLIENT      (-1)
 #define TEST_RHANDLE        ((void*)(uintptr_t)0xA5A5U)
@@ -82,12 +84,17 @@ static const wt_service_descriptor_t g_services[] = {
     }
 };
 
+static const wt_manifest_interrupt_t g_interrupts[] = {
+    { "TEST_IRQ", 42U, TEST_IRQ_SIGNAL }
+};
+
 static const wt_partition_manifest_t g_partitions[] = {
     {
         "test_partition", TEST_PARTITION_ID, WT_FFM_VERSION_1_1,
         WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
         g_services, sizeof(g_services) / sizeof(g_services[0]),
-        NULL, 0U, NULL, 0U
+        NULL, 0U, g_interrupts,
+        sizeof(g_interrupts) / sizeof(g_interrupts[0])
     }
 };
 
@@ -618,6 +625,54 @@ static void test_gate_validates_buffers(void)
     (void)printf("PASS: WT-FFM-0014 gate bounds SP pointers to the domain\n");
 }
 
+static void test_gate_eoi_must_panic(void)
+{
+    wt_ffm_runtime_t runtime;
+    wt_spm_call_t call;
+
+    EXPECT_INT(wt_ffm_init(&runtime, &g_manifest, &g_port_ops, NULL),
+               WT_FFM_SUCCESS);
+
+    /* Multiple signal bits: FF-M programmer error the gate must flag. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_EOI;
+    call.partition_id = TEST_PARTITION_ID;
+    call.signal_mask = TEST_IRQ_SIGNAL | TEST_NONINTR_SIGNAL;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_ARGUMENT);
+    EXPECT_INT(call.must_panic, 1);
+
+    /* A signal the partition never declared as an interrupt. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_EOI;
+    call.partition_id = TEST_PARTITION_ID;
+    call.signal_mask = TEST_NONINTR_SIGNAL;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_POLICY);
+    EXPECT_INT(call.must_panic, 1);
+
+    /* A declared interrupt signal that is not currently asserted. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_EOI;
+    call.partition_id = TEST_PARTITION_ID;
+    call.signal_mask = TEST_IRQ_SIGNAL;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_STATE);
+    EXPECT_INT(call.must_panic, 1);
+
+    /* A legal end-of-interrupt neither errors nor panics, and clears it. */
+    runtime.partitions[0].asserted_signals |= TEST_IRQ_SIGNAL;
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_EOI;
+    call.partition_id = TEST_PARTITION_ID;
+    call.signal_mask = TEST_IRQ_SIGNAL;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+    EXPECT_INT(call.must_panic, 0);
+
+    (void)printf("PASS: WT-FFM-0014 gate panics psa_eoi misuse\n");
+}
+
 int main(void)
 {
     test_gate_equivalence();
@@ -625,6 +680,7 @@ int main(void)
     test_gate_doorbell_state_machine();
     test_doorbell_origination();
     test_gate_validates_buffers();
+    test_gate_eoi_must_panic();
 
     if (g_failures != 0U) {
         (void)fprintf(stderr, "FAIL: %u/%u checks failed\n", g_failures,

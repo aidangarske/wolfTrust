@@ -169,6 +169,8 @@ int wt_ffm_wait(wt_ffm_runtime_t* runtime, int32_t partition_id,
                 psa_signal_t signal_mask, psa_signal_t* asserted);
 int wt_ffm_notify(wt_ffm_runtime_t* runtime, int32_t partition_id);
 int wt_ffm_clear(wt_ffm_runtime_t* runtime, int32_t partition_id);
+int wt_ffm_eoi(wt_ffm_runtime_t* runtime, int32_t partition_id,
+               psa_signal_t irq_signal);
 psa_status_t wt_ffm_get(wt_ffm_runtime_t* runtime, int32_t partition_id,
                         psa_signal_t signal, psa_msg_t* msg);
 int wt_ffm_set_rhandle(wt_ffm_runtime_t* runtime, int32_t partition_id,

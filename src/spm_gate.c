@@ -164,6 +164,15 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
     case WT_SPM_OP_CLEAR:
         call->ret_int = wt_ffm_clear(runtime, call->partition_id);
         break;
+    case WT_SPM_OP_EOI:
+        ret = wt_ffm_eoi(runtime, call->partition_id, call->signal_mask);
+        if (ret != WT_FFM_SUCCESS) {
+            /* psa_eoi with a non-interrupt, unasserted, or multiple-bit signal
+             * is a programmer error the SPM must panic the caller for (FF-M). */
+            call->must_panic = 1U;
+        }
+        call->ret_int = ret;
+        break;
     case WT_SPM_OP_VERSION:
         call->ret_version = wt_ffm_service_version(runtime,
                                                    call->partition_id,

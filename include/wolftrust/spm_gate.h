@@ -44,7 +44,8 @@ typedef enum wt_spm_op {
     WT_SPM_OP_VERSION,
     WT_SPM_OP_CONNECT,
     WT_SPM_OP_CALL,
-    WT_SPM_OP_CLOSE
+    WT_SPM_OP_CLOSE,
+    WT_SPM_OP_EOI
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     /* Platform NVM service (P5 K2), NOT an FF-M IPC op: the arch SVC layer
      * intercepts it before this gate, so no case handles it here. A real

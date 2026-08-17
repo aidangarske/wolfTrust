@@ -888,6 +888,30 @@ delivery needs no hardware gate; the remaining P4.2 work is wolfTrust-side
 (`psa_eoi` validation in P4.2b, i021 end-to-end in P4.2c). Supersedes the
 M33MU-2 candidate below.
 
+## Item 10 P4.2b — psa_eoi argument validation (host, 2026-08-17)
+
+`psa_eoi` was an always-panic stub — it would have falsely passed i064–066
+(all three expect a panic) while also panicking a *legal* EOI, which i021/P6
+need to succeed. Replaced with a faithful arch-neutral engine fn `wt_ffm_eoi`
+(`src/ffm.c`): it derives the partition's interrupt-signal mask from its
+manifest (`interrupts[]`) and returns a programmer-error code for each FF-M
+misuse — `WT_FFM_ERROR_ARGUMENT` for zero/multiple bits (i066),
+`WT_FFM_ERROR_POLICY` for a non-declared signal (i064), `WT_FFM_ERROR_STATE`
+for a declared-but-unasserted signal (i065) — and clears the asserted bit on a
+legal EOI. Both veneers route through it: `src/ffm_api.c psa_eoi` panics on
+error; the SP-side `src/arch/armv8m/spm_sp_api.c psa_eoi` issues a new
+`WT_SPM_OP_EOI` gate op the gate flags `must_panic` on (same path as
+psa_get/read/write bad-buffer).
+
+**Evidence (host `make test`, `PASS: unit/all`):** `unit/ffm` new
+`psa_eoi argument validation` proves all four cases including the legal clear
+(the host sets `asserted_signals` to stand in for the FLIH that asserts an
+interrupt on real hardware — P6/i021); `unit/spm_gate` new
+`gate panics psa_eoi misuse` proves the gate sets `must_panic` on the three
+rejections and not on a legal EOI (146 checks, up from 133). The SP-side veneer
+is a line-for-line mirror of `psa_clear`; its target proof arrives with P4.1b's
+confboot (which cross-builds it and runs i064–066 across the panic-reset loop).
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are

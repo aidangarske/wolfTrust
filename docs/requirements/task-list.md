@@ -769,9 +769,19 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       lines to the guest is already proven (SysTick/EXTI/RNG). No hardware gate
       for peripheral IRQ delivery; remaining P4.2 work is wolfTrust-side.
       Details in validation-log.md (Item 10 P4.2a); closes candidate M33MU-2.
-    - P4.2b. [ ] **`psa_eoi` argument validation + panic (unblocks i064–066).**
-      Implement `psa_eoi` to reject non-interrupt / unasserted / multi-signal
-      args via the must-panic path; host test the three rejection cases.
+    - P4.2b. [x] **`psa_eoi` argument validation + panic — host-proven
+      (2026-08-17).** New arch-neutral engine fn `wt_ffm_eoi` derives the
+      partition's interrupt-signal mask from its manifest and rejects the three
+      FF-M programmer errors: multiple/zero bits (`WT_FFM_ERROR_ARGUMENT`),
+      a non-declared signal (`WT_FFM_ERROR_POLICY`, i064), and a declared but
+      unasserted signal (`WT_FFM_ERROR_STATE`, i065); a legal EOI clears the
+      asserted bit. Both `psa_eoi` veneers route through it —
+      `src/ffm_api.c` panics on error, the SP-side `spm_sp_api.c` issues a new
+      `WT_SPM_OP_EOI` gate op that sets `must_panic` on misuse (mirrors
+      psa_get/read/write). Host: `unit/ffm` `psa_eoi argument validation`
+      (4 cases incl. legal clear) + `unit/spm_gate` `gate panics psa_eoi
+      misuse` (146 checks). Replaces the old always-panic stub (which would
+      have falsely passed i064–066). Target proof lands with P4.1b's confboot.
     - P4.2c. [ ] **i021 end-to-end (needs P4.2a GO).** Real UART IRQ → driver SP
       `psa_wait` → `psa_eoi` acks; M33MU green.
   - P5.1. [ ] **Flash-NVM continuity, non-panic tests (needs K2).** The P5 tests

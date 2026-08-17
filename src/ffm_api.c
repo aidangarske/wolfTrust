@@ -172,8 +172,10 @@ void psa_clear(void)
 
 void psa_eoi(psa_signal_t irq_signal)
 {
-    (void)irq_signal;
-    wt_ffm_api_panic();
+    if (wt_ffm_eoi(g_runtime, wt_ffm_current_partition(), irq_signal) !=
+            WT_FFM_SUCCESS) {
+        wt_ffm_api_panic();
+    }
 }
 
 void psa_panic(void)

@@ -913,6 +913,42 @@ int wt_ffm_clear(wt_ffm_runtime_t* runtime, int32_t partition_id)
     return WT_FFM_SUCCESS;
 }
 
+int wt_ffm_eoi(wt_ffm_runtime_t* runtime, int32_t partition_id,
+               psa_signal_t irq_signal)
+{
+    uint16_t partition_index;
+    const wt_partition_manifest_t* manifest;
+    psa_signal_t* asserted_signals;
+    psa_signal_t interrupt_mask;
+    size_t i;
+
+    if (runtime == NULL)
+        return WT_FFM_ERROR_ARGUMENT;
+    if (wt_ffm_find_partition(runtime, partition_id, &partition_index) !=
+            WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_POLICY;
+    }
+    /* FF-M: psa_eoi takes exactly one interrupt signal. Zero or more than one
+     * asserted bit is a programmer error. */
+    if (irq_signal == 0U || (irq_signal & (irq_signal - 1U)) != 0U)
+        return WT_FFM_ERROR_ARGUMENT;
+    manifest = runtime->partitions[partition_index].manifest;
+    interrupt_mask = 0U;
+    if (manifest != NULL) {
+        for (i = 0; i < manifest->interrupt_count; i++)
+            interrupt_mask |= (psa_signal_t)manifest->interrupts[i].signal;
+    }
+    /* The signal must be one this partition declared as an interrupt... */
+    if ((irq_signal & interrupt_mask) == 0U)
+        return WT_FFM_ERROR_POLICY;
+    asserted_signals = &runtime->partitions[partition_index].asserted_signals;
+    /* ...and it must currently be asserted. */
+    if ((*asserted_signals & irq_signal) == 0U)
+        return WT_FFM_ERROR_STATE;
+    *asserted_signals &= ~irq_signal;
+    return WT_FFM_SUCCESS;
+}
+
 psa_status_t wt_ffm_get(wt_ffm_runtime_t* runtime, int32_t partition_id,
                         psa_signal_t signal, psa_msg_t* msg)
 {

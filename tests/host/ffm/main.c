@@ -29,6 +29,8 @@
 #define TEST_SERVICE_SIGNAL    0x10U
 #define TEST_STRICT_SIGNAL     0x20U
 #define TEST_UNSPEC_SIGNAL     0x40U
+#define TEST_NONINTR_SIGNAL    0x80U
+#define TEST_IRQ_SIGNAL        0x100U
 #define TEST_PARTITION_ID      1
 #define TEST_CLIENT_PARTITION  2
 #define TEST_NS_CLIENT         (-1)
@@ -103,12 +105,17 @@ static const uint32_t g_client_dependencies[] = {
     TEST_STRICT_SID
 };
 
+static const wt_manifest_interrupt_t g_interrupts[] = {
+    { "TEST_IRQ", 42U, TEST_IRQ_SIGNAL }
+};
+
 static const wt_partition_manifest_t g_partitions[] = {
     {
         "test_partition", TEST_PARTITION_ID, WT_FFM_VERSION_1_1,
         WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
         g_services, sizeof(g_services) / sizeof(g_services[0]),
-        NULL, 0U, NULL, 0U
+        NULL, 0U, g_interrupts,
+        sizeof(g_interrupts) / sizeof(g_interrupts[0])
     },
     {
         "client_partition", TEST_CLIENT_PARTITION, WT_FFM_VERSION_1_0,
@@ -584,10 +591,45 @@ static void test_partition_dispatch_registry(void)
     (void)printf("PASS: WT-FFM-0014 partition dispatch routing\n");
 }
 
+static void test_eoi_signal(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+
+    (void)memset(&context, 0, sizeof(context));
+    test_init(&runtime, &context);
+
+    /* More than one asserted bit is a programmer error. */
+    EXPECT_INT(wt_ffm_eoi(&runtime, TEST_PARTITION_ID,
+                          TEST_IRQ_SIGNAL | TEST_NONINTR_SIGNAL),
+               WT_FFM_ERROR_ARGUMENT);
+    /* Zero bits likewise. */
+    EXPECT_INT(wt_ffm_eoi(&runtime, TEST_PARTITION_ID, 0U),
+               WT_FFM_ERROR_ARGUMENT);
+    /* A single bit the partition never declared as an interrupt (i064). */
+    EXPECT_INT(wt_ffm_eoi(&runtime, TEST_PARTITION_ID, TEST_NONINTR_SIGNAL),
+               WT_FFM_ERROR_POLICY);
+    /* The declared interrupt signal, but not currently asserted (i065). */
+    EXPECT_INT(wt_ffm_eoi(&runtime, TEST_PARTITION_ID, TEST_IRQ_SIGNAL),
+               WT_FFM_ERROR_STATE);
+    /* A legal end-of-interrupt clears the asserted signal. The host stands in
+     * for the FLIH that asserts it on real hardware (P6/i021). */
+    runtime.partitions[0].asserted_signals |= TEST_IRQ_SIGNAL;
+    EXPECT_INT(wt_ffm_eoi(&runtime, TEST_PARTITION_ID, TEST_IRQ_SIGNAL),
+               WT_FFM_SUCCESS);
+    EXPECT_INT(runtime.partitions[0].asserted_signals & TEST_IRQ_SIGNAL, 0);
+    /* Cleared: a second eoi on it is again a programmer error. */
+    EXPECT_INT(wt_ffm_eoi(&runtime, TEST_PARTITION_ID, TEST_IRQ_SIGNAL),
+               WT_FFM_ERROR_STATE);
+
+    (void)printf("PASS: psa_eoi argument validation\n");
+}
+
 int main(void)
 {
     test_arguments();
     test_doorbell_signal();
+    test_eoi_signal();
     test_wait_signal_mask();
     test_framework_and_policy();
     test_connection_and_vectors();
