@@ -967,6 +967,62 @@ set does dozens of reboots), so it needs a real fix, not a reboot cap.
 Next diagnostic: a per-step (`init`/`erase`/`program`) + `FLASH_SR`/`OPTSR`
 dump in `wt_conf_nvm_flash_sync` under `WT_CONFORMANCE`, one M33MU cycle.
 
+**RESOLVED (2026-08-17, same day): neither flash nor IPC — the missing
+interrupt route.** i066's NS print order (self-consistent) shows
+`Result=Failed (Error code=27)` BEFORE the nvmem error; 27 =
+`VAL_STATUS_SPM_FAILED`, the exact value the client returns when its
+`psa_call` RETURNS instead of the driver panicking. Upstream
+`driver_test_psa_eoi_with_multiple_signals` is the only eoi check that first
+REQUIRES a real asserted interrupt (`psa_irq_enable` →
+`val_generate_interrupt` → `psa_wait(DRIVER_UART_INTR_SIG, PSA_BLOCK)`)
+before its illegal eoi; with no interrupt route the driver took upstream's own
+"didn't receive irq signal" branch (silent — the SPE pal_print is a stub),
+replied an error, and never panicked. The nvmem error was downstream noise.
+No flash defect exists; P5.2 is not gated. Fix = the P4.2c route below.
+
+## Item 10 P4.1b + P4.2c interrupt route — 12/12, six reboots (M33MU, 2026-08-17)
+
+Built the real peripheral-interrupt route and re-landed i064–066: confboot
+`TOTAL TESTS : 12 / PASSED : 12 / FAILED : 0 / SKIPPED : 0`, SIX mid-suite
+`[RESET] System reset requested` markers in one boot, `PASS: target/confboot`
+(local box Docker, same CI container, patched emulator). i066's pass is the
+first end-to-end proof of the chain: `psa_irq_enable` → LPUART1 `CR1.TXEIE`
+(TXE idles high) → NVIC IRQ 63 pends → secure FLIH → manifest-routed signal
+256 asserted → the driver's `psa_wait` observes it → illegal multi-bit
+`psa_eoi` → `must_panic` → SPM reset → val boot-flag resume.
+
+The route, all manifest-authoritative:
+
+- **Manifest** (`manifest-conformance.json`; the generator already supported
+  interrupts): DRIVER partition declares `DRIVER_UART_INTR_SIG` interrupt 63 /
+  signal 256; domain 6 owns interrupt resource 63;
+  `max_interrupts_per_domain` 0→1 in the json and the platform capability
+  struct (`partitions.c`; manifest caps validate as ≤ platform, so the
+  production manifest is untouched). The generator emits the partition
+  interrupt table and `DRIVER_UART_INTR_SIG_SIGNAL 256U`; the mk's hand-kept
+  `256U` constant became an alias to the generated macro (SPEC_VERSION==10
+  builds lack upstream's own alias).
+- **Engine** (`src/ffm.c`, arch-neutral): `wt_ffm_irq_lookup` (signal→irq),
+  `wt_ffm_irq_route` (irq→partition/signal for the FLIH),
+  `wt_ffm_assert_signal` (declared-interrupt-only assertion).
+- **Gate**: new `WT_SPM_OP_IRQ_ENABLE` — validates the signal against the
+  manifest, `must_panic` on misuse (FF-M programmer error), returns the
+  resolved irq; the `psa_irq_enable` veneer replaces the old no-op.
+- **Arch/port**: post-gate privileged NVIC unmask
+  (`wt_platform_secure_irq_enable`: ITNS→Secure, lowest priority so the line
+  never nests the SVC gate, ICPR, ISER); IVT slot 79 → `LPUART1_IRQHandler` →
+  `wt_spm_conf_irq` (mask the line, engine-route, assert);
+  `WT_SPM_OP_CONF_IRQ_SET` conf-plane op drives LPUART1 for the PAL's
+  `pal_generate/disable_interrupt` (mirror of the NVM-sync plane). The
+  interrupt is genuinely raised by the emulator's UART model
+  (`cpu/stm32_usart.c` TXEIE&TXE → `mm_nvic_set_pending`) — not simulated.
+
+**Host evidence** (`make test`, `PASS: unit/all`): `unit/ffm` new
+`interrupt signal routing and assertion` (lookup/route/assert + eoi clears);
+`unit/spm_gate` new `gate validates psa_irq_enable` (157 checks). This closes
+P4.1 (all six panic tests green) and lands the P4.2c route; i021
+(TEST_INTR_SERVICE, legal-eoi ack + re-fire) remains the P4.2c tail.
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are

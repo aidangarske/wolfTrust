@@ -74,6 +74,8 @@ static uint32_t wt_spm_sched_diag_word(const wt_ffm_runtime_t* runtime,
 /* Privileged flash NVM sync, implemented in the port's hsm_flash.c. Declared
  * here to keep the wolfHSM flash headers out of the arch transport. */
 int wt_conf_nvm_flash_sync(uint8_t *buf, uint32_t len, int store);
+/* Privileged PAL interrupt source control (P4.2c), in the port platform. */
+void wt_conf_uart_irq_set(int on);
 #endif
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
@@ -140,6 +142,16 @@ void wt_spm_svc_entry(uint32_t* frame)
         frame[0] = (uint32_t)WT_FFM_SUCCESS;
         return;
     }
+    /* PAL interrupt source (P4.2c): the unprivileged DRIVER partition cannot
+     * program the UART or NVIC, so pal_generate/disable_interrupt trap here
+     * for the privileged device poke. The interrupt itself is delivered
+     * through the real NVIC vector, not simulated. */
+    if (call->op == WT_SPM_OP_CONF_IRQ_SET) {
+        wt_conf_uart_irq_set(call->call_type);
+        call->ret_int = WT_FFM_SUCCESS;
+        frame[0] = (uint32_t)WT_FFM_SUCCESS;
+        return;
+    }
 #endif
 
     /* The caller's identity is the scheduled slot's, never the SP-supplied
@@ -148,6 +160,11 @@ void wt_spm_svc_entry(uint32_t* frame)
     slot->wait_kind = WT_SPM_WAIT_NONE;
     status = wt_spm_gate(g_spm_svc_runtime, &slot->table, call);
     frame[0] = (uint32_t)status;
+    /* psa_irq_enable: the gate validated the signal against the manifest and
+     * resolved its interrupt number; the privileged controller unmask happens
+     * here where NVIC access is legal. */
+    if (call->op == WT_SPM_OP_IRQ_ENABLE && call->ret_int == WT_FFM_SUCCESS)
+        wt_platform_secure_irq_enable(call->ret_version);
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     /* FF-M PROGRAMMER ERROR the SPM must panic the caller for (P5 K3). val has
      * already written its BOOT_EXPECTED_NS flag to flash NVM (K2), so the reset
@@ -374,6 +391,23 @@ void wt_spm_sched_hang_probe(void)
             wt_spm_sched_diag_word(g_spm_svc_runtime, 0),
             wt_spm_sched_diag_word(g_spm_svc_runtime, 1),
             wt_spm_sched_diag_word(g_spm_svc_runtime, 2));
+    }
+}
+
+void wt_spm_conf_irq(uint32_t irq)
+{
+    int32_t partition_id;
+    psa_signal_t signal;
+
+    /* Mask first: a level source (UART TXE) would re-pend forever. The line
+     * runs at the lowest priority, so this handler never nests inside the SVC
+     * gate and the asserted_signals update cannot race it. */
+    wt_platform_secure_irq_disable(irq);
+    if (g_spm_svc_runtime != NULL &&
+            wt_ffm_irq_route(g_spm_svc_runtime, irq, &partition_id,
+                             &signal) == WT_FFM_SUCCESS) {
+        (void)wt_ffm_assert_signal(g_spm_svc_runtime, partition_id, signal);
+        g_spm_conf_activity++;
     }
 }
 #endif

@@ -40,6 +40,7 @@ void UsageFault_Handler(void) __attribute__((weak, alias("default_handler")));
 void SVC_Handler(void) __attribute__((weak, alias("default_handler")));
 void DebugMon_Handler(void) __attribute__((weak, alias("default_handler")));
 void PendSV_Handler(void) __attribute__((weak, alias("default_handler")));
+void LPUART1_IRQHandler(void) __attribute__((weak, alias("default_handler")));
 
 __attribute__((section(".vectors")))
 const uint32_t g_secure_vectors[16 + 64] = {
@@ -55,5 +56,7 @@ const uint32_t g_secure_vectors[16 + 64] = {
     [12] = (uint32_t)&DebugMon_Handler,
     [14] = (uint32_t)&PendSV_Handler,
     [15] = (uint32_t)&SysTick_Handler,
-    [16 ... 79] = (uint32_t)&default_handler
+    [16 ... 78] = (uint32_t)&default_handler,
+    /* External IRQ 63: LPUART1, the conformance PAL interrupt source. */
+    [16 + 63] = (uint32_t)&LPUART1_IRQHandler
 };

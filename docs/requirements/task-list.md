@@ -732,7 +732,8 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       `[RESET] System reset requested` and clean `[EXPECT BKPT] Success`
       (local Docker, same CI container); host `make test` green. Details in
       validation-log.md M33MU defect register.
-  - P4.1. [ ] **Six panic isolation tests (needs K).** Un-skip
+  - P4.1. [x] **Six panic isolation tests — ALL SIX GREEN (2026-08-17,
+    confboot 12/12: i047,i055,i057,i064,i065,i066).** Original scope: un-skip
     `i047,i055,i057,i064,i065,i066`, wire into the schedule (gen_tests_list
     panic mode), M33MU green across their reboots. Confirm each induces the SP
     panic our SPM already raises (bad msg pointer, oversized vector, etc.).
@@ -750,39 +751,28 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       (one panic-reset reboot per test, each resuming off its flash boot flag),
       `PASS: target/confboot`.** Evidence in validation-log.md. The reboot loop
       scales to three panics in one boot.
-    - P4.1b. [~] **i064–066 — psa_eoi misuse panics. P4.2b UNBLOCKED it;
-      i064+i065 PASS on target, i066 BLOCKED on a new flash-durability limit
-      (P4.4, 2026-08-17).** With P4.2b's `wt_ffm_eoi` landed, a one-off confboot
-      wired all three (assert 12) and ran: i064 (non-interrupt) and i065
-      (unasserted) both `Result=Passed` — the psa_eoi validate→`must_panic`→SPM
-      reset→boot-flag resume path works end-to-end on the emulator (4th and 5th
-      panic-reset reboots in one boot). **i066 (multiple-signal) failed NOT on
-      psa_eoi but on `val_nvmem_write failed. Error=0x1`: the K2 flash boot-flag
-      store (`wt_conf_nvm_flash_sync`) returns −1 on the store preceding the 6th
-      reset — no emulator HW flash error, so wolfTrust's flash erase/program is
-      returning the failure.** i064/i065's psa_eoi correctness is proven; the
-      i064–066 build wiring was reverted (tree stays green at confboot 9) pending
-      the flash fix. Re-land all three (confboot 12) once P4.4 closes. Detail in
-      validation-log.md (Item 10 P4.1b attempt).
-    - P4.4. [ ] **Flash-NVM multi-reset durability (NEW BLOCKER, blocks P4.1b
-      i066 AND P5.2).** The K2 conformance NVM (`wt_conf_nvm_flash_sync` →
-      `wt_hsm_flash_erase`/`_program` on the reserved secure sector
-      `0x0C1FA000`) survives 5 consecutive panic-reset cycles but the store
-      before the 6th returns −1. No `WRPERR`/`PGSERR` logged by the emulator, so
-      the fault is in the wolfTrust flash path, not the emulator flash array
-      (which is in-RAM, not file-persisted, no wear model). **Bank-swap theory
-      DISPROVEN by an `M33MU_FLASH_TRACE=1` run: every `[FLASH_ERASE]` across all
-      6 boots is identical (`snb=125 start=0x1fa000`), no swap, ~130 stores
-      succeed identically — so the flash op is NOT the selective failure.**
-      Refined diagnosis: `val_write_nvm` → `psa_call`(DRIVER partition) →
-      `val_nvmem_write_sf` → `pal_nvmem_write` → flash; the `Error=0x1` is that
-      whole chain's status, so the failure most likely sits in the val→driver
-      `psa_call`/SPM path on i066's boot (after many connect/call/close cycles),
-      not the flash primitive — a silent write-once `PGSERR` is not yet fully
-      excluded (`STM32H563_FLAGS` arms it; emulator sets it without printing).
-      Next: one M33MU cycle with an emulator `printf` at the `PGSERR` set (hit =
-      flash, silence = IPC) and/or trace the `psa_call` return on i066's boot.
-      Deep, multi-cycle STM32H5/SPM work (Fable-class). Gates P5.2 too.
+    - P4.1b. [x] **i064–066 — psa_eoi misuse panics (DONE 2026-08-17, 12/12).**
+      With P4.2b's `wt_ffm_eoi` and the P4.2c interrupt route landed, all three
+      pass on target: i064 (non-interrupt), i065 (unasserted), and i066
+      (multiple-signal) each panic-reset and resume off the flash boot flag —
+      confboot `TOTAL PASSED : 12 / FAILED : 0` with SIX mid-suite resets in one
+      boot, `PASS: target/confboot`. i066 additionally proves the full
+      peripheral-interrupt chain: `psa_irq_enable` → LPUART1 TXEIE → NVIC 63 →
+      secure FLIH → manifest-routed signal 256 asserted → `psa_wait` wakes →
+      illegal multi-bit `psa_eoi` → `must_panic` → reset. Evidence in
+      validation-log.md (Item 10 P4.1b + P4.2c route).
+    - P4.4. [x] **RESOLVED VOID (2026-08-17): the "flash durability limit" was
+      never a flash bug.** Diagnosis history: first suspected flash wear, then
+      bank-swap divergence (disproven by an `M33MU_FLASH_TRACE=1` run — every
+      erase identical, ~130 stores fine), then the val→driver IPC path. The
+      actual root cause, read from the upstream test source: i066's driver-side
+      check REQUIRES a real asserted interrupt before its illegal eoi
+      (`val_generate_interrupt` → `psa_wait(DRIVER_UART_INTR_SIG, PSA_BLOCK)`),
+      and no interrupt route existed — the driver took upstream's own
+      "didn't receive irq signal" branch, replied an error, never panicked
+      (client error 27 = VAL_STATUS_SPM_FAILED), and the nvmem error was
+      downstream noise. Fixed by building the P4.2c route. No flash defect
+      exists; P5.2 is NOT gated on flash durability.
     - P4.1b-note (superseded framing). Original: Each
       calls `psa_eoi` with an illegal argument (non-interrupt / unasserted /
       multiple signals) that must panic. Needs `psa_eoi` to at least VALIDATE
@@ -815,7 +805,13 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       (4 cases incl. legal clear) + `unit/spm_gate` `gate panics psa_eoi
       misuse` (146 checks). Replaces the old always-panic stub (which would
       have falsely passed i064–066). Target proof lands with P4.1b's confboot.
-    - P4.2c. [ ] **i021 end-to-end (needs P4.2a GO).** Real UART IRQ → driver SP
+    - P4.2c. [~] **Interrupt route LANDED (2026-08-17); i021 itself remains.**
+      The route — manifest-declared LPUART1 (IRQ 63) ↔ signal 256, real
+      `psa_irq_enable` (gate op + NVIC unmask), secure FLIH asserting the
+      manifest-routed signal, PAL `pal_generate/disable_interrupt` via the
+      conf SVC plane — is target-proven by i066 (12/12 run). Remaining: un-skip
+      i021 (TEST_INTR_SERVICE: legal `psa_eoi` ack + re-fire loop) — needs the
+      legal-eoi NVIC re-enable hook. Original: real UART IRQ → driver SP
       `psa_wait` → `psa_eoi` acks; M33MU green.
   - P5.1. [ ] **Flash-NVM continuity, non-panic tests (needs K2).** The P5 tests
     that only need survive-reset NVM, not a panic (`i002` PSA_POLL/state,

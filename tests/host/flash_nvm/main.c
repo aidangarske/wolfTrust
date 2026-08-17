@@ -47,6 +47,13 @@ static void flash_power_on(void)
     g_flash_powered = 1;
 }
 
+/* The PAL interrupt hooks are irrelevant to the NVM logic under test. */
+int wt_conf_irq_set(int on)
+{
+    (void)on;
+    return 0;
+}
+
 int wt_conf_nvm_sync(uint8_t *buf, uint32_t len, int store)
 {
     uint32_t i;

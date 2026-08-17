@@ -673,6 +673,46 @@ static void test_gate_eoi_must_panic(void)
     (void)printf("PASS: WT-FFM-0014 gate panics psa_eoi misuse\n");
 }
 
+static void test_gate_irq_enable(void)
+{
+    wt_ffm_runtime_t runtime;
+    wt_spm_call_t call;
+
+    EXPECT_INT(wt_ffm_init(&runtime, &g_manifest, &g_port_ops, NULL),
+               WT_FFM_SUCCESS);
+
+    /* A declared interrupt signal resolves to its manifest interrupt number
+     * so the arch layer can unmask the right controller line. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_IRQ_ENABLE;
+    call.partition_id = TEST_PARTITION_ID;
+    call.signal_mask = TEST_IRQ_SIGNAL;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_version, 42);
+    EXPECT_INT(call.must_panic, 0);
+
+    /* psa_irq_enable on a non-interrupt signal is a programmer error. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_IRQ_ENABLE;
+    call.partition_id = TEST_PARTITION_ID;
+    call.signal_mask = TEST_NONINTR_SIGNAL;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_POLICY);
+    EXPECT_INT(call.must_panic, 1);
+
+    /* Multiple signal bits likewise. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_IRQ_ENABLE;
+    call.partition_id = TEST_PARTITION_ID;
+    call.signal_mask = TEST_IRQ_SIGNAL | TEST_NONINTR_SIGNAL;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_ARGUMENT);
+    EXPECT_INT(call.must_panic, 1);
+
+    (void)printf("PASS: WT-FFM-0014 gate validates psa_irq_enable\n");
+}
+
 int main(void)
 {
     test_gate_equivalence();
@@ -681,6 +721,7 @@ int main(void)
     test_doorbell_origination();
     test_gate_validates_buffers();
     test_gate_eoi_must_panic();
+    test_gate_irq_enable();
 
     if (g_failures != 0U) {
         (void)fprintf(stderr, "FAIL: %u/%u checks failed\n", g_failures,

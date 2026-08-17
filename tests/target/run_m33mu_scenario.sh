@@ -144,8 +144,9 @@ if [ "$scenario" = "restart" ]; then
   quit_flag=""
   timeout_s=40
 elif [ "$scenario" = "confboot" ]; then
-  # i047's must-panic reset reboots the whole chain mid-suite: two boots.
-  timeout_s=90
+  # Six must-panic resets reboot the whole chain mid-suite (i047/i055/i057 +
+  # i064/i065/i066), so budget for seven boots.
+  timeout_s=120
 fi
 
 log="$repo/ci-m33mu-$scenario.log"
@@ -187,12 +188,14 @@ case "$scenario" in
     grep -Fq "wolfTrust FF-M psa_framework_version=0x0100" "$log"
     grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$log"
     grep -Fq "wolfTrust FF-M conformance: val_entry start" "$log"
-    # i047/i055/i057 are panic tests: each server commits a must-panic
-    # programmer error, the SPM resets (P5 K3), and val resumes across the
-    # reboot off its flash-backed boot flag (K2) — 9 total, three reboots in
-    # one boot. Needs the M33MU-1 SPSEL patch the emulator build step applies
-    # above.
-    grep -Fq "TOTAL PASSED    : 9" "$log"
+    # i047/i055/i057 (buffer panics) and i064/i065/i066 (psa_eoi misuse) are
+    # panic tests: each commits a must-panic programmer error, the SPM resets
+    # (P5 K3), and val resumes across the reboot off its flash-backed boot
+    # flag (K2) — 12 total, six reboots in one boot. i066 additionally needs
+    # the real LPUART1 NVIC route into the DRIVER partition's manifest
+    # interrupt signal (P4.2c). Needs the M33MU-1 SPSEL patch the emulator
+    # build step applies above.
+    grep -Fq "TOTAL PASSED    : 12" "$log"
     grep -Fq "TOTAL FAILED    : 0" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"
     echo "PASS: target/confboot"

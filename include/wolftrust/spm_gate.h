@@ -45,13 +45,17 @@ typedef enum wt_spm_op {
     WT_SPM_OP_CONNECT,
     WT_SPM_OP_CALL,
     WT_SPM_OP_CLOSE,
-    WT_SPM_OP_EOI
+    WT_SPM_OP_EOI,
+    WT_SPM_OP_IRQ_ENABLE
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
-    /* Platform NVM service (P5 K2), NOT an FF-M IPC op: the arch SVC layer
-     * intercepts it before this gate, so no case handles it here. A real
-     * enumerator (not an out-of-range constant) keeps its value inside the
-     * enum range so the interception compare is never folded away. */
+    /* Platform conformance services, NOT FF-M IPC ops: the arch SVC layer
+     * intercepts them before this gate, so no case handles them here. Real
+     * enumerators (not out-of-range constants) keep their values inside the
+     * enum range so the interception compares are never folded away.
+     * CONF_NVM_SYNC = flash NVM shadow sync (P5 K2). CONF_IRQ_SET = drive the
+     * PAL UART interrupt source on/off (P4.2c). */
     , WT_SPM_OP_CONF_NVM_SYNC = 0x100
+    , WT_SPM_OP_CONF_IRQ_SET = 0x101
 #endif
 } wt_spm_op_t;
 

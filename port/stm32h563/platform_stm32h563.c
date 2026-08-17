@@ -1393,6 +1393,68 @@ void wt_platform_restore_ns_bank(const wt_guest_context_t* context)
           "r"(context->psplim_ns), "r"(zero), "r"(context->control_ns));
 }
 
+void wt_platform_secure_irq_enable(uint32_t irq)
+{
+    uint32_t word = irq >> 5;
+    uint32_t bit = irq & 31u;
+
+    if (word > 1u)
+        return;
+    /* Route to Secure, drop any stale pending, lowest priority so the line
+     * never preempts the active SVC gate, then unmask. */
+    if (word == 0u) {
+        WT_NVIC_ITNS0 &= ~(1u << bit);
+        WT_NVIC_ICPR0 = (1u << bit);
+    } else {
+        WT_NVIC_ITNS1 &= ~(1u << bit);
+        WT_NVIC_ICPR1 = (1u << bit);
+    }
+    WT_NVIC_IPR_BASE[irq] = 0xFFu;
+    __asm volatile("dsb\nisb" ::: "memory");
+    if (word == 0u)
+        WT_NVIC_ISER0 = (1u << bit);
+    else
+        WT_NVIC_ISER1 = (1u << bit);
+}
+
+void wt_platform_secure_irq_disable(uint32_t irq)
+{
+    uint32_t word = irq >> 5;
+    uint32_t bit = irq & 31u;
+
+    if (word > 1u)
+        return;
+    if (word == 0u) {
+        WT_NVIC_ICER0 = (1u << bit);
+        WT_NVIC_ICPR0 = (1u << bit);
+    } else {
+        WT_NVIC_ICER1 = (1u << bit);
+        WT_NVIC_ICPR1 = (1u << bit);
+    }
+    __asm volatile("dsb\nisb" ::: "memory");
+}
+
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+/* PAL interrupt source (P4.2c): LPUART1 with TXEIE raises its NVIC line as
+ * soon as the transmitter is enabled (TXE idles high), giving the DRIVER
+ * partition a real peripheral interrupt to receive and acknowledge. */
+void wt_conf_uart_irq_set(int on)
+{
+    if (on != 0) {
+        WT_LPUART1_CR1 |= WT_LPUART1_CR1_UE | WT_LPUART1_CR1_TE |
+                          WT_LPUART1_CR1_TXEIE;
+    } else {
+        WT_LPUART1_CR1 &= ~WT_LPUART1_CR1_TXEIE;
+        wt_platform_secure_irq_disable(WT_LPUART1_IRQ);
+    }
+}
+
+void LPUART1_IRQHandler(void)
+{
+    wt_spm_conf_irq(WT_LPUART1_IRQ);
+}
+#endif
+
 uint32_t wt_platform_active_guest_id(void)
 {
     return g_active_guest;

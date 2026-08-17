@@ -60,3 +60,15 @@ int wt_conf_nvm_sync(uint8_t *buf, uint32_t len, int store)
     (void)wt_spm_sp_call(&call);
     return call.ret_int;
 }
+
+int wt_conf_irq_set(int on)
+{
+    wt_spm_call_t call;
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_CONF_IRQ_SET;
+    call.call_type = on;
+
+    (void)wt_spm_sp_call(&call);
+    return call.ret_int;
+}

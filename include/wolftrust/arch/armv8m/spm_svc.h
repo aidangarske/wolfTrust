@@ -60,6 +60,11 @@ void wt_spm_svc_entry(uint32_t* frame);
 /* Conformance-only hang tripwire: called from the secure SysTick; traps with
  * a scheduler-state register dump when IPC activity stalls (lost wake). */
 void wt_spm_sched_hang_probe(void);
+
+/* FLIH for a Secure Partition interrupt (P4.2c): masks the line, resolves the
+ * manifest-bound partition/signal for `irq`, and asserts the signal so the
+ * partition's psa_wait observes it. Called from the port's IRQ vector. */
+void wt_spm_conf_irq(uint32_t irq);
 #endif
 
 #endif /* WOLFTRUST_ARCH_ARMV8M_SPM_SVC_H */

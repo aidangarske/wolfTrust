@@ -93,6 +93,13 @@ void wt_platform_system_reset(void) __attribute__((noreturn));
  * blocked secure tasklet: that path returns to NS via BXNS, bypassing the
  * exception-return restore, so the previous guest's bank would leak in. */
 void wt_platform_restore_ns_bank(const wt_guest_context_t* context);
+
+/* Enable/disable a Secure-targeted external interrupt for a Secure Partition
+ * (psa_irq_enable / EOI-mask path). Enable routes the line to Secure, clears
+ * any stale pending, and unmasks at the lowest priority so it never preempts
+ * the SVC gate. */
+void wt_platform_secure_irq_enable(uint32_t irq);
+void wt_platform_secure_irq_disable(uint32_t irq);
 #ifdef WT_ENGINE_HSM
 bool wt_platform_secure_service_active(void);
 void wt_platform_note_hsm_wait_skip(wt_guest_id_t guest_id);

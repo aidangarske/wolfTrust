@@ -7,7 +7,7 @@
     "capabilities": 127,
     "max_domains": 8,
     "max_memory_resources_per_domain": 2,
-    "max_interrupts_per_domain": 0
+    "max_interrupts_per_domain": 1
   },
   "domains": [
     {
@@ -232,7 +232,13 @@
           "share_id": 0
         }
       ],
-      "interrupt_resources": [],
+      "interrupt_resources": [
+        {
+          "interrupt": 63,
+          "attributes": 0,
+          "share_id": 0
+        }
+      ],
       "restart_policy": {
         "action": 1,
         "restart_limit": 3,
@@ -451,7 +457,13 @@
         }
       ],
       "dependencies": [],
-      "interrupts": []
+      "interrupts": [
+        {
+          "signal_name": "DRIVER_UART_INTR_SIG",
+          "interrupt": 63,
+          "signal": 256
+        }
+      ]
     },
     {
       "name": "CLIENT_PARTITION",

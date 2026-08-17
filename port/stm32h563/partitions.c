@@ -156,7 +156,7 @@ static const wt_profile_capabilities_t g_profile_capabilities = {
                     WT_CAPABILITY_RESTART,
     .max_domains = 8U,
     .max_memory_resources_per_domain = 3U,
-    .max_interrupts_per_domain = 0U,
+    .max_interrupts_per_domain = 1U,
 };
 static uintptr_t g_bound_exec_bases[
     sizeof(g_partition_configs) / sizeof(g_partition_configs[0])

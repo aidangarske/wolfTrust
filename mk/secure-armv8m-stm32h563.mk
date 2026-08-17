@@ -291,6 +291,12 @@ CONF_SEC_OBJS := \
     $(BUILD_DIR)/conf_sec_test_supp_i058.o \
     $(BUILD_DIR)/conf_sec_test_i063.o \
     $(BUILD_DIR)/conf_sec_test_supp_i063.o \
+    $(BUILD_DIR)/conf_sec_test_i064.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i064.o \
+    $(BUILD_DIR)/conf_sec_test_i065.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i065.o \
+    $(BUILD_DIR)/conf_sec_test_i066.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i066.o \
     $(BUILD_DIR)/conf_sec_test_i071.o \
     $(BUILD_DIR)/conf_sec_test_supp_i071.o \
     $(BUILD_DIR)/conf_sec_test_i088.o \
@@ -319,6 +325,12 @@ CONF_UPSTREAM_SRCS := \
     $(UPSTREAM_DIR)/ff/ipc/test_i058/test_supp_i058.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i063/test_i063.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i063/test_supp_i063.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i064/test_i064.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i064/test_supp_i064.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i065/test_i065.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i065/test_supp_i065.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i066/test_i066.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i066/test_supp_i066.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i071/test_i071.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i071/test_supp_i071.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i088/test_i088.c \
@@ -343,6 +355,9 @@ $(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
 	    -e 's/^test_i047, panic_test$$/test_i047/' \
 	    -e 's/^test_i055, panic_test$$/test_i055/' \
 	    -e 's/^test_i057, panic_test$$/test_i057/' \
+	    -e 's/^test_i064, panic_test$$/test_i064/' \
+	    -e 's/^test_i065, panic_test$$/test_i065/' \
+	    -e 's/^test_i066, panic_test$$/test_i066/' \
 	    $(UPSTREAM_DIR)/ff/ipc/testsuite.db \
 	    > $(MANIFEST_DIR)/testsuite_sched.db
 	python3 $(UPSTREAM_DIR)/tools/scripts/gen_tests_list.py ipc \
@@ -359,7 +374,7 @@ $(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
 		> $(MANIFEST_DIR)/psa_manifest/server_partition_psa.h
 	printf '#include "client_partition.h"\n' \
 		> $(MANIFEST_DIR)/psa_manifest/client_partition_psa.h
-	printf '#include "driver_partition.h"\n#define DRIVER_UART_INTR_SIG 256U\n' \
+	printf '#include "driver_partition.h"\n#define DRIVER_UART_INTR_SIG DRIVER_UART_INTR_SIG_SIGNAL\n' \
 		> $(MANIFEST_DIR)/psa_manifest/driver_partition_psa.h
 	mkdir -p $(MANIFEST_DIR)/ns
 	python3 $(UPSTREAM_DIR)/tools/scripts/gen_tests_list.py ipc \
@@ -403,6 +418,18 @@ $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i058/%.c \
 	$(CC) $(CONF_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i063/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i064/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i065/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i066/%.c \
 		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(CONF_CFLAGS) -c -o $@ $<
 

@@ -137,8 +137,10 @@ int pal_wd_timer_is_enabled(addr_t base_addr)
 
 void pal_generate_interrupt(void)
 {
+    (void)wt_conf_irq_set(1);
 }
 
 void pal_disable_interrupt(void)
 {
+    (void)wt_conf_irq_set(0);
 }

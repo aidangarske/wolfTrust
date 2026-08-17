@@ -173,6 +173,18 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
         }
         call->ret_int = ret;
         break;
+    case WT_SPM_OP_IRQ_ENABLE:
+        /* Resolve the manifest-bound interrupt number; the arch layer performs
+         * the privileged controller enable on success (ret_version = irq). */
+        ret = wt_ffm_irq_lookup(runtime, call->partition_id, call->signal_mask,
+                                &call->ret_version);
+        if (ret != WT_FFM_SUCCESS) {
+            /* psa_irq_enable on a signal the partition did not declare as an
+             * interrupt is a programmer error the SPM must panic for (FF-M). */
+            call->must_panic = 1U;
+        }
+        call->ret_int = ret;
+        break;
     case WT_SPM_OP_VERSION:
         call->ret_version = wt_ffm_service_version(runtime,
                                                    call->partition_id,

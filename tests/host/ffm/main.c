@@ -625,11 +625,58 @@ static void test_eoi_signal(void)
     (void)printf("PASS: psa_eoi argument validation\n");
 }
 
+static void test_irq_route_and_assert(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    uint32_t irq = 0U;
+    int32_t partition_id = 0;
+    psa_signal_t signal = 0U;
+
+    (void)memset(&context, 0, sizeof(context));
+    test_init(&runtime, &context);
+
+    /* Signal-to-interrupt lookup honors only manifest-declared interrupts. */
+    EXPECT_INT(wt_ffm_irq_lookup(&runtime, TEST_PARTITION_ID,
+                                 TEST_IRQ_SIGNAL, &irq), WT_FFM_SUCCESS);
+    EXPECT_INT(irq, 42);
+    EXPECT_INT(wt_ffm_irq_lookup(&runtime, TEST_PARTITION_ID,
+                                 TEST_NONINTR_SIGNAL, &irq),
+               WT_FFM_ERROR_POLICY);
+    EXPECT_INT(wt_ffm_irq_lookup(&runtime, TEST_PARTITION_ID,
+                                 TEST_IRQ_SIGNAL | TEST_NONINTR_SIGNAL, &irq),
+               WT_FFM_ERROR_ARGUMENT);
+
+    /* Interrupt-to-partition routing: the FLIH resolves who owns the line. */
+    EXPECT_INT(wt_ffm_irq_route(&runtime, 42U, &partition_id, &signal),
+               WT_FFM_SUCCESS);
+    EXPECT_INT(partition_id, TEST_PARTITION_ID);
+    EXPECT_INT(signal, TEST_IRQ_SIGNAL);
+    EXPECT_INT(wt_ffm_irq_route(&runtime, 99U, &partition_id, &signal),
+               WT_FFM_ERROR_POLICY);
+
+    /* Asserting the routed signal makes it visible to psa_wait and legal for
+     * psa_eoi; non-interrupt signals cannot be asserted through this path. */
+    EXPECT_INT(wt_ffm_assert_signal(&runtime, TEST_PARTITION_ID,
+                                    TEST_NONINTR_SIGNAL),
+               WT_FFM_ERROR_POLICY);
+    EXPECT_INT(wt_ffm_assert_signal(&runtime, TEST_PARTITION_ID,
+                                    TEST_IRQ_SIGNAL), WT_FFM_SUCCESS);
+    EXPECT_INT(runtime.partitions[0].asserted_signals & TEST_IRQ_SIGNAL,
+               (int)TEST_IRQ_SIGNAL);
+    EXPECT_INT(wt_ffm_eoi(&runtime, TEST_PARTITION_ID, TEST_IRQ_SIGNAL),
+               WT_FFM_SUCCESS);
+    EXPECT_INT(runtime.partitions[0].asserted_signals & TEST_IRQ_SIGNAL, 0);
+
+    (void)printf("PASS: interrupt signal routing and assertion\n");
+}
+
 int main(void)
 {
     test_arguments();
     test_doorbell_signal();
     test_eoi_signal();
+    test_irq_route_and_assert();
     test_wait_signal_mask();
     test_framework_and_policy();
     test_connection_and_vectors();

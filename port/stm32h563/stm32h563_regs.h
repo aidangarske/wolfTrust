@@ -83,6 +83,14 @@
 #define WT_NVIC_ICPR1            (*(volatile uint32_t*)0xE000E284u)
 #define WT_NVIC_ITNS0            (*(volatile uint32_t*)0xE000E380u)
 #define WT_NVIC_ITNS1            (*(volatile uint32_t*)0xE000E384u)
+#define WT_NVIC_IPR_BASE         ((volatile uint8_t*)0xE000E400u)
+
+#define WT_LPUART1_BASE          0x44002400u
+#define WT_LPUART1_CR1           (*(volatile uint32_t*)(WT_LPUART1_BASE + 0x00u))
+#define WT_LPUART1_CR1_UE        (1u << 0)
+#define WT_LPUART1_CR1_TE        (1u << 3)
+#define WT_LPUART1_CR1_TXEIE     (1u << 7)
+#define WT_LPUART1_IRQ           63u
 
 #define WT_SAU_CTRL              (*(volatile uint32_t*)0xE000EDD0u)
 #define WT_SAU_TYPE              (*(volatile const uint32_t*)0xE000EDD4u)

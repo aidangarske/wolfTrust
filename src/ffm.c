@@ -949,6 +949,79 @@ int wt_ffm_eoi(wt_ffm_runtime_t* runtime, int32_t partition_id,
     return WT_FFM_SUCCESS;
 }
 
+int wt_ffm_irq_lookup(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                      psa_signal_t irq_signal, uint32_t* irq_out)
+{
+    uint16_t partition_index;
+    const wt_partition_manifest_t* manifest;
+    size_t i;
+
+    if (runtime == NULL)
+        return WT_FFM_ERROR_ARGUMENT;
+    if (wt_ffm_find_partition(runtime, partition_id, &partition_index) !=
+            WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_POLICY;
+    }
+    if (irq_signal == 0U || (irq_signal & (irq_signal - 1U)) != 0U)
+        return WT_FFM_ERROR_ARGUMENT;
+    manifest = runtime->partitions[partition_index].manifest;
+    if (manifest != NULL) {
+        for (i = 0; i < manifest->interrupt_count; i++) {
+            if ((psa_signal_t)manifest->interrupts[i].signal == irq_signal) {
+                if (irq_out != NULL)
+                    *irq_out = manifest->interrupts[i].interrupt;
+                return WT_FFM_SUCCESS;
+            }
+        }
+    }
+    return WT_FFM_ERROR_POLICY;
+}
+
+int wt_ffm_irq_route(wt_ffm_runtime_t* runtime, uint32_t irq,
+                     int32_t* partition_id_out, psa_signal_t* signal_out)
+{
+    const wt_partition_manifest_t* manifest;
+    size_t p;
+    size_t i;
+
+    if (runtime == NULL)
+        return WT_FFM_ERROR_ARGUMENT;
+    for (p = 0; p < runtime->partition_count; p++) {
+        manifest = runtime->partitions[p].manifest;
+        if (manifest == NULL)
+            continue;
+        for (i = 0; i < manifest->interrupt_count; i++) {
+            if (manifest->interrupts[i].interrupt == irq) {
+                if (partition_id_out != NULL)
+                    *partition_id_out = (int32_t)manifest->domain_id;
+                if (signal_out != NULL) {
+                    *signal_out =
+                        (psa_signal_t)manifest->interrupts[i].signal;
+                }
+                return WT_FFM_SUCCESS;
+            }
+        }
+    }
+    return WT_FFM_ERROR_POLICY;
+}
+
+int wt_ffm_assert_signal(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                         psa_signal_t irq_signal)
+{
+    uint16_t partition_index;
+    int ret;
+
+    ret = wt_ffm_irq_lookup(runtime, partition_id, irq_signal, NULL);
+    if (ret != WT_FFM_SUCCESS)
+        return ret;
+    if (wt_ffm_find_partition(runtime, partition_id, &partition_index) !=
+            WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_POLICY;
+    }
+    runtime->partitions[partition_index].asserted_signals |= irq_signal;
+    return WT_FFM_SUCCESS;
+}
+
 psa_status_t wt_ffm_get(wt_ffm_runtime_t* runtime, int32_t partition_id,
                         psa_signal_t signal, psa_msg_t* msg)
 {

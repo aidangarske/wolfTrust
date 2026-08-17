@@ -206,12 +206,17 @@ void psa_eoi(psa_signal_t irq_signal)
     }
 }
 
-/* FF-M 1.1 IRQ control: no interrupt route reaches a partition signal until
- * the P6 scheduler/IRQ work, so enabling is vacuously complete and the
- * signal can never assert. */
 void psa_irq_enable(psa_signal_t irq_signal)
 {
-    (void)irq_signal;
+    wt_spm_call_t call;
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_IRQ_ENABLE;
+    call.signal_mask = irq_signal;
+    if (wt_spm_sp_call(&call) != WT_FFM_SUCCESS ||
+            call.ret_int != WT_FFM_SUCCESS) {
+        wt_sp_api_panic(call.op, (uint32_t)call.ret_int, irq_signal);
+    }
 }
 
 void psa_panic(void)

@@ -30,4 +30,10 @@
  * own flash-simulator implementation of this symbol instead. */
 int wt_conf_nvm_sync(uint8_t *buf, uint32_t len, int store);
 
+/* PAL interrupt source control (P4.2c): on!=0 drives the platform UART so its
+ * NVIC line fires into the DRIVER partition's manifest interrupt signal; on==0
+ * quiesces the source. The unprivileged PAL traps to the privileged device
+ * poke via SVC; the interrupt itself is delivered through the real vector. */
+int wt_conf_irq_set(int on);
+
 #endif /* WOLFTRUST_STM32H563_CONF_NVM_H */
