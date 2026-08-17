@@ -144,9 +144,14 @@ if [ "$scenario" = "restart" ]; then
   quit_flag=""
   timeout_s=40
 elif [ "$scenario" = "confboot" ]; then
-  # Six must-panic resets reboot the whole chain mid-suite (i047/i055/i057 +
-  # i064/i065/i066), so budget for seven boots.
-  timeout_s=120
+  # Fourteen resets reboot the whole chain mid-suite: the must-panic checks,
+  # i048/i049's by-design NS client faults (Secure iovec array pointer), and
+  # the SPE-caller variants of i048-i053 (out-of-domain vectors panic a
+  # Secure caller). The emulator must not quit on faults — the conformance
+  # monitor answers them with a system reset and val resumes off its boot
+  # flag; the suite report and clean BKPT exit are the correctness gates.
+  quit_flag=""
+  timeout_s=180
 fi
 
 log="$repo/ci-m33mu-$scenario.log"
@@ -181,22 +186,22 @@ case "$scenario" in
     # The conformance guest is lean (no deep-stack attestation path) so the val
     # NSPE framework fits guest0's 32 KiB NS window; the full lifecycle is the
     # positive scenario's job. This proves the Arm SPs schedule and val runs.
-    if grep -Eq '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)' "$log"; then
-      echo "FAIL: fault marker in confboot boot log"; exit 1
-    fi
+    # No fault-marker check here: i048/i049 fault the NS client by design and
+    # the monitor's conformance reset recovers; the suite's own FAILED count
+    # and the clean BKPT exit gate correctness instead.
     grep -Fq "wolfTrust TEE client initialized" "$log"
     grep -Fq "wolfTrust FF-M psa_framework_version=0x0100" "$log"
     grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$log"
     grep -Fq "wolfTrust FF-M conformance: val_entry start" "$log"
-    # i047/i055/i057 (buffer panics) and i064/i065/i066 (psa_eoi misuse) are
-    # panic tests: each commits a must-panic programmer error, the SPM resets
-    # (P5 K3), and val resumes across the reboot off its flash-backed boot
-    # flag (K2) — six reboots in one boot. i021 and i066 exercise the real
-    # LPUART1 NVIC route into the DRIVER partition's manifest interrupt
-    # signal (P4.2c): i021 the legal psa_eoi acknowledge, i066 the misuse
-    # panic. 13 total. Needs the M33MU-1 SPSEL patch the emulator build step
-    # applies above.
-    grep -Fq "TOTAL PASSED    : 13" "$log"
+    # Panic tests reboot the chain mid-suite and val resumes off its
+    # flash-backed boot flag (K2/K3): i047/i055/i057 (buffer panics),
+    # i064/i065/i066 (psa_eoi misuse), and i048/i049 (NS client faults
+    # dereferencing a Secure iovec array; the conformance monitor answers
+    # with a system reset) — eight reboots in one boot. i050-i053 pass on the
+    # returned PROGRAMMER_ERROR for their out-of-domain vector bases. i021
+    # and i066 exercise the real LPUART1 NVIC route (P4.2c). 19 total. Needs
+    # the M33MU-1 SPSEL patch the emulator build step applies above.
+    grep -Fq "TOTAL PASSED    : 19" "$log"
     grep -Fq "TOTAL FAILED    : 0" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"
     echo "PASS: target/confboot"

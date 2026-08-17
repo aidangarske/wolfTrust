@@ -218,8 +218,12 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
         if (call->pending_valid == 0U) {
             ret = wt_spm_check_sp_vectors(caller_domain, call);
             if (ret != WT_FFM_SUCCESS) {
+                /* An SP passing an out-of-domain vector to psa_call is a
+                 * PROGRAMMER ERROR that must panic a Secure caller (FF-M);
+                 * only Non-secure callers may see it as a returned status. */
                 call->ret_status = PSA_ERROR_PROGRAMMER_ERROR;
                 call->ret_int = WT_FFM_SUCCESS;
+                call->must_panic = 1U;
                 break;
             }
             call->ret_status = wt_ffm_call_begin(runtime, call->partition_id,

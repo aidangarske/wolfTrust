@@ -366,11 +366,21 @@ static void test_vector_rejection(void)
     EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                            inputs, 1U, &output, 1U),
                PSA_ERROR_INVALID_ARGUMENT);
+    /* An unreadable base is an FF-M PROGRAMMER ERROR (memory reference),
+     * not a size error. */
     inputs[0].base = NULL;
     inputs[0].len = 1U;
     EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                            inputs, 1U, &output, 1U),
-               PSA_ERROR_INVALID_ARGUMENT);
+               PSA_ERROR_PROGRAMMER_ERROR);
+    /* Containment outranks the transfer cap: a vector whose range escapes
+     * the caller's memory must not downgrade into a size error even when it
+     * also exceeds the cap (i052/i053). */
+    inputs[0].base = NULL;
+    inputs[0].len = (size_t)WT_FFM_TRANSFER_BYTES * 2U;
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           inputs, 1U, &output, 1U),
+               PSA_ERROR_PROGRAMMER_ERROR);
     EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle),
                WT_FFM_SUCCESS);
     (void)printf("PASS: WT-FFM-0032 bounded vector rejection\n");

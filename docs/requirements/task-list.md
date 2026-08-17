@@ -732,6 +732,16 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       `[RESET] System reset requested` and clean `[EXPECT BKPT] Success`
       (local Docker, same CI container); host `make test` green. Details in
       validation-log.md M33MU defect register.
+  - P4.3. [x] **i048-i053 psa_call invalid-vector tests — GREEN (2026-08-17,
+    confboot 19/19, 14 resets).** Scope-corrected from "driver MMIO isolation":
+    NS clients pass iovec array/base/end landing in Secure memory; the SPE
+    CLIENT partition re-runs each from Secure where FF-M mandates panic. Fixed
+    THREE engine error-taxonomy bugs (containment → -129 not NOT_PERMITTED;
+    gate must_panic for SPE CALL vector violations; containment judged before
+    the transfer cap) plus harness/monitor support (confboot without
+    quit-on-faults; conformance monitor answers guest faults with a system
+    reset). Full story in validation-log.md (Item 10 P4 close). Suite now 19
+    tests green; only i067 (heap) skipped by design.
   - P4.1. [x] **Six panic isolation tests — ALL SIX GREEN (2026-08-17,
     confboot 12/12: i047,i055,i057,i064,i065,i066).** Original scope: un-skip
     `i047,i055,i057,i064,i065,i066`, wire into the schedule (gen_tests_list

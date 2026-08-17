@@ -1038,6 +1038,52 @@ quiesced → signal still asserted on re-wait → legal `psa_eoi` clears it →
 PSA_POLL confirms deassertion. P4.2 is closed; the only remaining schedule
 skip is i067 (dynamic heap, forbidden by the zero-allocation secure image).
 
+## Item 10 P4 close — i048-i053 green, three engine bugs fixed (M33MU 19/19, 2026-08-17)
+
+Wired the six psa_call invalid-vector PROGRAMMER-ERROR tests (scope-corrected
+from the old "driver MMIO isolation" framing): NS clients pass an iovec array
+pointer, base, or end that lands in Secure memory; the SPE CLIENT partition
+re-runs each check from Secure where FF-M mandates a panic. Confboot:
+`TOTAL TESTS : 19 / PASSED : 19 / FAILED : 0 / SKIPPED : 0`, FOURTEEN
+mid-suite resets, `PASS: target/confboot`. The slice surfaced and fixed THREE
+real FF-M error-taxonomy bugs in the engine — exactly what running the
+unmodified suite is for:
+
+1. **Containment → wrong status class (i050/i051).** `wt_ffm_call`/`_begin`
+   mapped a caller-containment failure (`WT_FFM_ERROR_POLICY` from
+   `check_read/check_write`) to `PSA_ERROR_NOT_PERMITTED`; FF-M classes an
+   inaccessible memory reference as a PROGRAMMER ERROR. Now returns
+   `PSA_ERROR_PROGRAMMER_ERROR` (permission/version denials keep
+   NOT_PERMITTED).
+2. **SPE-caller vector violation returned instead of panicking.** The gate's
+   `wt_spm_check_sp_vectors` failure on CALL returned -129 without
+   `must_panic`; FF-M gives the return-not-panic latitude only to Non-secure
+   callers. The gate now sets `must_panic` (conformance resets; production
+   returns fail-closed as before).
+3. **Cap-before-containment ordering (i052/i053).** The transfer-size cap in
+   `wt_ffm_prepare_vectors` fired before the containment checks, so a vector
+   whose END escaped the caller's memory (~256MB ranges into Secure space)
+   downgraded into `PSA_ERROR_INVALID_ARGUMENT`. Containment is now judged
+   first; a contained-but-over-cap vector still returns the size error (the
+   item-9 guest negative is unaffected).
+
+Harness/monitor support: confboot now runs WITHOUT `--quit-on-faults`
+(i048/i049 fault the NS client by design dereferencing the Secure iovec array;
+the SPE variants likewise fault dereferencing it from the CLIENT partition) and
+the conformance monitor answers any guest fault with a system reset
+(`wt_monitor_on_guest_fault`, WT_CONFORMANCE only — upstream platforms get the
+same recovery from a PAL watchdog; production keeps the graceful per-guest
+restart, and the `restart` scenario still proves it on the production image).
+The suite's own FAILED count plus the clean `[EXPECT BKPT] Success` gate
+correctness. Host: `unit/ffm` pins the taxonomy (NULL base → -129;
+containment outranks the cap) and `unit/spm_gate` pins the CALL-vector
+`must_panic`; `PASS: unit/all`.
+
+Observed during debugging (pre-fix runs only): a repeated fault→reset
+ping-pong could end in a HardFault stacking-failure loop at the secure main
+stack top with CONTROL.nPRIV=1 on MSP_S — not reachable on the green path;
+noted here in case it resurfaces (M33MU-1-adjacent signature).
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are

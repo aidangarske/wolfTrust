@@ -612,6 +612,19 @@ static void test_gate_validates_buffers(void)
     EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
     EXPECT_SIZE(call.ret_size, 0U);
 
+    /* An out-of-domain psa_call input vector is a must-panic programmer
+     * error for a Secure caller (the i050-i053 SPE variants). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_CALL;
+    call.partition_id = TEST_PARTITION_ID;
+    call.msg_handle = 1;
+    call.sp_in[0].base = outside;
+    call.sp_in[0].len = 16U;
+    call.sp_in_len = 1U;
+    EXPECT_INT(wt_spm_gate(&runtime, &domain, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_status, PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT((int)call.must_panic, 1);
+
     /* No domain: validation is bypassed and the op runs on the raw pointer.
      * The direct transport is exactly this shape — assert it matches. */
     (void)memset(&call, 0, sizeof(call));

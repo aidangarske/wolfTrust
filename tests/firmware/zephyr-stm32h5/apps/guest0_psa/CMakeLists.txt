@@ -90,6 +90,18 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/ff/ipc/test_i021/test_i021.c
     ${WT_CONF_U}/ff/ipc/test_i047/test_entry_i047.c
     ${WT_CONF_U}/ff/ipc/test_i047/test_i047.c
+    ${WT_CONF_U}/ff/ipc/test_i048/test_entry_i048.c
+    ${WT_CONF_U}/ff/ipc/test_i048/test_i048.c
+    ${WT_CONF_U}/ff/ipc/test_i049/test_entry_i049.c
+    ${WT_CONF_U}/ff/ipc/test_i049/test_i049.c
+    ${WT_CONF_U}/ff/ipc/test_i050/test_entry_i050.c
+    ${WT_CONF_U}/ff/ipc/test_i050/test_i050.c
+    ${WT_CONF_U}/ff/ipc/test_i051/test_entry_i051.c
+    ${WT_CONF_U}/ff/ipc/test_i051/test_i051.c
+    ${WT_CONF_U}/ff/ipc/test_i052/test_entry_i052.c
+    ${WT_CONF_U}/ff/ipc/test_i052/test_i052.c
+    ${WT_CONF_U}/ff/ipc/test_i053/test_entry_i053.c
+    ${WT_CONF_U}/ff/ipc/test_i053/test_i053.c
     ${WT_CONF_U}/ff/ipc/test_i055/test_entry_i055.c
     ${WT_CONF_U}/ff/ipc/test_i055/test_i055.c
     ${WT_CONF_U}/ff/ipc/test_i057/test_entry_i057.c
@@ -122,6 +134,12 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/ff/ipc/test_i003
     ${WT_CONF_U}/ff/ipc/test_i021
     ${WT_CONF_U}/ff/ipc/test_i047
+    ${WT_CONF_U}/ff/ipc/test_i048
+    ${WT_CONF_U}/ff/ipc/test_i049
+    ${WT_CONF_U}/ff/ipc/test_i050
+    ${WT_CONF_U}/ff/ipc/test_i051
+    ${WT_CONF_U}/ff/ipc/test_i052
+    ${WT_CONF_U}/ff/ipc/test_i053
     ${WT_CONF_U}/ff/ipc/test_i055
     ${WT_CONF_U}/ff/ipc/test_i057
     ${WT_CONF_U}/ff/ipc/test_i058
@@ -154,6 +172,18 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/ff/ipc/test_i021/test_i021.c
     ${WT_CONF_U}/ff/ipc/test_i047/test_entry_i047.c
     ${WT_CONF_U}/ff/ipc/test_i047/test_i047.c
+    ${WT_CONF_U}/ff/ipc/test_i048/test_entry_i048.c
+    ${WT_CONF_U}/ff/ipc/test_i048/test_i048.c
+    ${WT_CONF_U}/ff/ipc/test_i049/test_entry_i049.c
+    ${WT_CONF_U}/ff/ipc/test_i049/test_i049.c
+    ${WT_CONF_U}/ff/ipc/test_i050/test_entry_i050.c
+    ${WT_CONF_U}/ff/ipc/test_i050/test_i050.c
+    ${WT_CONF_U}/ff/ipc/test_i051/test_entry_i051.c
+    ${WT_CONF_U}/ff/ipc/test_i051/test_i051.c
+    ${WT_CONF_U}/ff/ipc/test_i052/test_entry_i052.c
+    ${WT_CONF_U}/ff/ipc/test_i052/test_i052.c
+    ${WT_CONF_U}/ff/ipc/test_i053/test_entry_i053.c
+    ${WT_CONF_U}/ff/ipc/test_i053/test_i053.c
     ${WT_CONF_U}/ff/ipc/test_i055/test_entry_i055.c
     ${WT_CONF_U}/ff/ipc/test_i055/test_i055.c
     ${WT_CONF_U}/ff/ipc/test_i057/test_entry_i057.c

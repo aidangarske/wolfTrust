@@ -475,6 +475,14 @@ void wt_monitor_on_guest_fault(const wt_trap_frame_t* frame,
                           reason,
                           wt_platform_read_fault_address(),
                           frame->pc);
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    /* The Arm suite's PROGRAMMER-ERROR checks that fault inside the NS client
+     * (e.g. dereferencing a Secure address as an iovec array) expect a system
+     * restart so val resumes off its flash boot flag; upstream platforms get
+     * this from a PAL watchdog. Production keeps the graceful per-guest
+     * restart below instead. */
+    wt_platform_system_reset();
+#endif
     wt_restart_guest(g_scheduler.current_guest, reason);
     wt_schedule_next_guest();
 }

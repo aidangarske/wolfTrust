@@ -331,6 +331,24 @@ static int wt_ffm_prepare_vectors(wt_ffm_runtime_t* runtime,
         outputs[i].base = (uintptr_t)out_vec[i].base;
         outputs[i].length = out_vec[i].len;
     }
+    /* FF-M: a vector whose range escapes the caller's memory is a PROGRAMMER
+     * ERROR, judged before the implementation transfer cap so an out-of-bounds
+     * end address never downgrades into a size error. */
+    for (i = 0U; i < in_len && i < PSA_MAX_IOVEC; i++) {
+        if (in_vec[i].len != 0U &&
+                runtime->ops->check_read(runtime->port_context,
+                    message->caller, in_vec[i].base, in_vec[i].len) == 0) {
+            return WT_FFM_ERROR_POLICY;
+        }
+    }
+    for (i = 0U; i < out_len && i < PSA_MAX_IOVEC; i++) {
+        if (out_vec[i].len != 0U &&
+                runtime->ops->check_write(runtime->port_context,
+                    message->caller, out_vec[i].base, out_vec[i].len) == 0) {
+            return WT_FFM_ERROR_POLICY;
+        }
+    }
+
     ret = wt_ipc_validate_vectors(inputs, in_len, outputs, out_len,
                                   WT_FFM_TRANSFER_BYTES, &total);
     if (ret != WT_IPC_VALID)
@@ -339,11 +357,6 @@ static int wt_ffm_prepare_vectors(wt_ffm_runtime_t* runtime,
     message->in_count = in_len;
     message->out_count = out_len;
     for (i = 0U; i < in_len; i++) {
-        if (in_vec[i].len != 0U &&
-                runtime->ops->check_read(runtime->port_context,
-                    message->caller, in_vec[i].base, in_vec[i].len) == 0) {
-            return WT_FFM_ERROR_POLICY;
-        }
         message->in_offset[i] = input_offset;
         message->in_size[i] = in_vec[i].len;
         if (in_vec[i].len != 0U)
@@ -352,11 +365,6 @@ static int wt_ffm_prepare_vectors(wt_ffm_runtime_t* runtime,
         input_offset += in_vec[i].len;
     }
     for (i = 0U; i < out_len; i++) {
-        if (out_vec[i].len != 0U &&
-                runtime->ops->check_write(runtime->port_context,
-                    message->caller, out_vec[i].base, out_vec[i].len) == 0) {
-            return WT_FFM_ERROR_POLICY;
-        }
         message->out_offset[i] = output_offset;
         message->out_size[i] = out_vec[i].len;
         message->client_output[i] = out_vec[i].base;
@@ -585,8 +593,10 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
                                  out_vec, out_len);
     if (ret != WT_FFM_SUCCESS) {
         wt_ffm_release_message(runtime, message_index);
+        /* FF-M: a vector referencing memory the caller cannot access is a
+         * PROGRAMMER ERROR, not a permission denial. */
         return ret == WT_FFM_ERROR_BUFFER ? PSA_ERROR_INVALID_ARGUMENT :
-                                            PSA_ERROR_NOT_PERMITTED;
+                                            PSA_ERROR_PROGRAMMER_ERROR;
     }
 
     connection->state = WT_IPC_CONNECTION_PENDING_REQUEST;
@@ -744,8 +754,10 @@ psa_status_t wt_ffm_call_begin(wt_ffm_runtime_t* runtime,
                                  out_vec, out_len);
     if (ret != WT_FFM_SUCCESS) {
         wt_ffm_release_message(runtime, message_index);
+        /* FF-M: a vector referencing memory the caller cannot access is a
+         * PROGRAMMER ERROR, not a permission denial. */
         return ret == WT_FFM_ERROR_BUFFER ? PSA_ERROR_INVALID_ARGUMENT :
-                                            PSA_ERROR_NOT_PERMITTED;
+                                            PSA_ERROR_PROGRAMMER_ERROR;
     }
 
     connection->state = WT_IPC_CONNECTION_PENDING_REQUEST;
