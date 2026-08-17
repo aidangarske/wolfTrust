@@ -281,6 +281,8 @@ CONF_SEC_OBJS := \
     $(BUILD_DIR)/conf_sec_test_supp_i001.o \
     $(BUILD_DIR)/conf_sec_test_i003.o \
     $(BUILD_DIR)/conf_sec_test_supp_i003.o \
+    $(BUILD_DIR)/conf_sec_test_i021.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i021.o \
     $(BUILD_DIR)/conf_sec_test_i047.o \
     $(BUILD_DIR)/conf_sec_test_supp_i047.o \
     $(BUILD_DIR)/conf_sec_test_i055.o \
@@ -315,6 +317,8 @@ CONF_UPSTREAM_SRCS := \
     $(UPSTREAM_DIR)/ff/ipc/test_i001/test_supp_i001.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i003/test_i003.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i003/test_supp_i003.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i021/test_i021.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i021/test_supp_i021.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i047/test_i047.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i047/test_supp_i047.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i055/test_i055.c \
@@ -344,14 +348,12 @@ $(UPSTREAM_STAMP): | $(BUILD_DIR)
 	touch $@
 
 # Derived schedule, not a suite edit: skipped tests need a runtime capability
-# the current image lacks, each tracked as its own P6 item in task-list.md.
-#   i021        -> IRQ routing/delivery (P6)
+# the current image lacks, each tracked in task-list.md.
 #   i067        -> dynamic heap the zero-allocation secure image forbids
-# i047 runs across its panic-reset reboot: the runner applies the M33MU-1
-# emulator fix (m33mu-tb-sec-chain.patch) before building the emulator.
+# The panic tests run across their panic-reset reboots: the runner applies the
+# M33MU-1 emulator fix (m33mu-tb-sec-chain.patch) before building the emulator.
 $(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
-	sed -e 's/^test_i021$$/test_i021, skip/' \
-	    -e 's/^test_i067$$/test_i067, skip/' \
+	sed -e 's/^test_i067$$/test_i067, skip/' \
 	    -e 's/^test_i047, panic_test$$/test_i047/' \
 	    -e 's/^test_i055, panic_test$$/test_i055/' \
 	    -e 's/^test_i057, panic_test$$/test_i057/' \
@@ -398,6 +400,10 @@ $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i001/%.c \
 	$(CC) $(CONF_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i003/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i021/%.c \
 		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(CONF_CFLAGS) -c -o $@ $<
 

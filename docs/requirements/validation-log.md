@@ -1023,6 +1023,21 @@ The route, all manifest-authoritative:
 P4.1 (all six panic tests green) and lands the P4.2c route; i021
 (TEST_INTR_SERVICE, legal-eoi ack + re-fire) remains the P4.2c tail.
 
+## Item 10 P4.2 closed — i021 legal-eoi green (M33MU 13/13, 2026-08-17)
+
+Un-skipped i021 (dropped the `test_i021, skip` schedule sed; pure build wiring,
+no code change — analysis showed the landed route covers every step, including
+the two subtle FF-M behaviors: the interrupt signal persists across a second
+PSA_BLOCK wait until `psa_eoi`, and a PSA_POLL miss returns instead of
+blocking, both already host-proven). Confboot: `TOTAL TESTS : 13 /
+PASSED : 13 / FAILED : 0 / SKIPPED : 0`, i021 `Result=Passed`, six mid-suite
+resets, `PASS: target/confboot` (local box Docker, same CI container, patched
+emulator). i021 target-proves the legal interrupt lifecycle end-to-end:
+`psa_irq_enable` → real LPUART1 IRQ → `psa_wait` observes signal 256 → source
+quiesced → signal still asserted on re-wait → legal `psa_eoi` clears it →
+PSA_POLL confirms deassertion. P4.2 is closed; the only remaining schedule
+skip is i067 (dynamic heap, forbidden by the zero-allocation secure image).
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are

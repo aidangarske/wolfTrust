@@ -191,11 +191,12 @@ case "$scenario" in
     # i047/i055/i057 (buffer panics) and i064/i065/i066 (psa_eoi misuse) are
     # panic tests: each commits a must-panic programmer error, the SPM resets
     # (P5 K3), and val resumes across the reboot off its flash-backed boot
-    # flag (K2) — 12 total, six reboots in one boot. i066 additionally needs
-    # the real LPUART1 NVIC route into the DRIVER partition's manifest
-    # interrupt signal (P4.2c). Needs the M33MU-1 SPSEL patch the emulator
-    # build step applies above.
-    grep -Fq "TOTAL PASSED    : 12" "$log"
+    # flag (K2) — six reboots in one boot. i021 and i066 exercise the real
+    # LPUART1 NVIC route into the DRIVER partition's manifest interrupt
+    # signal (P4.2c): i021 the legal psa_eoi acknowledge, i066 the misuse
+    # panic. 13 total. Needs the M33MU-1 SPSEL patch the emulator build step
+    # applies above.
+    grep -Fq "TOTAL PASSED    : 13" "$log"
     grep -Fq "TOTAL FAILED    : 0" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"
     echo "PASS: target/confboot"

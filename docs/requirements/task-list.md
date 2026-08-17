@@ -778,7 +778,8 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       multiple signals) that must panic. Needs `psa_eoi` to at least VALIDATE
       its argument and panic on misuse — a subset of the full IRQ work — so it
       couples with P4.2, not P4.1a. Do after P4.2 lands `psa_eoi`.
-  - P4.2. [ ] **i021 UART-IRQ + `psa_eoi` (own feasibility gate; supersedes
+  - P4.2. [x] **i021 UART-IRQ + `psa_eoi` — DONE (2026-08-17, confboot 13/13,
+    i021 `Result=Passed`).** Original: (own feasibility gate; supersedes
     task #13).** Probe whether M33MU delivers a USART peripheral NVIC line
     (SysTick works, but a peripheral IRQ is unproven — logged as candidate
     defect M33MU-2). If yes: route real UART TX IRQ → driver SP's IRQ signal →
@@ -805,7 +806,14 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       (4 cases incl. legal clear) + `unit/spm_gate` `gate panics psa_eoi
       misuse` (146 checks). Replaces the old always-panic stub (which would
       have falsely passed i064–066). Target proof lands with P4.1b's confboot.
-    - P4.2c. [~] **Interrupt route LANDED (2026-08-17); i021 itself remains.**
+    - P4.2c. [x] **DONE (2026-08-17): route + i021 both green.** i021 un-skipped
+      (pure schedule wiring — the route needed no new code, not even a legal-eoi
+      NVIC re-enable, since the test quiesces the source before eoi): confboot
+      `TOTAL PASSED : 13 / FAILED : 0 / SKIPPED : 0`, i021 `Result=Passed`,
+      six reboots, `PASS: target/confboot`. i021 target-proves the legal chain:
+      enable → real IRQ → wait sees 256 → signal persists until eoi (second
+      BLOCK wait returns it again) → legal `psa_eoi` clears → POLL confirms
+      deasserted. Only i067 (heap) remains skipped in the schedule. History:
       The route — manifest-declared LPUART1 (IRQ 63) ↔ signal 256, real
       `psa_irq_enable` (gate op + NVIC unmask), secure FLIH asserting the
       manifest-routed signal, PAL `pal_generate/disable_interrupt` via the
