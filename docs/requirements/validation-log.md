@@ -853,6 +853,41 @@ avoids the SVC-adjacent-to-BXNS trigger (Fable-class). Tracked as task #63;
 i047 is parked behind it (schedule back to 6) so the confboot gate stays green
 while the keystone code (K1–K3 + carve + NS-bank fix) remains in-tree.
 
+## Item 10 P4.1a — i055/i057 buffer-panic pair (M33MU, 9/9, 2026-08-17)
+
+The K4 reboot loop scales to THREE panics in one boot. `i055`
+(`server_test_psa_read_with_invalid_buffer_addr`) and `i057`
+(`..._psa_write_...`) both hand `PLATFORM_DRIVER_PARTITION_MMIO_START`
+(`0x30095E00`) to `psa_read`/`psa_write` from the SERVER partition — the same
+out-of-domain path as i047. The per-SP MMIO carve already excludes the DRIVER
+hole from the SERVER domain, the neutral gate already flags READ/WRITE
+bad-buffer as `must_panic`, and the `#error` cross-check pins the address, so
+no SPM/gate change was needed — pure schedule + build wiring
+(`mk/secure-armv8m-stm32h563.mk` OBJS/SRCS/pattern-rules/panic-strip sed;
+`guest0_psa/CMakeLists.txt` 3 spots; confboot assert 7→9).
+
+**Evidence:** `run_m33mu_scenario.sh confboot` (local box Docker, same CI
+container `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15`, patched emulator):
+`TOTAL TESTS : 9 / PASSED : 9 / FAILED : 0 / SKIPPED : 0`, THREE mid-suite
+`[RESET] System reset requested` markers (one per panic test, each resuming off
+its flash-backed boot flag), clean `[EXPECT BKPT] Success`, exit 0,
+`PASS: target/confboot`. Log: box `confboot-p41a.log`.
+
+## Item 10 P4.2a — USART peripheral NVIC delivery feasibility (GO, source, 2026-08-17)
+
+Read-only emulator-source probe (the free K1-style gate before any target run).
+**Verdict: GO.** The M33MU USART model asserts its NVIC line via
+`mm_nvic_set_pending(nvic, u->irq, MM_TRUE)` when `CR1.TXEIE && ISR.TXE` or
+`CR1.RXNEIE && ISR.RXNE` (`cpu/stm32_usart.c:340-347`); the instance is wired
+with its NVIC and IRQ number at init (`stm32h5_usart_init` →
+`stm32_usart_register_instance(..., d->irq, ...)`). Per-IRQ S/NS targeting
+exists (`mm_nvic_set_itns` / `mm_nvic_irq_target_sec`, `src/nvic.c:115-131`),
+and CPU delivery of pending NVIC lines to the guest is already proven (SysTick,
+EXTI, RNG all vector through `mm_nvic_select_routed`). So peripheral-IRQ
+delivery needs no hardware gate; the remaining P4.2 work is wolfTrust-side
+(`psa_eoi` validation in P4.2b, i021 end-to-end in P4.2c). Supersedes the
+M33MU-2 candidate below.
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are
@@ -930,11 +965,12 @@ Historical symptom analysis (pre-root-cause):
   the parked schedule is PENDING — the box dropped offline mid-wrap; run
   `tests/target/run_m33mu_scenario.sh confboot` when it returns.
 
-### M33MU-2 (candidate, unconfirmed): peripheral-IRQ NVIC delivery unproven
+### M33MU-2 (RESOLVED — GO, 2026-08-17): peripheral-IRQ NVIC delivery
 
-- P4.2/i021 needs a USART peripheral NVIC line delivered to the NS guest;
-  SysTick works, peripheral IRQ delivery has never been exercised. To be
-  probed when P4.2 starts (own feasibility gate; task #59).
+- Was a candidate defect (USART NVIC line to the guest unproven). The P4.2a
+  source probe cleared it: the USART model does raise its NVIC line on
+  TXE/RXNE and delivery to the guest is modeled. Not a defect — see
+  "Item 10 P4.2a" above. No hardware gate for peripheral IRQ delivery.
 
 ## Phase gate rule
 

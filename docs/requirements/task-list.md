@@ -737,20 +737,19 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     panic mode), M33MU green across their reboots. Confirm each induces the SP
     panic our SPM already raises (bad msg pointer, oversized vector, etc.).
     **i047 is DONE** (K4). Mini-plan for the rest, ordered:
-    - P4.1a. [ ] **i055 + i057 — buffer-panic pair (rideable NOW).** Same
-      must-panic path as i047: `psa_read`/`psa_write` with an out-of-domain
-      buffer, which the gate already flags (`spm_gate.c` READ/WRITE →
-      `must_panic`; host-asserted in the spm_gate suite). Steps: (1) mirror the
-      i047 build wiring for i055 + i057 — add `conf_sec_test_i055/i057.o` +
-      `_supp_` to `CONF_SEC_OBJS`, sources to `CONF_UPSTREAM_SRCS`, a pattern
-      rule per test dir, and the entry/`test_iNNN.c` to the guest0_psa
-      CMakeLists (sources + include dirs + source-properties, 3 spots); (2) add
-      `-e 's/^test_i055, panic_test$/test_i055/'` and same for i057 to the
-      schedule sed in `mk/secure-armv8m-stm32h563.mk`; (3) bump the confboot
-      assert to `TOTAL PASSED : 9`; (4) M33MU confboot green — this proves the
-      K4 reboot loop scales to THREE panics in one boot (watch each test's
-      boot-flag resume). One target run. Then a host regression only if i055/i057
-      exercise a gate path not already covered by the 133-check suite.
+    - P4.1a. [x] **i055 + i057 — buffer-panic pair (DONE 2026-08-17).** Same
+      must-panic path as i047: `psa_read`/`psa_write` on
+      `PLATFORM_DRIVER_PARTITION_MMIO_START` (0x30095E00) from the SERVER
+      partition, already out-of-domain (per-SP carve) and already flagged
+      `must_panic` by the gate — so pure schedule + build wiring, no SPM/gate
+      change. Mirrored the i047 wiring in `mk/secure-armv8m-stm32h563.mk`
+      (`CONF_SEC_OBJS`, `CONF_UPSTREAM_SRCS`, two `conf_sec_%.o` pattern rules,
+      two `panic_test`-strip sed rules) and `guest0_psa/CMakeLists.txt` (3
+      spots), bumped the confboot assert 7→9. **M33MU confboot green: `TOTAL
+      PASSED : 9`, three mid-suite `[RESET] System reset requested` markers
+      (one panic-reset reboot per test, each resuming off its flash boot flag),
+      `PASS: target/confboot`.** Evidence in validation-log.md. The reboot loop
+      scales to three panics in one boot.
     - P4.1b. [ ] **i064–066 — psa_eoi misuse panics (BLOCKED on P4.2).** Each
       calls `psa_eoi` with an illegal argument (non-interrupt / unasserted /
       multiple signals) that must panic. Needs `psa_eoi` to at least VALIDATE
@@ -762,11 +761,14 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     defect M33MU-2). If yes: route real UART TX IRQ → driver SP's IRQ signal →
     `psa_wait`/`psa_eoi`. If no: hardware-gate it like K1, document, keep `i021`
     skipped. Independent of the reboot keystone. Mini-plan:
-    - P4.2a. [ ] **NVIC-delivery feasibility probe (GO/NO-GO).** Smallest thing
-      that fires one USART NVIC line into the NS guest and observes it (mirror
-      the K1 approach — read the emulator source `cpu/stm32h5_mmio.c` +
-      `src/nvic.c` for USART IRQ wiring first; it's free vs a 20-min run). NO-GO
-      → hardware-gate i021/i064–066, record in the M33MU defect register, stop.
+    - P4.2a. [x] **NVIC-delivery feasibility probe — GO (source, 2026-08-17).**
+      Read-only emulator-source probe (free, K1-style). GO: the USART model
+      asserts its NVIC line via `mm_nvic_set_pending` on `TXE`/`RXNE` gated by
+      `CR1.TXEIE`/`RXNEIE` (`cpu/stm32_usart.c:340-347`), per-IRQ S/NS routing
+      exists (`mm_nvic_set_itns`, `src/nvic.c:115`), and CPU delivery of pending
+      lines to the guest is already proven (SysTick/EXTI/RNG). No hardware gate
+      for peripheral IRQ delivery; remaining P4.2 work is wolfTrust-side.
+      Details in validation-log.md (Item 10 P4.2a); closes candidate M33MU-2.
     - P4.2b. [ ] **`psa_eoi` argument validation + panic (unblocks i064–066).**
       Implement `psa_eoi` to reject non-interrupt / unasserted / multi-signal
       args via the must-panic path; host test the three rejection cases.

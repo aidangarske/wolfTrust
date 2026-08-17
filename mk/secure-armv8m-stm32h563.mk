@@ -283,6 +283,10 @@ CONF_SEC_OBJS := \
     $(BUILD_DIR)/conf_sec_test_supp_i003.o \
     $(BUILD_DIR)/conf_sec_test_i047.o \
     $(BUILD_DIR)/conf_sec_test_supp_i047.o \
+    $(BUILD_DIR)/conf_sec_test_i055.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i055.o \
+    $(BUILD_DIR)/conf_sec_test_i057.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i057.o \
     $(BUILD_DIR)/conf_sec_test_i058.o \
     $(BUILD_DIR)/conf_sec_test_supp_i058.o \
     $(BUILD_DIR)/conf_sec_test_i063.o \
@@ -307,6 +311,10 @@ CONF_UPSTREAM_SRCS := \
     $(UPSTREAM_DIR)/ff/ipc/test_i003/test_supp_i003.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i047/test_i047.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i047/test_supp_i047.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i055/test_i055.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i055/test_supp_i055.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i057/test_i057.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i057/test_supp_i057.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i058/test_i058.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i058/test_supp_i058.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i063/test_i063.c \
@@ -333,6 +341,8 @@ $(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
 	sed -e 's/^test_i021$$/test_i021, skip/' \
 	    -e 's/^test_i067$$/test_i067, skip/' \
 	    -e 's/^test_i047, panic_test$$/test_i047/' \
+	    -e 's/^test_i055, panic_test$$/test_i055/' \
+	    -e 's/^test_i057, panic_test$$/test_i057/' \
 	    $(UPSTREAM_DIR)/ff/ipc/testsuite.db \
 	    > $(MANIFEST_DIR)/testsuite_sched.db
 	python3 $(UPSTREAM_DIR)/tools/scripts/gen_tests_list.py ipc \
@@ -377,6 +387,14 @@ $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i003/%.c \
 	$(CC) $(CONF_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i047/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i055/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i057/%.c \
 		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(CONF_CFLAGS) -c -o $@ $<
 

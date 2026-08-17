@@ -187,11 +187,12 @@ case "$scenario" in
     grep -Fq "wolfTrust FF-M psa_framework_version=0x0100" "$log"
     grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$log"
     grep -Fq "wolfTrust FF-M conformance: val_entry start" "$log"
-    # i047 is a panic test: its server commits a must-panic programmer error,
-    # the SPM resets (P5 K3), and val resumes across the reboot off its
-    # flash-backed boot flag (K2) — 7 total. Needs the M33MU-1 SPSEL patch
-    # the emulator build step applies above.
-    grep -Fq "TOTAL PASSED    : 7" "$log"
+    # i047/i055/i057 are panic tests: each server commits a must-panic
+    # programmer error, the SPM resets (P5 K3), and val resumes across the
+    # reboot off its flash-backed boot flag (K2) — 9 total, three reboots in
+    # one boot. Needs the M33MU-1 SPSEL patch the emulator build step applies
+    # above.
+    grep -Fq "TOTAL PASSED    : 9" "$log"
     grep -Fq "TOTAL FAILED    : 0" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"
     echo "PASS: target/confboot"
