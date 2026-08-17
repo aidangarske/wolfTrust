@@ -831,12 +831,24 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       i021 (TEST_INTR_SERVICE: legal `psa_eoi` ack + re-fire loop) — needs the
       legal-eoi NVIC re-enable hook. Original: real UART IRQ → driver SP
       `psa_wait` → `psa_eoi` acks; M33MU green.
-  - P5.1. [ ] **Flash-NVM continuity, non-panic tests (needs K2).** The P5 tests
-    that only need survive-reset NVM, not a panic (`i002` PSA_POLL/state,
-    `i004-i012`, `i024-i027` where non-panic). Host + M33MU per increment.
-  - P5.2. [ ] **Panic-reboot P5 tests (needs K).** The PROGRAMMER_ERROR + panic
-    subset of `i048-i054,i068-i090`. Scale the K4 loop to the full panic set;
-    watch the reboot count and the per-test boot-flag resume.
+  - P5.1. [x] **VOID (2026-08-17): stale framing.** Every remaining db
+    candidate is `panic_test`-marked; there is no separate "non-panic
+    continuity" bucket. P5 = scale the panic/reboot/triage recipe in batches
+    (A: i002+i004-i012; B: i024-i027+i054; C: i068-i090 skip-triage).
+  - P5.2a. [x] **Batch A — i002 + i004-i012 GREEN (2026-08-17, M33MU 29/29,
+    23 resets).** i002 is the golden-path lifecycle test (server-driven
+    BUSY/REFUSED replies, status/type passthrough, client-identity signs,
+    connect-limit exhaustion, PSA_BLOCK RES bits, PSA_POLL); i004-i011 SPE
+    connect-policy panics; i012 forged-handle close panic. Gate CONNECT now
+    panics Secure callers on SPM-level policy refusal (BUSY and server-replied
+    refusals stay returnable); gate CLOSE panics on any close_begin failure.
+    Host `unit/spm_gate` 216 checks. Found and fixed emulator defect M33MU-3
+    (entry-time SPSEL clear destroying a parked thread's stack selection —
+    patch reworked to ARM-correct semantics; see validation-log).
+  - P5.2b. [ ] **Batch B — i024-i027 + i054 (assert 34).** Same recipe:
+    classify compiled sources, wire, one confboot, triage, commit on green.
+  - P5.2c. [ ] **Batch C — i068-i090 skip-triage.** Wire the runnable;
+    document every skip's capability blocker (i067-style heap etc.).
   - P5.3. [ ] **Watchdog-reset tests (own feasibility gate).** Any test that
     exercises the watchdog specifically needs a WDG model that resets on timeout
     (`platform_stm32h563.c` WDG is a no-op today; task-list P3b note). Probe

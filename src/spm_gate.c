@@ -199,6 +199,14 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
             if (handle <= 0) {
                 call->ret_handle = handle;
                 call->ret_int = WT_FFM_SUCCESS;
+                /* FF-M: an SPM-level policy refusal (unknown SID, version or
+                 * dependency violation) is a PROGRAMMER ERROR that must panic
+                 * a Secure caller; CONNECTION_BUSY resource exhaustion and
+                 * server-replied refusals stay returnable statuses. */
+                if (handle == (psa_handle_t)PSA_ERROR_CONNECTION_REFUSED ||
+                        handle == (psa_handle_t)PSA_ERROR_NOT_SUPPORTED) {
+                    call->must_panic = 1U;
+                }
             } else {
                 call->pending_valid = 1U;
                 call->ret_int = WT_FFM_ERROR_NOT_READY;
@@ -253,7 +261,10 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
             ret = wt_ffm_close_begin(runtime, call->partition_id,
                                      call->msg_handle, &call->pending_msg);
             if (ret != WT_FFM_SUCCESS) {
+                /* psa_close on an invalid or in-use handle is a PROGRAMMER
+                 * ERROR the SPM must panic a Secure caller for (FF-M). */
                 call->ret_int = ret;
+                call->must_panic = 1U;
             } else if (call->pending_msg == WT_FFM_QUEUE_NONE) {
                 call->ret_int = WT_FFM_SUCCESS;
             } else {

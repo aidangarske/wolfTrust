@@ -1084,6 +1084,45 @@ ping-pong could end in a HardFault stacking-failure loop at the secure main
 stack top with CONTROL.nPRIV=1 on MSP_S — not reachable on the green path;
 noted here in case it resurfaces (M33MU-1-adjacent signature).
 
+## Item 10 P5 batch A — i002 + i004-i012 green, connect/close panic classes (M33MU 29/29, 2026-08-17)
+
+Wired the ten connection-lifecycle tests. Source classification first (the P4
+discipline): i002 is NOT a misuse test — it is the golden-path IPC lifecycle
+suite (server-driven BUSY/REFUSED connect replies, arbitrary reply status
+passthrough incl. INT32_MAX/INT32_MIN+128, client-identity signs — NS negative,
+SPE positive and stable, a 50-iteration concurrent-connect exhaustion loop,
+PSA_BLOCK reserved-bit tolerance, PSA_POLL equivalence). i004-i011 are SPE
+must-panic psa_connect misuses (invalid SID, STRICT/RELAXED/unspecified version
+violations, secure-only service from NS, SID missing from the partition's
+dependency list — i009 is SP-to-SP only, no NS phase; i008's SPE leg must
+SUCCEED). i012 is psa_close on a forged handle (SPE panics; NS may no-op).
+
+Engine gaps closed (both in `wt_spm_gate`, host-pinned before the target run):
+
+1. **CONNECT: SPM-level policy refusal now panics a Secure caller.** A
+   REFUSED/NOT_SUPPORTED handle from `wt_ffm_connect_begin` (unknown SID,
+   version or dependency violation, stateless connect) sets `must_panic`;
+   `PSA_ERROR_CONNECTION_BUSY` resource exhaustion and server-replied refusals
+   through `wt_ffm_connect_finish` stay returnable — the split that keeps
+   i002's exhaustion loop and busy/reject checks green while i004-i011 panic.
+2. **CLOSE: any `wt_ffm_close_begin` failure now panics** (forged or in-use
+   handle); `psa_close(PSA_NULL_HANDLE)` stays a no-op. Replaces the veneer's
+   diagnostic fault with the clean conformance panic-reset.
+
+Confboot (shipped pipeline, box Docker, patched emulator):
+`TOTAL TESTS : 29 / PASSED : 29 / FAILED : 0 / SKIPPED : 0`, TWENTY-THREE
+mid-suite resets, `[EXPECT BKPT] Success`, `PASS: target/confboot`
+(box `confboot-p5a-final.log`). Only i067 (heap) remains skipped. Host:
+`unit/spm_gate` 216 checks — `test_gate_connect_close_panic_class` pins all six
+classes (unknown SID, dep violation, version-high, version-zero,
+BUSY-without-panic via pool exhaustion, forged-close panic + NULL-close no-op)
+and the doorbell test now pins server-replied REFUSED as never-panic;
+`PASS: unit/all`.
+
+The first run of this batch tripped the P4-close watch-item on the green path —
+root-caused to the emulator, not the SPM: see M33MU-3 below (patch reworked,
+suite re-proven 29/29 including every P4-era flow).
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are
@@ -1160,6 +1199,45 @@ Historical symptom analysis (pre-root-cause):
   (k4-positive.log, carve + NS-bank fix included). The confboot-at-6 rerun on
   the parked schedule is PENDING — the box dropped offline mid-wrap; run
   `tests/target/run_m33mu_scenario.sh confboot` when it returns.
+
+### M33MU-3: entry-time SPSEL clear destroys a parked thread's stack selection (FIXED locally, 2026-08-17)
+
+**RESOLVED — root cause found; the M33MU-1 patch semantics were reworked to
+the ARM-correct scheme and the whole suite re-proven.** First P5-batch-A
+confboot deterministically wedged mid-i002 check 9 (identical
+`HardFault: stacking failed at 0x30092e38` at virtual cycle 14817181 across
+runs; the P4-close watch-item signature — CONTROL_S=0x01, secure thread on
+MSP_S, PC=0x14 garbage).
+
+- **Mechanism (from `--record-dump` + `M33MU_STACK_TRACE=1` traces):** the
+  emulator cleared `CONTROL.SPSEL` of the handler's security domain on EVERY
+  exception entry. When the Secure SysTick preempted the Non-secure SysTick
+  handler (cross-domain entry, `[EXC_ENTER_SPSEL]` shows ctrl_s 0x03 → 0x01
+  with no secure instruction in between), it destroyed the SPSEL of a PARKED
+  Secure Partition thread suspended mid-`psa_wait`. The old M33MU-1 patch's
+  cross-domain unstack consulted that live `CONTROL_S.SPSEL` to pick the frame
+  stack, so the NS SysTick's later return-to-Secure-thread unstacked from
+  MSP_S instead of PSP_S — resuming a garbage frame (PC=0x14, LR=0x1) whose
+  first exception entry then failed stacking on MSP_S with nPRIV=1. Real
+  Armv8-M restores SPSEL from EXC_RETURN.SPSEL at return, so this nesting is
+  sound on silicon; wolfTrust code is uninvolved.
+- **Fix (rework of the local patch, supersedes M33MU-1's mechanics):**
+  (1) entry clears the handler domain's `CONTROL.SPSEL` only on SAME-domain
+  entries; (2) `EXC_RETURN.SPSEL` captures the PREEMPTED domain's SPSEL;
+  (3) unstack and the return-domain `CONTROL.SPSEL` restore both come from
+  EXC_RETURN bit2 alone — never live CONTROL; (4) tail-chaining regenerates
+  EXC_RETURN.ES for the new exception's target domain instead of reusing the
+  previous value verbatim. The M33MU-1 symptom (CONTROL_NS.SPSEL stuck 0
+  after an NS exception over Secure code) stays fixed because cross-domain
+  entries no longer clear the other domain at all.
+- **Why i002 check 9 found it:** the PSA_POLL serve loop is the first
+  schedule where an NS SysTick preempts the pump-driven Secure Partition
+  thread while the Secure SysTick lands inside the NS handler.
+- **Verified:** images that wedged on the old patch run the full suite to
+  `TOTAL PASSED : 29 / FAILED : 0` with 23 panic resets and a clean
+  `[EXPECT BKPT] Success` — including i047 and every P4-era flow the old
+  semantics were built for (box `confboot-p5a-probe3.log`, diag traces
+  `confboot-p5a-diag.log` / `confboot-p5a-exctrace.log`).
 
 ### M33MU-2 (RESOLVED — GO, 2026-08-17): peripheral-IRQ NVIC delivery
 

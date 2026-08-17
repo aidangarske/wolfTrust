@@ -508,6 +508,8 @@ static void test_doorbell_origination(void)
     EXPECT_INT(client.pending_valid, 0U);
     EXPECT_INT(wt_spm_call_would_block(&client), 0);
     EXPECT_INT((int)client.ret_handle, (int)PSA_ERROR_CONNECTION_REFUSED);
+    /* Server-replied refusal is a legal returned status, never a panic. */
+    EXPECT_INT((int)client.must_panic, 0);
 
     /* Client clears the doorbell (client_main's psa_clear after the connect). */
     EXPECT_INT(wt_ffm_clear(&runtime, I063_CLIENT_ID), WT_FFM_SUCCESS);
@@ -726,6 +728,97 @@ static void test_gate_irq_enable(void)
     (void)printf("PASS: WT-FFM-0014 gate validates psa_irq_enable\n");
 }
 
+/* The i004-i012 SPE panic classes: an SPM-level connect policy refusal and a
+ * close on a bad handle are PROGRAMMER ERRORs that must panic a Secure
+ * caller, while resource exhaustion stays a returnable CONNECTION_BUSY. */
+static void test_gate_connect_close_panic_class(void)
+{
+    wt_ffm_runtime_t runtime;
+    wt_spm_call_t call;
+    size_t i;
+
+    EXPECT_INT(wt_ffm_init(&runtime, &g_i063_manifest, &g_port_ops, NULL),
+               WT_FFM_SUCCESS);
+
+    /* Unknown SID (i004). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_CONNECT;
+    call.partition_id = I063_CLIENT_ID;
+    call.sid = 0x9999U;
+    call.version = 1U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.ret_handle, (int)PSA_ERROR_CONNECTION_REFUSED);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    /* SID missing from the partition's dependency list (i009). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_CONNECT;
+    call.partition_id = I063_CLIENT_ID;
+    call.sid = I063_SVC_A_SID;
+    call.version = 1U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.ret_handle, (int)PSA_ERROR_CONNECTION_REFUSED);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    /* Version above the service's maximum (i005/i007/i010). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_CONNECT;
+    call.partition_id = I063_CLIENT_ID;
+    call.sid = I063_SVC_IRR_SID;
+    call.version = 2U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.ret_handle, (int)PSA_ERROR_CONNECTION_REFUSED);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    /* Version zero is never valid (i011). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_CONNECT;
+    call.partition_id = I063_CLIENT_ID;
+    call.sid = I063_SVC_IRR_SID;
+    call.version = 0U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.ret_handle, (int)PSA_ERROR_CONNECTION_REFUSED);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    /* Pool exhaustion returns CONNECTION_BUSY without a panic (the i002
+     * concurrent-connect-limit loop must see the status and recover). */
+    for (i = 0U; i <= WT_FFM_MAX_CONNECTIONS; i++) {
+        (void)memset(&call, 0, sizeof(call));
+        call.op = WT_SPM_OP_CONNECT;
+        call.partition_id = I063_CLIENT_ID;
+        call.sid = I063_SVC_IRR_SID;
+        call.version = 1U;
+        EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+        if (call.ret_int == WT_FFM_SUCCESS)
+            break;
+        EXPECT_INT(call.ret_int, WT_FFM_ERROR_NOT_READY);
+    }
+    EXPECT_INT((int)call.ret_handle, (int)PSA_ERROR_CONNECTION_BUSY);
+    EXPECT_INT((int)call.must_panic, 0);
+
+    /* psa_close on a forged handle must panic (i012's 0x1234DEAD). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_CLOSE;
+    call.partition_id = I063_CLIENT_ID;
+    call.msg_handle = (psa_handle_t)0x1234DEAD;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_TRUE(call.ret_int != WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    /* psa_close(PSA_NULL_HANDLE) stays a legal no-op (i002 check 2). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_CLOSE;
+    call.partition_id = I063_CLIENT_ID;
+    call.msg_handle = PSA_NULL_HANDLE;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 0);
+
+    (void)printf("PASS: WT-FFM-0014 gate panics connect policy refusal and "
+                 "bad close (i004-i012)\n");
+}
+
 int main(void)
 {
     test_gate_equivalence();
@@ -735,6 +828,7 @@ int main(void)
     test_gate_validates_buffers();
     test_gate_eoi_must_panic();
     test_gate_irq_enable();
+    test_gate_connect_close_panic_class();
 
     if (g_failures != 0U) {
         (void)fprintf(stderr, "FAIL: %u/%u checks failed\n", g_failures,

@@ -84,8 +84,28 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/platform/targets/common/nspe/pal_weak.c
     ${WT_CONF_U}/ff/ipc/test_i001/test_entry_i001.c
     ${WT_CONF_U}/ff/ipc/test_i001/test_i001.c
+    ${WT_CONF_U}/ff/ipc/test_i002/test_entry_i002.c
+    ${WT_CONF_U}/ff/ipc/test_i002/test_i002.c
     ${WT_CONF_U}/ff/ipc/test_i003/test_entry_i003.c
     ${WT_CONF_U}/ff/ipc/test_i003/test_i003.c
+    ${WT_CONF_U}/ff/ipc/test_i004/test_entry_i004.c
+    ${WT_CONF_U}/ff/ipc/test_i004/test_i004.c
+    ${WT_CONF_U}/ff/ipc/test_i005/test_entry_i005.c
+    ${WT_CONF_U}/ff/ipc/test_i005/test_i005.c
+    ${WT_CONF_U}/ff/ipc/test_i006/test_entry_i006.c
+    ${WT_CONF_U}/ff/ipc/test_i006/test_i006.c
+    ${WT_CONF_U}/ff/ipc/test_i007/test_entry_i007.c
+    ${WT_CONF_U}/ff/ipc/test_i007/test_i007.c
+    ${WT_CONF_U}/ff/ipc/test_i008/test_entry_i008.c
+    ${WT_CONF_U}/ff/ipc/test_i008/test_i008.c
+    ${WT_CONF_U}/ff/ipc/test_i009/test_entry_i009.c
+    ${WT_CONF_U}/ff/ipc/test_i009/test_i009.c
+    ${WT_CONF_U}/ff/ipc/test_i010/test_entry_i010.c
+    ${WT_CONF_U}/ff/ipc/test_i010/test_i010.c
+    ${WT_CONF_U}/ff/ipc/test_i011/test_entry_i011.c
+    ${WT_CONF_U}/ff/ipc/test_i011/test_i011.c
+    ${WT_CONF_U}/ff/ipc/test_i012/test_entry_i012.c
+    ${WT_CONF_U}/ff/ipc/test_i012/test_i012.c
     ${WT_CONF_U}/ff/ipc/test_i021/test_entry_i021.c
     ${WT_CONF_U}/ff/ipc/test_i021/test_i021.c
     ${WT_CONF_U}/ff/ipc/test_i047/test_entry_i047.c
@@ -131,7 +151,17 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/platform/targets/common/nspe
     ${WT_REPO_ROOT}/port/stm32h563/conformance
     ${WT_CONF_U}/ff/ipc/test_i001
+    ${WT_CONF_U}/ff/ipc/test_i002
     ${WT_CONF_U}/ff/ipc/test_i003
+    ${WT_CONF_U}/ff/ipc/test_i004
+    ${WT_CONF_U}/ff/ipc/test_i005
+    ${WT_CONF_U}/ff/ipc/test_i006
+    ${WT_CONF_U}/ff/ipc/test_i007
+    ${WT_CONF_U}/ff/ipc/test_i008
+    ${WT_CONF_U}/ff/ipc/test_i009
+    ${WT_CONF_U}/ff/ipc/test_i010
+    ${WT_CONF_U}/ff/ipc/test_i011
+    ${WT_CONF_U}/ff/ipc/test_i012
     ${WT_CONF_U}/ff/ipc/test_i021
     ${WT_CONF_U}/ff/ipc/test_i047
     ${WT_CONF_U}/ff/ipc/test_i048
@@ -166,8 +196,28 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/platform/targets/common/nspe/pal_weak.c
     ${WT_CONF_U}/ff/ipc/test_i001/test_entry_i001.c
     ${WT_CONF_U}/ff/ipc/test_i001/test_i001.c
+    ${WT_CONF_U}/ff/ipc/test_i002/test_entry_i002.c
+    ${WT_CONF_U}/ff/ipc/test_i002/test_i002.c
     ${WT_CONF_U}/ff/ipc/test_i003/test_entry_i003.c
     ${WT_CONF_U}/ff/ipc/test_i003/test_i003.c
+    ${WT_CONF_U}/ff/ipc/test_i004/test_entry_i004.c
+    ${WT_CONF_U}/ff/ipc/test_i004/test_i004.c
+    ${WT_CONF_U}/ff/ipc/test_i005/test_entry_i005.c
+    ${WT_CONF_U}/ff/ipc/test_i005/test_i005.c
+    ${WT_CONF_U}/ff/ipc/test_i006/test_entry_i006.c
+    ${WT_CONF_U}/ff/ipc/test_i006/test_i006.c
+    ${WT_CONF_U}/ff/ipc/test_i007/test_entry_i007.c
+    ${WT_CONF_U}/ff/ipc/test_i007/test_i007.c
+    ${WT_CONF_U}/ff/ipc/test_i008/test_entry_i008.c
+    ${WT_CONF_U}/ff/ipc/test_i008/test_i008.c
+    ${WT_CONF_U}/ff/ipc/test_i009/test_entry_i009.c
+    ${WT_CONF_U}/ff/ipc/test_i009/test_i009.c
+    ${WT_CONF_U}/ff/ipc/test_i010/test_entry_i010.c
+    ${WT_CONF_U}/ff/ipc/test_i010/test_i010.c
+    ${WT_CONF_U}/ff/ipc/test_i011/test_entry_i011.c
+    ${WT_CONF_U}/ff/ipc/test_i011/test_i011.c
+    ${WT_CONF_U}/ff/ipc/test_i012/test_entry_i012.c
+    ${WT_CONF_U}/ff/ipc/test_i012/test_i012.c
     ${WT_CONF_U}/ff/ipc/test_i021/test_entry_i021.c
     ${WT_CONF_U}/ff/ipc/test_i021/test_i021.c
     ${WT_CONF_U}/ff/ipc/test_i047/test_entry_i047.c

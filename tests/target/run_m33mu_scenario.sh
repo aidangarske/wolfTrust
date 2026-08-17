@@ -144,14 +144,15 @@ if [ "$scenario" = "restart" ]; then
   quit_flag=""
   timeout_s=40
 elif [ "$scenario" = "confboot" ]; then
-  # Fourteen resets reboot the whole chain mid-suite: the must-panic checks,
-  # i048/i049's by-design NS client faults (Secure iovec array pointer), and
-  # the SPE-caller variants of i048-i053 (out-of-domain vectors panic a
-  # Secure caller). The emulator must not quit on faults — the conformance
-  # monitor answers them with a system reset and val resumes off its boot
-  # flag; the suite report and clean BKPT exit are the correctness gates.
+  # Panic-test resets reboot the whole chain mid-suite: the must-panic checks,
+  # i048/i049's by-design NS client faults (Secure iovec array pointer), the
+  # SPE-caller variants of i048-i053 (out-of-domain vectors panic a Secure
+  # caller), and the i002/i004-i012 connection/handle-misuse panics. The
+  # emulator must not quit on faults — the conformance monitor answers them
+  # with a system reset and val resumes off its boot flag; the suite report
+  # and clean BKPT exit are the correctness gates.
   quit_flag=""
-  timeout_s=180
+  timeout_s=480
 fi
 
 log="$repo/ci-m33mu-$scenario.log"
@@ -194,14 +195,13 @@ case "$scenario" in
     grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$log"
     grep -Fq "wolfTrust FF-M conformance: val_entry start" "$log"
     # Panic tests reboot the chain mid-suite and val resumes off its
-    # flash-backed boot flag (K2/K3): i047/i055/i057 (buffer panics),
-    # i064/i065/i066 (psa_eoi misuse), and i048/i049 (NS client faults
-    # dereferencing a Secure iovec array; the conformance monitor answers
-    # with a system reset) — eight reboots in one boot. i050-i053 pass on the
-    # returned PROGRAMMER_ERROR for their out-of-domain vector bases. i021
-    # and i066 exercise the real LPUART1 NVIC route (P4.2c). 19 total. Needs
-    # the M33MU-1 SPSEL patch the emulator build step applies above.
-    grep -Fq "TOTAL PASSED    : 19" "$log"
+    # flash-backed boot flag (K2/K3): buffer/eoi panics (i047/i055/i057/
+    # i064-i066), NS client faults the conformance monitor answers with a
+    # system reset (i048/i049), SPE out-of-domain vector panics (i048-i053),
+    # and the i002/i004-i012 connection/handle-misuse panics. i021 and i066
+    # exercise the real LPUART1 NVIC route (P4.2c). 29 total; only i067
+    # (heap) is skipped. Needs the M33MU-1 SPSEL patch applied above.
+    grep -Fq "TOTAL PASSED    : 29" "$log"
     grep -Fq "TOTAL FAILED    : 0" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"
     echo "PASS: target/confboot"
