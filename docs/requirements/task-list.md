@@ -770,13 +770,20 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       `0x0C1FA000`) survives 5 consecutive panic-reset cycles but the store
       before the 6th returns −1. No `WRPERR`/`PGSERR` logged by the emulator, so
       the fault is in the wolfTrust flash path, not the emulator flash array
-      (which is in-RAM, not file-persisted, no wear model). Prime suspect: the
-      erase bank/sector computation vs. `WT_FLASH_OPTSR_CUR & WT_FLASH_SWAP_BANK`
-      drifting after N wolfBoot reboots, or flash-controller lock/error state not
-      cleared across resets. Deep flash-controller work — diagnose with a
-      per-step (`init`/`erase`/`program`) + `FLASH_SR`/`OPTSR` dump gated under
-      `WT_CONFORMANCE`, one M33MU cycle. Gates the full P5.2 panic set (dozens of
-      reboots) too, so worth a proper fix, not a cap.
+      (which is in-RAM, not file-persisted, no wear model). **Root cause
+      confirmed (emulator `cpu/stm32h5_mmio.c`): PGSERR — the program hit a
+      non-erased byte because erase and program resolve the physical bank
+      differently under bank-swap.** `flash_apply_erase` inverts `BKSEL` by
+      `swap_active`; `flash_write_cb` writes at the logical address directly. The
+      conf-NVM sector `0x0C1FA000` is in bank 2 (swappable); wolfBoot toggles the
+      swap state across reboots, so by ~boot 6 wolfTrust's swap-aware erase
+      (`bank ^= 1` on `SWAP_BANK`, `hsm_flash.c`) targets a different physical
+      sector than the program writes to → write lands on un-erased flash. Fix
+      directions (validation-log): (a) relocate conf-NVM out of the swap region;
+      (b) erase by the same logical mapping the program uses; (c) repair the
+      `SWAP_BANK` reading. Each needs a `[FLASH_ERASE]`/`swap_active` trace to
+      confirm + one M33MU cycle. Deep STM32H5 dual-bank work (Fable-class). Gates
+      the full P5.2 panic set (dozens of reboots) too — proper fix, not a cap.
     - P4.1b-note (superseded framing). Original: Each
       calls `psa_eoi` with an illegal argument (non-interrupt / unasserted /
       multiple signals) that must panic. Needs `psa_eoi` to at least VALIDATE

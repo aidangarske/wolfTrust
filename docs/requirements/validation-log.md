@@ -932,9 +932,32 @@ and the emulator flash array is in-RAM (not `--flash-persist`, no wear model),
 so the failure is in wolfTrust's `wt_hsm_flash_erase`/`_program` path, not the
 emulator. Ruled out: `pal_nvmem_write` shadow-bounds (val's max NVM offset is
 `0xD*4 = 52` ≪ the 256-byte shadow); `len%program_unit` (256%16=0, constant).
-Prime suspects: erase bank/sector selection vs.
-`WT_FLASH_OPTSR_CUR & WT_FLASH_SWAP_BANK` drifting after N wolfBoot reboots, or
-flash-controller lock/error state persisting across the AIRCR reset.
+
+**Root cause (confirmed from the emulator model, `cpu/stm32h5_mmio.c`):** the
+program hit a non-erased byte and the emulator's write-once model raised
+`PGSERR` (line 1479: programming a non-`0xFF` byte with
+`MM_TARGET_FLAG_NVM_WRITEONCE` sets `FLASH_FLAG_PGSERR`), which
+`wt_flash_check_errors` turns into −1. Erase and program resolve their physical
+target differently: `flash_apply_erase` picks the bank from `BKSEL` **inverted
+by `swap_active`** (the backing array is the logical/post-swap view), while
+`flash_write_cb` writes at the **logical address offset directly**
+(`offset = addr - base`, no inversion). They agree only while wolfTrust's
+`WT_FLASH_OPTSR_CUR & WT_FLASH_SWAP_BANK` reading matches the emulator's
+`swap_active`. The conf-NVM sector `0x0C1FA000` is in **bank 2 — the swappable
+region** — and wolfBoot toggles the swap state across reboots; by the ~6th boot
+it reaches a value where wolfTrust's swap-aware erase (`bank ^= 1` on SWAP_BANK,
+`hsm_flash.c`) targets a different physical sector than the logical-address
+program writes to, leaving the write's target un-erased. Hence 5 reboots pass
+and the 6th fails — it is the bank-swap state at boot 6, not wear or count.
+
+**Fix directions (P4.4):** (a) relocate the conf-NVM reserved sector out of the
+bank-swap region so the swap state is irrelevant to it (cleanest; needs a free
+non-swapped sector in the wolfBoot layout); or (b) make wolfTrust's
+`wt_hsm_flash_erase` target the sector by the same logical mapping the program
+uses, so erase and program never diverge under swap; or (c) confirm/repair the
+`SWAP_BANK` reading so wolfTrust's inversion always matches the live swap state.
+Each needs a `[FLASH_ERASE]`/`swap_active` trace to confirm and one M33MU cycle
+to verify — deep STM32H5 dual-bank work.
 
 **Action:** reverted the i064–066 build wiring (tree stays green at confboot 9,
 commit `fcd1ca4`); i064/i065's psa_eoi correctness is banked here. Split the
