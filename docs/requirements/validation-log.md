@@ -933,31 +933,32 @@ so the failure is in wolfTrust's `wt_hsm_flash_erase`/`_program` path, not the
 emulator. Ruled out: `pal_nvmem_write` shadow-bounds (val's max NVM offset is
 `0xD*4 = 52` ≪ the 256-byte shadow); `len%program_unit` (256%16=0, constant).
 
-**Root cause (confirmed from the emulator model, `cpu/stm32h5_mmio.c`):** the
-program hit a non-erased byte and the emulator's write-once model raised
-`PGSERR` (line 1479: programming a non-`0xFF` byte with
-`MM_TARGET_FLAG_NVM_WRITEONCE` sets `FLASH_FLAG_PGSERR`), which
-`wt_flash_check_errors` turns into −1. Erase and program resolve their physical
-target differently: `flash_apply_erase` picks the bank from `BKSEL` **inverted
-by `swap_active`** (the backing array is the logical/post-swap view), while
-`flash_write_cb` writes at the **logical address offset directly**
-(`offset = addr - base`, no inversion). They agree only while wolfTrust's
-`WT_FLASH_OPTSR_CUR & WT_FLASH_SWAP_BANK` reading matches the emulator's
-`swap_active`. The conf-NVM sector `0x0C1FA000` is in **bank 2 — the swappable
-region** — and wolfBoot toggles the swap state across reboots; by the ~6th boot
-it reaches a value where wolfTrust's swap-aware erase (`bank ^= 1` on SWAP_BANK,
-`hsm_flash.c`) targets a different physical sector than the logical-address
-program writes to, leaving the write's target un-erased. Hence 5 reboots pass
-and the 6th fails — it is the bank-swap state at boot 6, not wear or count.
+**Bank-swap hypothesis DISPROVEN by an `M33MU_FLASH_TRACE=1` run (2026-08-17).**
+Every single `[FLASH_ERASE]` across all six boots is byte-identical —
+`S mode=SER snb=125 start=0x001fa000 len=0x00002000` — the erase never moves,
+there is no bank swap, and `swap_active` stays constant. `[FLASH_WRITE]` shows
+the stores erasing then programming `0x1fa000`+ normally (~130 stores succeed
+across the run, including many after each reboot). So the earlier swap-divergence
+theory is wrong: the flash operation is identical on the failing store and on the
+~130 that pass, so the flash write itself cannot be the selective failure.
 
-**Fix directions (P4.4):** (a) relocate the conf-NVM reserved sector out of the
-bank-swap region so the swap state is irrelevant to it (cleanest; needs a free
-non-swapped sector in the wolfBoot layout); or (b) make wolfTrust's
-`wt_hsm_flash_erase` target the sector by the same logical mapping the program
-uses, so erase and program never diverge under swap; or (c) confirm/repair the
-`SWAP_BANK` reading so wolfTrust's inversion always matches the live swap state.
-Each needs a `[FLASH_ERASE]`/`swap_active` trace to confirm and one M33MU cycle
-to verify — deep STM32H5 dual-bank work.
+**Refined diagnosis (open, needs one more instrumented cycle):** the NSPE
+`val_write_nvm` reaches flash indirectly —
+`val_write_nvm` → `psa_call` to the DRIVER partition → SPE `val_nvmem_write_sf`
+→ `pal_nvmem_write` → `wt_conf_nvm_sync` (SVC) → flash. The
+`val_nvmem_write failed. Error=0x1` at `val_framework.c:813` is the status of
+that whole chain. Since the flash op is identical every time, the failure most
+likely sits in the **val→driver `psa_call` / SPM path** on i066's boot (a
+programmer/state error surfacing after many connect/call/close cycles), not the
+flash primitive — though a silent write-once `PGSERR` on a byte an erase somehow
+left un-cleared is not yet fully excluded (the emulator sets `PGSERR` without
+printing it; `STM32H563_FLAGS` does arm `MM_TARGET_FLAG_NVM_WRITEONCE`).
+
+**Next instrumented step (P4.4):** one M33MU cycle with either (i) an emulator
+patch that `printf`s the address + old value whenever it sets `PGSERR` — a hit
+proves flash, silence proves the IPC path — and/or (ii) tracing the
+`val_write_nvm`/`psa_call` return code on i066's boot. That discriminates
+flash-write vs val→driver-IPC and points at the fix. Deep, multi-cycle work.
 
 **Action:** reverted the i064–066 build wiring (tree stays green at confboot 9,
 commit `fcd1ca4`); i064/i065's psa_eoi correctness is banked here. Split the

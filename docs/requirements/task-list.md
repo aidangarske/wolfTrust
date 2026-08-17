@@ -770,20 +770,19 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       `0x0C1FA000`) survives 5 consecutive panic-reset cycles but the store
       before the 6th returns −1. No `WRPERR`/`PGSERR` logged by the emulator, so
       the fault is in the wolfTrust flash path, not the emulator flash array
-      (which is in-RAM, not file-persisted, no wear model). **Root cause
-      confirmed (emulator `cpu/stm32h5_mmio.c`): PGSERR — the program hit a
-      non-erased byte because erase and program resolve the physical bank
-      differently under bank-swap.** `flash_apply_erase` inverts `BKSEL` by
-      `swap_active`; `flash_write_cb` writes at the logical address directly. The
-      conf-NVM sector `0x0C1FA000` is in bank 2 (swappable); wolfBoot toggles the
-      swap state across reboots, so by ~boot 6 wolfTrust's swap-aware erase
-      (`bank ^= 1` on `SWAP_BANK`, `hsm_flash.c`) targets a different physical
-      sector than the program writes to → write lands on un-erased flash. Fix
-      directions (validation-log): (a) relocate conf-NVM out of the swap region;
-      (b) erase by the same logical mapping the program uses; (c) repair the
-      `SWAP_BANK` reading. Each needs a `[FLASH_ERASE]`/`swap_active` trace to
-      confirm + one M33MU cycle. Deep STM32H5 dual-bank work (Fable-class). Gates
-      the full P5.2 panic set (dozens of reboots) too — proper fix, not a cap.
+      (which is in-RAM, not file-persisted, no wear model). **Bank-swap theory
+      DISPROVEN by an `M33MU_FLASH_TRACE=1` run: every `[FLASH_ERASE]` across all
+      6 boots is identical (`snb=125 start=0x1fa000`), no swap, ~130 stores
+      succeed identically — so the flash op is NOT the selective failure.**
+      Refined diagnosis: `val_write_nvm` → `psa_call`(DRIVER partition) →
+      `val_nvmem_write_sf` → `pal_nvmem_write` → flash; the `Error=0x1` is that
+      whole chain's status, so the failure most likely sits in the val→driver
+      `psa_call`/SPM path on i066's boot (after many connect/call/close cycles),
+      not the flash primitive — a silent write-once `PGSERR` is not yet fully
+      excluded (`STM32H563_FLAGS` arms it; emulator sets it without printing).
+      Next: one M33MU cycle with an emulator `printf` at the `PGSERR` set (hit =
+      flash, silence = IPC) and/or trace the `psa_call` return on i066's boot.
+      Deep, multi-cycle STM32H5/SPM work (Fable-class). Gates P5.2 too.
     - P4.1b-note (superseded framing). Original: Each
       calls `psa_eoi` with an illegal argument (non-interrupt / unasserted /
       multiple signals) that must panic. Needs `psa_eoi` to at least VALIDATE
