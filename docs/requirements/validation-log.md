@@ -912,6 +912,37 @@ rejections and not on a legal EOI (146 checks, up from 133). The SP-side veneer
 is a line-for-line mirror of `psa_clear`; its target proof arrives with P4.1b's
 confboot (which cross-builds it and runs i064–066 across the panic-reset loop).
 
+## Item 10 P4.1b attempt — i064/i065 pass on target, i066 hits a flash limit (2026-08-17)
+
+Wired all three psa_eoi-misuse panic tests into the schedule (confboot assert
+12) and ran one M33MU confboot. Result: the first nine tests plus **i064
+(psa_eoi non-interrupt) and i065 (psa_eoi unasserted) both `Result=Passed`** —
+strong target evidence that P4.2b's SP-side `psa_eoi` → `WT_SPM_OP_EOI` gate →
+`wt_ffm_eoi` error → `must_panic` → SPM reset → val boot-flag resume path works
+end-to-end (the 4th and 5th panic-reset reboots in a single boot; the SP-side
+veneer cross-built and linked clean).
+
+**i066 (psa_eoi multiple-signal) failed — but not on psa_eoi.** The log:
+`Result=Failed (Error code=27) ... ERROR: val_nvmem_write failed. Error=0x1`,
+with only five `[RESET] System reset requested` markers (i066 never reached its
+panic). Root cause: `pal_nvmem_write` returned failure because
+`wt_conf_nvm_sync(store)` → `wt_conf_nvm_flash_sync` returned −1 on the boot-flag
+store that precedes the 6th reset. No `WRPERR`/`PGSERR` printed by the emulator,
+and the emulator flash array is in-RAM (not `--flash-persist`, no wear model),
+so the failure is in wolfTrust's `wt_hsm_flash_erase`/`_program` path, not the
+emulator. Ruled out: `pal_nvmem_write` shadow-bounds (val's max NVM offset is
+`0xD*4 = 52` ≪ the 256-byte shadow); `len%program_unit` (256%16=0, constant).
+Prime suspects: erase bank/sector selection vs.
+`WT_FLASH_OPTSR_CUR & WT_FLASH_SWAP_BANK` drifting after N wolfBoot reboots, or
+flash-controller lock/error state persisting across the AIRCR reset.
+
+**Action:** reverted the i064–066 build wiring (tree stays green at confboot 9,
+commit `fcd1ca4`); i064/i065's psa_eoi correctness is banked here. Split the
+flash-durability limit as task **P4.4** — it also gates P5.2 (the full panic
+set does dozens of reboots), so it needs a real fix, not a reboot cap.
+Next diagnostic: a per-step (`init`/`erase`/`program`) + `FLASH_SR`/`OPTSR`
+dump in `wt_conf_nvm_flash_sync` under `WT_CONFORMANCE`, one M33MU cycle.
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are

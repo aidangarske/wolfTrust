@@ -750,7 +750,34 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       (one panic-reset reboot per test, each resuming off its flash boot flag),
       `PASS: target/confboot`.** Evidence in validation-log.md. The reboot loop
       scales to three panics in one boot.
-    - P4.1b. [ ] **i064–066 — psa_eoi misuse panics (BLOCKED on P4.2).** Each
+    - P4.1b. [~] **i064–066 — psa_eoi misuse panics. P4.2b UNBLOCKED it;
+      i064+i065 PASS on target, i066 BLOCKED on a new flash-durability limit
+      (P4.4, 2026-08-17).** With P4.2b's `wt_ffm_eoi` landed, a one-off confboot
+      wired all three (assert 12) and ran: i064 (non-interrupt) and i065
+      (unasserted) both `Result=Passed` — the psa_eoi validate→`must_panic`→SPM
+      reset→boot-flag resume path works end-to-end on the emulator (4th and 5th
+      panic-reset reboots in one boot). **i066 (multiple-signal) failed NOT on
+      psa_eoi but on `val_nvmem_write failed. Error=0x1`: the K2 flash boot-flag
+      store (`wt_conf_nvm_flash_sync`) returns −1 on the store preceding the 6th
+      reset — no emulator HW flash error, so wolfTrust's flash erase/program is
+      returning the failure.** i064/i065's psa_eoi correctness is proven; the
+      i064–066 build wiring was reverted (tree stays green at confboot 9) pending
+      the flash fix. Re-land all three (confboot 12) once P4.4 closes. Detail in
+      validation-log.md (Item 10 P4.1b attempt).
+    - P4.4. [ ] **Flash-NVM multi-reset durability (NEW BLOCKER, blocks P4.1b
+      i066 AND P5.2).** The K2 conformance NVM (`wt_conf_nvm_flash_sync` →
+      `wt_hsm_flash_erase`/`_program` on the reserved secure sector
+      `0x0C1FA000`) survives 5 consecutive panic-reset cycles but the store
+      before the 6th returns −1. No `WRPERR`/`PGSERR` logged by the emulator, so
+      the fault is in the wolfTrust flash path, not the emulator flash array
+      (which is in-RAM, not file-persisted, no wear model). Prime suspect: the
+      erase bank/sector computation vs. `WT_FLASH_OPTSR_CUR & WT_FLASH_SWAP_BANK`
+      drifting after N wolfBoot reboots, or flash-controller lock/error state not
+      cleared across resets. Deep flash-controller work — diagnose with a
+      per-step (`init`/`erase`/`program`) + `FLASH_SR`/`OPTSR` dump gated under
+      `WT_CONFORMANCE`, one M33MU cycle. Gates the full P5.2 panic set (dozens of
+      reboots) too, so worth a proper fix, not a cap.
+    - P4.1b-note (superseded framing). Original: Each
       calls `psa_eoi` with an illegal argument (non-interrupt / unasserted /
       multiple signals) that must panic. Needs `psa_eoi` to at least VALIDATE
       its argument and panic on misuse — a subset of the full IRQ work — so it
