@@ -245,8 +245,10 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    partition — `[MEMFAULT] pc=0x0c060f34 addr=0x30028000 sp=0x3009dff0` (SP
    stack), boot halts, no data exposed. Closes WT-FFM-0011's failure clause and
    `framework.md` acceptance-gate negative #1. **M33MU negative (run #2)** via
-   `run_m33mu_negative.sh`. Follow-up (own item): graceful fault recovery so the
-   probe run continues instead of halting, and CI wiring of the negative job.
+   `run_m33mu_negative.sh`. CI wiring of the negative job is DONE (the
+   `wolfboot-wolftrust-m33mu-scenarios` matrix runs restart+crossdomain). Only
+   graceful *production* fault recovery (the probe run continuing instead of
+   halting) remains under task #26 — a production feature, not a test-wrap-up gap.
 6. [x] Make generated resources, entry points, lifecycle, services, and policy
    authoritative in the production runtime (not only at validation). Resources,
    entry points, IRQ mask, and NS MSP were already bound from the manifest in
@@ -418,7 +420,10 @@ schedulable entities today — an SP is an inline C call on the NS caller's stac
 blocks (`src/ffm.c:635-648`, `src/ffm_api.c:104-113` ignores timeout), and the
 monitor scheduler only sees NS guests. So P1 is the keystone.
 
-- P1. [ ] **Generic SP scheduling/execution context (KEYSTONE, large).** Make a
+- P1. [x] **Generic SP scheduling/execution context (KEYSTONE, large) — DONE.**
+  The 85/4 conformance run schedules 3 manifest-bound Arm SPs (SERVER/DRIVER/
+  CLIENT) as suspend/resume contexts through the generic `dispatch(partition_id)`
+  path (P1a/P1t/P1r landed), not the per-PID `if` chain. Original scope: make a
   Secure Partition a schedulable context (private stack + saved regs, enter/
   suspend/resume) instead of an inline function call, and a table-driven
   `dispatch(partition_id)` from the manifest-bound partition table instead of the
@@ -520,7 +525,10 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   conformance manifest into the secure build. Remaining P2 (trampoline generalized
   to N schedulable SPs) is folded into P1t — a one-shot generalization is a
   dead-end because real Arm SPs call back into the SPM mid-execution.
-- P2. [~] **Table-driven SP load/entry + capacity (large).** `entry_point` is
+- P2. [x] **Table-driven SP load/entry + capacity (large) — DONE.** The 85/4 run
+  registers SERVER/DRIVER/CLIENT SPs from manifest data alone (the generator
+  emits the `psa_manifest` sid/pid headers; per-SP stack/capacity bumped for the
+  3-SP set). Original scope: `entry_point` is
   validated but never branched to for SPs; generalize the crypto trampoline
   (`platform_stm32h563.c:449-539`) into an N-partition manifest-driven mechanism;
   bump per-SP stack carve (`WT_SP_SECURE_STACK_COUNT`), `max_memory_resources_per_domain`
@@ -871,11 +879,16 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     of other partitions' MPU grants in `spm_svc.c`). Also found and fixed
     emulator defect M33MU-4 (ITSTATE advance dropped the current-condition
     bit; see #63 and validation-log defect register).
-  - P5.3. [ ] **Watchdog-reset tests (own feasibility gate).** Any test that
-    exercises the watchdog specifically needs a WDG model that resets on timeout
-    (`platform_stm32h563.c` WDG is a no-op today; task-list P3b note). Probe
-    emulator WDG support; hardware-gate if absent.
-- P6. [ ] **Interrupt + scheduler completeness (large; needs P1).** Real
+  - P5.3. [ ] **Watchdog-reset tests — DEFERRED (wolfTrust-original robustness,
+    not FF-M conformance).** The Arm FF-M IPC suite has no watchdog test, so this
+    is outside the 85/4 conformance gate and the M33MU wrap-up. M33MU does model
+    IWDG/WWDG (MMIO + a `watchdog_tick` hook, `cpu/stm32h5_mmio.c`), but
+    `platform_stm32h563.c` has no WDG driver yet, so a real reset-on-timeout test
+    needs that driver plus a confirmed emulator reset path. Track as a
+    post-conformance feature, not a wrap-up gap.
+- P6. [x] **Interrupt + scheduler completeness — DONE.** i002 (PSA_BLOCK/POLL),
+  i058 (PSA_DOORBELL), i063 (psa_wait signal mask) all pass in the 85/4 confboot
+  run; psa_eoi/psa_wait host tests (#13/#14) are green. Original scope: real
   partition IRQ delivery: FLIH asserts a `psa_signal_t` into a partition's
   `asserted_signals`, `psa_eoi` unmasks instead of panicking (`ffm_api.c:173-177`),
   and `psa_wait` honors PSA_BLOCK/timeout. m33mu HAS a real NVIC+SysTick (verified
@@ -933,6 +946,16 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     conformance.log`); detection verified both ways; target branch dispatches
     to the confboot call P5 validated at 85/4; `make test` still `PASS:
     unit/all`.
+- **M33MU wrap-up (2026-08-18).** Ledger reconciled to the true green state:
+  P1/P2/P6 marked done on the 85/4 conformance evidence (3 manifest-bound Arm SPs
+  scheduled via the generic dispatch path; i002/i058/i063 green); P5.3 watchdog
+  reclassified as a deferred robustness feature (out of the conformance gate);
+  #26 CI-negative half done (only production graceful recovery remains). Per-
+  assertion checklist output landed (`48f0547`). The only remaining non-blocked
+  item is P9 (hardware); P5u/#63 point-back stays upstream-blocked. Last gate
+  before hardware is a single-commit validation run: host `make test` +
+  `make test-target` (4 scenarios) + `make test-conformance` (85/4) on one HEAD,
+  recorded in `validation-log.md`.
 - P8. [ ] **TF-M baseline comparison** — same suite on TF-M vs wolfTrust, parity.
 - P9. [ ] **Physical STM32H563/H5 bring-up + qualification** — the only milestone
   that makes "tested on the H5" literally true; all prior evidence is M33MU
