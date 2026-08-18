@@ -957,20 +957,30 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   `make test-target` (4 scenarios) + `make test-conformance` (85/4) on one HEAD,
   recorded in `validation-log.md`.
 - P8. [ ] **TF-M baseline comparison** — same suite on TF-M vs wolfTrust, parity.
-- P9 → **P2 phase — ACTIVE (2026-08-18).** Real STM32H563/H5 hardware bring-up +
-  full TF-M drop-in replacement. Board is a NUCLEO-H563ZI on the box (STLINK-V3,
-  `/dev/ttyACM0`), already TrustZone-provisioned (TZEN on, SECBOOTADD=0x0C000000,
-  OEM-iRoT — set for wolfBoot, not ST TF-M). Full plan:
-  `docs/requirements/hardware-tfm-replacement-plan.md`.
-  - Arc A — bring-up: P2.0 flash path (mostly done, board provisioned) → P2.1
-    flash + first boot → P2.2 fix hardware-only issues (clock/cache/GTZC-SECWM/
-    UART/IRQ) → P2.3 `make test-hardware` smoke harness reusing the `[check]`
-    checklist.
-  - Arc B — TF-M drop-in: P2.4 `docs/tfm-replacement.md` → P2.5 (a) direct
-    wolfTrust flash workflow, (b) stock ST TF-M baseline, (c) drop-in proof (a
-    TF-M NS app / Arm `val` NSPE unmodified on wolfTrust) → P2.6 hardware
-    qualification ledger. TF-M is NOT factory-stock on this Nucleo; old P8
-    baseline folds into P2.5(b).
+- **ACTIVE PROGRAM — wolfTrust Secure Manager replacement, the H5 port mega plan
+  (2026-08-18).** The M33MU / conformance program (P1–P7 above) is COMPLETE and
+  green; this is the current work. Full plan:
+  `docs/requirements/wolftrust-secure-manager-port-plan.md`; positioning
+  (verified): `docs/competitive-edge-vs-secure-manager.md`. Board: NUCLEO-H563ZI
+  on the box (STLINK-V3, `/dev/ttyACM0`), TrustZone-provisioned (TZEN on,
+  SECBOOTADD=0x0C000000, OEM-iRoT). **First HW boot done:** wolfTrust boots (core
+  `Running [Nonsecure]`); console baud-mismatched — MP1 fix.
+  - MP1 [ ] H5 bring-up: clean console (baud vs real clock tree) + positive smoke
+    green on HW via `run_h5_hardware.sh flash`.
+  - MP2 [ ] Full functional equivalence on silicon (PSA Crypto/Attestation/ITS +
+    FF-M IPC + L3 isolation) via `make test-hardware`; hardware ledger.
+  - MP3 [ ] Immutable-RoT lock model + reversible lock test + workflow (⚠️ DA
+    regression credential FIRST; HDP/SECWM/WRP/BOOT_UBE + product-state `Closed`;
+    prove sealed; regress). Reversible only — never permanent `Locked` on dev.
+  - MP4 [ ] Enforce the core/port split + document the port contract; map other
+    ST parts (U5/L5/H7) and other vendors (NXP/Nordic/Renesas/Microchip) onto it.
+  - MP5 [ ] TF-M / Secure-Manager drop-in proof (a TF-M NS app / Arm `val` NSPE
+    unmodified on wolfTrust); baseline vs a real Secure Manager on an H573I-DK
+    (H563 can't run SM). Subsumes old P8.
+  - MP6 [ ] Docs (port guide, SM-replacement guide, lock workflow, port contract)
+    + testing + completion; RM0481 encodings pass before external claims.
+  - Guardrails: reversible lock only on dev; DA credential before every lock;
+    hardware ledger separate from emulator; RM0481 before external claims.
 
 ## Phase 4 — Crypto, protected storage, and ITS
 
