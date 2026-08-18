@@ -85,6 +85,12 @@ void wt_conf_uart_irq_set(int on);
  * a partition spinning. */
 static uint32_t g_spm_conf_activity;
 static uint32_t g_spm_conf_wait_spins;
+
+/* Per-partition private data bands (secure.ld), each denied to other SPs. */
+extern char _s_conf_server_data[];
+extern char _e_conf_server_data[];
+extern char _s_conf_driver_data[];
+extern char _e_conf_driver_data[];
 #endif
 
 /* Resolve the scheduled SP whose coroutine is currently running, or NULL. */
@@ -543,7 +549,20 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
      * exactly one partition — every other SP gets the window with that hole
      * carved out, so the L3 MMIO-isolation panic tests (i047/i055/i057) hit a
      * genuine out-of-domain access and the must-panic reset path fires. */
+    /* Also carve the per-partition data bands (i080/i084): a cross-partition
+     * read of another SP's .data/.bss must fault. Bands are adjacent, so a
+     * non-owner's empty middle segment is skipped by wt_spm_conf_grant. */
     conf_seg = WT_CONF_SP_DATA_BASE;
+    if (partition_id != SERVER_PARTITION_ID) {
+        region_count = wt_spm_conf_grant(&slot->table, region_count, conf_seg,
+                                         (uintptr_t)_s_conf_server_data);
+        conf_seg = (uintptr_t)_e_conf_server_data;
+    }
+    if (partition_id != DRIVER_PARTITION_ID) {
+        region_count = wt_spm_conf_grant(&slot->table, region_count, conf_seg,
+                                         (uintptr_t)_s_conf_driver_data);
+        conf_seg = (uintptr_t)_e_conf_driver_data;
+    }
     if (partition_id != SERVER_PARTITION_ID) {
         region_count = wt_spm_conf_grant(&slot->table, region_count, conf_seg,
                                          WT_CONF_SERVER_MMIO_BASE);

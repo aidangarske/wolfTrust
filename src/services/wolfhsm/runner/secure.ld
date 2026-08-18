@@ -76,11 +76,24 @@ SECTIONS {
   /* Claim the conformance partitions' .data/.bss before the general rules so
    * they land in CONFDATA, not shared SPM RAM. Loaded from flash and copied by
    * Reset_Handler alongside .data; empty (zero size) in non-conformance builds. */
+  /* Per-partition private data bands (Arm i080/i084 SP data isolation): the
+   * server partition's test data and the driver partition's data each get a
+   * 32-byte-aligned band the SVC gate denies to every other partition. Their
+   * .bss lands in the loaded section so each band stays one contiguous MPU
+   * carve; the flash cost is a few zero words. */
   .conf_data : {
     . = ALIGN(4);
     _sconfdata = .;
-    *conf_sec_*.o(.data .data.*)
-    . = ALIGN(4);
+    EXCLUDE_FILE(*conf_sec_test_supp_*.o *conf_sec_driver_partition.o) *conf_sec_*.o(.data .data.*)
+    . = ALIGN(32);
+    _s_conf_server_data = .;
+    *conf_sec_test_supp_*.o(.data .data.* .bss .bss.* COMMON)
+    . = ALIGN(32);
+    _e_conf_server_data = .;
+    _s_conf_driver_data = .;
+    *conf_sec_driver_partition.o(.data .data.* .bss .bss.* COMMON)
+    . = ALIGN(32);
+    _e_conf_driver_data = .;
     _econfdata = .;
   } > CONFDATA AT > FLASH
   _siconfdata = LOADADDR(.conf_data);
@@ -88,7 +101,7 @@ SECTIONS {
   .conf_bss (NOLOAD) : {
     . = ALIGN(4);
     _sconfbss = .;
-    *conf_sec_*.o(.bss .bss.* COMMON)
+    EXCLUDE_FILE(*conf_sec_test_supp_*.o *conf_sec_driver_partition.o) *conf_sec_*.o(.bss .bss.* COMMON)
     . = ALIGN(4);
     _econfbss = .;
   } > CONFDATA
