@@ -401,6 +401,58 @@ CONF_SEC_OBJS := \
     $(BUILD_DIR)/conf_sec_test_supp_i066.o \
     $(BUILD_DIR)/conf_sec_test_i071.o \
     $(BUILD_DIR)/conf_sec_test_supp_i071.o \
+    $(BUILD_DIR)/conf_sec_test_i056.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i056.o \
+    $(BUILD_DIR)/conf_sec_test_i059.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i059.o \
+    $(BUILD_DIR)/conf_sec_test_i060.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i060.o \
+    $(BUILD_DIR)/conf_sec_test_i061.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i061.o \
+    $(BUILD_DIR)/conf_sec_test_i062.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i062.o \
+    $(BUILD_DIR)/conf_sec_test_i068.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i068.o \
+    $(BUILD_DIR)/conf_sec_test_i069.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i069.o \
+    $(BUILD_DIR)/conf_sec_test_i070.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i070.o \
+    $(BUILD_DIR)/conf_sec_test_i072.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i072.o \
+    $(BUILD_DIR)/conf_sec_test_i073.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i073.o \
+    $(BUILD_DIR)/conf_sec_test_i074.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i074.o \
+    $(BUILD_DIR)/conf_sec_test_i075.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i075.o \
+    $(BUILD_DIR)/conf_sec_test_i076.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i076.o \
+    $(BUILD_DIR)/conf_sec_test_i077.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i077.o \
+    $(BUILD_DIR)/conf_sec_test_i078.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i078.o \
+    $(BUILD_DIR)/conf_sec_test_i079.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i079.o \
+    $(BUILD_DIR)/conf_sec_test_i080.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i080.o \
+    $(BUILD_DIR)/conf_sec_test_i081.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i081.o \
+    $(BUILD_DIR)/conf_sec_test_i082.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i082.o \
+    $(BUILD_DIR)/conf_sec_test_i083.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i083.o \
+    $(BUILD_DIR)/conf_sec_test_i084.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i084.o \
+    $(BUILD_DIR)/conf_sec_test_i085.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i085.o \
+    $(BUILD_DIR)/conf_sec_test_i086.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i086.o \
+    $(BUILD_DIR)/conf_sec_test_i087.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i087.o \
+    $(BUILD_DIR)/conf_sec_test_i089.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i089.o \
+    $(BUILD_DIR)/conf_sec_test_i090.o \
+    $(BUILD_DIR)/conf_sec_test_supp_i090.o \
     $(BUILD_DIR)/conf_sec_test_i088.o \
     $(BUILD_DIR)/conf_sec_test_supp_i088.o
 ALL_SECURE_OBJS += $(CONF_SEC_OBJS)
@@ -537,6 +589,58 @@ CONF_UPSTREAM_SRCS := \
     $(UPSTREAM_DIR)/ff/ipc/test_i066/test_supp_i066.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i071/test_i071.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i071/test_supp_i071.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i056/test_i056.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i056/test_supp_i056.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i059/test_i059.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i059/test_supp_i059.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i060/test_i060.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i060/test_supp_i060.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i061/test_i061.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i061/test_supp_i061.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i062/test_i062.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i062/test_supp_i062.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i068/test_i068.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i068/test_supp_i068.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i069/test_i069.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i069/test_supp_i069.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i070/test_i070.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i070/test_supp_i070.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i072/test_i072.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i072/test_supp_i072.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i073/test_i073.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i073/test_supp_i073.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i074/test_i074.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i074/test_supp_i074.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i075/test_i075.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i075/test_supp_i075.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i076/test_i076.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i076/test_supp_i076.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i077/test_i077.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i077/test_supp_i077.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i078/test_i078.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i078/test_supp_i078.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i079/test_i079.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i079/test_supp_i079.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i080/test_i080.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i080/test_supp_i080.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i081/test_i081.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i081/test_supp_i081.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i082/test_i082.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i082/test_supp_i082.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i083/test_i083.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i083/test_supp_i083.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i084/test_i084.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i084/test_supp_i084.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i085/test_i085.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i085/test_supp_i085.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i086/test_i086.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i086/test_supp_i086.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i087/test_i087.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i087/test_supp_i087.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i089/test_i089.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i089/test_supp_i089.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i090/test_i090.c \
+    $(UPSTREAM_DIR)/ff/ipc/test_i090/test_supp_i090.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i088/test_i088.c \
     $(UPSTREAM_DIR)/ff/ipc/test_i088/test_supp_i088.c
 
@@ -610,6 +714,32 @@ $(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
 	    -e 's/^test_i064, panic_test$$/test_i064/' \
 	    -e 's/^test_i065, panic_test$$/test_i065/' \
 	    -e 's/^test_i066, panic_test$$/test_i066/' \
+	    -e 's/^test_i056, panic_test$$/test_i056/' \
+	    -e 's/^test_i059, panic_test$$/test_i059/' \
+	    -e 's/^test_i060, panic_test$$/test_i060/' \
+	    -e 's/^test_i061, panic_test$$/test_i061/' \
+	    -e 's/^test_i062, panic_test$$/test_i062/' \
+	    -e 's/^test_i068, panic_test$$/test_i068/' \
+	    -e 's/^test_i069, panic_test$$/test_i069/' \
+	    -e 's/^test_i070, panic_test$$/test_i070/' \
+	    -e 's/^test_i072, panic_test$$/test_i072/' \
+	    -e 's/^test_i073, panic_test$$/test_i073/' \
+	    -e 's/^test_i074, panic_test$$/test_i074/' \
+	    -e 's/^test_i075, panic_test$$/test_i075/' \
+	    -e 's/^test_i076, panic_test$$/test_i076/' \
+	    -e 's/^test_i077, panic_test$$/test_i077/' \
+	    -e 's/^test_i078, panic_test$$/test_i078/' \
+	    -e 's/^test_i079, panic_test$$/test_i079/' \
+	    -e 's/^test_i080, panic_test$$/test_i080/' \
+	    -e 's/^test_i081, panic_test$$/test_i081/' \
+	    -e 's/^test_i082, panic_test$$/test_i082/' \
+	    -e 's/^test_i083, panic_test$$/test_i083/' \
+	    -e 's/^test_i084, panic_test$$/test_i084/' \
+	    -e 's/^test_i085, panic_test$$/test_i085/' \
+	    -e 's/^test_i086, panic_test$$/test_i086/' \
+	    -e 's/^test_i087, panic_test$$/test_i087/' \
+	    -e 's/^test_i089, panic_test$$/test_i089/' \
+	    -e 's/^test_i090, panic_test$$/test_i090/' \
 	    $(UPSTREAM_DIR)/ff/ipc/testsuite.db \
 	    > $(MANIFEST_DIR)/testsuite_sched.db
 	python3 $(UPSTREAM_DIR)/tools/scripts/gen_tests_list.py ipc \
@@ -890,6 +1020,110 @@ $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i066/%.c \
 	$(CC) $(CONF_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i071/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i056/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i059/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i060/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i061/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i062/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i068/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i069/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i070/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i072/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i073/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i074/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i075/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i076/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i077/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i078/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i079/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i080/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i081/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i082/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i083/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i084/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i085/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i086/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i087/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i089/%.c \
+		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/ipc/test_i090/%.c \
 		$(CONF_GEN_STAMP) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(CONF_CFLAGS) -c -o $@ $<
 

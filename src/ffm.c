@@ -882,6 +882,23 @@ int wt_ffm_close_finish(wt_ffm_runtime_t* runtime, uint16_t msg_index)
     return WT_FFM_SUCCESS;
 }
 
+static psa_signal_t wt_ffm_partition_signal_set(
+    const wt_ffm_runtime_t* runtime, uint16_t partition_index)
+{
+    const wt_partition_manifest_t* manifest;
+    psa_signal_t set = PSA_DOORBELL;
+    size_t i;
+
+    for (i = 0U; i < runtime->service_count; i++) {
+        if (runtime->services[i].partition_index == partition_index)
+            set |= runtime->services[i].descriptor->signal;
+    }
+    manifest = runtime->partitions[partition_index].manifest;
+    for (i = 0U; i < manifest->interrupt_count; i++)
+        set |= manifest->interrupts[i].signal;
+    return set;
+}
+
 int wt_ffm_wait(wt_ffm_runtime_t* runtime, int32_t partition_id,
                 psa_signal_t signal_mask, psa_signal_t* asserted)
 {
@@ -892,6 +909,12 @@ int wt_ffm_wait(wt_ffm_runtime_t* runtime, int32_t partition_id,
     if (wt_ffm_find_partition(runtime, partition_id, &partition_index) !=
             WT_FFM_SUCCESS)
         return WT_FFM_ERROR_POLICY;
+    if ((signal_mask & wt_ffm_partition_signal_set(runtime,
+            partition_index)) == 0U) {
+        /* FF-M: a mask selecting none of the partition's assignable signals
+         * is a PROGRAMMER ERROR (i062); PSA_WAIT_ANY always intersects. */
+        return WT_FFM_ERROR_ARGUMENT;
+    }
     *asserted = runtime->partitions[partition_index].asserted_signals &
                 signal_mask;
     return *asserted == 0U ? WT_FFM_ERROR_NOT_READY : WT_FFM_SUCCESS;

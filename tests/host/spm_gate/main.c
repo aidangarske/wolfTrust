@@ -1008,6 +1008,37 @@ static void test_gate_server_misuse_panic_class(void)
     EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
     EXPECT_INT((int)call.must_panic, 1);
 
+
+    /* psa_wait on a mask with no assignable signal panics (i062); notify to
+     * a bad partition id (i059/i060) and clear with the doorbell unasserted
+     * (i061) panic the same way. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_WAIT;
+    call.partition_id = I063_SERVER_ID;
+    call.signal_mask = 0x80000000U;
+    call.asserted = (psa_signal_t*)&ns_msg;
+    call.timeout = PSA_POLL;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_ARGUMENT);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_NOTIFY;
+    call.partition_id = I063_SERVER_ID;
+    call.notify_partition = -10;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+    call.notify_partition = 200;
+    call.must_panic = 0U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_CLEAR;
+    call.partition_id = I063_SERVER_ID;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+
     (void)printf("PASS: WT-FFM-0014 gate panics server-side get/rhandle/reply "
                  "misuse (i013-i023)\n");
 }

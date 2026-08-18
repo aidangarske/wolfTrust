@@ -97,9 +97,15 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
     case WT_SPM_OP_WAIT:
         ret = wt_spm_check_buffer(caller_domain, call->asserted,
                                   sizeof(*call->asserted), 1);
-        if (ret == WT_FFM_SUCCESS)
+        if (ret == WT_FFM_SUCCESS) {
             ret = wt_ffm_wait(runtime, call->partition_id, call->signal_mask,
                               call->asserted);
+            /* A mask with no assignable signal is a PROGRAMMER ERROR (i062);
+             * a poll miss (NOT_READY) stays a legal return. */
+            if (ret == WT_FFM_ERROR_ARGUMENT) {
+                call->must_panic = 1U;
+            }
+        }
         call->ret_int = ret;
         break;
     case WT_SPM_OP_GET:
@@ -199,9 +205,17 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
         break;
     case WT_SPM_OP_NOTIFY:
         call->ret_int = wt_ffm_notify(runtime, call->notify_partition);
+        /* psa_notify to a negative or unknown partition id panics (i059/60). */
+        if (call->ret_int != WT_FFM_SUCCESS) {
+            call->must_panic = 1U;
+        }
         break;
     case WT_SPM_OP_CLEAR:
         call->ret_int = wt_ffm_clear(runtime, call->partition_id);
+        /* psa_clear with the doorbell unasserted panics (i061). */
+        if (call->ret_int != WT_FFM_SUCCESS) {
+            call->must_panic = 1U;
+        }
         break;
     case WT_SPM_OP_EOI:
         ret = wt_ffm_eoi(runtime, call->partition_id, call->signal_mask);

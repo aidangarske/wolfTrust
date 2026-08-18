@@ -514,11 +514,12 @@ static void test_wait_signal_mask(void)
     EXPECT_INT(wt_ffm_notify(&runtime, TEST_CLIENT_PARTITION),
                WT_FFM_SUCCESS);
 
+    /* Waiting on a signal the partition cannot be assigned is the i062
+     * PROGRAMMER ERROR, not a poll miss. */
     asserted = 0xFFFFFFFFU;
     EXPECT_INT(wt_ffm_wait(&runtime, TEST_CLIENT_PARTITION,
                            TEST_SERVICE_SIGNAL, &asserted),
-               WT_FFM_ERROR_NOT_READY);
-    EXPECT_INT(asserted, 0);
+               WT_FFM_ERROR_ARGUMENT);
 
     EXPECT_INT(wt_ffm_wait(&runtime, TEST_CLIENT_PARTITION,
                            PSA_DOORBELL | TEST_SERVICE_SIGNAL, &asserted),
