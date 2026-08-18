@@ -49,14 +49,14 @@ static wt_guest_config_t g_partition_configs[] = {
         .name = "guest-a",
         .vector_table = WT_GUEST0_FLASH_BASE,
         .initial_psp_ns = 0x00000000U,
-        .initial_msp_ns = 0x20008000U,
+        .initial_msp_ns = 0x20010000U,
         .irq_mask = {
             .words = {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U}
         },
         .memory_windows = {
             {WT_GUEST0_FLASH_BASE, WT_GUEST_FLASH_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC, WT_RESOURCE_SHARE_NONE},
-            {0x20000000U, 0x00008000U,
+            {0x20000000U, 0x00010000U,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_RESTART_CLEAR,
              WT_RESOURCE_SHARE_NONE}
         },
@@ -64,7 +64,7 @@ static wt_guest_config_t g_partition_configs[] = {
         .mpu_regions = {
             {WT_GUEST0_FLASH_BASE, WT_GUEST_FLASH_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
-            {0x20000000U, 0x00008000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE},
+            {0x20000000U, 0x00010000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE},
             {WT_GUEST0_USART_BASE, WT_USART_REGION_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE},
             /* NSC window: NS guests must be able to fetch the SG veneers.
@@ -99,14 +99,14 @@ static wt_guest_config_t g_partition_configs[] = {
         .name = "guest-b",
         .vector_table = WT_GUEST1_FLASH_BASE,
         .initial_psp_ns = 0x00000000U,
-        .initial_msp_ns = 0x20010000U,
+        .initial_msp_ns = 0x20020000U,
         .irq_mask = {
             .words = {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U}
         },
         .memory_windows = {
             {WT_GUEST1_FLASH_BASE, WT_GUEST_FLASH_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC, WT_RESOURCE_SHARE_NONE},
-            {0x20008000U, 0x00008000U,
+            {0x20010000U, 0x00010000U,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_RESTART_CLEAR,
              WT_RESOURCE_SHARE_NONE}
         },
@@ -114,7 +114,7 @@ static wt_guest_config_t g_partition_configs[] = {
         .mpu_regions = {
             {WT_GUEST1_FLASH_BASE, WT_GUEST_FLASH_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
-            {0x20008000U, 0x00008000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE},
+            {0x20010000U, 0x00010000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE},
             {WT_GUEST1_USART_BASE, WT_USART_REGION_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE},
             /* NSC window — see guest-a above. */

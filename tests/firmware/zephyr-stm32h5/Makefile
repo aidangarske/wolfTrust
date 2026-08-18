@@ -32,7 +32,7 @@ WT_GUEST_FAULT_PROBE ?= 0
 # in port/stm32h563/memory_map.h. Kept here as overridable variables so
 # this Makefile is self-contained.
 WT_GUEST1_FLASH_BASE ?= 0x08040000
-WT_GUEST1_RAM_BASE   ?= 0x20008000
+WT_GUEST1_RAM_BASE   ?= 0x20010000
 WT_GUEST_FLASH_SIZE  ?= 0x00020000
 WT_GUEST_RAM_SIZE    ?= 0x00008000
 WT_GUEST_CORE_CLOCK_HZ ?= 240000000

@@ -40,10 +40,14 @@ git config --global --add safe.directory "$repo"
 export CROSS_COMPILE=/usr/local/bin/arm-none-eabi-
 export ZEPHYR_TOOLCHAIN_VARIANT=cross-compile
 export WT_SECURE_FLASH_BASE=0x0C060000
-export WT_SECURE_FLASH_SIZE=0x00020000
+export WT_SECURE_FLASH_SIZE=0x00040000
+export WOLFBOOT_PARTITION_SIZE=0x40000
+export WOLFBOOT_PARTITION_SWAP_ADDRESS=0x0C140000
 export WT_SECURE_IMAGE_HEADER_SIZE=0x400
-export WT_GUEST0_FLASH_BASE=0x08080000
-export WT_GUEST1_FLASH_BASE=0x080A0000
+export WT_GUEST0_FLASH_BASE=0x080A0000
+export WT_GUEST1_FLASH_BASE=0x080C0000
+export WT_GUEST_RAM_SIZE=0x00010000
+export WT_GUEST1_RAM_BASE=0x20010000
 export WT_ZEPHYR_DTC_OVERLAY_FILE=boards/wolfboot-stm32h563.overlay
 export WT_MAX_GUESTS=2
 export ZEPHYR_BOARD=nucleo_h563zi/stm32h563xx/ns
@@ -105,7 +109,7 @@ elif [ "$scenario" = "confboot" ]; then
   secure_flags="WT_CONFORMANCE=1"
 fi
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
-IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x20000 WOLFBOOT_SECTOR_SIZE=0x2000 \
+IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x40000 WOLFBOOT_SECTOR_SIZE=0x2000 \
   "$repo/wolfBoot/tools/keytools/sign" --ecc256 \
     "$repo/build/wolftrust.bin" \
     "$repo/wolfBoot/wolfboot_signing_private_key.der" 1
@@ -152,15 +156,15 @@ elif [ "$scenario" = "confboot" ]; then
   # with a system reset and val resumes off its boot flag; the suite report
   # and clean BKPT exit are the correctness gates.
   quit_flag=""
-  timeout_s=900
+  timeout_s=1200
 fi
 
 log="$repo/ci-m33mu-$scenario.log"
 set +e
 "$M33MU" "$repo/wolfBoot/wolfboot.bin" \
   "$repo/build/wolftrust_v1_signed.bin:0x60000" \
-  "$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0x80000" \
-  "$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xA0000" \
+  "$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0xA0000" \
+  "$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xC0000" \
   --uart-stdout --expect-bkpt 0x7f $quit_flag --timeout "$timeout_s" | tee "$log"
 emu_status=${PIPESTATUS[0]}
 set -e
@@ -202,9 +206,12 @@ case "$scenario" in
     # i024-i027+i054 psa_call handle/iovec/outvec panics, and the
     # i013-i023 server-misuse panics, and the i028-i046 message-access
     # misuse panics. i021 and i066
-    # exercise the real LPUART1 NVIC route (P4.2c). 63 total; only i067
+    # exercise the real LPUART1 NVIC route (P4.2c); i068-i087 exercise the
+    # SAU/MPU isolation probes. 89 total: 85 pass, 4 heap tests report
+    # SKIPPED (SP_HEAP_MEM_SUPP undefined: zero-allocation image); only i067
     # (heap) is skipped. Needs the M33MU-1 SPSEL patch applied above.
-    grep -Fq "TOTAL PASSED    : 63" "$log"
+    grep -Fq "TOTAL PASSED    : 85" "$log"
+    grep -Fq "TOTAL SKIPPED   : 4" "$log"
     grep -Fq "TOTAL FAILED    : 0" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"
     echo "PASS: target/confboot"

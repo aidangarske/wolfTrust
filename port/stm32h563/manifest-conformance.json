@@ -50,19 +50,19 @@
       "security_state": 1,
       "privilege_state": 1,
       "initial_lifecycle": 1,
-      "entry_point": 134742016,
+      "entry_point": 134873088,
       "stack_base": 536870912,
-      "stack_size": 32768,
+      "stack_size": 65536,
       "memory_resources": [
         {
-          "base": 134742016,
+          "base": 134873088,
           "size": 131072,
           "attributes": 5,
           "share_id": 0
         },
         {
           "base": 536870912,
-          "size": 32768,
+          "size": 65536,
           "attributes": 19,
           "share_id": 0
         }
@@ -83,19 +83,19 @@
       "security_state": 1,
       "privilege_state": 1,
       "initial_lifecycle": 1,
-      "entry_point": 134873088,
-      "stack_base": 536903680,
-      "stack_size": 32768,
+      "entry_point": 135004160,
+      "stack_base": 536936448,
+      "stack_size": 65536,
       "memory_resources": [
         {
-          "base": 134873088,
+          "base": 135004160,
           "size": 131072,
           "attributes": 5,
           "share_id": 0
         },
         {
-          "base": 536903680,
-          "size": 32768,
+          "base": 536936448,
+          "size": 65536,
           "attributes": 19,
           "share_id": 0
         }

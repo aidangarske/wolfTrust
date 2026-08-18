@@ -70,8 +70,8 @@
 
 #define WT_RAM_NS_BASE           0x20000000u
 #define WT_GUEST0_RAM_BASE       0x20000000u
-#define WT_GUEST1_RAM_BASE       0x20008000u
-#define WT_GUEST_RAM_SIZE        0x00008000u
+#define WT_GUEST1_RAM_BASE       0x20010000u
+#define WT_GUEST_RAM_SIZE        0x00010000u
 
 #define WT_RAM_S_BASE            0x30028000u
 #define WT_RAM_S_SIZE            0x00080000u

@@ -90,10 +90,14 @@ jobs:
       # The wolfBoot configuration reserves the wolfTrust partition at the
       # first 128-KiB-aligned secure slot.
       WT_SECURE_FLASH_BASE: 0x0C060000
-      WT_SECURE_FLASH_SIZE: 0x00020000
+      WT_SECURE_FLASH_SIZE: 0x00040000
+      WOLFBOOT_PARTITION_SIZE: 0x40000
+      WOLFBOOT_PARTITION_SWAP_ADDRESS: 0x0C140000
       WT_SECURE_IMAGE_HEADER_SIZE: 0x400
-      WT_GUEST0_FLASH_BASE: 0x08080000
-      WT_GUEST1_FLASH_BASE: 0x080A0000
+      WT_GUEST0_FLASH_BASE: 0x080A0000
+      WT_GUEST1_FLASH_BASE: 0x080C0000
+      WT_GUEST_RAM_SIZE: 0x00010000
+      WT_GUEST1_RAM_BASE: 0x20010000
       WT_ZEPHYR_DTC_OVERLAY_FILE: boards/wolfboot-stm32h563.overlay
       WT_MAX_GUESTS: 2
       ZEPHYR_BOARD: nucleo_h563zi/stm32h563xx/ns
@@ -149,7 +153,7 @@ jobs:
         working-directory: wolfBoot
         run: |
           IMAGE_HEADER_SIZE=1024 \
-          WOLFBOOT_PARTITION_SIZE=0x20000 \
+          WOLFBOOT_PARTITION_SIZE=0x40000 \
           WOLFBOOT_SECTOR_SIZE=0x2000 \
             ./tools/keytools/sign --ecc256 \
               "$GITHUB_WORKSPACE/build/wolftrust.bin" \
@@ -183,19 +187,19 @@ jobs:
             tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.elf \
             | awk '/Entry point address:/ { print $4 }')
           case "$guest0_entry" in
-            0x808*) ;;
-            *) echo "Zephyr entry $guest0_entry is outside 0x08080000 slot" >&2; exit 1 ;;
+            0x80a*) ;;
+            *) echo "Zephyr entry $guest0_entry is outside 0x080A0000 slot" >&2; exit 1 ;;
           esac
           case "$guest1_entry" in
-            0x80a*) ;;
-            *) echo "FreeRTOS entry $guest1_entry is outside 0x080A0000 slot" >&2; exit 1 ;;
+            0x80c*) ;;
+            *) echo "FreeRTOS entry $guest1_entry is outside 0x080C0000 slot" >&2; exit 1 ;;
           esac
           set +e
           rc_file=$(mktemp)
           ( stdbuf -oL -eL "$M33MU" wolfBoot/wolfboot.bin \
               build/wolftrust_v1_signed.bin:0x60000 \
-              tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0x80000 \
-              tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xA0000 \
+              tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0xA0000 \
+              tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xC0000 \
               --uart-stdout --expect-bkpt 0x7f --quit-on-faults --timeout 60; \
             echo $? > "$rc_file" ) \
             | tee "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
