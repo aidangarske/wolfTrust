@@ -957,9 +957,20 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   `make test-target` (4 scenarios) + `make test-conformance` (85/4) on one HEAD,
   recorded in `validation-log.md`.
 - P8. [ ] **TF-M baseline comparison** — same suite on TF-M vs wolfTrust, parity.
-- P9. [ ] **Physical STM32H563/H5 bring-up + qualification** — the only milestone
-  that makes "tested on the H5" literally true; all prior evidence is M33MU
-  emulator. Separate track once the emulator suite is green.
+- P9 → **P2 phase — ACTIVE (2026-08-18).** Real STM32H563/H5 hardware bring-up +
+  full TF-M drop-in replacement. Board is a NUCLEO-H563ZI on the box (STLINK-V3,
+  `/dev/ttyACM0`), already TrustZone-provisioned (TZEN on, SECBOOTADD=0x0C000000,
+  OEM-iRoT — set for wolfBoot, not ST TF-M). Full plan:
+  `docs/requirements/hardware-tfm-replacement-plan.md`.
+  - Arc A — bring-up: P2.0 flash path (mostly done, board provisioned) → P2.1
+    flash + first boot → P2.2 fix hardware-only issues (clock/cache/GTZC-SECWM/
+    UART/IRQ) → P2.3 `make test-hardware` smoke harness reusing the `[check]`
+    checklist.
+  - Arc B — TF-M drop-in: P2.4 `docs/tfm-replacement.md` → P2.5 (a) direct
+    wolfTrust flash workflow, (b) stock ST TF-M baseline, (c) drop-in proof (a
+    TF-M NS app / Arm `val` NSPE unmodified on wolfTrust) → P2.6 hardware
+    qualification ledger. TF-M is NOT factory-stock on this Nucleo; old P8
+    baseline folds into P2.5(b).
 
 ## Phase 4 — Crypto, protected storage, and ITS
 
