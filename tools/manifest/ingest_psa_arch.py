@@ -44,6 +44,13 @@ SP_RESTART_POLICY = {
     "initial_delay_ticks": 1,
 }
 
+# The upstream FF-test manifest names an IRQ only by a symbolic source; the NVIC
+# line is this port's decision (STM32H563 test UART, P4.2). The generator owns
+# the mapping so the conformance manifest stays reproducible from upstream.
+PLATFORM_IRQ_LINES = {
+    "FF_TEST_UART_IRQ": 63,
+}
+
 
 class IngestError(Exception):
     pass
@@ -88,8 +95,13 @@ def normalize_partition(source, domain_id):
     for entry in source.get("irqs", []):
         if "signal" not in entry:
             raise IngestError("irq missing signal name")
+        line = PLATFORM_IRQ_LINES.get(entry.get("source"))
+        if line is None:
+            raise IngestError("no platform IRQ line for source: {}".format(
+                entry.get("source")))
         interrupts.append({
             "signal_name": entry["signal"],
+            "interrupt": line,
             "signal": signal,
         })
         signal = next_signal(signal)
@@ -167,8 +179,12 @@ def emit_manifest(base_path, arm_paths, code_base, stack_base, stack_size):
 
     for index, part in enumerate(normalized):
         domain_id = next_id + index
-        manifest["domains"].append(
-            sp_domain(domain_id, index, code_base, stack_base, stack_size))
+        domain = sp_domain(domain_id, index, code_base, stack_base, stack_size)
+        domain["interrupt_resources"] = [
+            {"interrupt": irq["interrupt"], "attributes": 0, "share_id": 0}
+            for irq in part["interrupts"]
+        ]
+        manifest["domains"].append(domain)
         dependencies = []
         for name in part["_source"].get("dependencies", []):
             if name not in sid_by_name:
@@ -182,10 +198,13 @@ def emit_manifest(base_path, arm_paths, code_base, stack_base, stack_size):
             "priority": 1,
             "services": [full_service(s) for s in part["services"]],
             "dependencies": dependencies,
-            "interrupts": [],
+            "interrupts": part["interrupts"],
         })
 
     manifest["profile_capabilities"]["max_domains"] = len(manifest["domains"])
+    manifest["profile_capabilities"]["max_interrupts_per_domain"] = max(
+        [len(d.get("interrupt_resources", [])) for d in manifest["domains"]]
+        + [0])
     partitions = manifest["partitions"]
     manifest["limits"]["max_partitions"] = len(partitions)
     manifest["limits"]["max_services_per_partition"] = max(
