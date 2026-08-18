@@ -1261,6 +1261,34 @@ manifest now byte-matches the committed one; the committed manifests are
 unchanged — only the generator was corrected to reproduce them. `make test`
 still `PASS: unit/all`.
 
+## Item 10 M33MU wrap-up — full-suite one-commit validation (M33MU, 2026-08-18)
+
+Final pre-hardware validation of the reconciled M33MU deliverable. All three
+test entry points green on one tree (`ade6322` working tree, rsync'd to the box;
+container `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15`, prebuilt diag emulator
+carrying both local fixes — M33MU-1 SPSEL + M33MU-4 ITSTATE):
+
+- `make test` → `PASS: unit/all` — every host suite, including `spm_gate`
+  (284 checks), `flash_nvm` survive-reset NVM, crypto/attestation services
+  through real FF-M dispatch, and the P6 surface (doorbell + `psa_wait` mask
+  i063, `psa_eoi` validation, interrupt signal routing).
+- `make test-target` → `PASS: target/{positive,restart,crossdomain,confboot}`
+  → `PASS: target/all`; confboot suite `TOTAL PASSED : 85 / FAILED : 0 /
+  SKIPPED : 4`.
+- `make test-conformance` → manifest ingest PASS (validates + matches upstream
+  SIDs) → `PASS: conformance/target`, same 85/4.
+- `FINAL_RC=0`, `CONTAINER_EXIT=0`.
+
+Genuine sequential run (not cached): per-scenario logs staggered
+11:34:41 → 11:37:27 → 11:39:22 → 11:41:56 → 11:44:37, each 0.2–1.0 MB of full
+build+boot output (`logs/target-*.log`, `logs/conformance-target.log`). Fast
+(~10 min) only because the box's Zephyr clone and emulator were warm.
+
+This is M33MU **emulator** evidence, not a physical-board result; hardware
+qualification (P9) remains the only open non-blocked item. The P5u/#63 upstream
+point-back stays blocked until both m33mu PRs merge (the local
+`tests/target/m33mu-tb-sec-chain.patch` carries both fixes meanwhile).
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are
