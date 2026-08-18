@@ -118,6 +118,27 @@ deliverables:
   SHA-256s, option-byte config, captured UART, PASS/FAIL. Explicitly hardware,
   never emulator-implied. Closes the old P9/#38.
 
+### P2.7 — Immutable lock-in demo (wolfTrust as an OEM-owned RoT, verified)
+The marquee competitive demo: wolfTrust delivers Secure Manager's immutability
+guarantee while the OEM owns the keys. Verified feasible on H5 (see
+`docs/competitive-edge-vs-secure-manager.md`). On the Nucleo-H563ZI:
+- **⚠️ Provision a Debug-Authentication password/OBK FIRST** — mandatory. Entering
+  `Closed` without it permanently bricks the part (documented ST H563 case). The
+  harness must set the DA regression credential before every lock, no exceptions.
+- Seal wolfTrust as the RoT: `SECWM` + `WRP` over the secure region, `HDP` over
+  the RoT keys, `BOOT_UBE`/`SECBOOT_LOCK` freezing the boot entry, then move
+  `PRODUCT_STATE` to `Closed`/`TZ-Closed` (the H5 RDP *replacement* — not "RDP 1").
+- Prove sealed: secure region unreadable/undebuggable, boots only wolfTrust.
+- **Regress** to `Open` via DA (mass-erase) to prove reversibility on the dev
+  board; `Locked` (permanent, no regression) is production-only — never on dev.
+- Script the option-byte/product-state sequence (CubeProgrammer `-ob` +
+  STM32TrustedPackageCreator). wolfBoot automates only the TZ-partitioning bytes
+  (`set-stm32-tz-option-bytes.sh`), not the HDP/product-state seal — that step is
+  ours.
+- Evidence: lock proven (failed secure read + wolfTrust-only boot) then regression
+  proven, in the hardware ledger. Needs a direct RM0481 pass on the exact
+  option-byte encodings before any external-facing claim.
+
 ---
 
 ## Open questions to pin before P2.1 execution
