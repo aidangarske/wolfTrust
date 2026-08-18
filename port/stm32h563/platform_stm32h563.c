@@ -169,6 +169,8 @@ static void wt_sau_set_region(uint32_t rnr,
 static void wt_gtzc_init(void)
 {
     size_t i;
+    size_t nsWords = (WT_GUEST1_RAM_BASE + WT_GUEST_RAM_SIZE -
+                      WT_RAM_NS_BASE) / (512u * 32u);
 
     WT_RCC_AHB1ENR |= WT_RCC_AHB1ENR_GTZC1EN;
 
@@ -177,14 +179,12 @@ static void wt_gtzc_init(void)
     }
 
     /* SRAM1 MPCBB blocks are 512 B; each SECCFGR word covers 32 blocks
-     * (16 KiB). The two guest windows occupy the first 64 KiB of SRAM1
-     * through the Non-secure alias at 0x20000000 (32 KiB per guest after
-     * the bench-driven RAM bump), while the Secure monitor .data/.bss
-     * starts at 0x30028000, well above this NS region. */
-    WT_GTZC1_MPCBB1_SECCFGR[0] = 0x00000000u;
-    WT_GTZC1_MPCBB1_SECCFGR[1] = 0x00000000u;
-    WT_GTZC1_MPCBB1_SECCFGR[2] = 0x00000000u;
-    WT_GTZC1_MPCBB1_SECCFGR[3] = 0x00000000u;
+     * (16 KiB). Mark the whole guest RAM extent Non-secure — derived from
+     * the memory map so a layout change cannot leave a guest window
+     * secure-blocked. The Secure monitor .data/.bss lives above this bank. */
+    for (i = 0; i < nsWords && i < 16u; ++i) {
+        WT_GTZC1_MPCBB1_SECCFGR[i] = 0x00000000u;
+    }
 
     /* Guests own the UARTs. SAU makes the APB window non-secure, but
      * STM32H5 also gates peripheral security through GTZC/TZSC. */
@@ -1634,6 +1634,14 @@ static void wt_secure_tasklet_fault_dispatch(void)
         /* Bootstrap took the fault — no tasklet to abandon. */
         wt_platform_panic();
     }
+
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    /* The Arm isolation tests (i068+) fault inside a Secure Partition on
+     * purpose and expect a system restart so val resumes off its flash boot
+     * flag; the graceful quarantine below would leave the server partition
+     * dead for every later test. Production keeps the quarantine (task #26). */
+    wt_platform_system_reset();
+#endif
 
     g_tasklet_fault_count++;
 
