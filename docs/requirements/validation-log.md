@@ -1289,6 +1289,33 @@ qualification (P9) remains the only open non-blocked item. The P5u/#63 upstream
 point-back stays blocked until both m33mu PRs merge (the local
 `tests/target/m33mu-tb-sec-chain.patch` carries both fixes meanwhile).
 
+## MP1 — first STM32H563 hardware boot (H5 Nucleo, 2026-08-18)
+
+First real-silicon evidence for the wolfTrust H5 port (see
+`wolftrust-secure-manager-port-plan.md`). **HARDWARE, not emulator.**
+
+Board: NUCLEO-H563ZI (target `stm32h563zitx`) via STLINK-V3, on the box. Already
+TrustZone-provisioned: `TZEN` on, `SECBOOTADD=0x0C000000`, `BOOT_UBE=OEM-iRoT`,
+`SECWM1 0x00-0x3F`, `SECWM2 0x00-0x7F`, product state Open.
+
+Flashed the production positive chain (hardware variant — the emulator-only
+`WT_M33MU_EXPECT_BKPT` dropped) via STM32CubeProgrammer:
+`wolfboot.bin@0x0C000000`, `wolftrust_v1_signed.bin@0x0C060000`,
+`guest0_psa@0x080A0000`, `freertos_guest1@0x080C0000` — all "Download verified
+successfully", hard reset.
+
+**Result: wolfTrust boots on real silicon.** pyocd after reset reports
+`Core 0 (Cortex-M33): Running [Nonsecure]` — the secure chain (wolfBoot auth →
+wolfTrust → TrustZone handoff) executed and control reached the Non-secure guest.
+The ST-Link VCP console (`/dev/ttyACM0`) captured garbled bytes at 115200 — a
+baud mismatch (the real H5 clock tree differs from the emulator's fixed clock, so
+USART3's divisor yields the wrong baud); no lifecycle markers readable yet.
+
+Status: **boot chain proven on silicon;** a clean console is the open MP1 item,
+and it gates the full positive-lifecycle assertion + service suite (MP2). Harness:
+`tests/target/run_h5_hardware.sh` (build in container, flash on host). No
+lock/product-state changes were made — the board stays Open and reflashable.
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are
