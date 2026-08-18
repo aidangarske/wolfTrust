@@ -190,6 +190,8 @@ size_t wt_ffm_skip(wt_ffm_runtime_t* runtime, int32_t partition_id,
 int wt_ffm_write(wt_ffm_runtime_t* runtime, int32_t partition_id,
                  psa_handle_t msg_handle, uint32_t outvec_idx,
                  const void* buffer, size_t num_bytes);
+int wt_ffm_msg_access_check(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                            psa_handle_t msg_handle, uint32_t vec_idx);
 int wt_ffm_reply(wt_ffm_runtime_t* runtime, int32_t partition_id,
                  psa_handle_t msg_handle, psa_status_t status);
 

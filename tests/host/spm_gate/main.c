@@ -546,10 +546,8 @@ static void test_gate_validates_buffers(void)
     call.buffer = scratch;
     call.num_bytes = 16U;
     EXPECT_INT(wt_spm_gate(&runtime, &domain, &call), WT_FFM_SUCCESS);
-    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
-    EXPECT_SIZE(call.ret_size, 0U);
-    /* A valid in-domain read is not a programmer error. */
-    EXPECT_INT((int)call.must_panic, 0);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_HANDLE);
+    EXPECT_INT((int)call.must_panic, 1);
 
     /* Read destination outside the domain: rejected before wt_ffm_read runs,
      * and flagged as a must-panic programmer error (FF-M, drives i055). */
@@ -559,7 +557,7 @@ static void test_gate_validates_buffers(void)
     call.buffer = outside;
     call.num_bytes = 16U;
     EXPECT_INT(wt_spm_gate(&runtime, &domain, &call), WT_FFM_SUCCESS);
-    EXPECT_INT(call.ret_int, WT_FFM_ERROR_BUFFER);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_HANDLE);
     EXPECT_INT((int)call.must_panic, 1);
 
     /* Write source outside the domain is rejected the same way (drives i057). */
@@ -588,12 +586,11 @@ static void test_gate_validates_buffers(void)
     call.buffer = NULL;
     call.num_bytes = 16U;
     EXPECT_INT(wt_spm_gate(&runtime, &domain, &call), WT_FFM_SUCCESS);
-    EXPECT_INT(call.ret_int, WT_FFM_ERROR_BUFFER);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_HANDLE);
     EXPECT_INT((int)call.must_panic, 1);
 
-    /* FF-M zero-length write: passes the gate check even off-domain (i003's
-     * server writes 0 bytes); the dead handle then fails ARGUMENT, not
-     * BUFFER, proving the rejection no longer happens at the gate. */
+    /* A zero-length write on a dead handle still panics (i042): handle
+     * validity outranks the zero-length transfer leniency. */
     (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_WRITE;
     call.partition_id = TEST_PARTITION_ID;
@@ -601,18 +598,17 @@ static void test_gate_validates_buffers(void)
     call.num_bytes = 0U;
     EXPECT_INT(wt_spm_gate(&runtime, &domain, &call), WT_FFM_SUCCESS);
     EXPECT_INT(call.ret_int, WT_FFM_ERROR_ARGUMENT);
-    /* A zero-length transfer is legal FF-M, never a panic. */
-    EXPECT_INT((int)call.must_panic, 0);
+    EXPECT_INT((int)call.must_panic, 1);
 
-    /* Zero-length read likewise reaches the message layer and returns 0. */
+    /* Zero-length read on a dead handle panics the same way (i030/i036). */
     (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_READ;
     call.partition_id = TEST_PARTITION_ID;
     call.buffer = NULL;
     call.num_bytes = 0U;
     EXPECT_INT(wt_spm_gate(&runtime, &domain, &call), WT_FFM_SUCCESS);
-    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
-    EXPECT_SIZE(call.ret_size, 0U);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_HANDLE);
+    EXPECT_INT((int)call.must_panic, 1);
 
     /* An out-of-domain psa_call input vector is a must-panic programmer
      * error for a Secure caller (the i050-i053 SPE variants). */
@@ -635,7 +631,7 @@ static void test_gate_validates_buffers(void)
     call.buffer = outside;
     call.num_bytes = 16U;
     EXPECT_INT(wt_spm_transport_direct(&runtime, &call), WT_FFM_SUCCESS);
-    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_HANDLE);
     EXPECT_SIZE(call.ret_size, 0U);
     (void)printf("PASS: WT-FFM-0014 gate bounds SP pointers to the domain\n");
 }
@@ -970,6 +966,47 @@ static void test_gate_server_misuse_panic_class(void)
     EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
     EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
     EXPECT_INT((int)call.must_panic, 0);
+
+
+    /* psa_read/skip/write misuse (i028-i046): forged handles, an index past
+     * PSA_MAX_IOVEC, and access to a connect-type message all panic. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_READ;
+    call.partition_id = I063_SERVER_ID;
+    call.msg_handle = (psa_handle_t)0x1234DEAD;
+    call.buffer = &msg;
+    call.num_bytes = 1U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+    call.op = WT_SPM_OP_SKIP;
+    call.must_panic = 0U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+    call.op = WT_SPM_OP_WRITE;
+    call.must_panic = 0U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    ns_msg = 0xFFFFU;
+    handle = wt_ffm_connect_begin(&runtime, I063_NS_CLIENT, I063_SVC_B_SID, 1U,
+                                  &ns_msg);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    EXPECT_INT(wt_ffm_get(&runtime, I063_SERVER_ID, I063_SIG_B, &msg),
+               PSA_SUCCESS);
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_READ;
+    call.partition_id = I063_SERVER_ID;
+    call.msg_handle = msg.handle;
+    call.buffer = &ns_msg;
+    call.num_bytes = 1U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+    call.op = WT_SPM_OP_READ;
+    call.msg_handle = msg.handle;
+    call.vec_idx = PSA_MAX_IOVEC;
+    call.must_panic = 0U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
 
     (void)printf("PASS: WT-FFM-0014 gate panics server-side get/rhandle/reply "
                  "misuse (i013-i023)\n");

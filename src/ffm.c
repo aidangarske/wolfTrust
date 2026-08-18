@@ -1104,6 +1104,24 @@ int wt_ffm_set_rhandle(wt_ffm_runtime_t* runtime, int32_t partition_id,
     return WT_FFM_SUCCESS;
 }
 
+int wt_ffm_msg_access_check(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                            psa_handle_t msg_handle, uint32_t vec_idx)
+{
+    wt_ffm_message_runtime_t* message;
+    uint16_t message_index;
+
+    if (vec_idx >= PSA_MAX_IOVEC)
+        return WT_FFM_ERROR_ARGUMENT;
+    if (wt_ffm_message_from_handle(runtime, partition_id, msg_handle,
+            &message_index) != WT_FFM_SUCCESS)
+        return WT_FFM_ERROR_HANDLE;
+    message = &runtime->messages[message_index];
+    /* FF-M: read/write/skip are only legal on request (call) messages. */
+    if (message->type < PSA_IPC_CALL)
+        return WT_FFM_ERROR_STATE;
+    return WT_FFM_SUCCESS;
+}
+
 size_t wt_ffm_read(wt_ffm_runtime_t* runtime, int32_t partition_id,
                    psa_handle_t msg_handle, uint32_t invec_idx,
                    void* buffer, size_t num_bytes)

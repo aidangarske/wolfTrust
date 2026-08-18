@@ -133,6 +133,16 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
         }
         break;
     case WT_SPM_OP_READ:
+        /* psa_read on a connect/disconnect message, a forged or null handle,
+         * or an out-of-range vector index must panic the server (i028-i033);
+         * a legal read of an exhausted vector still returns 0 bytes. */
+        ret = wt_ffm_msg_access_check(runtime, call->partition_id,
+                                      call->msg_handle, call->vec_idx);
+        if (ret != WT_FFM_SUCCESS) {
+            call->ret_int = ret;
+            call->must_panic = 1U;
+            break;
+        }
         ret = wt_spm_check_buffer(caller_domain, call->buffer, call->num_bytes,
                                   1);
         if (ret == WT_FFM_SUCCESS) {
@@ -147,6 +157,14 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
         }
         break;
     case WT_SPM_OP_SKIP:
+        /* psa_skip misuse panics like psa_read (i034-i039). */
+        ret = wt_ffm_msg_access_check(runtime, call->partition_id,
+                                      call->msg_handle, call->vec_idx);
+        if (ret != WT_FFM_SUCCESS) {
+            call->ret_int = ret;
+            call->must_panic = 1U;
+            break;
+        }
         call->ret_size = wt_ffm_skip(runtime, call->partition_id,
                                      call->msg_handle, call->vec_idx,
                                      call->num_bytes);
@@ -162,6 +180,11 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
         else {
             ret = wt_ffm_write(runtime, call->partition_id, call->msg_handle,
                                call->vec_idx, call->buffer, call->num_bytes);
+            /* psa_write on a bad handle/index/message type, or past the
+             * out-vector's declared capacity, panics (i040-i046). */
+            if (ret != WT_FFM_SUCCESS) {
+                call->must_panic = 1U;
+            }
         }
         call->ret_int = ret;
         break;
