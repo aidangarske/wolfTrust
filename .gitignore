@@ -22,3 +22,4 @@ tests/host/wolfcose/test_wolfcose_integration
 # Tool-specific files
 .claude/
 .codex
+/logs/

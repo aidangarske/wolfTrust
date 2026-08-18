@@ -39,16 +39,16 @@ test-target:
 	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
 		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh 2>&1))"; \
 	else \
-		mkdir -p $(BUILD_DIR)/logs; rc=0; \
+		mkdir -p logs; rc=0; \
 		for s in positive restart crossdomain confboot; do \
 			printf 'RUN: target/%s ... ' "$$s"; \
 			if tests/target/run_m33mu_scenario.sh $$s \
-					> $(BUILD_DIR)/logs/target-$$s.log 2>&1; then \
+					> logs/target-$$s.log 2>&1; then \
 				echo "PASS"; \
 			else \
 				echo "FAIL"; rc=1; \
 			fi; \
-			echo "LOG: $(BUILD_DIR)/logs/target-$$s.log"; \
+			echo "LOG: logs/target-$$s.log"; \
 		done; \
 		if [ $$rc -eq 0 ]; then \
 			echo "PASS: target/all"; \
@@ -56,9 +56,9 @@ test-target:
 			echo "FAIL: target/all — tail of the failing log(s):"; \
 			for s in positive restart crossdomain confboot; do \
 				grep -Eq 'PASS: target/'"$$s"'$$' \
-					$(BUILD_DIR)/logs/target-$$s.log 2>/dev/null || { \
+					logs/target-$$s.log 2>/dev/null || { \
 					echo "----- target/$$s -----"; \
-					tail -20 $(BUILD_DIR)/logs/target-$$s.log; }; \
+					tail -20 logs/target-$$s.log; }; \
 			done; \
 			exit 1; \
 		fi; \
@@ -91,18 +91,18 @@ test-manifest-ingest: fetch-psa-ff-tests
 # through the confboot leg of the wolfboot-wolftrust-m33mu-scenarios matrix.
 test-conformance: fetch-psa-ff-tests test-manifest-ingest
 	@if tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
-		mkdir -p $(BUILD_DIR)/logs; \
+		mkdir -p logs; \
 		printf 'RUN: conformance/target (full FF-M IPC suite on M33MU) ... '; \
 		if tests/target/run_m33mu_scenario.sh confboot \
-				> $(BUILD_DIR)/logs/conformance-target.log 2>&1; then \
+				> logs/conformance-target.log 2>&1; then \
 			echo "PASS"; \
 			echo "PASS: conformance/target"; \
-			echo "LOG: $(BUILD_DIR)/logs/conformance-target.log"; \
+			echo "LOG: logs/conformance-target.log"; \
 		else \
 			echo "FAIL"; \
 			echo "FAIL: conformance/target — tail of the log:"; \
-			tail -25 $(BUILD_DIR)/logs/conformance-target.log; \
-			echo "LOG: $(BUILD_DIR)/logs/conformance-target.log"; \
+			tail -25 logs/conformance-target.log; \
+			echo "LOG: logs/conformance-target.log"; \
 			exit 1; \
 		fi; \
 	else \
