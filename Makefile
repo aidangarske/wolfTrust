@@ -36,10 +36,8 @@ test:
 # WT_TARGET_SCENARIOS=1); skip explicitly otherwise so it never silently passes.
 # Runs inside the wolfboot-ci-m33mu container, never bare-metal.
 test-target:
-	@if [ "$${WT_TARGET_SCENARIOS:-0}" != "1" ] && \
-	    ! { [ -n "$${M33MU:-}" ] && [ -x "$${M33MU:-}" ]; } && \
-	    ! command -v m33mu >/dev/null 2>&1; then \
-		echo "SKIP: FF-M target scenarios (M33MU/HW not detected — set WT_TARGET_SCENARIOS=1 or provide M33MU to run)"; \
+	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
+		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh 2>&1))"; \
 	else \
 		echo "RUN: target/positive"; \
 		tests/target/run_m33mu_scenario.sh positive; \
@@ -70,12 +68,28 @@ test-manifest-ingest: fetch-psa-ff-tests
 	@python3 tests/host/manifest_ingest/run.py \
 		$(abspath $(BUILD_DIR))/upstream/psa-arch-tests
 
+# One conformance entry point. With an M33MU emulator (or WT_TARGET_SCENARIOS=1)
+# it runs the full FF-M IPC suite on the target — the real conformance evidence
+# (85 passed / 4 skipped). Without one it falls back to the host subset (20
+# client-side IPC/policy tests) and prints an explicit non-hardware warning, so
+# a host-only run is never mistaken for the full suite. Detection is shared with
+# test-target via tests/target/detect_m33mu.sh. CI runs the same target suite
+# through the confboot leg of the wolfboot-wolftrust-m33mu-scenarios matrix.
 test-conformance: fetch-psa-ff-tests test-manifest-ingest
-	@echo "RUN: conformance/psa_ff_upstream"
-	@$(MAKE) --no-print-directory -C tests/host/psa_ff_upstream run \
-		BUILD_DIR=$(abspath $(BUILD_DIR))/psa-ff-upstream \
-		PSA_ARCH_TESTS_DIR=$(abspath $(BUILD_DIR))/upstream/psa-arch-tests
-	@echo "PASS: conformance/all"
+	@if tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
+		echo "RUN: conformance/target (full FF-M IPC suite on M33MU)"; \
+		tests/target/run_m33mu_scenario.sh confboot; \
+		echo "PASS: conformance/target"; \
+	else \
+		echo "RUN: conformance/host-subset"; \
+		$(MAKE) --no-print-directory -C tests/host/psa_ff_upstream run \
+			BUILD_DIR=$(abspath $(BUILD_DIR))/psa-ff-upstream \
+			PSA_ARCH_TESTS_DIR=$(abspath $(BUILD_DIR))/upstream/psa-arch-tests; \
+		echo "WARNING: host-only conformance subset (20 client-side IPC/policy tests) — NOT emulator/hardware evidence."; \
+		echo "WARNING: isolation, panic-reset, IRQ, and cross-domain tests need M33MU ($$(tests/target/detect_m33mu.sh 2>&1))."; \
+		echo "WARNING: run the full 85/4 suite with an emulator, or: make test-target."; \
+		echo "PASS: conformance/host-subset (partial — see warnings above)"; \
+	fi
 
 clean:
 	rm -rf $(BUILD_DIR)
