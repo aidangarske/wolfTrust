@@ -1180,6 +1180,63 @@ THIRTY-EIGHT mid-suite resets, `PASS: target/confboot`
 `test_gate_server_misuse_panic_class` pins every class plus the legal
 REFUSED reply after a rejected -114 on the same message; `PASS: unit/all`.
 
+## Item 10 P5 CLOSED — full FF-M IPC suite green (M33MU 85/4, 2026-08-17)
+
+The complete Arm PSA Arch Test Suite (FF-M IPC v1.8), unmodified, runs through
+wolfTrust's clean-room SPM on STM32H563/M33MU: `TOTAL TESTS : 89 /
+PASSED : 85 / FAILED : 0 / SKIPPED : 4`, `PASS: target/confboot`
+(box `confboot-final.log`, runner-built pinned emulator + local patch). All
+four scenarios green on the same tree: `PASS: target/{positive,restart,
+crossdomain}` (box `matrix.log` — restart faults 3× then FAULTED, crossdomain
+denies the SP read of 0x30028000). Host `make test` green, `unit/spm_gate`
+284 checks.
+
+The four SKIPs are honest capability gaps, not hidden failures: i067 (heap;
+never wired) and i074/i078/i082/i086 (RESULT_SKIP — SP_HEAP_MEM_SUPP undefined
+in the zero-allocation secure image).
+
+Chunks 2-3 engine work (host-pinned): read/skip/write server misuse panics via
+new `wt_ffm_msg_access_check` (idx≥PSA_MAX_IOVEC → ARGUMENT, bad handle →
+HANDLE, pre-CALL type → STATE); psa_wait mask validation via new
+`wt_ffm_partition_signal_set` (mask ∩ assignable == 0 → ARGUMENT, PSA_WAIT_ANY
+stays legal); NOTIFY/CLEAR failures panic.
+
+Three target enablers were required beyond the engine work:
+
+- **Flash/RAM layout growth** (capacity wall — the 89-test image overran the
+  0x20000 secure slot and the guests overlapped): secure slot → 0x40000, SWAP
+  → 0x0C140000, guests → 0x080A0000 / 0x080C0000, guest RAM 64 KiB each
+  (guest1 base 0x20010000). Env-driven overrides across the runner, the yml,
+  both manifests (decimals), partitions.c, memory_map.h, and the Zephyr board
+  patch (DTS + CONFIG_SRAM_SIZE both, since the defconfig overrides the DTS).
+- **GTZC MPCBB fix** (`wt_gtzc_init`, `platform_stm32h563.c`): the SRAM1
+  secure-block map hardcoded 4 SECCFGR words (first 64 KiB) for the old
+  2×32 KB layout, so guest1's relocated NS RAM at 0x20010000 stayed
+  secure-blocked and its first dispatch bus-faulted. Now derives the NS block
+  count from `WT_GUEST1_RAM_BASE + WT_GUEST_RAM_SIZE`, so a future layout
+  change cannot reopen the hole. This was the "zero-read HardFault at 0x0e2a"
+  wedge from the P5-endgame handoff — a wolfTrust bug the emulator modeled
+  correctly, NOT the suspected flash-TZ-watermark.
+- **Conformance SP-fault system reset** (`wt_secure_tasklet_fault_dispatch`):
+  the Arm isolation tests (i068+) fault inside a Secure Partition on purpose
+  and expect a system restart so val resumes off its flash boot flag. Under
+  `WT_CONFORMANCE` the tasklet fault path now `wt_platform_system_reset()`s
+  instead of quarantining the partition (which left the server dead for every
+  later test). Production and the crossdomain scenario keep the graceful
+  quarantine (task #26).
+
+**Real SP data isolation (i080/i084), not a skip.** The server partition's
+`test_supp_*` data and the driver partition's data each get a 32-byte-aligned
+private band at the `.conf_data`/`.conf_bss` seam in `secure.ld`
+(`_s/_e_conf_server_data`, `_s/_e_conf_driver_data`), and `spm_svc.c` carves
+those bands out of every OTHER partition's MPU grant (i080's probe target is
+`g_psa_rot_data` in the driver partition, i084's is `g_test_i084` in the
+server). A cross-partition read now MemManage-faults inside the band
+(box trace: i084 faults at 0x300933e4) → conformance reset → val marks the
+check passed. Region budget stays within the 8-region MPU limit for every
+partition. A first single-band attempt was reverted after it regressed (see
+M33MU-4 below — the regression exposed an emulator bug, not a design flaw).
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are
@@ -1295,6 +1352,45 @@ MSP_S, PC=0x14 garbage).
   `[EXPECT BKPT] Success` — including i047 and every P4-era flow the old
   semantics were built for (box `confboot-p5a-probe3.log`, diag traces
   `confboot-p5a-diag.log` / `confboot-p5a-exctrace.log`).
+
+### M33MU-4: ITSTATE advance drops the current-condition bit (FIXED locally, own upstream PR, 2026-08-17)
+
+**RESOLVED — root cause found, fixed, and submitted upstream as a separate PR
+(branch `aidangarske:itstate-advance-fix`, distinct from PR #16).** The
+89-test confboot wedged after the layout+carve work: the whole NS guest died
+in a UsageFault UNDEFINSTR at a valid `cmp r0,#0`, exit 127. The handoff's
+"first single-band carve regressed" was the trigger, but the true defect is in
+the emulator's IT-block bookkeeping.
+
+- **Mechanism (from `M33MU_STACK_TRACE=1` + `M33MU_UNDEF_TRACE=1`):**
+  `itstate_advance()` (src/execute.c) shifted only the low 4-bit mask and kept
+  ITSTATE[7:4] verbatim, so the current-condition LSB (IT[4]) never updated as
+  an IT block advanced. The ARM ARM `ITAdvance()` shifts `ITSTATE[4:0]` as one
+  5-bit field, moving the old mask top bit into the condition. A guest thread
+  preempted between the two arms of an `ITE EQ` block (Zephyr's
+  `log_output_process` printk path) stacked ITSTATE 0x08 where the
+  architecture requires 0x18; on resume with Z=0 the emulator evaluated the
+  `ldrne` ELSE arm as `ldreq` and SKIPPED it, leaving r0 stale, and a later
+  `blx r3` jumped through a rodata pointer → `[PC_WRITE_FAULT]`. Real silicon
+  advances the condition, so the ELSE arm executes; wolfTrust code is
+  uninvolved.
+- **Why the carve exposed it:** it only bites when an exception lands
+  mid-IT-block AND the SPM then switches guests — pure cycle-alignment luck.
+  The image-layout shift moved a SysTick preemption onto an IT boundary it had
+  previously missed. This is also why the pre-carve 83/4 build did not wedge.
+- **Fix:** `itstate_advance()` now performs the architectural 5-bit shift and
+  preserves ITSTATE[7:5]. Carried locally in
+  `tests/target/m33mu-tb-sec-chain.patch` (so the runner and CI get it) until
+  the upstream PR merges — see task #63 / P5u.
+- **Verified three ways:** (1) counterfactual — the IDENTICAL wolfTrust
+  binaries wedge on stock m33mu and run the full 89-test suite on the fixed
+  emulator (nothing changed but the CPU model); (2) unit test
+  `itstate_advance_test.c` — the ITE-EQ advance returns 0x08 on stock (fails)
+  and 0x18 fixed, ITT/ITETE walks pinned; (3) round-trip test
+  `itstate_exception_roundtrip_test.c` drives `enter_exception_ex` /
+  `exc_return_unstack` with a mid-ITE xPSR and checks the stacked and restored
+  ITSTATE decode to the ELSE condition. Upstream ctest 71/71 in the CI
+  container.
 
 ### M33MU-2 (RESOLVED — GO, 2026-08-17): peripheral-IRQ NVIC delivery
 

@@ -850,13 +850,27 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     PROGRAMMER_ERROR (forged/null handle, iovec count) and on a
     server-completed PROGRAMMER_ERROR reply (i027); i054's non-writable
     outvec was already covered by the P4 vector check. Host spm_gate 241.
-  - P5.2c. [~] **Batch C — remaining 55 db tests in chunks (scope corrected
-    2026-08-17: db holds 90 tests; the old "i068-i090" framing was stale).**
-    Chunk 1 [x] i013-i023 GREEN (44/44, 38 resets, first run): server-side
-    misuse panics — gate GET/SET_RHANDLE/REPLY failures now panic the
-    server; `wt_ffm_reply` enforces the connect-reply status set.
-    Remaining: i028-i046, i056, i059-i062, i068-i090 (classify-first per
-    chunk; document honest capability skips).
+  - P5.2c. [x] **Batch C COMPLETE — FULL SUITE GREEN (2026-08-17, confboot
+    `TOTAL PASSED : 85 / FAILED : 0 / SKIPPED : 4`, `PASS: target/confboot`).**
+    Chunk 1 i013-i023 (44/44): server-side misuse panics — gate
+    GET/SET_RHANDLE/REPLY failures panic the server; `wt_ffm_reply` enforces
+    the connect-reply status set. Chunk 2 i028-i046 (`f5c3cab`): read/skip/
+    write misuse panics via `wt_ffm_msg_access_check`. Chunk 3 (final 26 +
+    i056/i059-i062): wait-mask validation (`wt_ffm_partition_signal_set`,
+    i062 ARGUMENT semantics), NOTIFY/CLEAR panics, full 89-test wiring.
+    Skips are honest capability gaps: i067 (heap; excluded from wiring) and
+    i074/i078/i082/i086 (RESULT_SKIP — SP_HEAP_MEM_SUPP undefined in the
+    zero-allocation image). Getting here required: flash/RAM layout growth
+    (secure slot 0x40000, guests 0x080A0000/0x080C0000, 64 KiB RAM each);
+    the GTZC MPCBB fix (`wt_gtzc_init` derives the NS block count from the
+    memory map — the hardcoded 4 words secure-blocked guest1's moved RAM);
+    conformance SP-fault system reset (`wt_secure_tasklet_fault_dispatch`)
+    so the Arm isolation tests recover across their induced SP faults; and
+    real SP data isolation for i080/i084 — per-partition CONFDATA bands
+    (server test_supp_* and driver_partition data in `secure.ld`, carved out
+    of other partitions' MPU grants in `spm_svc.c`). Also found and fixed
+    emulator defect M33MU-4 (ITSTATE advance dropped the current-condition
+    bit; see #63 and validation-log defect register).
   - P5.3. [ ] **Watchdog-reset tests (own feasibility gate).** Any test that
     exercises the watchdog specifically needs a WDG model that resets on timeout
     (`platform_stm32h563.c` WDG is a no-op today; task-list P3b note). Probe
@@ -867,6 +881,16 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   and `psa_wait` honors PSA_BLOCK/timeout. m33mu HAS a real NVIC+SysTick (verified
   2026-08-11). Unlocks i058 doorbell, i063 mask, i002 block/poll server halves.
   Supersedes tasks #13/#14.
+- P5u. [ ] **Point back to upstream m33mu once BOTH PRs merge.** Two emulator
+  fixes are carried locally in `tests/target/m33mu-tb-sec-chain.patch` until
+  upstream lands them: (1) PR danielinux/m33mu#16 (M33MU-3 cross-domain
+  EXC_RETURN/CONTROL.SPSEL); (2) the ITSTATE-advance fix (M33MU-4, branch
+  `aidangarske:itstate-advance-fix`, own PR). On merge of BOTH: bump
+  `M33MU_REF` to the upstream merge commit in
+  `tests/target/run_m33mu_scenario.sh`, the wolftrust-m33mu skill's
+  `run_m33mu.sh`, and `.github/workflows/stm32h563-build.yml`, then delete the
+  local patch and the runner's `git apply` step. Do NOT drop the patch while
+  only one PR is merged — it carries both fixes.
 - P7. [ ] **Full suite green on M33MU + `make test-conformance` auto-detect**
   (present→full target suite, absent→host subset + explicit non-HW warning).
 - P8. [ ] **TF-M baseline comparison** — same suite on TF-M vs wolfTrust, parity.
