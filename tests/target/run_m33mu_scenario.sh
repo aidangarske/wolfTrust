@@ -170,21 +170,37 @@ emu_status=${PIPESTATUS[0]}
 set -e
 echo "wolfBoot/wolfTrust M33MU exit status: $emu_status"
 
+# Per-assertion reporting so make test-target surfaces what each scenario
+# actually checks, not just a single PASS. The Makefile greps these tagged
+# lines out of the log; the full boot log stays underneath.
+check_pass() { printf '  [check] PASS  %s\n' "$1"; }
+check_fail() { printf '  [check] FAIL  %s  (%s)\n' "$1" "$2"; exit 1; }
+expect()     { if grep -Fq "$2" "$log"; then check_pass "$1"; \
+               else check_fail "$1" "missing: $2"; fi; }
+refute_re()  { if grep -Eq "$2" "$log"; then check_fail "$1" "unexpected: $2"; \
+               else check_pass "$1"; fi; }
+
 case "$scenario" in
   positive)
-    if grep -Eq '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)' "$log"; then
-      echo "FAIL: fault marker in positive boot log"; exit 1
-    fi
-    grep -Fq "wolfTrust TEE client initialized" "$log"
-    grep -Fq "wolfTrust FF-M psa_framework_version=0x0100" "$log"
-    grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$log"
-    grep -Fq "wolfTrust FF-M forged-handle call rejected" "$log"
-    grep -Fq "wolfTrust FF-M oversized-vector call rejected" "$log"
-    grep -Fq "psa_hash_compute(SHA-256) KAT verified" "$log"
-    grep -Fq "psa_initial_attestation st=0" "$log"
-    grep -Fq "wolfTrust attestation: COSE_Sign1 verified" "$log"
-    grep -Fq "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256" "$log"
-    grep -Fq "[EXPECT BKPT] Success" "$log"
+    refute_re "no fault markers in boot log" \
+      '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+    expect "TEE client initialized" "wolfTrust TEE client initialized"
+    expect "FF-M psa_framework_version=0x0100" \
+      "wolfTrust FF-M psa_framework_version=0x0100"
+    expect "SERVICE_CRYPTO dispatch verified" \
+      "wolfTrust FF-M SERVICE_CRYPTO dispatch verified"
+    expect "forged-handle call rejected" \
+      "wolfTrust FF-M forged-handle call rejected"
+    expect "oversized-vector call rejected" \
+      "wolfTrust FF-M oversized-vector call rejected"
+    expect "psa_hash_compute(SHA-256) KAT verified" \
+      "psa_hash_compute(SHA-256) KAT verified"
+    expect "psa_initial_attestation st=0" "psa_initial_attestation st=0"
+    expect "attestation COSE_Sign1 verified" \
+      "wolfTrust attestation: COSE_Sign1 verified"
+    expect "attestation fields verify=0 lifecycle=0x1000 measurement=ok cose=ES256" \
+      "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256"
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/positive"
     ;;
   confboot)
@@ -194,10 +210,13 @@ case "$scenario" in
     # No fault-marker check here: i048/i049 fault the NS client by design and
     # the monitor's conformance reset recovers; the suite's own FAILED count
     # and the clean BKPT exit gate correctness instead.
-    grep -Fq "wolfTrust TEE client initialized" "$log"
-    grep -Fq "wolfTrust FF-M psa_framework_version=0x0100" "$log"
-    grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$log"
-    grep -Fq "wolfTrust FF-M conformance: val_entry start" "$log"
+    expect "TEE client initialized" "wolfTrust TEE client initialized"
+    expect "FF-M psa_framework_version=0x0100" \
+      "wolfTrust FF-M psa_framework_version=0x0100"
+    expect "SERVICE_CRYPTO dispatch verified" \
+      "wolfTrust FF-M SERVICE_CRYPTO dispatch verified"
+    expect "conformance val_entry start" \
+      "wolfTrust FF-M conformance: val_entry start"
     # Panic tests reboot the chain mid-suite and val resumes off its
     # flash-backed boot flag (K2/K3): buffer/eoi panics (i047/i055/i057/
     # i064-i066), NS client faults the conformance monitor answers with a
@@ -210,27 +229,28 @@ case "$scenario" in
     # SAU/MPU isolation probes. 89 total: 85 pass, 4 heap tests report
     # SKIPPED (SP_HEAP_MEM_SUPP undefined: zero-allocation image); only i067
     # (heap) is skipped. Needs the M33MU-1 SPSEL patch applied above.
-    grep -Fq "TOTAL PASSED    : 85" "$log"
-    grep -Fq "TOTAL SKIPPED   : 4" "$log"
-    grep -Fq "TOTAL FAILED    : 0" "$log"
-    grep -Fq "[EXPECT BKPT] Success" "$log"
+    expect "Arm suite TOTAL PASSED : 85" "TOTAL PASSED    : 85"
+    expect "Arm suite TOTAL SKIPPED : 4" "TOTAL SKIPPED   : 4"
+    expect "Arm suite TOTAL FAILED : 0" "TOTAL FAILED    : 0"
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/confboot"
     ;;
   restart)
     expected=$((RESTART_LIMIT + 1))
     banners=$(grep -c "guest0_psa alive" "$log" || true)
-    echo "guest0_psa banner count: $banners (expect restart_limit+1 = $expected)"
     if [ "$banners" -eq "$expected" ]; then
-      echo "PASS: target/restart — guest restarted $RESTART_LIMIT times then FAULTED"
+      check_pass "guest restarted $RESTART_LIMIT times then FAULTED (banners=$banners, expect $expected)"
+      echo "PASS: target/restart"
       exit 0
     fi
-    echo "FAIL: expected $expected guest banners, saw $banners"; exit 1
+    check_fail "guest restart count" "saw $banners banners, expected $expected"
     ;;
   crossdomain)
     if grep -Eq '\[MEMFAULT\].*addr=0x30028000' "$log"; then
-      echo "PASS: target/crossdomain — cross-domain read of 0x30028000 denied by SP domain"
+      check_pass "cross-domain read of 0x30028000 denied by SP domain (MEMFAULT)"
+      echo "PASS: target/crossdomain"
       exit 0
     fi
-    echo "FAIL: expected cross-domain MEMFAULT at 0x30028000"; exit 1
+    check_fail "cross-domain isolation" "expected MEMFAULT at 0x30028000, none seen"
     ;;
 esac

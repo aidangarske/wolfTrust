@@ -41,25 +41,22 @@ test-target:
 	else \
 		mkdir -p logs; rc=0; \
 		for s in positive restart crossdomain confboot; do \
-			printf 'RUN: target/%s ... ' "$$s"; \
+			echo "RUN: target/$$s"; \
 			if tests/target/run_m33mu_scenario.sh $$s \
 					> logs/target-$$s.log 2>&1; then \
-				echo "PASS"; \
+				grep -F '  [check] ' logs/target-$$s.log || true; \
+				echo "PASS: target/$$s"; \
 			else \
-				echo "FAIL"; rc=1; \
+				grep -F '  [check] ' logs/target-$$s.log || true; \
+				echo "FAIL: target/$$s (tail of logs/target-$$s.log):"; \
+				tail -20 logs/target-$$s.log; rc=1; \
 			fi; \
 			echo "LOG: logs/target-$$s.log"; \
 		done; \
 		if [ $$rc -eq 0 ]; then \
 			echo "PASS: target/all"; \
 		else \
-			echo "FAIL: target/all — tail of the failing log(s):"; \
-			for s in positive restart crossdomain confboot; do \
-				grep -Eq 'PASS: target/'"$$s"'$$' \
-					logs/target-$$s.log 2>/dev/null || { \
-					echo "----- target/$$s -----"; \
-					tail -20 logs/target-$$s.log; }; \
-			done; \
+			echo "FAIL: target/all"; \
 			exit 1; \
 		fi; \
 	fi
@@ -92,15 +89,15 @@ test-manifest-ingest: fetch-psa-ff-tests
 test-conformance: fetch-psa-ff-tests test-manifest-ingest
 	@if tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
 		mkdir -p logs; \
-		printf 'RUN: conformance/target (full FF-M IPC suite on M33MU) ... '; \
+		echo "RUN: conformance/target (full FF-M IPC suite on M33MU)"; \
 		if tests/target/run_m33mu_scenario.sh confboot \
 				> logs/conformance-target.log 2>&1; then \
-			echo "PASS"; \
+			grep -F '  [check] ' logs/conformance-target.log || true; \
 			echo "PASS: conformance/target"; \
 			echo "LOG: logs/conformance-target.log"; \
 		else \
-			echo "FAIL"; \
-			echo "FAIL: conformance/target — tail of the log:"; \
+			grep -F '  [check] ' logs/conformance-target.log || true; \
+			echo "FAIL: conformance/target (tail of the log):"; \
 			tail -25 logs/conformance-target.log; \
 			echo "LOG: logs/conformance-target.log"; \
 			exit 1; \
