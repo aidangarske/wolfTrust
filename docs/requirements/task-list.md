@@ -891,44 +891,48 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   `run_m33mu.sh`, and `.github/workflows/stm32h563-build.yml`, then delete the
   local patch and the runner's `git apply` step. Do NOT drop the patch while
   only one PR is merged — it carries both fixes.
-- P7. [~] **Full suite green on M33MU + `make test-conformance` auto-detect**
-  (present→full target suite, absent→host subset + explicit non-HW warning).
-  The "full suite green on M33MU" half is **DONE** (P5 close, 85/4 + scenarios,
-  pushed `15034da`); the remaining work is harness wiring only — no SPM/engine
-  change. Today `make test-conformance` is host-only (`test-manifest-ingest` +
-  `tests/host/psa_ff_upstream`), always runs, and is target-blind; the M33MU
-  auto-detect + explicit SKIP already exists in `make test-target`
-  (`Makefile:38-53`), which already runs the full confboot (85/4) plus the
-  three scenarios. P7 unifies these into one honest entry point.
-  - P7.1. [ ] **Factor the auto-detect into a shared probe.** Pull the
-    `M33MU`-exec / `command -v m33mu` / `WT_TARGET_SCENARIOS=1` check out of
-    `test-target` into one reusable place (a make macro or
-    `tests/target/detect_m33mu.sh`) so `test-conformance` and `test-target`
-    share a single detection path and cannot drift. No behavior change.
-  - P7.2. [ ] **Make `make test-conformance` target-aware.** Probe present →
-    run `run_m33mu_scenario.sh confboot` (the real 85/4 evidence) as the
-    conformance run; probe absent → run the existing host subset AND emit an
-    explicit `WARNING: host-only conformance subset — NOT emulator/hardware
-    evidence; full FF-M IPC suite needs M33MU (make test-target or set
-    M33MU=...)`. Never print a bare `PASS: conformance/all` that reads as the
-    full suite when only the host subset ran. **Decision (recommended):**
-    absent → warn-and-exit-0 for local dev; CI sets `WT_TARGET_SCENARIOS=1`
-    (or `M33MU=...`) so a missing emulator SKIPs→fails there instead of
-    silently passing.
-  - P7.3. [ ] **Make the host-subset warning honest.** Audit exactly what the
-    host `psa_ff_upstream` harness proves vs. what needs the target (isolation,
-    panic-reset, IRQ, and cross-domain tests cannot run on host), and word the
-    warning plus the `PASS:`/`SKIP:` lines to match, so host-only can never be
-    mistaken for full conformance.
-  - P7.4. [ ] **Single canonical entry.** Point the CI job
-    (`.github/workflows/stm32h563-build.yml`) and the runbook at
-    `make test-conformance` as the one command (it auto-selects target vs
-    host), keeping RUN/PASS/SKIP markers greppable and identical between local
-    and CI. Keep `make test-target` as the scenarios-only alias.
-  - Verify: (a) M33MU present → `make test-conformance` reaches
-    `TOTAL PASSED : 85 / SKIPPED : 4`, exits 0; (b) M33MU absent → host subset
-    runs, the non-HW warning prints, exit per the P7.2 decision. Record the
-    passing commit in validation-log.md; tick P7.
+- P7. [x] **Full suite green on M33MU + `make test-conformance` auto-detect —
+  DONE (2026-08-18).** `make test-conformance` is now the one entry point: with
+  an M33MU emulator (or `WT_TARGET_SCENARIOS=1`) it runs the full FF-M IPC suite
+  on the target (`run_m33mu_scenario.sh confboot` → 85/4, the same call CI's
+  confboot matrix leg runs and P5 proved); without one it runs the host subset
+  and prints an explicit non-hardware warning. Detection is shared with
+  `test-target`.
+  - P7.1. [x] **Shared probe.** `tests/target/detect_m33mu.sh` (exit 0 when an
+    emulator/HW is reachable or forced, else non-zero with a one-line reason).
+    Both `test-conformance` and `test-target` call it — the duplicated inline
+    check is gone, so they cannot drift.
+  - P7.2. [x] **`make test-conformance` target-aware.** Probe present →
+    `RUN: conformance/target` + the full confboot; absent → host subset +
+    three `WARNING:` lines + `PASS: conformance/host-subset (partial)`, never a
+    bare full-suite PASS. **Decision applied:** absent → warn-and-exit-0 for
+    local dev (verified exit 0); CI forces the target via the scenario matrix
+    (and any bespoke run sets `WT_TARGET_SCENARIOS=1`).
+  - P7.3. [x] **Honest warning.** The warnings name the exact host coverage
+    (20 client-side IPC/policy tests) and what needs the target (isolation,
+    panic-reset, IRQ, cross-domain), so host-only cannot read as full
+    conformance.
+  - P7.4. [x] **Single canonical entry.** `make test-conformance` is THE
+    command (auto-selects target vs host). CI keeps the parallel
+    `wolfboot-wolftrust-m33mu-scenarios` matrix whose `confboot` leg is the
+    identical target call — left as-is deliberately (parallel > collapsing to
+    one serial make target); documented in the recipe comment.
+  - **Bonus fix (pre-existing, P4.2-era):** running `test-conformance` surfaced
+    that `test-manifest-ingest` had been RED since P4.2 — the committed
+    `manifest-conformance.json` carried the DRIVER UART interrupt (line 63,
+    `DRIVER_UART_INTR_SIG`) but `tools/manifest/ingest_psa_arch.py`'s
+    `emit_manifest` hardcoded `interrupts: []` and no `interrupt_resources`, so
+    the manifest was not reproducible. Taught the generator a platform IRQ-line
+    map (`FF_TEST_UART_IRQ → 63`) and to carry interrupts into the partition,
+    the SP domain's `interrupt_resources`, and `max_interrupts_per_domain`.
+    Regen now byte-matches the committed manifest; `make test-conformance`
+    host branch is green end to end. The committed manifests are unchanged —
+    only the generator was fixed to reproduce them.
+  - Evidence: host branch — `make test-conformance` runs the 20-test subset,
+    prints the non-HW warnings, exits 0 (`build/psa-ff-upstream/logs/
+    conformance.log`); detection verified both ways; target branch dispatches
+    to the confboot call P5 validated at 85/4; `make test` still `PASS:
+    unit/all`.
 - P8. [ ] **TF-M baseline comparison** — same suite on TF-M vs wolfTrust, parity.
 - P9. [ ] **Physical STM32H563/H5 bring-up + qualification** — the only milestone
   that makes "tested on the H5" literally true; all prior evidence is M33MU

@@ -1237,6 +1237,30 @@ check passed. Region budget stays within the 8-region MPU limit for every
 partition. A first single-band attempt was reverted after it regressed (see
 M33MU-4 below — the regression exposed an emulator bug, not a design flaw).
 
+## Item 10 P7 — `make test-conformance` auto-detect + manifest reproducibility fix (host, 2026-08-18)
+
+`make test-conformance` is now the single conformance entry point. A shared
+probe (`tests/target/detect_m33mu.sh`, also used by `make test-target`) selects
+the target suite when an M33MU emulator is reachable (or `WT_TARGET_SCENARIOS=1`)
+— `run_m33mu_scenario.sh confboot`, the same 85/4 call P5 proved and CI runs in
+its confboot matrix leg — and otherwise falls back to the host subset (20
+client-side IPC/policy tests) with three explicit `WARNING:` lines naming what
+host-only does NOT cover (isolation, panic-reset, IRQ, cross-domain). Host
+branch verified: runs the subset, prints the warnings, exits 0.
+
+Running it surfaced a pre-existing red: `test-manifest-ingest` had failed since
+P4.2 because `emit_manifest` in `tools/manifest/ingest_psa_arch.py` hardcoded
+`interrupts: []` and emitted no `interrupt_resources`, so the committed
+`manifest-conformance.json` (which carries the DRIVER UART interrupt, line 63,
+`DRIVER_UART_INTR_SIG`) was not reproducible from the upstream manifests. The
+interrupt line is a port decision (not in upstream, which names only the
+symbolic `FF_TEST_UART_IRQ`), so the generator now owns a `PLATFORM_IRQ_LINES`
+map and carries each parsed IRQ into the partition's `interrupts`, the SP
+domain's `interrupt_resources`, and `max_interrupts_per_domain`. Regenerated
+manifest now byte-matches the committed one; the committed manifests are
+unchanged — only the generator was corrected to reproduce them. `make test`
+still `PASS: unit/all`.
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are
