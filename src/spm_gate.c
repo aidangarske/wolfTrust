@@ -240,6 +240,12 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
                 &call->pending_msg);
             if (call->ret_status != PSA_SUCCESS) {
                 call->ret_int = WT_FFM_SUCCESS;
+                /* FF-M: an invalid/null handle or an iovec-count violation is
+                 * a PROGRAMMER ERROR that must panic a Secure caller; other
+                 * statuses (BAD_STATE, resource limits) stay returnable. */
+                if (call->ret_status == PSA_ERROR_PROGRAMMER_ERROR) {
+                    call->must_panic = 1U;
+                }
             } else {
                 call->pending_valid = 1U;
                 call->ret_int = WT_FFM_ERROR_NOT_READY;
@@ -254,6 +260,11 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
                                                   call->sp_out_len);
             call->pending_valid = 0U;
             call->ret_int = WT_FFM_SUCCESS;
+            /* A server completing a call with PROGRAMMER_ERROR must panic a
+             * Secure client (i027); only NS clients may see the status. */
+            if (call->ret_status == PSA_ERROR_PROGRAMMER_ERROR) {
+                call->must_panic = 1U;
+            }
         }
         break;
     case WT_SPM_OP_CLOSE:

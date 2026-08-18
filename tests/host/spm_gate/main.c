@@ -819,6 +819,72 @@ static void test_gate_connect_close_panic_class(void)
                  "bad close (i004-i012)\n");
 }
 
+/* The i024-i027 SPE panic classes: psa_call on a forged or null handle and a
+ * server-completed PROGRAMMER_ERROR reply must panic a Secure caller. */
+static void test_gate_call_panic_class(void)
+{
+    wt_ffm_runtime_t runtime;
+    wt_spm_call_t call;
+    psa_signal_t asserted;
+
+    EXPECT_INT(wt_ffm_init(&runtime, &g_i063_manifest, &g_port_ops, NULL),
+               WT_FFM_SUCCESS);
+
+    /* Forged handle (i024's 0x1234DEAD). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_CALL;
+    call.partition_id = I063_CLIENT_ID;
+    call.msg_handle = (psa_handle_t)0x1234DEAD;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_status, PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    /* Null handle (i025). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_CALL;
+    call.partition_id = I063_CLIENT_ID;
+    call.msg_handle = PSA_NULL_HANDLE;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_status, PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    /* Server-completed PROGRAMMER_ERROR (i027): connect, then a well-formed
+     * call the server answers with -129 — the harvesting Secure caller must
+     * panic even though the SPM itself found nothing wrong. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_CONNECT;
+    call.partition_id = I063_CLIENT_ID;
+    call.sid = I063_SVC_IRR_SID;
+    call.version = 1U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_NOT_READY);
+    asserted = 0U;
+    EXPECT_INT(wt_ffm_wait(&runtime, I063_SERVER_ID, I063_SIG_IRR, &asserted),
+               WT_FFM_SUCCESS);
+    i063_server_serve(&runtime, I063_SIG_IRR, PSA_SUCCESS);
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(call.ret_handle));
+    EXPECT_INT((int)call.must_panic, 0);
+
+    call.op = WT_SPM_OP_CALL;
+    call.msg_handle = call.ret_handle;
+    call.pending_valid = 0U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_NOT_READY);
+    asserted = 0U;
+    EXPECT_INT(wt_ffm_wait(&runtime, I063_SERVER_ID, I063_SIG_IRR, &asserted),
+               WT_FFM_SUCCESS);
+    i063_server_serve(&runtime, I063_SIG_IRR, PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_status, PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    (void)printf("PASS: WT-FFM-0014 gate panics psa_call handle misuse and "
+                 "server-completed PROGRAMMER_ERROR (i024-i027)\n");
+}
+
 int main(void)
 {
     test_gate_equivalence();
@@ -829,6 +895,7 @@ int main(void)
     test_gate_eoi_must_panic();
     test_gate_irq_enable();
     test_gate_connect_close_panic_class();
+    test_gate_call_panic_class();
 
     if (g_failures != 0U) {
         (void)fprintf(stderr, "FAIL: %u/%u checks failed\n", g_failures,

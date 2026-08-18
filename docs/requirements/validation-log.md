@@ -1123,6 +1123,38 @@ The first run of this batch tripped the P4-close watch-item on the green path �
 root-caused to the emulator, not the SPM: see M33MU-3 below (patch reworked,
 suite re-proven 29/29 including every P4-era flow).
 
+## Item 10 P5 batch B — i024-i027 + i054 green (M33MU 34/34, 2026-08-17)
+
+Wired the five psa_call misuse tests. Classification first: i024/i025 call a
+forged (0x1234DEAD) / null handle with no prior connect (NS may see -129, SPE
+must panic; the server stubs never run); i026 connects then calls with
+in_len(4)+out_len(1) > PSA_MAX_IOVEC; i027 is the server-driven connection
+drop — the server completes a well-formed call with PSA_ERROR_PROGRAMMER_ERROR
+and the SPM must return -129 to the NS client, deliver PSA_IPC_DISCONNECT on
+the close, and keep poisoning the closed handle on two retries (SPE re-run
+must panic on the completion status itself); i054 (SPE-only, no NS phase)
+passes its own .text address as psa_outvec.base — the non-writable out-vector
+must panic unconditionally.
+
+Engine: two `wt_spm_gate` CALL additions — the begin path panics a Secure
+caller when `wt_ffm_call_begin` returns PSA_ERROR_PROGRAMMER_ERROR (forged or
+null handle, iovec-count violation; BAD_STATE and resource statuses stay
+returnable), and the finish path panics when the harvested reply status is
+PSA_ERROR_PROGRAMMER_ERROR (a server-completed programmer error must panic a
+Secure client; only NS clients may see it as a status). i054 needed no change:
+`wt_spm_check_sp_vectors` already rejects out-vectors without
+WT_MEM_ATTR_WRITE via `wt_secure_domain_contains(need_write=1)` and the P4
+vector-violation panic covers it. i027's NS handle-poisoning worked as-is
+(generation-checked handles + WT_IPC_CONNECTION_ERROR state).
+
+Confboot (shipped pipeline, box Docker, patched emulator):
+`TOTAL TESTS : 34 / PASSED : 34 / FAILED : 0 / SKIPPED : 0`, TWENTY-EIGHT
+mid-suite resets, `PASS: target/confboot` (box `confboot-p5b.log`), green on
+the first run. Host: `unit/spm_gate` 241 checks —
+`test_gate_call_panic_class` pins forged/null-handle panic, the no-panic
+connect harvest, and the server-completed -129 panic through a real
+gate-pumped round trip; `PASS: unit/all`.
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are

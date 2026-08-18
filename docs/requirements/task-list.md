@@ -845,8 +845,11 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     Host `unit/spm_gate` 216 checks. Found and fixed emulator defect M33MU-3
     (entry-time SPSEL clear destroying a parked thread's stack selection —
     patch reworked to ARM-correct semantics; see validation-log).
-  - P5.2b. [ ] **Batch B — i024-i027 + i054 (assert 34).** Same recipe:
-    classify compiled sources, wire, one confboot, triage, commit on green.
+  - P5.2b. [x] **Batch B — i024-i027 + i054 GREEN (2026-08-17, M33MU 34/34,
+    28 resets, first run).** Gate CALL panics Secure callers on begin-path
+    PROGRAMMER_ERROR (forged/null handle, iovec count) and on a
+    server-completed PROGRAMMER_ERROR reply (i027); i054's non-writable
+    outvec was already covered by the P4 vector check. Host spm_gate 241.
   - P5.2c. [ ] **Batch C — i068-i090 skip-triage.** Wire the runnable;
     document every skip's capability blocker (i067-style heap etc.).
   - P5.3. [ ] **Watchdog-reset tests (own feasibility gate).** Any test that

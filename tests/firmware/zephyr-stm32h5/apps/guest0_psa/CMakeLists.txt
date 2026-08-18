@@ -108,6 +108,14 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/ff/ipc/test_i012/test_i012.c
     ${WT_CONF_U}/ff/ipc/test_i021/test_entry_i021.c
     ${WT_CONF_U}/ff/ipc/test_i021/test_i021.c
+    ${WT_CONF_U}/ff/ipc/test_i024/test_entry_i024.c
+    ${WT_CONF_U}/ff/ipc/test_i024/test_i024.c
+    ${WT_CONF_U}/ff/ipc/test_i025/test_entry_i025.c
+    ${WT_CONF_U}/ff/ipc/test_i025/test_i025.c
+    ${WT_CONF_U}/ff/ipc/test_i026/test_entry_i026.c
+    ${WT_CONF_U}/ff/ipc/test_i026/test_i026.c
+    ${WT_CONF_U}/ff/ipc/test_i027/test_entry_i027.c
+    ${WT_CONF_U}/ff/ipc/test_i027/test_i027.c
     ${WT_CONF_U}/ff/ipc/test_i047/test_entry_i047.c
     ${WT_CONF_U}/ff/ipc/test_i047/test_i047.c
     ${WT_CONF_U}/ff/ipc/test_i048/test_entry_i048.c
@@ -122,6 +130,8 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/ff/ipc/test_i052/test_i052.c
     ${WT_CONF_U}/ff/ipc/test_i053/test_entry_i053.c
     ${WT_CONF_U}/ff/ipc/test_i053/test_i053.c
+    ${WT_CONF_U}/ff/ipc/test_i054/test_entry_i054.c
+    ${WT_CONF_U}/ff/ipc/test_i054/test_i054.c
     ${WT_CONF_U}/ff/ipc/test_i055/test_entry_i055.c
     ${WT_CONF_U}/ff/ipc/test_i055/test_i055.c
     ${WT_CONF_U}/ff/ipc/test_i057/test_entry_i057.c
@@ -163,6 +173,10 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/ff/ipc/test_i011
     ${WT_CONF_U}/ff/ipc/test_i012
     ${WT_CONF_U}/ff/ipc/test_i021
+    ${WT_CONF_U}/ff/ipc/test_i024
+    ${WT_CONF_U}/ff/ipc/test_i025
+    ${WT_CONF_U}/ff/ipc/test_i026
+    ${WT_CONF_U}/ff/ipc/test_i027
     ${WT_CONF_U}/ff/ipc/test_i047
     ${WT_CONF_U}/ff/ipc/test_i048
     ${WT_CONF_U}/ff/ipc/test_i049
@@ -170,6 +184,7 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/ff/ipc/test_i051
     ${WT_CONF_U}/ff/ipc/test_i052
     ${WT_CONF_U}/ff/ipc/test_i053
+    ${WT_CONF_U}/ff/ipc/test_i054
     ${WT_CONF_U}/ff/ipc/test_i055
     ${WT_CONF_U}/ff/ipc/test_i057
     ${WT_CONF_U}/ff/ipc/test_i058
@@ -220,6 +235,14 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/ff/ipc/test_i012/test_i012.c
     ${WT_CONF_U}/ff/ipc/test_i021/test_entry_i021.c
     ${WT_CONF_U}/ff/ipc/test_i021/test_i021.c
+    ${WT_CONF_U}/ff/ipc/test_i024/test_entry_i024.c
+    ${WT_CONF_U}/ff/ipc/test_i024/test_i024.c
+    ${WT_CONF_U}/ff/ipc/test_i025/test_entry_i025.c
+    ${WT_CONF_U}/ff/ipc/test_i025/test_i025.c
+    ${WT_CONF_U}/ff/ipc/test_i026/test_entry_i026.c
+    ${WT_CONF_U}/ff/ipc/test_i026/test_i026.c
+    ${WT_CONF_U}/ff/ipc/test_i027/test_entry_i027.c
+    ${WT_CONF_U}/ff/ipc/test_i027/test_i027.c
     ${WT_CONF_U}/ff/ipc/test_i047/test_entry_i047.c
     ${WT_CONF_U}/ff/ipc/test_i047/test_i047.c
     ${WT_CONF_U}/ff/ipc/test_i048/test_entry_i048.c
@@ -234,6 +257,8 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/ff/ipc/test_i052/test_i052.c
     ${WT_CONF_U}/ff/ipc/test_i053/test_entry_i053.c
     ${WT_CONF_U}/ff/ipc/test_i053/test_i053.c
+    ${WT_CONF_U}/ff/ipc/test_i054/test_entry_i054.c
+    ${WT_CONF_U}/ff/ipc/test_i054/test_i054.c
     ${WT_CONF_U}/ff/ipc/test_i055/test_entry_i055.c
     ${WT_CONF_U}/ff/ipc/test_i055/test_i055.c
     ${WT_CONF_U}/ff/ipc/test_i057/test_entry_i057.c
