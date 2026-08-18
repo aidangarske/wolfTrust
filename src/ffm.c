@@ -1201,6 +1201,13 @@ int wt_ffm_reply(wt_ffm_runtime_t* runtime, int32_t partition_id,
     connection = &runtime->connections[message->connection_index];
 
     if (message->type == PSA_IPC_CONNECT) {
+        /* FF-M restricts a connect reply to SUCCESS/REFUSED/BUSY; any other
+         * status is a server-side PROGRAMMER ERROR (i020). */
+        if (status != PSA_SUCCESS &&
+                status != PSA_ERROR_CONNECTION_REFUSED &&
+                status != PSA_ERROR_CONNECTION_BUSY) {
+            return WT_FFM_ERROR_ARGUMENT;
+        }
         connection->state = status == PSA_SUCCESS ?
             WT_IPC_CONNECTION_IDLE : WT_IPC_CONNECTION_ERROR;
     }

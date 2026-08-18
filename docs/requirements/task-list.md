@@ -850,8 +850,13 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     PROGRAMMER_ERROR (forged/null handle, iovec count) and on a
     server-completed PROGRAMMER_ERROR reply (i027); i054's non-writable
     outvec was already covered by the P4 vector check. Host spm_gate 241.
-  - P5.2c. [ ] **Batch C — i068-i090 skip-triage.** Wire the runnable;
-    document every skip's capability blocker (i067-style heap etc.).
+  - P5.2c. [~] **Batch C — remaining 55 db tests in chunks (scope corrected
+    2026-08-17: db holds 90 tests; the old "i068-i090" framing was stale).**
+    Chunk 1 [x] i013-i023 GREEN (44/44, 38 resets, first run): server-side
+    misuse panics — gate GET/SET_RHANDLE/REPLY failures now panic the
+    server; `wt_ffm_reply` enforces the connect-reply status set.
+    Remaining: i028-i046, i056, i059-i062, i068-i090 (classify-first per
+    chunk; document honest capability skips).
   - P5.3. [ ] **Watchdog-reset tests (own feasibility gate).** Any test that
     exercises the watchdog specifically needs a WDG model that resets on timeout
     (`platform_stm32h563.c` WDG is a no-op today; task-list P3b note). Probe

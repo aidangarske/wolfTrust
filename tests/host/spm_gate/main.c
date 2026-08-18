@@ -885,6 +885,96 @@ static void test_gate_call_panic_class(void)
                  "server-completed PROGRAMMER_ERROR (i024-i027)\n");
 }
 
+/* The i013-i023 server-side misuse classes: psa_get on multi-bit, doorbell,
+ * or unasserted signals, psa_set_rhandle/psa_reply on forged handles, and a
+ * connect reply outside SUCCESS/REFUSED/BUSY all panic the server. */
+static void test_gate_server_misuse_panic_class(void)
+{
+    wt_ffm_runtime_t runtime;
+    wt_spm_call_t call;
+    psa_msg_t msg;
+    uint16_t ns_msg;
+    psa_handle_t handle;
+
+    EXPECT_INT(wt_ffm_init(&runtime, &g_i063_manifest, &g_port_ops, NULL),
+               WT_FFM_SUCCESS);
+
+    /* Multi-bit signal (i013). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_GET;
+    call.partition_id = I063_SERVER_ID;
+    call.signal = I063_SIG_A | I063_SIG_B;
+    call.msg = &msg;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_TRUE(call.ret_status != PSA_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    /* The doorbell is not an RoT-service signal (i015). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_GET;
+    call.partition_id = I063_SERVER_ID;
+    call.signal = PSA_DOORBELL;
+    call.msg = &msg;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    /* Valid but unasserted signal, no queued message (i014/i016). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_GET;
+    call.partition_id = I063_SERVER_ID;
+    call.signal = I063_SIG_A;
+    call.msg = &msg;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    /* psa_set_rhandle on a forged message handle (i018/i019). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_SET_RHANDLE;
+    call.partition_id = I063_SERVER_ID;
+    call.msg_handle = (psa_handle_t)0x1234DEAD;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_TRUE(call.ret_int != WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    /* psa_reply on forged and null message handles (i022/i023). */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_REPLY;
+    call.partition_id = I063_SERVER_ID;
+    call.msg_handle = (psa_handle_t)0x1234DEAD;
+    call.status = PSA_ERROR_CONNECTION_REFUSED;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+    call.msg_handle = PSA_NULL_HANDLE;
+    call.must_panic = 0U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+
+    /* A connect reply outside SUCCESS/REFUSED/BUSY panics (i020); the same
+     * message then replies REFUSED legally without a panic. */
+    ns_msg = 0xFFFFU;
+    handle = wt_ffm_connect_begin(&runtime, I063_NS_CLIENT, I063_SVC_A_SID, 1U,
+                                  &ns_msg);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    EXPECT_INT(wt_ffm_get(&runtime, I063_SERVER_ID, I063_SIG_A, &msg),
+               PSA_SUCCESS);
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_REPLY;
+    call.partition_id = I063_SERVER_ID;
+    call.msg_handle = msg.handle;
+    call.status = PSA_ERROR_CONNECTION_REFUSED + 0x10;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_TRUE(call.ret_int != WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+    call.status = PSA_ERROR_CONNECTION_REFUSED;
+    call.must_panic = 0U;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 0);
+
+    (void)printf("PASS: WT-FFM-0014 gate panics server-side get/rhandle/reply "
+                 "misuse (i013-i023)\n");
+}
+
 int main(void)
 {
     test_gate_equivalence();
@@ -896,6 +986,7 @@ int main(void)
     test_gate_irq_enable();
     test_gate_connect_close_panic_class();
     test_gate_call_panic_class();
+    test_gate_server_misuse_panic_class();
 
     if (g_failures != 0U) {
         (void)fprintf(stderr, "FAIL: %u/%u checks failed\n", g_failures,

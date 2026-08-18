@@ -1155,6 +1155,31 @@ the first run. Host: `unit/spm_gate` 241 checks —
 connect harvest, and the server-completed -129 panic through a real
 gate-pumped round trip; `PASS: unit/all`.
 
+## Item 10 P5 batch C chunk 1 — i013-i023 server-misuse panics (M33MU 44/44, 2026-08-17)
+
+Ten tests where the SERVER partition commits the misuse and must panic — the
+first server-side panic direction (previous batches panicked clients).
+i013-i016: psa_get on a multi-bit mask, PSA_DOORBELL, or a valid-but-
+unasserted signal, and a double get. i017: a partition connecting to its own
+RoT service (covered by the batch-A CONNECT policy panic — caller_allowed
+already rejects self-connect). i018/i019: psa_set_rhandle on forged
+(0x1234DEAD) / null message handles. i020: psa_reply to a CONNECT with a
+status outside SUCCESS/REFUSED/BUSY (-114). i022/i023: psa_reply on forged /
+null handles. None of these tests has an SPE-client phase; the NS client only
+verifies the reboot via the boot flag.
+
+Engine: `wt_ffm_reply` now enforces the FF-M connect-reply status set
+(SUCCESS/REFUSED/BUSY; CALL and DISCONNECT replies stay unrestricted — i002's
+arbitrary call statuses and i027's -129 are unaffected). The four psa_get
+misuse shapes were already detected (exact-signal match + empty-queue
+checks). Gate: GET, SET_RHANDLE, and REPLY failures now set `must_panic`.
+
+Confboot: `TOTAL TESTS : 44 / PASSED : 44 / FAILED : 0 / SKIPPED : 0`,
+THIRTY-EIGHT mid-suite resets, `PASS: target/confboot`
+(box `confboot-p5c1.log`), first run. Host: `unit/spm_gate` 264 checks —
+`test_gate_server_misuse_panic_class` pins every class plus the legal
+REFUSED reply after a rejected -114 on the same message; `PASS: unit/all`.
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are

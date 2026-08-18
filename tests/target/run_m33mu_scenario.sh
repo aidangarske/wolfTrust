@@ -152,7 +152,7 @@ elif [ "$scenario" = "confboot" ]; then
   # with a system reset and val resumes off its boot flag; the suite report
   # and clean BKPT exit are the correctness gates.
   quit_flag=""
-  timeout_s=600
+  timeout_s=720
 fi
 
 log="$repo/ci-m33mu-$scenario.log"
@@ -198,11 +198,12 @@ case "$scenario" in
     # flash-backed boot flag (K2/K3): buffer/eoi panics (i047/i055/i057/
     # i064-i066), NS client faults the conformance monitor answers with a
     # system reset (i048/i049), SPE out-of-domain vector panics (i048-i053),
-    # the i002/i004-i012 connection/handle-misuse panics, and the
-    # i024-i027+i054 psa_call handle/iovec/outvec panics. i021 and i066
-    # exercise the real LPUART1 NVIC route (P4.2c). 34 total; only i067
+    # the i002/i004-i012 connection/handle-misuse panics, the
+    # i024-i027+i054 psa_call handle/iovec/outvec panics, and the
+    # i013-i023 wait/get/read-write/reply misuse panics. i021 and i066
+    # exercise the real LPUART1 NVIC route (P4.2c). 44 total; only i067
     # (heap) is skipped. Needs the M33MU-1 SPSEL patch applied above.
-    grep -Fq "TOTAL PASSED    : 34" "$log"
+    grep -Fq "TOTAL PASSED    : 44" "$log"
     grep -Fq "TOTAL FAILED    : 0" "$log"
     grep -Fq "[EXPECT BKPT] Success" "$log"
     echo "PASS: target/confboot"

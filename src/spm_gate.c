@@ -108,6 +108,12 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
         if (ret == WT_FFM_SUCCESS) {
             call->ret_status = wt_ffm_get(runtime, call->partition_id,
                                           call->signal, call->msg);
+            /* psa_get on a multi-bit, non-service, or unasserted signal —
+             * or with no queued message — is a PROGRAMMER ERROR the SPM
+             * must panic the server for (i013-i016). */
+            if (call->ret_status != PSA_SUCCESS) {
+                call->must_panic = 1U;
+            }
         }
         else {
             /* psa_get with an invalid message buffer is a programmer error
@@ -120,6 +126,11 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
     case WT_SPM_OP_SET_RHANDLE:
         call->ret_int = wt_ffm_set_rhandle(runtime, call->partition_id,
                                            call->msg_handle, call->rhandle);
+        /* psa_set_rhandle on a forged or null message handle must panic
+         * the server (i018/i019). */
+        if (call->ret_int != WT_FFM_SUCCESS) {
+            call->must_panic = 1U;
+        }
         break;
     case WT_SPM_OP_READ:
         ret = wt_spm_check_buffer(caller_domain, call->buffer, call->num_bytes,
@@ -157,6 +168,11 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
     case WT_SPM_OP_REPLY:
         call->ret_int = wt_ffm_reply(runtime, call->partition_id,
                                      call->msg_handle, call->status);
+        /* psa_reply on a forged or null message handle, or a connect reply
+         * outside SUCCESS/REFUSED/BUSY, must panic the server (i020-i023). */
+        if (call->ret_int != WT_FFM_SUCCESS) {
+            call->must_panic = 1U;
+        }
         break;
     case WT_SPM_OP_NOTIFY:
         call->ret_int = wt_ffm_notify(runtime, call->notify_partition);
