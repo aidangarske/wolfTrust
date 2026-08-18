@@ -891,8 +891,44 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   `run_m33mu.sh`, and `.github/workflows/stm32h563-build.yml`, then delete the
   local patch and the runner's `git apply` step. Do NOT drop the patch while
   only one PR is merged — it carries both fixes.
-- P7. [ ] **Full suite green on M33MU + `make test-conformance` auto-detect**
+- P7. [~] **Full suite green on M33MU + `make test-conformance` auto-detect**
   (present→full target suite, absent→host subset + explicit non-HW warning).
+  The "full suite green on M33MU" half is **DONE** (P5 close, 85/4 + scenarios,
+  pushed `15034da`); the remaining work is harness wiring only — no SPM/engine
+  change. Today `make test-conformance` is host-only (`test-manifest-ingest` +
+  `tests/host/psa_ff_upstream`), always runs, and is target-blind; the M33MU
+  auto-detect + explicit SKIP already exists in `make test-target`
+  (`Makefile:38-53`), which already runs the full confboot (85/4) plus the
+  three scenarios. P7 unifies these into one honest entry point.
+  - P7.1. [ ] **Factor the auto-detect into a shared probe.** Pull the
+    `M33MU`-exec / `command -v m33mu` / `WT_TARGET_SCENARIOS=1` check out of
+    `test-target` into one reusable place (a make macro or
+    `tests/target/detect_m33mu.sh`) so `test-conformance` and `test-target`
+    share a single detection path and cannot drift. No behavior change.
+  - P7.2. [ ] **Make `make test-conformance` target-aware.** Probe present →
+    run `run_m33mu_scenario.sh confboot` (the real 85/4 evidence) as the
+    conformance run; probe absent → run the existing host subset AND emit an
+    explicit `WARNING: host-only conformance subset — NOT emulator/hardware
+    evidence; full FF-M IPC suite needs M33MU (make test-target or set
+    M33MU=...)`. Never print a bare `PASS: conformance/all` that reads as the
+    full suite when only the host subset ran. **Decision (recommended):**
+    absent → warn-and-exit-0 for local dev; CI sets `WT_TARGET_SCENARIOS=1`
+    (or `M33MU=...`) so a missing emulator SKIPs→fails there instead of
+    silently passing.
+  - P7.3. [ ] **Make the host-subset warning honest.** Audit exactly what the
+    host `psa_ff_upstream` harness proves vs. what needs the target (isolation,
+    panic-reset, IRQ, and cross-domain tests cannot run on host), and word the
+    warning plus the `PASS:`/`SKIP:` lines to match, so host-only can never be
+    mistaken for full conformance.
+  - P7.4. [ ] **Single canonical entry.** Point the CI job
+    (`.github/workflows/stm32h563-build.yml`) and the runbook at
+    `make test-conformance` as the one command (it auto-selects target vs
+    host), keeping RUN/PASS/SKIP markers greppable and identical between local
+    and CI. Keep `make test-target` as the scenarios-only alias.
+  - Verify: (a) M33MU present → `make test-conformance` reaches
+    `TOTAL PASSED : 85 / SKIPPED : 4`, exits 0; (b) M33MU absent → host subset
+    runs, the non-HW warning prints, exit per the P7.2 decision. Record the
+    passing commit in validation-log.md; tick P7.
 - P8. [ ] **TF-M baseline comparison** — same suite on TF-M vs wolfTrust, parity.
 - P9. [ ] **Physical STM32H563/H5 bring-up + qualification** — the only milestone
   that makes "tested on the H5" literally true; all prior evidence is M33MU
