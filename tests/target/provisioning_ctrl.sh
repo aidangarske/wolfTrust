@@ -149,16 +149,23 @@ case "$cmd" in
 
   regress)
     confirm
-    # Verbatim ST ROT_Provisioning/DA regression.sh sequence + files: close
-    # debug, disable TZEN, re-provision DA, authenticate with per=a + key + cert
-    # + password -> the RSS mass-erases and resets the product state to Open.
-    echo "Full DA regression back to Open (ST regression.sh, mass-erase):"
+    # Provisioning -> Open regression. TrustZone stays enabled here, so ST's
+    # rule is to authenticate with the CERTIFICATE (per=a Full Regression); the
+    # RSS then mass-erases and resets the product state to Open. This is ST's
+    # dbg_auth.sh form (close stale session, then authenticate) — it OMITS the
+    # regression.sh TZEN-disable/re-sdp prefix, which is the Closed-state path
+    # and, verified on-board, wedges the DA session from Provisioning (TZEN left
+    # untouched, auth timed out). Closed->Open would add the TZEN handling back.
+    echo "DA Full Regression Provisioning -> Open (certificate, mass-erase):"
+    # Close any stale session on the Hotplug connection, then AUTHENTICATE on a
+    # bare "-c port=SWD speed=fast" (default NORMAL/under-reset) exactly as ST's
+    # dbg_auth.sh does: the reset halts the running firmware so the RSS can
+    # answer the DA handshake. mode=Hotplug leaves wolfTrust running and the
+    # device response times out (verified on-board).
     "$CLI" $DA_CONN debugauth=3 2>&1 | strip | tail -2 || true
-    "$CLI" $DA_CONN_RST -ob TZEN=0xC3 2>&1 | strip | tail -2 || true
-    "$CLI" $DA_CONN_RST 2>&1 | strip | tail -1 || true
-    "$CLI" $DA_CONN -sdp "$DA_OBK" 2>&1 | strip | tail -2 || true
-    "$CLI" -c port=SWD per=a key="$DA_KEY" cert="$DA_CERT" pwd="$DA_PWD" debugauth=1 2>&1 | strip | tail -6 || true
-    echo "state after regression attempt: $(product_state)"
+    "$CLI" -c port=SWD speed=fast per=a key="$DA_KEY" cert="$DA_CERT" \
+      pwd="$DA_PWD" debugauth=1 2>&1 | strip | tail -12
+    echo "state after regression: $(product_state)"
     ;;
 
   *) echo "usage: $0 status|set-perimeter|flash|verify|restore|provision-da|discover|advance <hexstate>|regress" >&2; exit 2 ;;
