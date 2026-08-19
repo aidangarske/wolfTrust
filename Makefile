@@ -9,7 +9,7 @@ endif
 
 .DEFAULT_GOAL := all
 
-.PHONY: all test test-conformance test-target fetch-psa-ff-tests \
+.PHONY: all test test-conformance test-target test-hardware fetch-psa-ff-tests \
 		clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
 		test-domain-host test-domain-compilers test-domain-sanitize \
 		test-domain-valgrind test-manifest-host test-manifest-compilers \
@@ -60,6 +60,14 @@ test-target:
 			exit 1; \
 		fi; \
 	fi
+
+# Real STM32H563 hardware equivalence suite: positive lifecycle + restart
+# recovery + cross-domain isolation on a Nucleo-H563ZI, the on-silicon
+# counterpart of test-target. Needs the ST-Link + board (detect_h5.sh) and a
+# container toolchain for the build (WT_H5_DOCKER_IMAGE); skips otherwise so it
+# never silently passes. HARDWARE evidence — recorded separately from emulator.
+test-hardware:
+	@tests/target/run_h5_suite.sh
 
 test-compilers:
 	@$(MAKE) --no-print-directory -C tests/host test-compilers
