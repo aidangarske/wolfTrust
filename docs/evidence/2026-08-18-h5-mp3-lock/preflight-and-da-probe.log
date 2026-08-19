@@ -1,0 +1,30 @@
+# STM32H563 (NUCLEO-H563ZI) MP3 lock preflight + DA probe, 2026-08-18
+# CubeProgrammer v2.22.0, ST-LINK V3J15M6. Board healthy throughout.
+
+## Preflight (read-only) — PASS
+PRODUCT_STATE=0xED (Open)  TZEN=0xB4  BOOT_UBE=0xB4 (OEM-iRoT)  SECBOOT_LOCK=0xC3
+SECWM watermarks present.  STM32TrustedPackageCreator_CLI present.
+
+## DA credential (ST default, guaranteed-consistent pair)
+password.bin = "0123456789012345" (16 bytes, header 00000000 00000080 10000000)
+NonCrypto/DA_Config_Password.obk grants permission 14 = "Full Regression".
+
+## Provisioning attempt in the Open state — REJECTED (expected, safe)
+$ h5_lock_workflow.sh provision   (WT_LOCK_CONFIRM=1)
+  Secure Data Provisioning : Not able to load pConfig to MCU RAM
+  OBKey Provisioning failed
+$ h5_lock_workflow.sh discover     (password)
+  Warning: Provisioning with password is not supported by the current device !
+$ discover with Crypto/DA_Config_Certificate.obk
+  Warning: Provisioning with password is not supported by the current device !
+
+## After the failed provision — board unchanged and healthy
+PRODUCT_STATE=0xED (Open), TZEN=0xB4, BOOT_UBE=0xB4 still.
+wolfTrust chain still boots: freertos_guest1 heartbeat 3..6 captured on reset.
+
+## Interpretation
+DA is provisioned in the Provisioning product state, not Open (standard
+STM32H5 OEM-iRoT sequence). Sealing therefore requires a gated state advance
+first; no state was advanced. The escape hatch (DA regression) is NOT yet
+proven, so advancing product state is deferred to an explicit, spec-verified
+hardware session — never on a guess (brick safety).
