@@ -74,6 +74,12 @@ wt_guest_id_t wt_hsm_guest_for_tasklet(const struct wt_co *tasklet);
  * call from handler mode. Returns WH_ERROR_OK on success. */
 int wt_hsm_signal_fault(wt_guest_id_t guest_id);
 
+/* Terminal-fault NS-client notifier. wt_hsm_signal_fault calls the installed
+ * callback; the arch transport installs its concrete notifier at boot. The
+ * default is a no-op so engine-less/host builds link. */
+typedef int (*wt_hsm_fault_notify_fn)(wt_guest_id_t guest_id);
+void wt_hsm_set_fault_notify(wt_hsm_fault_notify_fn fn);
+
 /* Provision or reopen the Initial Attestation Key in the wolfHSM keystore.
  * The private key is non-exportable and restricted to signing. */
 int wt_hsm_attest_init(void);

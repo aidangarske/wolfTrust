@@ -69,6 +69,7 @@
 #include "wolftrust/arch/armv8m/cmse_transport.h"
 #include "wolftrust/monitor.h"
 #include "wolftrust/partition.h"
+#include "wolftrust/services/hsm.h"
 
 #include "memory_map.h"  /* WT_HSM_BUF_SIZE */
 
@@ -149,6 +150,11 @@ static int wt_cmse_transport_init(void *ctx_void, const void *cfg_void,
     if (ctx == NULL || cfg == NULL) {
         return WH_ERROR_BADARGS;
     }
+
+    /* Wire the neutral HSM fault-notify to this arch transport (idempotent
+     * across guests) so core wt_hsm_signal_fault reaches the NS client
+     * without naming an arch symbol. */
+    wt_hsm_set_fault_notify(wt_cmse_transport_signal_fault);
 
     /* Each slot is ns_buf_size/2 bytes.  We need at least two CSR-sized
      * regions so that req and resp do not overlap. */

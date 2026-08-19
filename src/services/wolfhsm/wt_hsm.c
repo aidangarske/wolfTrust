@@ -64,7 +64,6 @@
 #include "wolftrust/sched/tasklet.h"
 #include "wolftrust/sync/mutex.h"
 #include "wolftrust/services/hsm.h"
-#include "wolftrust/arch/armv8m/cmse_transport.h"
 
 #include "hsm_flash.h"
 
@@ -463,6 +462,19 @@ wt_guest_id_t wt_hsm_guest_for_tasklet(const struct wt_co *tasklet)
  *
  * Idempotent: calling on an already-faulted guest is harmless.
  * ====================================================================== */
+static int wt_hsm_fault_notify_noop(wt_guest_id_t guest_id)
+{
+    (void)guest_id;
+    return WH_ERROR_OK;
+}
+
+static wt_hsm_fault_notify_fn g_hsm_fault_notify = wt_hsm_fault_notify_noop;
+
+void wt_hsm_set_fault_notify(wt_hsm_fault_notify_fn fn)
+{
+    g_hsm_fault_notify = (fn != NULL) ? fn : wt_hsm_fault_notify_noop;
+}
+
 int wt_hsm_signal_fault(wt_guest_id_t guest_id)
 {
     wt_hsm_guest_t *g;
@@ -481,7 +493,7 @@ int wt_hsm_signal_fault(wt_guest_id_t guest_id)
 
     /* Tell the NS client. Failure here just means the transport was
      * never wired (guest_id outside transport range) — still safe. */
-    (void)wt_cmse_transport_signal_fault(guest_id);
+    (void)g_hsm_fault_notify(guest_id);
 
     g->ready = false;
     return WH_ERROR_OK;
