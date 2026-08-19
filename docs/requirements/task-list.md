@@ -993,7 +993,9 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     (TZ-Closed can't chain); after a Closed regression the MCU self-resets so the
     reconnect retries. Never touched permanent `Locked` (0x5C). See validation-log
     "MP3" + docs/evidence/2026-08-18-h5-mp3-lock/.
-  - MP4 [ ] Enforce the core/port split + document the WT-PORT contract. Vendor
+  - MP4 [x] DONE (2026-08-19): core/port split ENFORCED (STRICT guard = 0 arch
+    leaks in core, CI job) + WT-PORT contract documented + hardware-validated
+    (make test-hardware ALL GREEN on the final tree). Vendor
     reach is DOCS-ONLY: a written porting plan mapping other ST parts (U5/L5/H7)
     and vendors (NXP/Nordic/Renesas/Microchip) onto the contract — no other-part
     implementation in this milestone. Plan:
@@ -1024,6 +1026,34 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       includes it instead of the bare port `hsm_flash.h`. (Entropy needs no new
       header — it is a wolfCrypt `CUSTOM_RAND_GENERATE_BLOCK` config macro, not a
       core include coupling.) SAFE TIER of MP4 now complete + gate-verified.
+    - MP4-S4 [x] DONE (2026-08-19, `194cba3`, gate-green): 5 FF-M NS veneers →
+      `src/arch/armv8m/ffm_nsc.c`; core `ffm_boot.c` fully neutral with a
+      fail-closed installed memcheck seam (`wt_ffm_boot_set_memcheck`) +
+      `wt_ffm_boot_runtime_mut`; neutral `spm_sched.h` scheduler contract; new
+      host suite `tests/host/ffm_veneer` (10/10). CMSE implib symbol set + `sg`
+      prologues verified identical.
+    - MP4-S5 [x] DONE (2026-08-19, `96e62d8`): 7 VNET NS veneers →
+      `src/arch/armv8m/vnet_nsc.c`; core keeps storage/init/IRQ + neutral
+      `wt_vnet_service_begin`/`now_tick`.
+    - NSC window defect [x] FOUND + FIXED (2026-08-19, `ee04538`, task #82):
+      veneer BODIES lived in the 0x400 `.gnu.sgstubs` NSC window and the
+      CONFIG_VNET image had stopped linking at origin (pre-existing, proven by
+      A/B: 1014B pre-change vs 968B post). Fix = drop the section attribute
+      (bodies → `.text`; ld synthesizes only 8-byte `sg` stubs: 96B default /
+      160B vnet) + the TF-M-style `. = ALIGN(32);` keep-alive in `secure.ld`.
+    - MP4-S3+S6 [x] DONE (2026-08-19, `335cdf9`): guest context held by POINTER —
+      `platform.h` forward-declares `struct wt_guest_context`, neutral
+      `partition.h` owns the runtime struct, arch `context.h` defines the body,
+      port owns storage + wiring (`g_partition_contexts`), monitor uses the
+      neutral `wt_platform_guest_context_ready` predicate. Arch `partition.h`
+      and dead `src/platform_stub.c` deleted. Core now has ZERO arch code.
+    - MP4-CI [x] DONE (2026-08-19, `ce95aa1`): `core-port-split` CI job runs the
+      STRICT guard (0 hard leaks) + builds the CONFIG_VNET image every push.
+    - Boot seams [x] documented (2026-08-19, `2d519a7`) in
+      `docs/port-contract.md`: image header/signing, measured-boot handoff
+      (fail-closed), lock tooling; wolfBoot as the universal first stage.
+    - FINAL GATE [x] GREEN (2026-08-19): VNET_IMAGE_OK + STRICT 0 leaks +
+      unit/all + target + conformance 85/4/0, `FINAL_RC=0` on the complete tree.
     - MP4-guard [x] DONE (2026-08-19, `5505c31`): `tools/check-core-port-split.sh`
       (report-only; `WT_SPLIT_STRICT=1` fails on hard core→arch leaks). It caught
       that S1 added the barrier hooks but left the inline `dmb`/`dsb` in

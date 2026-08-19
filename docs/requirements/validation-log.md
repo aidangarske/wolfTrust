@@ -1465,10 +1465,48 @@ Safe tier then completed on the same gate (85/4/0, `FINAL_RC=0`): the
 a guard-caught gap S1 had missed), a report-only split guard was added
 (`tools/check-core-port-split.sh`, `5505c31`), and the MCU-family flash contract
 `include/wolftrust/port_nvm.h` replaced core's bare `hsm_flash.h` include
-(`673ec01`). Remaining MP4 is the deep tier (Fable): S4/S5 CMSE veneer
-extraction to `src/arch/armv8m/`, and S3+S6 (entangled) — `wt_guest_context_t`
-is one concrete type shared by `platform.h` and the scheduler runtime, so its
-neutralization spans both and touches the port `offsetof` asm contract.
+(`673ec01`).
+
+## MP4 COMPLETE — deep tier + hardware validation (2026-08-19)
+
+The deep tier landed the same day; the core now contains **zero architecture
+code** (STRICT guard = 0 hard leaks, enforced by the new `core-port-split` CI
+job which also builds the CONFIG_VNET image every push):
+
+- **S4** (`194cba3`): the 5 FF-M NS veneers → `src/arch/armv8m/ffm_nsc.c`; core
+  `ffm_boot.c` fully neutral behind a fail-closed installed memcheck seam; new
+  neutral `spm_sched.h`; new host suite `tests/host/ffm_veneer` (10/10) proves
+  fail-closed default → installed check → SHA-256 KAT round trip. CMSE implib
+  symbol set and `sg` prologues verified identical pre/post.
+- **S5** (`96e62d8`): the 7 VNET NS veneers → `src/arch/armv8m/vnet_nsc.c`.
+- **NSC window defect** (task #82, `ee04538`): S5's verification exposed that
+  veneer BODIES lived in the fixed 0x400 `.gnu.sgstubs` NSC window and the
+  CONFIG_VNET image no longer linked — pre-existing at origin (A/B-proven:
+  1014B before the extractions vs 968B after; both overflowed). Fix: drop the
+  explicit section attribute (bodies → `.text`, ld synthesizes only the 8-byte
+  `sg` stubs: 96B default / 160B vnet image) plus the TF-M-style
+  `. = ALIGN(32);` keep-alive in `secure.ld` so the empty section keeps its
+  address ("no address assigned to the veneers output section").
+- **S3+S6** (`335cdf9`): guest context held by POINTER — `platform.h` forward
+  declares `struct wt_guest_context`; the neutral `partition.h` owns
+  `wt_guest_runtime_t`; the arch `context.h` defines the concrete body (tag
+  preserved); the port owns the storage (`g_partition_contexts`) and rewires it
+  across the reset memset; the monitor's only field peek became the neutral
+  `wt_platform_guest_context_ready` predicate. The arch `partition.h` and the
+  dead `src/platform_stub.c` were deleted. No asm/offsetof contract depends on
+  the runtime layout (verified before the change).
+- Boot-integration seams documented in `docs/port-contract.md` (`2d519a7`).
+
+**Final gate on the complete tree:** VNET_IMAGE_OK + STRICT 0 leaks + host
+unit/all + target scenarios + conformance **85 passed / 4 skipped / 0 failed**,
+`FINAL_RC=0`.
+
+**HARDWARE evidence (NUCLEO-H563ZI):** `make test-hardware` ALL GREEN on the
+final tree — positive (TEE init → SERVICE_CRYPTO dispatch → SHA-256 KAT →
+attestation COSE_Sign1 → `guest0_psa done`, no faults, through the relocated
+veneers and stubs-only NSC window), restart (exactly 3 restarts → quarantine →
+guest1 alive), crossdomain (SP denied at `0x30028000`, no HardFault escalation,
+guest1 alive) — `PASS: hardware/all`.
 
 ## M33MU emulator defect register
 
