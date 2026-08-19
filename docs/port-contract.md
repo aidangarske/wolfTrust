@@ -123,3 +123,28 @@ program/restore, and the secure-call gateway.
 **What every target reuses unchanged:** the generated manifest + validation, the
 SPM/FF-M IPC runtime, the PSA service surface, the lifecycle/restart engine, the
 conformance suite, and (for STM32) the MP3 lock workflow.
+
+## Boot integration — how a different loader launches wolfTrust
+
+wolfTrust is boot-agnostic: a signed flat image in secure flash. Vendors differ
+in *who verifies and launches* it (ST H5: RSS bootrom → wolfBoot; NXP LPC55:
+ROM + ROTKH; Nordic: NSIB/MCUboot; Renesas: boot ROM + DLM), and the loader
+touches wolfTrust at exactly three parameterized seams — none of them core code:
+
+1. **Image header/signing** — `WT_SECURE_FLASH_ORIGIN` /
+   `WT_SECURE_IMAGE_HEADER_SIZE` are build parameters; a vendor image format
+   means a different header size + signing tool in the port's mk file.
+2. **Measured-boot handoff** — the neutral `wt_boot_handoff_consume` reads the
+   measurement the first stage leaves at a configured address and FAILS CLOSED
+   when absent (attestation then reports an unmeasured boot). A different
+   loader either produces the same handoff or the port supplies an alternative
+   measurement source.
+3. **Lock lifecycle tooling** — per-vendor provisioning scripts (the
+   `provisioning_ctrl.sh` pattern), mapped in the vendor table above.
+
+**Preferred strategy: wolfBoot as the universal first stage.** wolfBoot already
+ports across these vendors, so the component that loads wolfTrust stays
+wolfBoot everywhere — the vendor's ROM trust anchor verifies wolfBoot, wolfBoot
+verifies and measures wolfTrust — normalizing the handoff format so
+`boot_handoff.c` never changes. Only where a vendor ROM must load the image
+directly does the port sign in the vendor format and rely on seam 2's fallback.
