@@ -983,9 +983,16 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     window since the last restart, manifests scale the window 64→8000 ticks.
     See validation-log "MP2". ITS remains Phase-4 scope (no wolfPSA
     key-storage backend yet).
-  - MP3 [ ] Immutable-RoT lock model + reversible lock test + workflow (⚠️ DA
-    regression credential FIRST; HDP/SECWM/WRP/BOOT_UBE + product-state `Closed`;
-    prove sealed; regress). Reversible only — never permanent `Locked` on dev.
+  - MP3 [x] Immutable-RoT lock model + reversible lock test + workflow DONE
+    (2026-08-19): all three lock rungs sealed AND reversed on the board —
+    Provisioning (0x17), TZ-Closed (0xC6), and Closed (0x72) each advanced, then
+    certificate DA Full Regression → Open with wolfTrust restored+booting. Single
+    control script `tests/target/provisioning_ctrl.sh`. Key findings: DA is
+    CERTIFICATE-based (TZEN enabled, AN6008 — a password OBK here can't
+    authenticate); advance to the target lock state DIRECTLY from Provisioning
+    (TZ-Closed can't chain); after a Closed regression the MCU self-resets so the
+    reconnect retries. Never touched permanent `Locked` (0x5C). See validation-log
+    "MP3" + docs/evidence/2026-08-18-h5-mp3-lock/.
   - MP4 [ ] Enforce the core/port split + document the port contract; map other
     ST parts (U5/L5/H7) and other vendors (NXP/Nordic/Renesas/Microchip) onto it.
   - MP5 [ ] TF-M / Secure-Manager drop-in proof (a TF-M NS app / Arm `val` NSPE

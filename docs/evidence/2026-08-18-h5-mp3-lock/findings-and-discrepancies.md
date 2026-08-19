@@ -52,16 +52,58 @@ the DA handshake. `mode=Hotplug` leaves wolfTrust running and the device
 response times out. (Not the root cause of our failure — #3 is — but a real
 requirement.)
 
-## 5. ST's `regression.sh` is Closed-oriented
-Its `debugauth=3` + `-ob TZEN=0xC3` + re-`sdp` prefix is the Closed→Open path.
-From Provisioning it wedged the session (TZEN left untouched, auth timed out).
-The Provisioning→Open regression is the plain `dbg_auth.sh` auth with `per=a`.
+## 5. CORRECTION — ST's `regression.sh` IS the Provisioning→Open recovery
+An earlier note here called `regression.sh` "Closed-oriented"; reading the
+actual **`.sh`** (not the `.bat`) proves that wrong. ST's `regression.sh`
+carries a `.sh`-only prefix with the literal comment *"In case of Provisioning
+Product state, try to disable TZEN and provision DA with password"* and does,
+in order:
+1. `debugauth=3` (close any stale session), Hotplug.
+2. `-ob TZEN=0xC3` — **disable TrustZone** (Hotplug + `-hardRst`). This flips
+   the credential rule: with TZEN now disabled, the **password** is the correct
+   DA pairing (AN6008 §3).
+3. a bare reset connect, then `-sdp DA_ConfigWithPassword.obk` — re-provision
+   the password OBK (freely overwritable in Provisioning; `obk_provisioning.sh`
+   has no already-provisioned guard).
+4. `-c port=SWD per=a key=… cert=… pwd=password.bin debugauth=1` — full
+   regression; CubeProgrammer auto-picks password because TZEN is now disabled →
+   mass-erase → **Open**.
 
-## Current board state (safe, recoverable)
-`PRODUCT_STATE=0x17 (Provisioning)`, `TZEN=0xB4`, password OBK provisioned,
-DA integrity `0xeaeaeaea`, `Discovery Success` with `(a/14) Full Regression`
-available, wolfTrust chain still in flash. Recovery options (pick per ST
-AN6008): (a) disable TZEN (`-ob TZEN=0xC3` / TZEN regression → mass-erase to
-Open, then password path), or (b) re-provision a **certificate** OBK and
-authenticate with the cert chain (TZEN-enabled path). Do NOT advance to Closed
-with the current mismatch.
+Our `provisioning_ctrl.sh regress` omitted step 2 (kept TZEN enabled and forced
+`cert=` certificate auth against a password OBK) — that is the exact cause of
+the timeout. Fix `regress` to mirror ST's `.sh`.
+
+## 6. CubeProgrammer may prompt for DA args instead of taking them from the CLI
+Documented ST-community gotcha: some CubeProgrammer builds ignore
+`key=/cert=/pwd=/per=` on the command line for `debugauth=1` and prompt for them
+interactively. A non-interactive (piped/`nohup`) run then hangs — reads as a
+"wedge"/timeout even when the credentials are right. Run the regression step in
+a real interactive shell (or confirm the installed CLI honors the CLI args)
+before concluding the credential is wrong.
+
+## 7. RESOLVED on-board (2026-08-19) — certificate regression recovered it
+The TZEN-disable path in ST's `regression.sh` does NOT work from our
+Provisioning state: disabling TZEN is a *secure* option-byte write, which needs
+secure debug open, which needs a *matching* DA credential — the very thing we
+lacked. `-ob TZEN=0xC3` failed with *"Cannot connect to access port 1"*. The
+recovery that actually worked keeps TZEN enabled and uses the **certificate**
+(the correct TZEN-enabled pairing), re-provisioning the OBK to match:
+
+1. `-rst` (HotPlug) to clear any debug lock. Note: `debugauth=3` LOCKS the
+   session and then blocks `-sdp`/AP access — do not run it before provisioning.
+2. `-c port=SWD speed=fast ap=1 mode=Hotplug -sdp ./Binary/DA_Config.obk` —
+   re-provision the **certificate** OBK over the password one (freely
+   overwritable in Provisioning; integrity stayed `0xeaeaeaea`).
+3. `-c port=SWD per=a key=./Keys/key_3_leaf.pem cert=./Certificates/cert_leaf_chain.b64 pwd=./Binary/password.bin debugauth=1`
+   — certificate auth (bare `-c port=SWD` = NORMAL/under-reset so the RSS
+   answers) → *Authentication successful* → Full Regression → mass-erase.
+
+Result: `PRODUCT_STATE=0xED (Open)`, `TZEN=0xC3`. Then
+`provisioning_ctrl.sh set-perimeter` re-enabled `TZEN=0xB4` + perimeter and
+`flash`+`verify` restored wolfTrust (`[check] PASS wolfTrust chain boots on
+silicon`). Full log:
+`docs/evidence/2026-08-18-h5-mp3-lock/2026-08-19-recovery-cert-regression.log`.
+
+`provisioning_ctrl.sh` now defaults DA to the certificate OBK and its `regress`
+uses this proven sequence. The reversible-lock round-trip (seal → DA regression
+→ restore) is proven on real STM32H563 silicon.

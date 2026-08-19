@@ -1397,6 +1397,48 @@ Known scope limits, tracked: ITS/protected storage is not yet implemented
 console interleave (both guests raw-write USART3) is cosmetic pending the
 secure console veneer task.
 
+## MP3 — immutable-RoT reversible lock, all rungs on STM32H563 (2026-08-19)
+
+**HARDWARE evidence.** The OEM-iRoT lock lifecycle driven end-to-end on the
+NUCLEO-H563ZI with the single control script `tests/target/provisioning_ctrl.sh`.
+All three lock rungs were sealed AND reversed, board returned to Open+booting
+each time:
+
+- **Provisioning (0x17)**, **TZ-Closed (0xC6)**, **Closed (0x72)** — each
+  advanced via `-ob PRODUCT_STATE`, confirmed by DA discovery
+  (`ST_LIFECYCLE_*`, integrity `0xeaeaeaea`, `(a/14) Full Regression`), then
+  **certificate DA Full Regression → Open** (`Authentication successful`) and
+  `restore` (set-perimeter `TZEN=0xB4` + flash + verify →
+  `[check] PASS wolfTrust chain boots on silicon`).
+
+The lock lifecycle is an ST RSS/OEM-iRoT **silicon** feature (enforced by the
+immutable bootrom + option bytes + product state), identical whether TF-M, ST
+Secure Manager, or wolfTrust is the sealed secure firmware — MP3 proves
+wolfTrust seals into and reversibly reopens from it exactly as a TF-M-based
+product would. Logs: `docs/evidence/2026-08-18-h5-mp3-lock/`
+(`2026-08-19-recovery-cert-regression.log`, `2026-08-19-lock-ladder.log`,
+`2026-08-19-lock-ladder-walkthrough.md`, `findings-and-discrepancies.md`).
+
+**Findings / discrepancies fixed on the way (AN6008-confirmed).**
+
+1. **DA credential must match TrustZone.** wolfTrust runs TZEN enabled, so DA is
+   CERTIFICATE-based (`DA_Config.obk`); a password OBK cannot authenticate and
+   blocks regression. An earlier password/TZEN mismatch stranded the board in
+   Provisioning; the certificate re-provision + cert regression recovered it.
+   `provisioning_ctrl.sh` now defaults to the certificate OBK, and `regress`
+   drops the `debugauth=3` that was locking the AP.
+2. **TZ-Closed cannot chain to Closed.** Once at TZ-Closed the link is too
+   locked to write the next `PRODUCT_STATE`; advance to the target lock state
+   directly from Provisioning (as ST `provisioning.sh` does).
+3. **Closed regression self-resets the MCU.** The mass-erase resets the chip, so
+   the immediate reconnect can race and report "Cannot connect to AP1"; a moment
+   later it reads Open — retry `restore`. Integrity `0xf5f5f5f5` at Open is the
+   erased-DA marker (normal after a regression), not corruption.
+
+Reversible only — permanent `Locked` (0x5C) never touched. Production step
+(tracked, not blocking): replace ST's sample DA certificate chain with a
+wolfTrust-owned chain.
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are
