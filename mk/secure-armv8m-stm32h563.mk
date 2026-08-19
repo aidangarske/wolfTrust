@@ -233,7 +233,8 @@ WT_SECURE_EXTRA_SRCS += \
     $(ROOT)/src/vnet/vnet_ring.c   \
     $(ROOT)/src/vnet/vnet_fdb.c    \
     $(ROOT)/src/vnet/vnet_switch.c \
-    $(ROOT)/src/services/vnet/vnet_service.c
+    $(ROOT)/src/services/vnet/vnet_service.c \
+    $(ROOT)/src/arch/armv8m/vnet_nsc.c
 endif
 
 HSM_SECURE_BASE_OBJS := $(patsubst %.c,$(BUILD_DIR)/sec_%.o,$(notdir $(SECURE_SRCS)))

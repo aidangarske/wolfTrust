@@ -24,7 +24,9 @@
 
 #ifdef CONFIG_VNET
 
+#include <stdint.h>
 #include "wolftrust/types.h"
+#include "wolftrust/vnet/vnet_switch.h"
 
 /* Initialise the monitor-owned VNET subsystem. Called once at boot
  * from wt_monitor_init() when CONFIG_VNET is on. Wires the static
@@ -40,6 +42,14 @@ void wt_vnet_service_init(void);
  * that don't enable the IRQ in their partition irq_mask still see
  * the underlying state via vnet_rx_poll and can poll. */
 void wt_vnet_service_refresh_irq(wt_guest_id_t guest_id);
+
+/* NS-veneer entry helper for the architecture port: resolves the active
+ * guest, checks the switch is ready, and hands back the switch handle.
+ * Never trusts a guest-supplied VM id. Returns WT_VNET_OK or an error. */
+int wt_vnet_service_begin(uint32_t* out_vm, vnet_switch_t** out_sw);
+
+/* Monotonic scheduler tick for switch aging, exposed for the port veneers. */
+uint32_t wt_vnet_service_now_tick(void);
 
 #endif /* CONFIG_VNET */
 

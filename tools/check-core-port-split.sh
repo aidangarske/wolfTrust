@@ -40,8 +40,8 @@ scan soft 'MPU/GTZC/SAU/NVIC register names in core' 'MPU->|GTZC|\bSAU\b|NVIC->|
 
 echo
 echo "SUMMARY: hard leaks=$HARD  soft(register-name) hits=$SOFT"
-echo "Known remaining (MP4 backlog): S4 ffm_boot veneers, S5 vnet veneers,"
-echo "S3+S6 wt_guest_context_t (platform.h + monitor.h/partition.h by-value)."
+echo "Known remaining (MP4 backlog): S3+S6 wt_guest_context_t (platform.h +"
+echo "monitor.h/partition.h by-value); residual CMSE hits are comments only."
 
 if [ "${WT_SPLIT_STRICT:-0}" = "1" ]; then
   if [ "$HARD" -gt 0 ]; then
