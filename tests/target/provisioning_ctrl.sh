@@ -38,6 +38,11 @@ repo="$(cd "$(dirname "$0")/../.." && pwd)"
 DA_DIR="${WT_DA_DIR:-$HOME/st-rot-h5/Projects/NUCLEO-H563ZI/ROT_Provisioning/DA}"
 DA_OBK="${WT_DA_OBK:-$DA_DIR/Binary/DA_ConfigWithPassword.obk}"
 DA_PWD="${WT_DA_PWD:-$DA_DIR/Binary/password.bin}"
+DA_KEY="${WT_DA_KEY:-$DA_DIR/Keys/key_3_leaf.pem}"
+DA_CERT="${WT_DA_CERT:-$DA_DIR/Certificates/cert_leaf_chain.b64}"
+# ST ROT_Provisioning/DA connect strings (regression is sensitive to these).
+DA_CONN="-c port=SWD speed=fast ap=1 mode=Hotplug"
+DA_CONN_RST="-c port=SWD speed=fast ap=1 mode=Hotplug -hardRst"
 
 # wolfTrust OEM-iRoT perimeter — the EXACT option bytes read from a known-good
 # wolfTrust STM32H563 board (see docs/evidence MP3 reference dump). BOOT_UBE
@@ -117,13 +122,15 @@ case "$cmd" in
     [ -s "$DA_OBK" ] || fail "provision-da" "DA OBK not found: $DA_OBK"
     [ "$(product_state)" = "$PS_PROVISIONING" ] || \
       fail "provision-da" "must be in Provisioning ($PS_PROVISIONING); state=$(product_state)"
-    echo "Provisioning DA OBK: $DA_OBK"
-    "$CLI" -c port=SWD mode=HotPlug -sdp "$DA_OBK" 2>&1 | strip | tail -5
+    echo "Provisioning DA OBK (ST obk_provisioning.sh order): $DA_OBK"
+    "$CLI" $DA_CONN_RST >/dev/null 2>&1 || true
+    "$CLI" $DA_CONN -sdp "$DA_OBK" 2>&1 | strip | tail -5
+    "$CLI" $DA_CONN_RST >/dev/null 2>&1 || true
     ;;
 
   discover)
     echo "DA discovery (non-destructive) with $DA_PWD:"
-    "$CLI" -c port=SWD mode=HotPlug -pwd path="$DA_PWD" debugauth=2 2>&1 | strip \
+    "$CLI" $DA_CONN pwd="$DA_PWD" debugauth=2 2>&1 | strip \
       | grep -iE "permission|regression|discovery|not supported|error|auth" | head
     ;;
 
@@ -142,13 +149,15 @@ case "$cmd" in
 
   regress)
     confirm
-    # ST ROT_Provisioning/DA regression order: close debug, disable TZEN,
-    # re-provision DA, authenticate -> RSS mass-erases and resets to Open.
-    echo "Full DA regression back to Open (mass-erase):"
-    "$CLI" -c port=SWD mode=HotPlug debugauth=3 2>&1 | strip | tail -2 || true
-    "$CLI" -c port=SWD mode=UR -ob TZEN=0xC3 2>&1 | strip | tail -2 || true
-    "$CLI" -c port=SWD mode=HotPlug -sdp "$DA_OBK" 2>&1 | strip | tail -2 || true
-    "$CLI" -c port=SWD per=14 pwd="$DA_PWD" debugauth=1 2>&1 | strip | tail -5 || true
+    # Verbatim ST ROT_Provisioning/DA regression.sh sequence + files: close
+    # debug, disable TZEN, re-provision DA, authenticate with per=a + key + cert
+    # + password -> the RSS mass-erases and resets the product state to Open.
+    echo "Full DA regression back to Open (ST regression.sh, mass-erase):"
+    "$CLI" $DA_CONN debugauth=3 2>&1 | strip | tail -2 || true
+    "$CLI" $DA_CONN_RST -ob TZEN=0xC3 2>&1 | strip | tail -2 || true
+    "$CLI" $DA_CONN_RST 2>&1 | strip | tail -1 || true
+    "$CLI" $DA_CONN -sdp "$DA_OBK" 2>&1 | strip | tail -2 || true
+    "$CLI" -c port=SWD per=a key="$DA_KEY" cert="$DA_CERT" pwd="$DA_PWD" debugauth=1 2>&1 | strip | tail -6 || true
     echo "state after regression attempt: $(product_state)"
     ;;
 
