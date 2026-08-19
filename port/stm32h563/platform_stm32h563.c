@@ -292,6 +292,9 @@ static void wt_clear_boot_handoff_scratch(void)
  * separately via PSPLIM_S → UsageFault.STKOF. */
 static void wt_mpu_s_init(void)
 {
+    uint32_t rnr;
+    uint32_t dregion = (WT_MPU_S_TYPE >> 8) & 0xFFu;
+
     WT_MPU_S_CTRL = 0u;
     wt_dsb();
 
@@ -376,6 +379,15 @@ static void wt_mpu_s_init(void)
         WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RO | WT_MPU_RBAR_SH_INNER,
         WT_MPU_RLAR_ATTRIDX_NORMAL);
 
+    /* Silicon implements TYPE.DREGION secure regions (12 on STM32H563, more
+     * than WT_MAX_MPU_REGIONS); their reset state is UNKNOWN per PMSAv8, so
+     * explicitly disable every region beyond the whitelist. */
+    for (rnr = WT_MAX_MPU_REGIONS; rnr < dregion; rnr++) {
+        WT_MPU_S_RNR  = rnr;
+        WT_MPU_S_RBAR = 0u;
+        WT_MPU_S_RLAR = 0u;
+    }
+
     /* Enable: PRIVDEFENA=0 (no implicit background region), HFNMIENA=1
      * so MPU stays active during HardFault/NMI (matches what we want
      * since our MemManage handler relies on the same region table). */
@@ -414,6 +426,8 @@ static void wt_program_sp_domain_regions(const wt_mpu_region_t* regions,
                                          size_t count, uint32_t ctrl)
 {
     size_t i;
+    uint32_t rnr;
+    uint32_t dregion = (WT_MPU_S_TYPE >> 8) & 0xFFu;
 
     WT_MPU_S_CTRL = 0u;
     wt_dsb();
@@ -434,6 +448,11 @@ static void wt_program_sp_domain_regions(const wt_mpu_region_t* regions,
             WT_MPU_S_RBAR = 0u;
             WT_MPU_S_RLAR = 0u;
         }
+    }
+    for (rnr = WT_MAX_MPU_REGIONS; rnr < dregion; rnr++) {
+        WT_MPU_S_RNR  = rnr;
+        WT_MPU_S_RBAR = 0u;
+        WT_MPU_S_RLAR = 0u;
     }
 
     wt_dsb();
