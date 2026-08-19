@@ -993,8 +993,32 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     (TZ-Closed can't chain); after a Closed regression the MCU self-resets so the
     reconnect retries. Never touched permanent `Locked` (0x5C). See validation-log
     "MP3" + docs/evidence/2026-08-18-h5-mp3-lock/.
-  - MP4 [ ] Enforce the core/port split + document the port contract; map other
-    ST parts (U5/L5/H7) and other vendors (NXP/Nordic/Renesas/Microchip) onto it.
+  - MP4 [ ] Enforce the core/port split + document the WT-PORT contract. Vendor
+    reach is DOCS-ONLY: a written porting plan mapping other ST parts (U5/L5/H7)
+    and vendors (NXP/Nordic/Renesas/Microchip) onto the contract — no other-part
+    implementation in this milestone. Plan:
+    `~/.claude/plans/zany-wandering-stallman.md`. Principle: Armv8-M specifics
+    move to the arch port `src/arch/armv8m/` (mirroring SoC code in
+    `port/stm32h563/`); core exposes a neutral seam + fail-closed default and the
+    arch installs its shim (SERVICE_CRYPTO precedent). Each slice: host `make
+    test` + secure cross-build + M33MU 85/4 gate + single-line commit.
+    - MP4 docs [x] DONE (2026-08-19): `docs/port-contract.md` (WT-PORT surface +
+      docs-only vendor plan), `docs/adding-a-port.md` (step-by-step add-a-port).
+    - MP4-S1 (D) [ ] boot_handoff barriers → `wt_platform_dmb/dsb` hooks.
+    - MP4-S2 (C) [ ] HSM fault-notify neutral callback (drop core
+      `cmse_transport.h`).
+    - MP4-S3 (E1) [ ] forward-declare `wt_guest_context_t` in `platform.h`.
+    - MP4-S4 (A) [ ] extract 5 ffm_boot CMSE veneers → `src/arch/armv8m/ffm_nsc.c`
+      (ATOMIC; keep veneer names + `cmse_nonsecure_entry` + `-mcmse`).
+    - MP4-S5 (B) [ ] extract 7 vnet CMSE veneers → `src/arch/armv8m/vnet_nsc.c`
+      (`CONFIG_VNET` gated).
+    - MP4-S7 [ ] MCU-family flash/entropy contract headers under
+      `include/wolftrust/` (kill core's bare `hsm_flash.h` include).
+    - MP4-guard [ ] `tools/check-core-port-split.sh` + CI (report → fail once
+      S1–S5 land).
+    - MP4-S6 (E2) [ ] DEFERRED own milestone: `monitor.h`/`partition.h` context
+      de-arch (embeds `wt_guest_context_t` by value; touches scheduler layout +
+      port `offsetof` asm). Needed for a non-Armv8-M port.
   - MP5 [ ] TF-M / Secure-Manager drop-in proof (a TF-M NS app / Arm `val` NSPE
     unmodified on wolfTrust); baseline vs a real Secure Manager on an H573I-DK
     (H563 can't run SM). Subsumes old P8.
