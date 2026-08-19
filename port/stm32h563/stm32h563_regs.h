@@ -193,6 +193,9 @@
 #define WT_GTZC1_MPCBB1_SECCFGR  ((volatile uint32_t *)(WT_GTZC1_BASE_S + 0x0800u + 0x100u))
 #define WT_GTZC1_MPCBB2_SECCFGR  ((volatile uint32_t *)(WT_GTZC1_BASE_S + 0x0C00u + 0x100u))
 #define WT_GTZC1_MPCBB3_SECCFGR  ((volatile uint32_t *)(WT_GTZC1_BASE_S + 0x1000u + 0x100u))
+#define WT_GTZC1_MPCBB1_PRIVCFGR ((volatile uint32_t *)(WT_GTZC1_BASE_S + 0x0800u + 0x200u))
+#define WT_GTZC1_MPCBB2_PRIVCFGR ((volatile uint32_t *)(WT_GTZC1_BASE_S + 0x0C00u + 0x200u))
+#define WT_GTZC1_MPCBB3_PRIVCFGR ((volatile uint32_t *)(WT_GTZC1_BASE_S + 0x1000u + 0x200u))
 
 #define WT_RCC_AHB1ENR_GTZC1EN   (1u << 24)
 #define WT_RCC_AHB2ENR_GPIOAEN   (1u << 0)

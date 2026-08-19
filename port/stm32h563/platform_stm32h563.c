@@ -209,6 +209,21 @@ static void wt_gtzc_init(void)
     for (i = 0; i < 20u; ++i) {
         WT_GTZC1_MPCBB3_SECCFGR[i] = 0xFFFFFFFFu;
     }
+
+    /* MPCBB PRIVCFGR resets to all-privileged on real silicon, which blocks
+     * every unprivileged SRAM access below the MPU — the unprivileged crypto
+     * SP thread faults on its first frame access no matter what the MPU
+     * grants. Privilege enforcement is the secure MPU's job here, so drop the
+     * GTZC privilege filter (the M33MU does not model it). */
+    for (i = 0; i < 16u; ++i) {
+        WT_GTZC1_MPCBB1_PRIVCFGR[i] = 0x00000000u;
+    }
+    for (i = 0; i < 4u; ++i) {
+        WT_GTZC1_MPCBB2_PRIVCFGR[i] = 0x00000000u;
+    }
+    for (i = 0; i < 20u; ++i) {
+        WT_GTZC1_MPCBB3_PRIVCFGR[i] = 0x00000000u;
+    }
 }
 
 static void wt_sau_init(void)
