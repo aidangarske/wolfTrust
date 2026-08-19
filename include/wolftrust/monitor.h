@@ -22,7 +22,7 @@
 #ifndef WOLFTRUST_MONITOR_H
 #define WOLFTRUST_MONITOR_H
 
-#include "wolftrust/arch/armv8m/partition.h"
+#include "wolftrust/partition.h"
 #include "wolftrust/platform.h"
 
 typedef enum wt_scheduler_rep {

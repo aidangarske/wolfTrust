@@ -65,7 +65,18 @@ typedef struct wt_guest_config {
     wt_guest_state_t initial_state;
 } wt_guest_config_t;
 
-typedef struct wt_guest_runtime wt_guest_runtime_t;
+/* Per-guest scheduler runtime. The execution context is an architecture-port
+ * type held by POINTER: the port owns the concrete storage and wires it in
+ * wt_partition_reset_runtime / the runtime table, so the core never needs the
+ * arch layout. */
+typedef struct wt_guest_runtime {
+    struct wt_guest_context* context;
+    wt_guest_state_t state;
+    uint32_t remaining_delay_ticks;
+    uint32_t restart_count;
+    uint32_t first_restart_tick;
+    wt_fault_reason_t last_fault;
+} wt_guest_runtime_t;
 
 typedef enum wt_port_validation_result {
     WT_PORT_VALID = 0,

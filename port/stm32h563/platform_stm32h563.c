@@ -20,6 +20,7 @@
 
 #include "wolftrust/platform.h"
 #include "wolftrust/monitor.h"
+#include "wolftrust/arch/armv8m/context.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -1420,6 +1421,11 @@ void wt_platform_dmb(void)
 void wt_platform_dsb(void)
 {
     wt_dsb();
+}
+
+bool wt_platform_guest_context_ready(const wt_guest_context_t* context)
+{
+    return (context != NULL) && (context->pc != 0u);
 }
 
 /* Rewrite the NS-banked stack/control registers from a guest's saved context.

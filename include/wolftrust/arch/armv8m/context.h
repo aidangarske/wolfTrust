@@ -24,7 +24,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-typedef struct wt_armv8m_context {
+/* Concrete body of the core's forward-declared struct wt_guest_context
+ * (wolftrust/platform.h): the Armv8-M guest execution context. The tag must
+ * stay wt_guest_context so port code sees one complete type. */
+struct wt_guest_context {
     uint32_t r4_r11[8];
     uintptr_t psp_ns;
     uintptr_t msp_ns;
@@ -37,9 +40,9 @@ typedef struct wt_armv8m_context {
     bool frame_stacked;
     bool active_exception;
     uintptr_t psplim_ns;
-} wt_armv8m_context_t;
+};
 
-/* Temporary alias keeps the H563 guest monitor source compatible. */
-typedef wt_armv8m_context_t wt_guest_context_t;
+typedef struct wt_guest_context wt_armv8m_context_t;
+typedef struct wt_guest_context wt_guest_context_t;
 
 #endif

@@ -18,7 +18,8 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "wolftrust/arch/armv8m/partition.h"
+#include "wolftrust/arch/armv8m/context.h"
+#include "wolftrust/partition.h"
 #include "memory_map.h"
 
 #include <string.h>
@@ -146,6 +147,20 @@ static wt_guest_config_t g_partition_configs[] = {
 static wt_guest_runtime_t g_partition_runtime[
     sizeof(g_partition_configs) / sizeof(g_partition_configs[0])
 ];
+/* Port-owned concrete context storage; the neutral runtime holds pointers. */
+static wt_guest_context_t g_partition_contexts[
+    sizeof(g_partition_configs) / sizeof(g_partition_configs[0])
+];
+
+static void wt_partitions_wire_contexts(void)
+{
+    size_t i;
+
+    for (i = 0; i < sizeof(g_partition_runtime) /
+            sizeof(g_partition_runtime[0]); ++i) {
+        g_partition_runtime[i].context = &g_partition_contexts[i];
+    }
+}
 static const wt_profile_capabilities_t g_profile_capabilities = {
     .capabilities = WT_CAPABILITY_SECURITY_STATE |
                     WT_CAPABILITY_PRIVILEGE_STATE |
@@ -206,6 +221,7 @@ const wt_guest_config_t* wt_partitions_config_table(size_t* count)
 
 wt_guest_runtime_t* wt_partitions_runtime_table(size_t* count)
 {
+    wt_partitions_wire_contexts();
     if (count != NULL) {
         *count = sizeof(g_partition_runtime) / sizeof(g_partition_runtime[0]);
     }
@@ -432,29 +448,34 @@ void wt_partition_reset_runtime(const wt_guest_config_t* config,
     restart_count = runtime->restart_count;
     first_restart_tick = runtime->first_restart_tick;
     memset(runtime, 0, sizeof(*runtime));
+    /* The memset wipes the port-wired context pointer; rewire by table
+     * index and zero the concrete context storage instead. */
+    runtime->context =
+        &g_partition_contexts[(size_t)(runtime - g_partition_runtime)];
+    memset(runtime->context, 0, sizeof(*runtime->context));
     runtime->restart_count = restart_count;
     runtime->first_restart_tick = first_restart_tick;
     runtime->state = config->initial_state;
-    runtime->context.psp_ns = config->initial_psp_ns;
-    runtime->context.msp_ns = config->initial_msp_ns;
-    runtime->context.vector_table_ns = config->vector_table;
+    runtime->context->psp_ns = config->initial_psp_ns;
+    runtime->context->msp_ns = config->initial_msp_ns;
+    runtime->context->vector_table_ns = config->vector_table;
     /* Reset PC is the guest's reset-handler pointer at vector[1]; the slot
      * already carries the Thumb bit. wt_jump_to_ns strips it before BXNS.
      * Read via the Secure alias of the underlying flash bank — on m33mu
      * a Secure-side read of the 0x08... NS alias returns zero, so we
      * remap to 0x0C... (secure-MPU region 7 covers the guest images). */
-    runtime->context.pc = wt_guest_reset_handler(config);
+    runtime->context->pc = wt_guest_reset_handler(config);
     if (config->guest_id >=
             sizeof(g_bound_exec_bases) / sizeof(g_bound_exec_bases[0]) ||
             g_bound_exec_sizes[config->guest_id] == 0U ||
-            runtime->context.pc < g_bound_exec_bases[config->guest_id] ||
-            runtime->context.pc >= g_bound_exec_bases[config->guest_id] +
+            runtime->context->pc < g_bound_exec_bases[config->guest_id] ||
+            runtime->context->pc >= g_bound_exec_bases[config->guest_id] +
                 g_bound_exec_sizes[config->guest_id]) {
-        runtime->context.pc = 0U;
+        runtime->context->pc = 0U;
         return;
     }
-    runtime->context.lr = 0U;
-    runtime->context.xpsr = 0x01000000U;
-    runtime->context.exc_return = WT_EXC_RETURN_NS_THREAD_MSP_FROM_SECURE;
-    runtime->context.frame_stacked = false;
+    runtime->context->lr = 0U;
+    runtime->context->xpsr = 0x01000000U;
+    runtime->context->exc_return = WT_EXC_RETURN_NS_THREAD_MSP_FROM_SECURE;
+    runtime->context->frame_stacked = false;
 }

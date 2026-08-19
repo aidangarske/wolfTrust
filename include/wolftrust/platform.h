@@ -22,7 +22,11 @@
 #ifndef WOLFTRUST_PLATFORM_H
 #define WOLFTRUST_PLATFORM_H
 
-#include "wolftrust/arch/armv8m/context.h"
+/* The guest execution context is an architecture-port type: the port defines
+ * the concrete struct (Armv8-M: wolftrust/arch/armv8m/context.h) and the core
+ * only ever holds pointers to it. */
+struct wt_guest_context;
+typedef struct wt_guest_context wt_guest_context_t;
 #include "wolftrust/types.h"
 
 typedef struct wt_trap_frame {
@@ -124,5 +128,10 @@ void wt_platform_set_ns_irq_pending(uint32_t irq, bool asserted);
  * host builds no-op. */
 void wt_platform_dmb(void);
 void wt_platform_dsb(void);
+
+/* True when a guest context has been seeded with a valid entry point
+ * (the port's reset path resolved the reset handler). The monitor panics
+ * at boot on an unseeded context. */
+bool wt_platform_guest_context_ready(const wt_guest_context_t* context);
 
 #endif

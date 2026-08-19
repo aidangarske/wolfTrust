@@ -212,8 +212,8 @@ static void wt_dispatch_guest(wt_guest_id_t guest_id)
     wt_vnet_service_refresh_irq(guest_id);
 #endif
     wt_platform_start_secure_timer(config->timeslice_ms);
-    wt_platform_prepare_guest_return(guest_id, &runtime->context);
-    wt_platform_restore_guest_context(&runtime->context);
+    wt_platform_prepare_guest_return(guest_id, runtime->context);
+    wt_platform_restore_guest_context(runtime->context);
 }
 
 #ifdef WT_ENGINE_HSM
@@ -240,7 +240,7 @@ static void wt_dispatch_hsm_tasklet(wt_guest_id_t guest_id)
     /* The tasklet completes back into this guest's NS thread via BXNS, not an
      * exception return, so its NS bank must be reinstated here or it resumes
      * on the previous guest's CONTROL_NS/MSP_NS. */
-    wt_platform_restore_ns_bank(&runtime->context);
+    wt_platform_restore_ns_bank(runtime->context);
     (void)wt_tasklet_resume(tasklet);
 }
 #endif
@@ -263,7 +263,7 @@ static void wt_save_running_guest(const wt_trap_frame_t* frame)
         (current->state == WT_GUEST_RUNNING ||
          current->state == WT_GUEST_WAITING_HSM)) {
         state = current->state;
-        wt_platform_capture_guest_context(&current->context, frame);
+        wt_platform_capture_guest_context(current->context, frame);
         current->state = (state == WT_GUEST_WAITING_HSM) ?
                          WT_GUEST_WAITING_HSM : WT_GUEST_READY;
     }
@@ -391,7 +391,7 @@ void wt_monitor_init(void)
         g_scheduler.runtime[i].restart_count = 0U;
         g_scheduler.runtime[i].first_restart_tick = 0U;
         wt_partition_reset_runtime(&g_scheduler.configs[i], &g_scheduler.runtime[i]);
-        if (g_scheduler.runtime[i].context.pc == 0u) {
+        if (!wt_platform_guest_context_ready(g_scheduler.runtime[i].context)) {
             wt_platform_panic();
         }
     }
@@ -476,7 +476,7 @@ void wt_monitor_on_guest_fault(const wt_trap_frame_t* frame,
     }
 
     wt_platform_mask_all_guest_irqs();
-    wt_platform_capture_guest_context(&current->context, frame);
+    wt_platform_capture_guest_context(current->context, frame);
     wt_platform_log_fault(g_scheduler.current_guest,
                           reason,
                           wt_platform_read_fault_address(),
