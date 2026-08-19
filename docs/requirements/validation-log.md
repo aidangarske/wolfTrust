@@ -1316,6 +1316,87 @@ and it gates the full positive-lifecycle assertion + service suite (MP2). Harnes
 `tests/target/run_h5_hardware.sh` (build in container, flash on host). No
 lock/product-state changes were made — the board stays Open and reflashable.
 
+## MP1 GREEN — full positive smoke on STM32H563 silicon (2026-08-18)
+
+**HARDWARE evidence.** `tests/target/run_h5_hardware.sh flash` exits 0 with the
+full checklist on the NUCLEO-H563ZI: no fault markers, TEE client initialized,
+`psa_framework_version=0x0100`, **`SERVICE_CRYPTO dispatch verified` (the
+unprivileged crypto SP ran in its own MPU domain on real silicon)**, FF-M
+negatives (forged handle st=-129, oversized vector st=-135),
+`psa_hash_compute(SHA-256) KAT verified`, `psa_initial_attestation st=0`,
+COSE_Sign1 verified, `guest0_psa done`, guest1 wolfHSM `C_Digest rv=0` +
+heartbeats. Console clean at 115200 after the clock fix.
+
+Three silicon-only defects were root-caused with on-board forensics (pyocd
+secure-RAM/register reads + first-wins fault capture in the tasklet fault
+dispatcher) and fixed; the M33MU never reproduces any of them:
+
+1. **Thread-mode exception return in fault recovery.** The tasklet fault path
+   EXC_RETURNed into a Thread-mode thunk whose final `bx lr` (LR=0xFFFFFFF9)
+   is only an exception return in Handler mode; silicon branch-faulted to
+   0xFFFFFFF8 (IACCVIOL) and the cascade panicked the SPM. The handler now
+   resumes the bootstrap directly — restore MSP_S to the PendSV-saved SP, pop
+   r4-r11, real exception return through the preserved frame — mirroring
+   PendSV's own bootstrap-resume path. Verified on-board: SP faults are now
+   gracefully quarantined and the system keeps running.
+2. **Secure MPU region count.** H563 implements 12 secure MPU regions
+   (`MPU_S.TYPE.DREGION`, read from silicon); the code assumed
+   `WT_MAX_MPU_REGIONS`=8 and left regions 8-11 at their reset-UNKNOWN state.
+   Both MPU programmers now disable every implemented region beyond the
+   whitelist.
+3. **GTZC MPCBB privilege filter (the MP1 blocker).** `MPCBBx_PRIVCFGR`
+   resets to all-privileged on silicon, denying every unprivileged SRAM
+   access below the MPU — the unprivileged crypto SP faulted on its first
+   entry even though the live MPU snapshot (captured in the fault handler)
+   proved the SP-thread domain was programmed and permitted the access.
+   Proven by two zero-rebuild live experiments over pyocd: forcing the SP
+   privileged made the flow green, and clearing PRIVCFGR live with the SP
+   still unprivileged made it green. `wt_gtzc_init` now clears MPCBB1/2/3
+   PRIVCFGR (privilege enforcement is the secure MPU's job in this design).
+
+Emulator-fidelity gaps recorded for upstream (task #63 register): m33mu
+accepts a Thread-mode `bx 0xFFFFFFF9` as an exception return and does not
+model GTZC privilege filtering.
+
+Board remains Open/reflashable; no option-byte changes. MP2 (full
+`make test-hardware` equivalence) is next.
+
+## MP2 — hardware equivalence suite green on STM32H563 (2026-08-18)
+
+**HARDWARE evidence.** `make test-hardware` (tests/target/run_h5_suite.sh) runs
+the on-silicon counterpart of the M33MU `test-target` scenarios on the
+NUCLEO-H563ZI — build per scenario in the CI container, flash on the host:
+
+- **positive** — the full PSA/FF-M lifecycle checklist (MP1's eight checks).
+- **restart** — the guest faults on every boot (NS read of secure RAM); the
+  monitor restarts it exactly `restart_limit`=3 times then quarantines it
+  FAULTED while guest1 keeps heartbeating. Asserted via the monitor's own
+  event counters (`g_wt_restart_events`=3, `g_wt_quarantine_events`=1) read
+  over the debug port — deterministic, immune to UART interleave.
+- **crossdomain** — the unprivileged crypto SP reads SPM-private RAM; the SP
+  MPU domain denies it (captured fault count=1, address=0x30028000 =
+  WT_RAM_S_BASE), nothing escalates to HardFault, and guest1 survives — L3
+  isolation with graceful quarantine on real silicon.
+
+**Restart-engine defect found and fixed on the way (silicon-only).** The
+restart budget reset whenever wall-time since the FIRST restart exceeded
+`restart_window_ticks` (64 ticks = 128 ms at the 2 ms timeslice), and the
+reset ran before the quarantine check. Real reboot cycles exceed the window,
+so the counter was wiped every cycle and a crash-looping guest restarted
+forever — 555 boots observed in one 32 s capture, with the monitor provably
+handling every fault (`g_last_fault_address`=0x30028000). Emulator cycles are
+sub-tick, so the M33MU always quarantined and masked the bug. Fix:
+`wt_restart_guest` resets the budget only after a full crash-free window since
+the LAST restart (a crash loop can never reset; a guest that runs quietly for
+a window still earns a fresh budget), and the manifests scale
+`restart_window_ticks` 64 → 8000 (16 s of required stability; 64 was
+emulator-scaled).
+
+Known scope limits, tracked: ITS/protected storage is not yet implemented
+(guest0 notes the missing wolfPSA key-storage backend — Phase 4), and the UART
+console interleave (both guests raw-write USART3) is cosmetic pending the
+secure console veneer task.
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are

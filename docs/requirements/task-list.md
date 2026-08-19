@@ -965,10 +965,24 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   on the box (STLINK-V3, `/dev/ttyACM0`), TrustZone-provisioned (TZEN on,
   SECBOOTADD=0x0C000000, OEM-iRoT). **First HW boot done:** wolfTrust boots (core
   `Running [Nonsecure]`); console baud-mismatched — MP1 fix.
-  - MP1 [ ] H5 bring-up: clean console (baud vs real clock tree) + positive smoke
-    green on HW via `run_h5_hardware.sh flash`.
-  - MP2 [ ] Full functional equivalence on silicon (PSA Crypto/Attestation/ITS +
-    FF-M IPC + L3 isolation) via `make test-hardware`; hardware ledger.
+  - MP1 [x] H5 bring-up DONE (2026-08-18): console clean (authoritative 240 MHz
+    clock tree) and the full positive smoke GREEN on the board —
+    `run_h5_hardware.sh flash` exit 0, `SERVICE_CRYPTO dispatch verified` with
+    the unprivileged SP in its own MPU domain. Three silicon-only fixes:
+    handler-mode fault-recovery resume (Thread-mode thunk was invalid on HW),
+    MPU region clears to TYPE.DREGION (12 on H563), GTZC MPCBB PRIVCFGR
+    cleared (resets all-privileged, blocked unpriv SPs below the MPU). See
+    validation-log "MP1 GREEN".
+  - MP2 [x] Hardware equivalence suite DONE (2026-08-18): `make test-hardware`
+    green on the board — positive lifecycle + restart quarantine (exactly 3
+    restarts then FAULTED, monitor event counters) + cross-domain isolation
+    (SP denied at WT_RAM_S_BASE, graceful quarantine, guest1 survives). Fixed
+    on the way: restart-engine window reset ran before the quarantine check
+    and wall-time expiry wiped the count every real-silicon cycle (555-boot
+    crash loop, emulator-masked); budget now resets only after a crash-free
+    window since the last restart, manifests scale the window 64→8000 ticks.
+    See validation-log "MP2". ITS remains Phase-4 scope (no wolfPSA
+    key-storage backend yet).
   - MP3 [ ] Immutable-RoT lock model + reversible lock test + workflow (⚠️ DA
     regression credential FIRST; HDP/SECWM/WRP/BOOT_UBE + product-state `Closed`;
     prove sealed; regress). Reversible only — never permanent `Locked` on dev.
