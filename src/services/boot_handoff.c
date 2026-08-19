@@ -36,7 +36,7 @@ int wt_boot_handoff_consume(wt_boot_handoff_t* handoff)
         return -1;
     }
 
-    __asm volatile("dmb" ::: "memory");
+    wt_platform_dmb();
     for (i = 0u; i < sizeof(*handoff); ++i) {
         outputBytes[i] = sourceBytes[i];
     }
@@ -53,7 +53,7 @@ int wt_boot_handoff_consume(wt_boot_handoff_t* handoff)
     for (i = 0u; i < sizeof(*handoff); ++i) {
         sourceBytes[i] = 0u;
     }
-    __asm volatile("dsb" ::: "memory");
+    wt_platform_dsb();
 
     if (ret != 0) {
         for (i = 0u; i < sizeof(*handoff); ++i) {
