@@ -1807,7 +1807,7 @@ static int wt_hsm_veneer_precheck(void)
 }
 
 int WolfTrust_HSM_Submit_Impl(uint16_t size);
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int WolfTrust_HSM_Submit(uint16_t size)
 {
     return WolfTrust_HSM_Submit_Impl(size);
@@ -1841,7 +1841,7 @@ out:
 }
 
 int WolfTrust_HSM_Poll_Impl(uint16_t seq);
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int WolfTrust_HSM_Poll(uint16_t seq)
 {
     return WolfTrust_HSM_Poll_Impl(seq);
@@ -1885,7 +1885,7 @@ out:
 }
 
 int WolfTrust_HSM_Cancel_Impl(uint16_t seq);
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int WolfTrust_HSM_Cancel(uint16_t seq)
 {
     return WolfTrust_HSM_Cancel_Impl(seq);
@@ -1914,7 +1914,7 @@ out:
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
 int WolfTrust_Attest_GetTokenSize_Impl(size_t challengeSize,
                                       size_t* tokenSize);
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int WolfTrust_Attest_GetTokenSize(size_t challengeSize, size_t* tokenSize)
 {
     return WolfTrust_Attest_GetTokenSize_Impl(challengeSize, tokenSize);
@@ -1945,7 +1945,7 @@ out:
 
 int WolfTrust_Attest_GetToken_Impl(const uint8_t* challenge,
     size_t challengeSize, uint8_t* token, size_t* tokenSize);
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int WolfTrust_Attest_GetToken(const uint8_t* challenge, size_t challengeSize,
     uint8_t* token, size_t* tokenSize)
 {
@@ -2001,7 +2001,7 @@ out:
 
 int WolfTrust_Attest_GetPublicKey_Impl(uint8_t* publicKey,
     size_t publicKeyCapacity, size_t* publicKeySize);
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int WolfTrust_Attest_GetPublicKey(uint8_t* publicKey,
     size_t publicKeyCapacity, size_t* publicKeySize)
 {

@@ -48,9 +48,14 @@ SECTIONS {
     KEEP(*(.vectors))
   } > FLASH
 
+  /* Linker-synthesized SG veneers land here (--cmse-implib); veneer bodies
+   * live in .text. The dot assignment keeps the section address assigned even
+   * when no input object carries .gnu.sgstubs content, or ld cannot size the
+   * synthesized stubs ("no address assigned to the veneers output section"). */
   .gnu.sgstubs (WT_SECURE_FLASH_ORIGIN + WT_SECURE_IMAGE_HEADER_SIZE + 0x400) : {
     *(.gnu.sgstubs)
     *(.gnu.sgstubs*)
+    . = ALIGN(32);
   } > FLASH
 
   .nsc ALIGN(32) : {

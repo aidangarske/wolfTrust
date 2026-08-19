@@ -62,7 +62,7 @@ static int wt_ffm_veneer_caller(psa_client_id_t* caller)
     return 1;
 }
 
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version)
 {
     psa_client_id_t caller;
@@ -74,7 +74,7 @@ int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version)
                                    version);
 }
 
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
                           wt_ffm_veneer_iovec_t* ns_iovec)
 {
@@ -118,7 +118,7 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
     return status;
 }
 
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 void WolfTrust_FFM_Close(int32_t handle)
 {
     psa_client_id_t caller;
@@ -130,13 +130,13 @@ void WolfTrust_FFM_Close(int32_t handle)
                        (psa_handle_t)handle);
 }
 
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 uint32_t WolfTrust_FFM_FrameworkVersion(void)
 {
     return wt_ffm_framework_version(wt_ffm_boot_runtime_mut());
 }
 
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 uint32_t WolfTrust_FFM_ServiceVersion(uint32_t sid)
 {
     psa_client_id_t caller;

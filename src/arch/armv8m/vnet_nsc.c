@@ -161,44 +161,44 @@ static int do_irq_ack(void)
     return vnet_switch_irq_ack(sw, vm);
 }
 
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int WolfTrust_VNet_Open(vnet_info_t *ns_info)
 {
     return do_open(ns_info);
 }
 
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int WolfTrust_VNet_SetMac(const uint8_t *ns_mac6, uint32_t flags)
 {
     return do_set_mac(ns_mac6, flags);
 }
 
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int WolfTrust_VNet_Tx(const void *ns_frame, uint16_t len, uint32_t flags)
 {
     return do_tx(ns_frame, len, flags);
 }
 
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int WolfTrust_VNet_RxPoll(vnet_rx_meta_t *ns_meta)
 {
     return do_rx_poll(ns_meta);
 }
 
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int WolfTrust_VNet_RxRead(uint16_t slot, uint16_t gen,
                           void *ns_dst, uint16_t dst_len)
 {
     return do_rx_read(slot, gen, ns_dst, dst_len);
 }
 
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int WolfTrust_VNet_RxRelease(uint16_t slot, uint16_t gen)
 {
     return do_rx_release(slot, gen);
 }
 
-__attribute__((cmse_nonsecure_entry, section(".gnu.sgstubs")))
+__attribute__((cmse_nonsecure_entry))
 int WolfTrust_VNet_IrqAck(void)
 {
     return do_irq_ack();
