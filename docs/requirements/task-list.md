@@ -1019,8 +1019,11 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       (ATOMIC; keep veneer names + `cmse_nonsecure_entry` + `-mcmse`).
     - MP4-S5 (B) [ ] extract 7 vnet CMSE veneers → `src/arch/armv8m/vnet_nsc.c`
       (`CONFIG_VNET` gated).
-    - MP4-S7 [ ] MCU-family flash/entropy contract headers under
-      `include/wolftrust/` (kill core's bare `hsm_flash.h` include).
+    - MP4-S7 [x] DONE (2026-08-19, `673ec01`, gate-green): neutral
+      `include/wolftrust/port_nvm.h` flash-provider contract; core `wt_hsm.c`
+      includes it instead of the bare port `hsm_flash.h`. (Entropy needs no new
+      header — it is a wolfCrypt `CUSTOM_RAND_GENERATE_BLOCK` config macro, not a
+      core include coupling.) SAFE TIER of MP4 now complete + gate-verified.
     - MP4-guard [x] DONE (2026-08-19, `5505c31`): `tools/check-core-port-split.sh`
       (report-only; `WT_SPLIT_STRICT=1` fails on hard core→arch leaks). It caught
       that S1 added the barrier hooks but left the inline `dmb`/`dsb` in

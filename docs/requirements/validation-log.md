@@ -1458,9 +1458,17 @@ Gate (`validate-in-container.sh` in the CI container on the box): `make test`
 PASS) + `make test-conformance` (**Arm 85 passed / 4 skipped / 0 failed**,
 `[EXPECT BKPT] Success`), `FINAL_RC=0`. The `test-target` pass proves the secure
 image compiled and linked with both extractions and the NS→S dispatch + L3
-isolation are unchanged. Remaining MP4: S3 (context forward-decl), S7 (MCU-family
-flash/entropy contract), guard script (safe tier); S4/S5 (CMSE veneer
-extraction, deep); S6 (monitor context de-arch, deferred milestone).
+isolation are unchanged.
+
+Safe tier then completed on the same gate (85/4/0, `FINAL_RC=0`): the
+`boot_handoff` inline `dmb`/`dsb` were replaced by the platform hooks (`87336c9`,
+a guard-caught gap S1 had missed), a report-only split guard was added
+(`tools/check-core-port-split.sh`, `5505c31`), and the MCU-family flash contract
+`include/wolftrust/port_nvm.h` replaced core's bare `hsm_flash.h` include
+(`673ec01`). Remaining MP4 is the deep tier (Fable): S4/S5 CMSE veneer
+extraction to `src/arch/armv8m/`, and S3+S6 (entangled) — `wt_guest_context_t`
+is one concrete type shared by `platform.h` and the scheduler runtime, so its
+neutralization spans both and touches the port `offsetof` asm contract.
 
 ## M33MU emulator defect register
 
