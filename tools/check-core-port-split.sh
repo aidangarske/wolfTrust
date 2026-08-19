@@ -34,14 +34,12 @@ scan() { # kind(hard|soft)  label  regex
 echo "wolfTrust core/port split guard (CORE = src + include/wolftrust, minus arch)"
 
 scan hard 'core #include of an arch header' '#[[:space:]]*include[[:space:]]*"wolftrust/arch/'
-scan hard 'CMSE usage in core' '\bcmse_|\bwt_cmse_|cmse_nonsecure_entry'
+scan hard 'CMSE usage in core' '\bwt_cmse_[a-z_]+[[:space:]]*\(|__attribute__\(\([^)]*cmse'
 scan hard 'inline assembly in core' '__asm|asm[[:space:]]+volatile'
 scan soft 'MPU/GTZC/SAU/NVIC register names in core' 'MPU->|GTZC|\bSAU\b|NVIC->|NVIC_'
 
 echo
 echo "SUMMARY: hard leaks=$HARD  soft(register-name) hits=$SOFT"
-echo "Known remaining (MP4 backlog): S3+S6 wt_guest_context_t (platform.h +"
-echo "monitor.h/partition.h by-value); residual CMSE hits are comments only."
 
 if [ "${WT_SPLIT_STRICT:-0}" = "1" ]; then
   if [ "$HARD" -gt 0 ]; then

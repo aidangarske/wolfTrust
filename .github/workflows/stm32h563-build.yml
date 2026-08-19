@@ -260,3 +260,26 @@ jobs:
 
       - name: Run FF-M target scenario
         run: tests/target/run_m33mu_scenario.sh ${{ matrix.scenario }}
+
+  core-port-split:
+    name: core/port split guard + vnet image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: Enforce the core/port split (strict)
+        run: WT_SPLIT_STRICT=1 tools/check-core-port-split.sh
+
+      - name: Initialize wolfTrust dependencies
+        run: git submodule update --init --single-branch
+
+      - name: Build the CONFIG_VNET secure image (NSC window regression)
+        run: make -C tests/firmware/stm32h563-vnet secure
