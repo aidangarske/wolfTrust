@@ -135,13 +135,4 @@ bool wt_co_request_preempt(void);
  * is no preemption to fence against. */
 void wt_co_mark_faulted(wt_co_t *co);
 
-/* Recovery thunk invoked by the fault handler's fabricated exception
- * frame after EXC_RETURN. Pops the bootstrap's saved {r4-r11, lr} frame
- * from MSP_S and resumes wt_co_arch_switch's caller (do_switch →
- * wt_co_tick). Naked, noreturn. Architecture-specific (defined in
- * src/arch/<arch>/coroutine_<arch>.c). Not part of the public coroutine
- * API; declared here so the platform fault handler can take its
- * address. */
-void wt_co_fault_recovery_thunk(void);
-
 #endif

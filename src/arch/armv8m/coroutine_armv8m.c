@@ -219,16 +219,3 @@ void PendSV_Handler(void)
         "b      wt_platform_panic                               \n"
     );
 }
-
-__attribute__((naked, noreturn))
-void wt_co_fault_recovery_thunk(void)
-{
-    __asm__ volatile (
-        "movs   r0, #0                                          \n"
-        "msr    psplim, r0                                      \n"
-        "pop    {r4-r11}                                        \n"
-        "ldr    r0, =0xFFFFFFF9                                 \n"
-        "mov    lr, r0                                          \n"
-        "bx     lr                                              \n"
-    );
-}

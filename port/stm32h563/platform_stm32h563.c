@@ -127,6 +127,9 @@ static volatile uint32_t g_active_guest;
 static volatile uint32_t g_secure_service_depth;
 static volatile uint32_t g_hsm_wait_skip_count;
 static volatile uint32_t g_tasklet_fault_count;
+static volatile uint32_t g_tasklet_fault_cfsr;
+static volatile uint32_t g_tasklet_fault_pc;
+static volatile uint32_t g_tasklet_fault_exc_return;
 static void (*g_secure_thread_resume_entry)(void) __attribute__((noreturn));
 
 typedef struct wt_virtual_systick {
@@ -1605,24 +1608,38 @@ __attribute__((naked)) void SecureFault_Handler(void)
  *      hands the NS client a WH_ERROR_ABORTED via wt_hsm_signal_fault,
  *      drops any mutex held by the dying tasklet, and marks the
  *      tasklet WT_TASKLET_FAULTED.
- *   2. The naked handler asm fabricates a Secure-Thread MSP exception
- *      frame on MSP_S that targets wt_co_fault_recovery_thunk, then
- *      EXC_RETURNs. Hardware lands in the thunk on MSP_S, the thunk
- *      drops the bootstrap's saved r4-r11 frame, returns through the
- *      preserved bootstrap exception frame, and execution resumes
- *      inside wt_tasklet_run as if the tasklet had switched back. The
- *      scheduler picks up the next runnable tasklet — the faulted one
- *      is no longer on the runqueue.
+ *   2. The naked handler asm restores MSP_S to the bootstrap SP that
+ *      PendSV saved (r4-r11 push + preserved exception frame), pops
+ *      r4-r11, and EXC_RETURNs through the preserved bootstrap frame —
+ *      all in Handler mode, mirroring PendSV's bootstrap-resume path.
+ *      Execution resumes inside wt_tasklet_run as if the tasklet had
+ *      switched back; the scheduler picks up the next runnable tasklet —
+ *      the faulted one is no longer on the runqueue. (An earlier design
+ *      EXC_RETURNed into a Thread-mode thunk that then tried a second
+ *      exception return; only Handler mode can exception-return on real
+ *      silicon, so that worked on the M33MU and IACCVIOL-faulted on H5.)
  *
  * If the fault fires while bootstrap (monitor) is running there is no
  * tasklet to abandon and no saved frame to unwind to, so the C
  * dispatcher panics.
  * ----------------------------------------------------------------------- */
-static void wt_secure_tasklet_fault_dispatch(void) __attribute__((used));
-static void wt_secure_tasklet_fault_dispatch(void)
+static void wt_secure_tasklet_fault_dispatch(uint32_t *frame,
+                                             uint32_t exc_return)
+    __attribute__((used));
+static void wt_secure_tasklet_fault_dispatch(uint32_t *frame,
+                                             uint32_t exc_return)
 {
     uint32_t cfsr = WT_SCB_CFSR_S;
 
+    /* First-wins forensic record: the first tasklet fault's CFSR, stacked PC
+     * and EXC_RETURN survive any later cascade so a debugger post-mortem can
+     * tell what faulted (MMFSR/UFSR bits), where (PC), and from which mode
+     * (EXC_RETURN bit 3). g_last_fault_address below adds the data address. */
+    if (g_tasklet_fault_cfsr == 0u) {
+        g_tasklet_fault_cfsr = cfsr;
+        g_tasklet_fault_pc = frame[6];
+        g_tasklet_fault_exc_return = exc_return;
+    }
     if ((cfsr & WT_SCB_CFSR_MMFSR_MMARVALID) != 0u) {
         g_last_fault_address = WT_SCB_MMFAR_S;
     }
@@ -1659,25 +1676,24 @@ __attribute__((naked, used))
 static void wt_secure_tasklet_fault_entry(void)
 {
     __asm volatile(
+        /* r0 = the faulting context's stacked exception frame (EXC_RETURN
+         * bit 2 selects the stack it was pushed to), r1 = EXC_RETURN. */
+        "tst    lr, #4                              \n"
+        "ite    eq                                  \n"
+        "mrseq  r0, msp                             \n"
+        "mrsne  r0, psp                             \n"
+        "mov    r1, lr                              \n"
         "bl     wt_secure_tasklet_fault_dispatch    \n"
-        /* Fabricate an 8-word exception frame on MSP_S whose PC field
-         * points at the recovery thunk. r0-r3, r12, lr are don't-care
-         * (the thunk's first instruction is `pop {r4-r11, pc}`). xPSR
-         * carries only the Thumb bit. */
-        "sub    sp, sp, #32                         \n"
-        "movs   r0, #0                              \n"
-        "str    r0, [sp, #0]                        \n"
-        "str    r0, [sp, #4]                        \n"
-        "str    r0, [sp, #8]                        \n"
-        "str    r0, [sp, #12]                       \n"
-        "str    r0, [sp, #16]                       \n"
-        "str    r0, [sp, #20]                       \n"
-        "movw   r0, #:lower16:wt_co_fault_recovery_thunk \n"
-        "movt   r0, #:upper16:wt_co_fault_recovery_thunk \n"
-        "str    r0, [sp, #24]                       \n"
-        "movw   r0, #0x0000                         \n"
-        "movt   r0, #0x0100                         \n"
-        "str    r0, [sp, #28]                       \n"
+        /* Resume the bootstrap exactly like PendSV's bootstrap path:
+         * g_wt_co_bootstrap.sp points at the r4-r11 PendSV pushed with the
+         * preserved bootstrap exception frame above it. This is Handler
+         * mode, so the final bx is a real exception return — a Thread-mode
+         * thunk cannot exception-return on hardware (M33MU accepted it,
+         * H5 silicon IACCVIOL-faults at 0xFFFFFFF8). */
+        "ldr    r0, =g_wt_co_bootstrap              \n"
+        "ldr    r0, [r0, #0]                        \n"
+        "msr    msp, r0                             \n"
+        "pop    {r4-r11}                            \n"
         /* Drop PSPLIM_S — wt_co_arch_switch reinstalls it for the next
          * tasklet. PSP_S itself is left pointing into the dead
          * tasklet's stack; harmless because CONTROL.SPSEL=0 on

@@ -84,6 +84,4 @@ static inline void wt_tasklet_mark_faulted(wt_tasklet_t *tasklet)
     wt_co_mark_faulted(tasklet);
 }
 
-void wt_co_fault_recovery_thunk(void);
-
 #endif /* WOLFTRUST_SCHED_TASKLET_H */
