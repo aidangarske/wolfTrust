@@ -641,10 +641,9 @@ static void wt_clock_init(void)
 {
     uint32_t reg;
 
-    if (((WT_RCC_CFGR1 >> WT_RCC_CFGR1_SWS_SHIFT) & WT_RCC_CFGR1_SW_MASK) ==
-        WT_RCC_CFGR1_SW_PLL1) {
-        return;
-    }
+    /* Do not inherit wolfBoot's clock (250 MHz, APB1 undivided): re-establish the
+     * 240 MHz APB1/2 tree the stock nucleo_h563zi NS guest was built for, else
+     * its USART3 baud is ~2x off on real silicon. */
 
     reg = WT_PWR_VOSCR & ~WT_PWR_VOSCR_VOS_MASK;
     WT_PWR_VOSCR = reg | WT_PWR_VOSCR_SCALE0;
