@@ -11,7 +11,7 @@
 #   * board-writing commands refuse to run without WT_LOCK_CONFIRM=1
 #   * the permanent Locked product state (0x5C) is refused outright
 #   * regression returns to Open (fully debuggable, reflashable) — never a brick
-#   * DA uses ST's guaranteed-consistent password OBK + password.bin pair
+#   * DA uses the certificate OBK that matches TZEN-enabled (ST AN6008 pairing)
 #   * restore reproduces the captured-verified perimeter, so recovery is proven
 #     on the Open board BEFORE any state advance is ever attempted
 #
@@ -32,11 +32,15 @@ CLI="${STM32_CLI:-$CP/STM32_Programmer_CLI}"
 SERIAL="${H5_SERIAL:-/dev/ttyACM0}"
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 
-# ST DA credential (guaranteed-consistent OBK/password pair from the pinned
-# NUCLEO-H563ZI ROT_Provisioning/DA folder). Override to use a wolfTrust-owned
-# password generated the same way once the cycle is proven.
+# ST DA credential from the pinned NUCLEO-H563ZI ROT_Provisioning/DA folder.
+# wolfTrust runs with TrustZone ENABLED, so DA is CERTIFICATE-based: AN6008
+# requires the certificate method when TZEN=0xB4, and a password OBK provisioned
+# here cannot authenticate and blocks regression (verified on-board 2026-08-19,
+# docs/evidence/2026-08-18-h5-mp3-lock). Use DA_Config.obk + the leaf key and
+# cert chain, NOT DA_ConfigWithPassword.obk. Override once a wolfTrust-owned
+# certificate chain replaces ST's sample.
 DA_DIR="${WT_DA_DIR:-$HOME/st-rot-h5/Projects/NUCLEO-H563ZI/ROT_Provisioning/DA}"
-DA_OBK="${WT_DA_OBK:-$DA_DIR/Binary/DA_ConfigWithPassword.obk}"
+DA_OBK="${WT_DA_OBK:-$DA_DIR/Binary/DA_Config.obk}"
 DA_PWD="${WT_DA_PWD:-$DA_DIR/Binary/password.bin}"
 DA_KEY="${WT_DA_KEY:-$DA_DIR/Keys/key_3_leaf.pem}"
 DA_CERT="${WT_DA_CERT:-$DA_DIR/Certificates/cert_leaf_chain.b64}"
@@ -149,22 +153,18 @@ case "$cmd" in
 
   regress)
     confirm
-    # Provisioning -> Open regression. TrustZone stays enabled here, so ST's
-    # rule is to authenticate with the CERTIFICATE (per=a Full Regression); the
-    # RSS then mass-erases and resets the product state to Open. This is ST's
-    # dbg_auth.sh form (close stale session, then authenticate) — it OMITS the
-    # regression.sh TZEN-disable/re-sdp prefix, which is the Closed-state path
-    # and, verified on-board, wedges the DA session from Provisioning (TZEN left
-    # untouched, auth timed out). Closed->Open would add the TZEN handling back.
-    echo "DA Full Regression Provisioning -> Open (certificate, mass-erase):"
-    # Close any stale session on the Hotplug connection, then AUTHENTICATE on a
-    # bare "-c port=SWD speed=fast" (default NORMAL/under-reset) exactly as ST's
-    # dbg_auth.sh does: the reset halts the running firmware so the RSS can
-    # answer the DA handshake. mode=Hotplug leaves wolfTrust running and the
-    # device response times out (verified on-board).
-    "$CLI" $DA_CONN debugauth=3 2>&1 | strip | tail -2 || true
-    "$CLI" -c port=SWD speed=fast per=a key="$DA_KEY" cert="$DA_CERT" \
-      pwd="$DA_PWD" debugauth=1 2>&1 | strip | tail -12
+    # Certificate DA Full Regression -> Open. VERIFIED on-board 2026-08-19
+    # (docs/evidence/2026-08-18-h5-mp3-lock/2026-08-19-recovery-cert-regression.log).
+    # wolfTrust runs TZEN enabled, so the credential is the certificate (per=a).
+    # Do NOT send debugauth=3 first: it locks the debug session and then blocks
+    # AP access for the handshake. Reset to clear any stale lock, then
+    # authenticate on a bare "-c port=SWD" (default NORMAL/under-reset so the RSS
+    # answers) with the key+cert; CubeProgrammer selects the certificate because
+    # TZEN is enabled and the RSS mass-erases the device back to Open.
+    echo "DA certificate Full Regression -> Open (mass-erase):"
+    "$CLI" -c port=SWD mode=HotPlug -rst 2>&1 | strip | tail -1 || true
+    "$CLI" -c port=SWD per=a key="$DA_KEY" cert="$DA_CERT" pwd="$DA_PWD" \
+      debugauth=1 </dev/null 2>&1 | strip | tail -14
     echo "state after regression: $(product_state)"
     ;;
 
