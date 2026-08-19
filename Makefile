@@ -131,6 +131,7 @@ clean:
 	$(MAKE) -C tests/host/ipc clean
 	$(MAKE) -C tests/host/ffm clean
 	$(MAKE) -C tests/host/ffm_domain clean
+	$(MAKE) -C tests/host/ffm_veneer clean
 	$(MAKE) -C tests/host/sp_layout clean
 	$(MAKE) -C tests/host/spm_gate clean
 	$(MAKE) -C tests/host/psa_ff_upstream clean
