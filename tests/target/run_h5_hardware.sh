@@ -17,6 +17,10 @@
 #   crossdomain  a probe inside the crypto SP reads SPM-private RAM; the SP
 #                domain denies it (fault captured), the SP is quarantined, and
 #                the rest of the system survives (L3 isolation on silicon)
+#   confboot     the unmodified Arm val NSPE FF-M IPC suite (85/4) against the
+#                production SPM; panic tests reboot the chain via real
+#                SYSRESETREQ and val resumes off its flash boot flag.
+#                Requires SECWM1 to cover the whole boot partition (0x00-0x4F).
 #
 # The build and flash steps run in different environments (container vs host)
 # because the box's ARM toolchain lives only in the CI container while the
@@ -33,7 +37,7 @@ set -o pipefail
 mode="${1:-all}"
 scenario="${2:-positive}"
 case "$mode" in build|flash|all) ;; *) echo "usage: $0 build|flash|all [scenario]" >&2; exit 2 ;; esac
-case "$scenario" in positive|restart|crossdomain) ;; *) echo "usage: $0 $mode positive|restart|crossdomain" >&2; exit 2 ;; esac
+case "$scenario" in positive|restart|crossdomain|confboot) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|confboot" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -48,7 +52,10 @@ PYOCD_TARGET="${PYOCD_TARGET:-stm32h563zitx}"
 CLI="${STM32_CLI:-$HOME/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin/STM32_Programmer_CLI}"
 SERIAL="${H5_SERIAL:-/dev/ttyACM0}"
 # restart reboots guest0 restart_limit times; give the banners time to land.
-case "$scenario" in restart) cap_default=32 ;; *) cap_default=25 ;; esac
+# confboot reboots the whole chain once per panic test (real SYSRESETREQ, each
+# re-running wolfBoot), so it needs a long ceiling; the capture stops early on
+# the suite report.
+case "$scenario" in restart) cap_default=32 ;; confboot) cap_default=900 ;; *) cap_default=25 ;; esac
 CAP_S="${H5_CAPTURE_SECONDS:-$cap_default}"
 LOGFILE="${WT_SCENARIO_LOG:-ci-h5-hardware-$scenario.log}"
 case "$LOGFILE" in /*) ;; *) LOGFILE="$repo/$LOGFILE" ;; esac
@@ -140,6 +147,7 @@ if [ "$mode" != "flash" ]; then
   secure_flags=""; guest_flags=""
   [ "$scenario" = "crossdomain" ] && secure_flags="WT_FFM_NEGATIVE_PROBE=1"
   [ "$scenario" = "restart" ] && guest_flags="WT_GUEST_FAULT_PROBE=1"
+  [ "$scenario" = "confboot" ] && { secure_flags="WT_CONFORMANCE=1"; guest_flags="WT_RUN_CONFORMANCE=1"; }
 
   stage "building wolfTrust secure image ($scenario)"
   {
@@ -185,10 +193,19 @@ if [ "$mode" != "build" ]; then
   test -s "$guest0" || { echo "FAIL: guest0 image missing — run build first" >&2; exit 1; }
   test -s "$guest1" || { echo "FAIL: guest1 image missing — run build first" >&2; exit 1; }
 
-  stage "capturing $SERIAL @ 115200 for ${CAP_S}s"
+  # confboot's panic tests resume off a flash-backed boot flag in a reserved
+  # secure sector; unlike the emulator (fresh flash each run) the board keeps
+  # last run's counters, and stale state makes ~2 tests misresume as SIM ERROR.
+  # Erase it so every run starts emulator-fresh.
+  if [ "$scenario" = "confboot" ]; then
+    stage "erasing conformance boot-flag NVM sector (0x0C1FA000)"
+    pyocd erase -t "$PYOCD_TARGET" -s 0x0C1FA000 >/dev/null 2>&1 || true
+  fi
+
+  stage "capturing $SERIAL @ 115200 (max ${CAP_S}s)"
   stty -F "$SERIAL" 115200 raw -echo -echoe -echok -onlcr 2>/dev/null || true
   : > "$uart"
-  timeout "$CAP_S" cat "$SERIAL" > "$uart" 2>/dev/null &
+  cat "$SERIAL" >> "$uart" 2>/dev/null &
   cap_pid=$!
   sleep 1
 
@@ -205,6 +222,24 @@ if [ "$mode" != "build" ]; then
   grep -aq "verified successfully" "$cli_log" || {
     echo "FAIL: flash verify did not complete" >&2; exit 1; }
 
+  # CubeProgrammer -hardRst is unreliable (observed: board left parked in the
+  # pre-flash state); always follow with an explicit debug-port reset.
+  pyocd cmd -t "$PYOCD_TARGET" -c reset >/dev/null 2>&1 || true
+
+  # confboot reboots the chain once per panic test and val resumes off its flash
+  # boot flag; the run is done when the suite prints its report, so stop early on
+  # it rather than wait the whole ceiling. The others have a fixed settling window.
+  if [ "$scenario" = "confboot" ]; then
+    stage "waiting for the Arm suite report (max ${CAP_S}s)"
+    waited=0
+    while [ "$waited" -lt "$CAP_S" ]; do
+      grep -aq "TOTAL FAILED" "$uart" && break
+      sleep 5; waited=$((waited + 5))
+    done
+  else
+    sleep "$CAP_S"
+  fi
+  kill "$cap_pid" 2>/dev/null || true
   wait "$cap_pid" 2>/dev/null || true
   echo "----- UART capture -----" >> "$LOGFILE"
   cat "$uart" >> "$LOGFILE"
@@ -281,6 +316,20 @@ if [ "$mode" != "build" ]; then
         check_fail "cross-domain isolation" "fault addr 0x$fault_addr not in the SPM RAM band"
       fi
       expect "guest1 alive after SP quarantined" "freertos_guest1: heartbeat"
+      ;;
+    confboot)
+      # The unmodified Arm val NSPE drives the FF-M IPC suite against wolfTrust
+      # on real silicon. Panic tests reboot the chain via real SYSRESETREQ and
+      # val resumes off its flash boot flag (K2/K3) — no emulator, no BKPT. No
+      # fault-marker refute: the panics are by design. Both guests raw-write
+      # USART3 and every reboot splices the boot banners mid-word, so the gate
+      # is the ACS report block alone: it prints once in the quiet end window
+      # and cannot exist unless val ran the suite end to end.
+      expect "Arm suite TOTAL TESTS : 89" "TOTAL TESTS     : 89"
+      expect "Arm suite TOTAL PASSED : 85" "TOTAL PASSED    : 85"
+      expect "Arm suite TOTAL SKIPPED : 4" "TOTAL SKIPPED   : 4"
+      expect "Arm suite TOTAL FAILED : 0" "TOTAL FAILED    : 0"
+      expect "ACS run completed" "END OF ACS"
       ;;
   esac
   echo "PASS: hardware/h5/$scenario"

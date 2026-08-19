@@ -83,11 +83,16 @@ shape every time.
   (from the competitive doc's cross-vendor table). Stretch: stand up a second port
   (U5 or nRF5340) to prove the abstraction.
 
-### MP5 — TF-M / Secure Manager comparison
-- Drop-in proof: a TF-M / Secure-Manager-style NS app (or the Arm `val` NSPE) runs
-  **unmodified** against wolfTrust's secure side on the H5 — same PSA ABI.
-- Baseline vs a real ST Secure Manager on an **STM32H573I-DK** when acquired (the
-  H563 cannot run Secure Manager). Record parity.
+### MP5 — TF-M / Secure Manager drop-in proof (on silicon)
+- Drop-in proof: the unmodified Arm `val` NSPE FF-M IPC conformance suite (pinned
+  SHA, 85 passed / 4 skipped) runs **unmodified** against wolfTrust's secure side
+  on the real H563 board — same PSA ABI, zero test edits. Delivered as a new
+  `confboot` scenario in `run_h5_hardware.sh`; the panic tests reboot the chain
+  with real SYSRESETREQ and val resumes off its flash boot flag (K2/K3).
+- ST Secure Manager side-by-side baseline **descoped** (2026-08-19, owner
+  decision): the H573I-DK comparison is dropped (the H563 cannot run Secure
+  Manager and the board is not owned). The unmodified-Arm-conformance-on-silicon
+  result is the drop-in evidence.
 
 ### MP6 — Docs, testing, completion
 - Docs: the H5 port guide, the Secure-Manager-replacement guide, the lock

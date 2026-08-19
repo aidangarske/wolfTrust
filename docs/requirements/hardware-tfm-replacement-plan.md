@@ -24,7 +24,7 @@ separate ledger — never implied by emulator results.**
   `~/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin/STM32_Programmer_CLI`.
 - **Board is ALREADY TrustZone-provisioned** (`-ob displ`): `TZEN=0xB4` (enabled),
   `BOOT_UBE=OEM-iRoT (user flash)`, `SECBOOTADD=0x0C000000` (matches wolfBoot's
-  secure base), `NSBOOTADD=0x08000000`, SECWM1 pages 0x00–0x3F, SECWM2 pages
+  secure base), `NSBOOTADD=0x08000000`, SECWM1 pages 0x00–0x4F (the whole boot partition; 0x3F truncated >128K images), SECWM2 pages
   0x00–0x7F. The risky TZEN-enable is already done and the boot addresses already
   match wolfBoot — this board was previously provisioned for an OEM secure boot,
   **not** running ST's TF-M / Secure-Manager.

@@ -52,8 +52,11 @@ DA_CONN_RST="-c port=SWD speed=fast ap=1 mode=Hotplug -hardRst"
 # wolfTrust STM32H563 board (see docs/evidence MP3 reference dump). BOOT_UBE
 # selects the OEM-iRoT boot path (so SECBOOTADD is unused); SECWM1 covers the
 # secure wolfBoot+wolfTrust region, SECWM2 the secure bank-2 window.
+# SECWM1_END must span the WHOLE boot partition (through 0x0809FFFF): with the
+# earlier 0x3F, flash writes past 0x08080000 were silently dropped and wolfBoot
+# integrity-rejected any secure image over 128K (found by MP5 confboot).
 WT_OB=(TZEN=0xB4 BOOT_UBE=0xB4 SWAP_BANK=0x0
-       SECWM1_STRT=0x0 SECWM1_END=0x3F SECWM2_STRT=0x0 SECWM2_END=0x7F)
+       SECWM1_STRT=0x0 SECWM1_END=0x4F SECWM2_STRT=0x0 SECWM2_END=0x7F)
 
 # Product-state codes (RM0481).
 PS_OPEN=0xED; PS_PROVISIONING=0x17; PS_TZCLOSED=0xC6; PS_CLOSED=0x72; PS_LOCKED=0x5C

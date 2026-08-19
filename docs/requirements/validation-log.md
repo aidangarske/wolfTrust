@@ -1670,6 +1670,62 @@ the emulator's IT-block bookkeeping.
   TXE/RXNE and delivery to the guest is modeled. Not a defect — see
   "Item 10 P4.2a" above. No hardware gate for peripheral IRQ delivery.
 
+## MP5 — unmodified Arm val conformance on H563 silicon (HARDWARE, 2026-08-19)
+
+The TF-M / Secure-Manager drop-in proof, on the board. A new `confboot`
+hardware scenario (`run_h5_hardware.sh`, in the `run_h5_suite.sh` default set)
+flashes the conformance chain (secure `WT_CONFORMANCE=1`, guest
+`WT_RUN_CONFORMANCE=1`) to the NUCLEO-H563ZI and captures UART across the
+panic-reset reboot loop. Result, physical silicon:
+
+- **Arm FF-M IPC suite (pinned `e17d294`, tests + val framework unmodified):
+  TOTAL TESTS 89 / PASSED 85 / FAILED 0 / SKIPPED 4** (heap tests skip:
+  zero-allocation image) — same counts as the M33MU run, now on hardware.
+- 92 boot cycles in one run: every panic test reset the whole chain via real
+  SYSRESETREQ (wolfBoot re-verifying each time) and val resumed off its
+  flash-backed boot flag (K2/K3). Suite wall clock under a minute.
+- Official artifact `PASS: hardware/h5/confboot` (5 `[check] PASS`), logs in
+  `docs/evidence/2026-08-19-h5-mp5-confboot/`.
+
+Two real silicon defects found by the run (invisible to M33MU):
+
+1. **SECWM1 provisioning short (0x3F)**: the secure watermark ended at
+   0x08080000, mid boot partition. Secure-alias flash writes beyond it were
+   silently dropped, truncating any secure image >128K on flash; wolfBoot
+   integrity-rejected the conformance image (hdr_ok=1, sha_ok=0,
+   not_sha_ok=1 → `wolfBoot_start` panic, no fault, no UART). Fixed by
+   provisioning `SECWM1_END=0x4F` (whole boot partition secure; guests at
+   0x080A0000 stay NS). `provisioning_ctrl.sh` restore set and
+   `hardware-tfm-replacement-plan.md` updated to 0x4F.
+2. **CubeProgrammer `-hardRst` unreliable**: after flashing, the board stayed
+   parked in its pre-flash state (stale panic), masking the fix. The runner
+   now always issues an explicit `pyocd reset` after flash verify (also
+   de-flakes the other scenarios).
+3. **Stale flash boot-flag across runs**: the panic tests resume off a flash
+   boot flag in a reserved secure sector (0x0C1FA000). The emulator starts
+   with fresh flash each run; the board keeps it, so a back-to-back confboot
+   inherited stale counters and ~2 panic tests misresumed as SIM ERROR (seen
+   once: 83 passed / 2 SIM ERROR / 0 failed — no real conformance failures).
+   Mitigation: the runner erases that sector (`pyocd erase -s 0x0C1FA000`)
+   before each confboot run.
+
+OPEN — confboot gate is not yet deterministic. The suite passed 85/4 cleanly
+three times (one manual + two back-to-back standalone) but a fourth run stalled
+in an infinite reboot loop (476 reboots vs the expected 92, no report). Root
+cause: the K3 panic path writes its flash boot-flag then fires SYSRESETREQ, but
+on real silicon the flash write (~ms + busy-poll) intermittently does not
+complete before the reset lands, so the flag does not persist, val re-runs the
+same panic test, and it loops (timeout-capped). Emulator-invisible (instant
+flash writes). Fix = flush/complete the flash write and barrier before
+SYSRESETREQ in the panic-reset primitive; then re-prove with N back-to-back
+suite runs. Until then the **drop-in claim stands** (unmodified suite reached
+85/4 on silicon, repeatedly) but the automated confboot gate is flaky.
+
+The ST-Secure-Manager H573I-DK side-by-side is descoped by owner decision
+(2026-08-19); the unmodified-conformance-on-silicon result is the drop-in
+evidence. Full 4-scenario `make test-hardware` re-run on the same tree is the
+MP5 closing gate (positive/restart/crossdomain regression + confboot).
+
 ## Phase gate rule
 
 Every implementation phase must repeat host tests and the complete M33MU

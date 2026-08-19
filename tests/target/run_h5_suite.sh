@@ -15,7 +15,7 @@ set -o pipefail
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 runner="$repo/tests/target/run_h5_hardware.sh"
 img="${WT_H5_DOCKER_IMAGE:-}"
-scenarios="${WT_H5_SCENARIOS:-positive restart crossdomain}"
+scenarios="${WT_H5_SCENARIOS:-positive restart crossdomain confboot}"
 
 if ! "$repo/tests/target/detect_h5.sh" >/dev/null 2>&1; then
   echo "SKIP: H5 hardware suite ($("$repo/tests/target/detect_h5.sh" 2>&1))"
