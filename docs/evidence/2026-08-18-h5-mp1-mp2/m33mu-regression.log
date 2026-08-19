@@ -1,0 +1,42 @@
+RUN: target/positive
+  [check] PASS  no fault markers in boot log
+  [check] PASS  TEE client initialized
+  [check] PASS  FF-M psa_framework_version=0x0100
+  [check] PASS  SERVICE_CRYPTO dispatch verified
+  [check] PASS  forged-handle call rejected
+  [check] PASS  oversized-vector call rejected
+  [check] PASS  psa_hash_compute(SHA-256) KAT verified
+  [check] PASS  psa_initial_attestation st=0
+  [check] PASS  attestation COSE_Sign1 verified
+  [check] PASS  attestation fields verify=0 lifecycle=0x1000 measurement=ok cose=ES256
+  [check] PASS  [EXPECT BKPT] Success clean exit
+PASS: target/positive
+LOG: logs/target-positive.log
+RUN: target/restart
+  [check] PASS  guest restarted 3 times then FAULTED (banners=4, expect 4)
+PASS: target/restart
+LOG: logs/target-restart.log
+RUN: target/crossdomain
+  [check] PASS  cross-domain read of 0x30028000 denied by SP domain (MEMFAULT)
+PASS: target/crossdomain
+LOG: logs/target-crossdomain.log
+RUN: target/confboot
+  [check] PASS  TEE client initialized
+  [check] PASS  FF-M psa_framework_version=0x0100
+  [check] PASS  SERVICE_CRYPTO dispatch verified
+  [check] PASS  conformance val_entry start
+  [check] PASS  Arm suite TOTAL PASSED : 85
+  [check] PASS  Arm suite TOTAL SKIPPED : 4
+  [check] PASS  Arm suite TOTAL FAILED : 0
+  [check] PASS  [EXPECT BKPT] Success clean exit
+PASS: target/confboot
+LOG: logs/target-confboot.log
+PASS: target/all
+From https://github.com/ARM-software/psa-arch-tests
+ * branch            e17d294fa89dab56bbbcbb6e7751d2521f871577 -> FETCH_HEAD
+HEAD is now at e17d294 test(api-tests): disable unsupported crypto tests for Mbed-TLS build (#425)
+build/upstream/psa-arch-tests
+RUN: conformance/manifest_ingest
+committed manifest-conformance.json is not reproducible from the upstream manifests
+manifest ingest checks failed: 1
+make: *** [Makefile:87: test-manifest-ingest] Error 1

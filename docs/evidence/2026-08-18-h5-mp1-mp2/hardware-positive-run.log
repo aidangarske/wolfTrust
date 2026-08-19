@@ -1,0 +1,12 @@
+/home/aidangarske/wolfTrust-l3-work/tests/target/run_h5_hardware.sh: line 58: /home/aidangarske/wolfTrust-l3-work/ci-h5-hardware-positive.log: Permission denied
+  ... capturing /dev/ttyACM0 @ 115200 for 25s
+  ... flashing wolfTrust chain via STM32CubeProgrammer
+  [check] PASS  no fault markers in UART
+  [check] PASS  TEE client initialized
+  [check] PASS  FF-M psa_framework_version=0x0100
+  [check] PASS  SERVICE_CRYPTO dispatch verified
+  [check] PASS  psa_hash_compute(SHA-256) KAT verified
+  [check] PASS  psa_initial_attestation st=0
+  [check] PASS  attestation COSE_Sign1 verified
+  [check] PASS  guest0_psa done
+PASS: hardware/h5/positive

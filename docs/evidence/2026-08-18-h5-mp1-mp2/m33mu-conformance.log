@@ -1,0 +1,19 @@
+Cloning into 'build/upstream/psa-arch-tests'...
+From https://github.com/ARM-software/psa-arch-tests
+ * branch            e17d294fa89dab56bbbcbb6e7751d2521f871577 -> FETCH_HEAD
+HEAD is now at e17d294 test(api-tests): disable unsupported crypto tests for Mbed-TLS build (#425)
+build/upstream/psa-arch-tests
+RUN: conformance/manifest_ingest
+PASS: manifest ingest (Arm PSA-FF -> psa_manifest headers)
+PASS: conformance manifest validates and matches upstream SIDs
+RUN: conformance/target (full FF-M IPC suite on M33MU)
+  [check] PASS  TEE client initialized
+  [check] PASS  FF-M psa_framework_version=0x0100
+  [check] PASS  SERVICE_CRYPTO dispatch verified
+  [check] PASS  conformance val_entry start
+  [check] PASS  Arm suite TOTAL PASSED : 85
+  [check] PASS  Arm suite TOTAL SKIPPED : 4
+  [check] PASS  Arm suite TOTAL FAILED : 0
+  [check] PASS  [EXPECT BKPT] Success clean exit
+PASS: conformance/target
+LOG: logs/conformance-target.log
