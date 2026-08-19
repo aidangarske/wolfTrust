@@ -1021,8 +1021,12 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       (`CONFIG_VNET` gated).
     - MP4-S7 [ ] MCU-family flash/entropy contract headers under
       `include/wolftrust/` (kill core's bare `hsm_flash.h` include).
-    - MP4-guard [ ] `tools/check-core-port-split.sh` + CI (report → fail once
-      S1–S5 land).
+    - MP4-guard [x] DONE (2026-08-19, `5505c31`): `tools/check-core-port-split.sh`
+      (report-only; `WT_SPLIT_STRICT=1` fails on hard core→arch leaks). It caught
+      that S1 added the barrier hooks but left the inline `dmb`/`dsb` in
+      `boot_handoff.c` — fixed in `87336c9` (re-gate running). Remaining hard
+      leaks reported: S4 (ffm_boot cmse), S5 (vnet cmse), S3+S6 (context via
+      `platform.h`/`monitor.h`). Wire into CI once S3–S6 land.
     - MP4-S6 (E2) [ ] DEFERRED own milestone: `monitor.h`/`partition.h` context
       de-arch (embeds `wt_guest_context_t` by value; touches scheduler layout +
       port `offsetof` asm). Needed for a non-Armv8-M port.
