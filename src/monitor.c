@@ -36,6 +36,10 @@
 
 static wt_scheduler_state_t g_scheduler;
 static wt_spm_t g_spm;
+/* Restart-engine event counters: non-static so the hardware harness can read
+ * them by symbol over the debug port (UART markers can interleave-split). */
+volatile uint32_t g_wt_restart_events;
+volatile uint32_t g_wt_quarantine_events;
 #ifdef WT_ENGINE_HSM
 static wt_guest_id_t g_pending_tasklet_guest;
 static bool g_pending_tasklet_guest_valid;
@@ -280,27 +284,29 @@ static void wt_restart_guest(wt_guest_id_t guest_id, wt_fault_reason_t reason)
     runtime->last_fault = reason;
     restart_limit = config->restart_policy.restart_limit;
     restart_window_ticks = config->restart_policy.restart_window_ticks;
-        if (restart_limit > 0U) {
-        if (runtime->restart_count == 0U ||
-            (restart_window_ticks > 0U &&
-             (g_scheduler.monotonic_ticks - runtime->first_restart_tick) >=
-                 restart_window_ticks)) {
+    if (restart_limit > 0U) {
+        /* Reset the restart budget only after a full crash-free window since
+         * the LAST restart (field holds the last-restart tick): wall-time
+         * alone must not clear a crash-looping guest, or a reboot cycle
+         * slower than the window would evade the limit forever on silicon. */
+        if (runtime->restart_count > 0U && restart_window_ticks > 0U &&
+            (g_scheduler.monotonic_ticks - runtime->first_restart_tick) >=
+                restart_window_ticks) {
             runtime->restart_count = 0U;
-            runtime->first_restart_tick = g_scheduler.monotonic_ticks;
         }
         if (runtime->restart_count >= restart_limit) {
             /* FAULTED is terminal until an external policy action resets or
              * reinitializes the partition. */
             runtime->state = WT_GUEST_FAULTED;
+            g_wt_quarantine_events++;
             return;
         }
     }
 
-    if (runtime->restart_count == 0U) {
-        runtime->first_restart_tick = g_scheduler.monotonic_ticks;
-    }
     runtime->restart_count++;
+    runtime->first_restart_tick = g_scheduler.monotonic_ticks;
     runtime->state = WT_GUEST_RESTARTING;
+    g_wt_restart_events++;
     runtime->remaining_delay_ticks =
         config->restart_policy.initial_delay_ticks;
 

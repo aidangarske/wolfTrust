@@ -40,7 +40,7 @@ SP_REQUIRED_CAPS = 80
 SP_RESTART_POLICY = {
     "action": 1,
     "restart_limit": 3,
-    "restart_window_ticks": 64,
+    "restart_window_ticks": 8000,
     "initial_delay_ticks": 1,
 }
 

@@ -71,7 +71,7 @@
       "restart_policy": {
         "action": 1,
         "restart_limit": 3,
-        "restart_window_ticks": 64,
+        "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
       "required_capabilities": 80
@@ -104,7 +104,7 @@
       "restart_policy": {
         "action": 1,
         "restart_limit": 3,
-        "restart_window_ticks": 64,
+        "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
       "required_capabilities": 80
@@ -137,7 +137,7 @@
       "restart_policy": {
         "action": 1,
         "restart_limit": 3,
-        "restart_window_ticks": 64,
+        "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
       "required_capabilities": 80
@@ -170,7 +170,7 @@
       "restart_policy": {
         "action": 1,
         "restart_limit": 3,
-        "restart_window_ticks": 64,
+        "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
       "required_capabilities": 80
@@ -203,7 +203,7 @@
       "restart_policy": {
         "action": 1,
         "restart_limit": 3,
-        "restart_window_ticks": 64,
+        "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
       "required_capabilities": 80
@@ -242,7 +242,7 @@
       "restart_policy": {
         "action": 1,
         "restart_limit": 3,
-        "restart_window_ticks": 64,
+        "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
       "required_capabilities": 80
@@ -275,7 +275,7 @@
       "restart_policy": {
         "action": 1,
         "restart_limit": 3,
-        "restart_window_ticks": 64,
+        "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
       "required_capabilities": 80
