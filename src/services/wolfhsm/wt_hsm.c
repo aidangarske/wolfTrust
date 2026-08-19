@@ -65,7 +65,7 @@
 #include "wolftrust/sync/mutex.h"
 #include "wolftrust/services/hsm.h"
 
-#include "hsm_flash.h"
+#include "wolftrust/port_nvm.h"
 
 #include <string.h>
 #include <stddef.h>
