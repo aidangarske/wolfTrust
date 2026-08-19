@@ -1439,6 +1439,29 @@ Reversible only — permanent `Locked` (0x5C) never touched. Production step
 (tracked, not blocking): replace ST's sample DA certificate chain with a
 wolfTrust-owned chain.
 
+## MP4 slices S1+S2 — core/port split, first two extractions (2026-08-19)
+
+Enforcing the neutral-core vs Armv8-M-port split so a new port needs no core
+edits. Two safe-tier extractions landed, mirroring the SERVICE_CRYPTO precedent
+(neutral seam in core + fail-closed default; the arch installs its shim at boot):
+
+- **S1 / boot_handoff barriers** (`4212bde`): `src/services/boot_handoff.c` no
+  longer emits inline `dmb`/`dsb`; it calls `wt_platform_dmb()`/`wt_platform_dsb()`
+  (new `platform.h` hooks), the H563 port supplies them, the host stub no-ops.
+- **S2 / HSM fault-notify** (`f83e5ff`): `src/services/wolfhsm/wt_hsm.c` drops its
+  `#include "wolftrust/arch/armv8m/cmse_transport.h"` (its only arch coupling) and
+  calls an installed `wt_hsm_fault_notify_fn`; `src/arch/armv8m/cmse_transport.c`
+  installs `wt_cmse_transport_signal_fault` in `wt_cmse_transport_init`.
+
+Gate (`validate-in-container.sh` in the CI container on the box): `make test`
+(host unit/all) + `make test-target` (positive/restart/crossdomain/confboot, all
+PASS) + `make test-conformance` (**Arm 85 passed / 4 skipped / 0 failed**,
+`[EXPECT BKPT] Success`), `FINAL_RC=0`. The `test-target` pass proves the secure
+image compiled and linked with both extractions and the NS→S dispatch + L3
+isolation are unchanged. Remaining MP4: S3 (context forward-decl), S7 (MCU-family
+flash/entropy contract), guard script (safe tier); S4/S5 (CMSE veneer
+extraction, deep); S6 (monitor context de-arch, deferred milestone).
+
 ## M33MU emulator defect register
 
 Defects in the pinned M33MU emulator that block conformance work. These are

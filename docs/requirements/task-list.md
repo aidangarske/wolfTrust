@@ -1002,11 +1002,18 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     `port/stm32h563/`); core exposes a neutral seam + fail-closed default and the
     arch installs its shim (SERVICE_CRYPTO precedent). Each slice: host `make
     test` + secure cross-build + M33MU 85/4 gate + single-line commit.
-    - MP4 docs [x] DONE (2026-08-19): `docs/port-contract.md` (WT-PORT surface +
-      docs-only vendor plan), `docs/adding-a-port.md` (step-by-step add-a-port).
-    - MP4-S1 (D) [ ] boot_handoff barriers → `wt_platform_dmb/dsb` hooks.
-    - MP4-S2 (C) [ ] HSM fault-notify neutral callback (drop core
-      `cmse_transport.h`).
+    - MP4 docs [x] DONE (2026-08-19, `d2b626b`, pushed): `docs/port-contract.md`
+      (WT-PORT surface + docs-only vendor plan), `docs/adding-a-port.md`.
+    - MP4-S1 (D) [x] DONE (2026-08-19, `4212bde`, pushed): boot_handoff barriers
+      → `wt_platform_dmb/dsb` hooks. Gate GREEN.
+    - MP4-S2 (C) [x] DONE (2026-08-19, `f83e5ff`): HSM fault-notify neutral
+      callback (`wt_hsm_set_fault_notify`); `wt_hsm.c` drops its
+      `cmse_transport.h` include; arch installs the notifier in
+      `wt_cmse_transport_init`. Gate GREEN.
+    - GATE S1+S2 [x] GREEN (2026-08-19): `validate-in-container.sh` =
+      `make test` (unit/all) + `make test-target` (all) + `make test-conformance`
+      (Arm 85 passed / 4 skipped / 0 failed, `[EXPECT BKPT] Success`),
+      `FINAL_RC=0` — secure image built + linked with S1+S2, no regression.
     - MP4-S3 (E1) [ ] forward-declare `wt_guest_context_t` in `platform.h`.
     - MP4-S4 (A) [ ] extract 5 ffm_boot CMSE veneers → `src/arch/armv8m/ffm_nsc.c`
       (ATOMIC; keep veneer names + `cmse_nonsecure_entry` + `-mcmse`).
