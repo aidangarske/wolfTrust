@@ -227,6 +227,11 @@ static inline void wt_dsb(void)
     __asm volatile("dsb 0xF" ::: "memory");
 }
 
+static inline void wt_dmb(void)
+{
+    __asm volatile("dmb 0xF" ::: "memory");
+}
+
 static inline void wt_isb(void)
 {
     __asm volatile("isb 0xF" ::: "memory");

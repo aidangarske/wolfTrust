@@ -1408,6 +1408,16 @@ void wt_platform_system_reset(void)
     }
 }
 
+void wt_platform_dmb(void)
+{
+    wt_dmb();
+}
+
+void wt_platform_dsb(void)
+{
+    wt_dsb();
+}
+
 /* Rewrite the NS-banked stack/control registers from a guest's saved context.
  * A guest resumed through its blocked secure tasklet returns to NS via BXNS,
  * not the exception-return path, so nothing else reinstates its NS bank — the

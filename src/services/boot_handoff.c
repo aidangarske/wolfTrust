@@ -19,6 +19,7 @@
  */
 
 #include "wolftrust/boot_handoff.h"
+#include "wolftrust/platform.h"
 
 #include <stddef.h>
 

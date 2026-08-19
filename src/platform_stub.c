@@ -142,6 +142,14 @@ void wt_platform_panic(void)
     }
 }
 
+void wt_platform_dmb(void)
+{
+}
+
+void wt_platform_dsb(void)
+{
+}
+
 #ifdef WT_ENGINE_HSM
 void wt_platform_note_hsm_wait_skip(wt_guest_id_t guest_id)
 {

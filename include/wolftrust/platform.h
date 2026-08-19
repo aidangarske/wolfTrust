@@ -119,4 +119,10 @@ void wt_platform_configure_ns_irq(uint32_t irq);
  * IRQ via the NS alias of NVIC ISPR/ICPR. Idempotent. */
 void wt_platform_set_ns_irq_pending(uint32_t irq, bool asserted);
 
+/* Data-memory / data-synchronization barriers around a shared-memory handoff
+ * (e.g. the wolfBoot handoff region). The port supplies the real barrier;
+ * host builds no-op. */
+void wt_platform_dmb(void);
+void wt_platform_dsb(void);
+
 #endif
