@@ -86,3 +86,28 @@ tests pass:
 The existing H563 monitor is not a substitute for this gate. No Level 3 or
 FF-M compatibility claim is made until the generated production path and its
 negative tests pass.
+
+## Phase 4 crypto and storage requirements
+
+Crypto, Internal Trusted Storage (ITS), and Protected Storage (PS) run as
+independently isolated Secure Partitions and reach the wolfHSM key/NVM vault
+only through the SPM gate. Private keys never leave the vault — the stronger
+posture than a Crypto partition holding key material in its own memory.
+
+| ID | Behavior | Failure | Source | Tests | Commit |
+| --- | --- | --- | --- | --- | --- |
+| WT-FFM-0044 | Every ITS and PS object is owned by the SPM-authenticated caller partition. A caller reaches only its own `(owner, uid)` namespace on set, get, get_info, and remove. | A cross-owner access reveals nothing and returns does-not-exist, never another owner's data or metadata. | SRC-PSA-STORAGE, SRC-FFM 3.3.4 | Per-client storage isolation tests | |
+| WT-FFM-0045 | An object created with `PSA_STORAGE_FLAG_WRITE_ONCE` cannot be modified or removed, and the flag survives reset. Enforced in SECURED and locked debug lifecycles, relaxed in provisioning. | A set or remove on a write-once uid returns not-permitted, before and after a `SYSRESETREQ` reboot. | SRC-PSA-STORAGE | Write-once persistence tests | |
+| WT-FFM-0046 | Persistent and private keys created through the Crypto service live only in the wolfHSM vault. The Crypto partition operates on handles and never holds raw key material; a key owned by one partition is unusable by another. | A read or export of a non-exportable key, or cross-owner key use, returns not-permitted or does-not-exist with no key bytes disclosed. | SRC-PSA-CRYPTO | Key ownership and non-exportability tests | |
+| WT-FFM-0047 | The Crypto, ITS, and PS partitions reach the wolfHSM vault only through the SPM gate, tagged with the caller identity the SPM stamps. No partition maps vault state into its own domain. | A partition that touches vault memory directly, or supplies a forged owner identity, faults or is overridden by the SPM-stamped identity. | SRC-FFM 3.2, WT-SYS-0009 | Gated-routing and domain-isolation tests | |
+| WT-FFM-0048 | PS objects are AES-GCM encrypted and authenticated under a device-unique wolfHSM key with a fresh nonce per write, and are rollback-protected by a monotonic counter. | A tampered or replayed PS object returns invalid-signature or data-corrupt and yields no plaintext. | SRC-PSA-STORAGE | PS confidentiality and rollback tests | |
+
+## Phase 4 acceptance gate
+
+Phase 4 is complete only when Crypto, ITS, and PS run as isolated partitions
+routed through the gated wolfHSM vault, `WT-FFM-0044` through `WT-FFM-0048` have
+passing host and Cortex-M33 tests, the unmodified Arm `dev_apis` Crypto and
+Storage suites pass on the production path, and the negative matrix proves a
+compromised Crypto partition cannot read a key it owns, one client cannot reach
+another's stored objects, write-once and rollback survive reset, and every
+enabled capability has a matching negative test.

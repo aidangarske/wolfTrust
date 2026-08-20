@@ -103,9 +103,12 @@
  *
  * WOLFHSM_CFG_NVM_OBJECT_COUNT controls the directory table size in
  * wh_nvm_flash.h. The STM32H563 port reserves two 8 KiB internal-flash
- * sectors for the mirrored wolfHSM NVM partitions.
+ * sectors for the mirrored wolfHSM NVM partitions. Phase 4 backs PSA ITS/PS
+ * objects here (plus the attestation key and the PS device key), so the
+ * directory holds 32 slots; each slot costs ~80 bytes of the 8 KiB partition,
+ * leaving ample data space for the small dev_apis storage objects.
  *---------------------------------------------------------------------------*/
-#define WOLFHSM_CFG_NVM_OBJECT_COUNT       8
+#define WOLFHSM_CFG_NVM_OBJECT_COUNT       32
 
 /* STM32H5 flash is programmed in 128-bit quadwords. Keep the wolfHSM journal
  * unit aligned with the physical programming unit so no quadword is written

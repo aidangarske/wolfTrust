@@ -1800,3 +1800,26 @@ the guide + `port-contract.md` + `adding-a-port.md` +
 `competitive-edge-vs-secure-manager.md` + `wolftrust-secure-manager-port-plan.md`;
 the superseded confboot-flake paragraph in the MP5 section above was marked
 CLOSED (#83).
+
+## Phase 4 S0 — crypto/storage requirements + NVM capacity (2026-08-20)
+
+Groundwork for Phase 4 (Crypto/ITS/PS as isolated SPs over a gated wolfHSM
+vault). Added the `WT-FFM-0044`–`WT-FFM-0048` requirement block + a Phase 4
+acceptance gate to `framework.md`: per-client storage isolation, WRITE_ONCE
+persistence across reset, non-exportable HSM-held key ownership, gated
+vault routing, and PS AES-GCM + rollback protection — the "keys never leave the
+vault" posture that is stronger than baseline TF-M (which holds key material in
+the Crypto partition's own RAM).
+
+Capacity: bumped `WOLFHSM_CFG_NVM_OBJECT_COUNT` 8 → 32
+(`wh_settings_local.h`). The dev_apis storage suite uses small (16-byte)
+objects and few concurrent UIDs, so object-count is the binding constraint, not
+bytes; 32 slots × ~80 B directory fits comfortably in the existing 8 KiB
+partition, so this needs **no** flash-layout change — the `SECWM1_END=0x4F` boot
+rule and the `SECWM2_END=0x7F` bank-2 window are untouched. Byte-capacity growth
+(a multi-sector partition) is deferred to S6 only if a specific test demands it.
+
+Evidence: host `make test` green (`PASS: unit/all`) — regression-safe; the
+setting is target-only (the host wolfHSM test uses its own `user_settings.h`).
+The enlarged-directory secure-build + M33MU NVM-init validation folds into the
+S1 box gate (the first slice that exercises the vault on target).
