@@ -24,33 +24,36 @@
 
 /* Fail-closed default: no backing store means no storage capability is
  * advertised or silently faked (no always-success stubs). */
-static psa_status_t wt_vault_default_set(int32_t owner, uint64_t uid,
-                                         uint32_t flags, const uint8_t* data,
-                                         size_t len)
+static psa_status_t wt_vault_default_set(int32_t owner, int32_t sub,
+                                         uint64_t uid, uint32_t flags,
+                                         const uint8_t* data, size_t len)
 {
-    (void)owner; (void)uid; (void)flags; (void)data; (void)len;
+    (void)owner; (void)sub; (void)uid; (void)flags; (void)data; (void)len;
     return PSA_ERROR_NOT_SUPPORTED;
 }
 
-static psa_status_t wt_vault_default_get(int32_t owner, uint64_t uid,
-                                         uint32_t offset, uint8_t* data,
-                                         size_t size, size_t* out_len)
+static psa_status_t wt_vault_default_get(int32_t owner, int32_t sub,
+                                         uint64_t uid, uint32_t offset,
+                                         uint8_t* data, size_t size,
+                                         size_t* out_len)
 {
-    (void)owner; (void)uid; (void)offset; (void)data; (void)size;
+    (void)owner; (void)sub; (void)uid; (void)offset; (void)data; (void)size;
     (void)out_len;
     return PSA_ERROR_NOT_SUPPORTED;
 }
 
-static psa_status_t wt_vault_default_get_info(int32_t owner, uint64_t uid,
+static psa_status_t wt_vault_default_get_info(int32_t owner, int32_t sub,
+                                              uint64_t uid,
                                               wt_vault_info_t* info)
 {
-    (void)owner; (void)uid; (void)info;
+    (void)owner; (void)sub; (void)uid; (void)info;
     return PSA_ERROR_NOT_SUPPORTED;
 }
 
-static psa_status_t wt_vault_default_remove(int32_t owner, uint64_t uid)
+static psa_status_t wt_vault_default_remove(int32_t owner, int32_t sub,
+                                            uint64_t uid)
 {
-    (void)owner; (void)uid;
+    (void)owner; (void)sub; (void)uid;
     return PSA_ERROR_NOT_SUPPORTED;
 }
 
@@ -157,8 +160,8 @@ static psa_status_t wt_vault_service_call(wt_ffm_runtime_t* runtime,
                               sizeof(data), &data_len) != WT_FFM_SUCCESS) {
             return PSA_ERROR_INVALID_ARGUMENT;
         }
-        status = g_vault_backend->set(msg->client_id, req.uid, req.flags,
-                                      data, data_len);
+        status = g_vault_backend->set(msg->client_id, req.sub_owner, req.uid,
+                                      req.flags, data, data_len);
         break;
     case WT_VAULT_OP_GET:
         /* A caller buffer larger than the object bound is legal PSA usage;
@@ -167,8 +170,8 @@ static psa_status_t wt_vault_service_call(wt_ffm_runtime_t* runtime,
         if (data_len > sizeof(data)) {
             data_len = sizeof(data);
         }
-        status = g_vault_backend->get(msg->client_id, req.uid, req.offset,
-                                      data, data_len, &out_len);
+        status = g_vault_backend->get(msg->client_id, req.sub_owner, req.uid,
+                                      req.offset, data, data_len, &out_len);
         if (status == PSA_SUCCESS &&
                 wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
                                    data, out_len) != WT_FFM_SUCCESS) {
@@ -179,7 +182,8 @@ static psa_status_t wt_vault_service_call(wt_ffm_runtime_t* runtime,
         if (msg->out_size[0] < sizeof(info)) {
             return PSA_ERROR_INVALID_ARGUMENT;
         }
-        status = g_vault_backend->get_info(msg->client_id, req.uid, &info);
+        status = g_vault_backend->get_info(msg->client_id, req.sub_owner,
+                                           req.uid, &info);
         if (status == PSA_SUCCESS &&
                 wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
                                    &info, sizeof(info)) != WT_FFM_SUCCESS) {
@@ -187,7 +191,8 @@ static psa_status_t wt_vault_service_call(wt_ffm_runtime_t* runtime,
         }
         break;
     case WT_VAULT_OP_REMOVE:
-        status = g_vault_backend->remove(msg->client_id, req.uid);
+        status = g_vault_backend->remove(msg->client_id, req.sub_owner,
+                                         req.uid);
         break;
     default:
         status = PSA_ERROR_NOT_SUPPORTED;

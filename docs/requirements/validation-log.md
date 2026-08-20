@@ -1880,3 +1880,48 @@ the first in-image client (the ITS partition) lands; S1's target evidence is
 boot-enforced scheduling (start_sched panics on failure), manifest validation
 at the new sizes, and full-suite non-regression. WRITE_ONCE persistence across
 a physical reset is S4/S5 (silicon) evidence.
+
+## Phase 4 S2 — ITS Secure Partition (2026-08-20)
+
+PSA Internal Trusted Storage as a real UNPRIVILEGED isolated partition:
+`PARTITION_ITS` / `SERVICE_ITS` (SID 4099, `nonsecure_clients: true`) is
+scheduled through the normal `wt_spm_sched_add` path (own 8 KiB stack band at
+0x3008F000, narrowed MPU domain), and holds no storage of its own — every op
+round-trips to `SERVICE_VAULT` over **SP-to-SP FF-M IPC through the SVC gate**,
+authorized by `dependencies: [4098]` in both manifests (WT-FFM-0047). End
+clients are namespaced at the vault under (ITS partition, client id, uid) via
+the new delegated `sub_owner` field: the vault still namespaces primarily by
+the SPM-stamped caller, so a frontend can only ever partition its OWN
+namespace (WT-FFM-0044 at end-client granularity). Neutral service:
+`src/services/storage_service.c` (single concatenated-invec client wire so the
+1+1-iovec TEE transport reaches every op); PSA client contract headers:
+`include/psa/storage_common.h`, `include/psa/internal_trusted_storage.h`.
+
+Two real infrastructure gaps surfaced and fixed by the gates:
+- Host: the SP-as-client begin/finish pair never completed under the direct
+  transport (the `_begin` enqueue relies on the scheduler wake, which the host
+  lacks) — `wt_spm_transport_direct` now dispatches the pending message inline
+  via the new `wt_ffm_dispatch_pending` (bounded, host-only path); the first
+  host run hung exactly there.
+- Target: `WT_CO_MAX` was 8 — the conformance image's 8 coroutines (2 HSM
+  tasklets + crypto + vault + 3 Arm SPs + ITS) exhausted the static table and
+  boot fail-closed panicked in `wt_co_create_blocked_ex`; now 12. Also the
+  `psa_manifest/pid.h`/`sid.h` includes in `spm_svc.c` were conformance-gated;
+  they are generated for every secure build and are now unconditional (the
+  unprivileged ITS entry embeds `SERVICE_VAULT_SID` as a code constant — it
+  cannot read SPM RAM at runtime).
+
+Evidence (one tree):
+- Host: new `tests/host/storage_service` — the FULL chain (NS client →
+  SERVICE_ITS dispatch → SP-to-SP gate → SERVICE_VAULT → wt_hsm_vault →
+  wolfHSM NVM on ramsim), 16 assertions: direct NS access to the vault still
+  refused; per-end-client same-uid isolation both ways; WRITE_ONCE
+  set/remove refusal through the ITS face; offset reads; remove lifecycle.
+  Full `make test`: `PASS: unit/all` (23 suites).
+- M33MU positive: `PASS: target/positive` **12/12 incl. the new
+  "wolfTrust ITS set/get verified"** — a real Non-secure guest storing and
+  reading back through NS → ITS SP → vault → flash NVM, three protection
+  domains, every hop through the SPM gate. Assertion added to the scenario
+  runner, the H5 hardware runner, and the CI workflow.
+- M33MU confboot: `PASS: target/confboot` — the unmodified Arm FF-M suite
+  **89 / 85 / 0 / 4 / 0** with ITS + vault + the 10-domain manifest in-image.

@@ -189,6 +189,8 @@ case "$scenario" in
       "wolfTrust FF-M psa_framework_version=0x0100"
     expect "SERVICE_CRYPTO dispatch verified" \
       "wolfTrust FF-M SERVICE_CRYPTO dispatch verified"
+    expect "ITS set/get verified" \
+      "wolfTrust ITS set/get verified"
     expect "forged-handle call rejected" \
       "wolfTrust FF-M forged-handle call rejected"
     expect "oversized-vector call rejected" \

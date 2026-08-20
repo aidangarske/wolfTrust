@@ -159,6 +159,11 @@ psa_status_t wt_ffm_call_begin(wt_ffm_runtime_t* runtime,
 int wt_ffm_close_begin(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
                        psa_handle_t handle, uint16_t* msg_index);
 int wt_ffm_msg_complete(const wt_ffm_runtime_t* runtime, uint16_t msg_index);
+
+/* Dispatch one queued-but-undelivered message inline. The scheduler wake
+ * loop does this on target; the direct transport uses it as the host
+ * stand-in so SP-as-client begin/finish pairs complete synchronously. */
+int wt_ffm_dispatch_pending(wt_ffm_runtime_t* runtime, uint16_t msg_index);
 psa_handle_t wt_ffm_connect_finish(wt_ffm_runtime_t* runtime,
                                    uint16_t msg_index);
 psa_status_t wt_ffm_call_finish(wt_ffm_runtime_t* runtime, uint16_t msg_index,

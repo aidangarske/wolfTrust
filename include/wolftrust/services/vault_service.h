@@ -43,11 +43,17 @@
  * refused, kept well under the vault partition's 8 KiB secure stack. */
 #define WT_VAULT_OBJECT_MAX 1024U
 
-/* invec[0] of every vault request. uid first keeps the layout padding-free. */
+/* invec[0] of every vault request. uid first keeps the layout padding-free.
+ * sub_owner is a DELEGATED namespace for storage-frontend partitions (ITS/PS)
+ * forwarding on behalf of their own clients: the vault always namespaces
+ * primarily by the SPM-stamped caller, so a caller can only ever partition
+ * its OWN namespace further — sub_owner cannot reach another owner's data. */
 typedef struct wt_vault_req {
     uint64_t uid;
-    uint32_t flags;    /* SET: PSA create flags */
-    uint32_t offset;   /* GET: read offset into the object */
+    uint32_t flags;      /* SET: PSA create flags */
+    uint32_t offset;     /* GET: read offset into the object */
+    int32_t  sub_owner;  /* frontend-delegated end-client id (0 = none) */
+    uint32_t reserved;
 } wt_vault_req_t;
 
 /* outvec[0] of GET_INFO. */
@@ -59,15 +65,16 @@ typedef struct wt_vault_info {
 } wt_vault_info_t;
 
 /* Backing store vtable. Each op returns a psa_status_t; owner is the
- * SPM-stamped caller partition identity. */
+ * SPM-stamped caller partition identity, sub the delegated end-client. */
 typedef struct wt_vault_backend {
-    psa_status_t (*set)(int32_t owner, uint64_t uid, uint32_t flags,
-                        const uint8_t* data, size_t len);
-    psa_status_t (*get)(int32_t owner, uint64_t uid, uint32_t offset,
-                        uint8_t* data, size_t size, size_t* out_len);
-    psa_status_t (*get_info)(int32_t owner, uint64_t uid,
+    psa_status_t (*set)(int32_t owner, int32_t sub, uint64_t uid,
+                        uint32_t flags, const uint8_t* data, size_t len);
+    psa_status_t (*get)(int32_t owner, int32_t sub, uint64_t uid,
+                        uint32_t offset, uint8_t* data, size_t size,
+                        size_t* out_len);
+    psa_status_t (*get_info)(int32_t owner, int32_t sub, uint64_t uid,
                              wt_vault_info_t* info);
-    psa_status_t (*remove)(int32_t owner, uint64_t uid);
+    psa_status_t (*remove)(int32_t owner, int32_t sub, uint64_t uid);
 } wt_vault_backend_t;
 
 /* Install the backing store. NULL restores the fail-closed default, which

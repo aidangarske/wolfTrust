@@ -1,4 +1,4 @@
-/* pid.h
+/* storage_common.h
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *
@@ -18,19 +18,30 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Host stand-in for the generated psa_manifest/pid.h; ids mirror the
- * production manifest (tests/host/spm production-generated). */
+/* PSA Certified Secure Storage API 1.0 common types (SRC-PSA-STORAGE). */
 
-#ifndef PSA_MANIFEST_PID_H
-#define PSA_MANIFEST_PID_H
+#ifndef PSA_STORAGE_COMMON_H
+#define PSA_STORAGE_COMMON_H
 
-#define PARTITION_ATTEST_ID 3
-#define PARTITION_CRYPTO_ID 4
-#define PARTITION_VAULT_ID 5
-#define PARTITION_ITS_ID 6
-#define PARTITION_ATTEST PARTITION_ATTEST_ID
-#define PARTITION_CRYPTO PARTITION_CRYPTO_ID
-#define PARTITION_VAULT PARTITION_VAULT_ID
-#define PARTITION_ITS PARTITION_ITS_ID
+#include <stddef.h>
+#include <stdint.h>
 
-#endif /* PSA_MANIFEST_PID_H */
+#include "psa/error.h"
+
+typedef uint64_t psa_storage_uid_t;
+typedef uint32_t psa_storage_create_flags_t;
+
+struct psa_storage_info_t {
+    size_t capacity;
+    size_t size;
+    psa_storage_create_flags_t flags;
+};
+
+#define PSA_STORAGE_FLAG_NONE                 0U
+#define PSA_STORAGE_FLAG_WRITE_ONCE           (1U << 0)
+#define PSA_STORAGE_FLAG_NO_CONFIDENTIALITY   (1U << 1)
+#define PSA_STORAGE_FLAG_NO_REPLAY_PROTECTION (1U << 2)
+
+#define PSA_STORAGE_SUPPORT_SET_EXTENDED      (1U << 0)
+
+#endif /* PSA_STORAGE_COMMON_H */

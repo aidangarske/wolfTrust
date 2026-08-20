@@ -31,14 +31,16 @@
 #include "wolftrust/platform.h"
 #include "wolftrust/sched/coroutine.h"
 #include "wolftrust/services/crypto_service.h"
+#include "wolftrust/services/storage_service.h"
 #include "wolftrust/services/vault_service.h"
 #include "wolftrust/spm_gate.h"
 
 #include "memory_map.h"
 
-#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+/* Generated in every secure build; the ITS entry embeds SERVICE_VAULT_SID as
+ * a code constant — the unprivileged loop cannot read SPM RAM at runtime. */
 #include "psa_manifest/pid.h"
-#endif
+#include "psa_manifest/sid.h"
 
 /* Table of scheduled Secure Partitions, each keyed by its coroutine. The SVC
  * dispatcher resolves the caller from wt_co_current() so every SP runs the same
@@ -684,4 +686,27 @@ int wt_spm_vault_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
     wt_vault_service_set_transport(wt_spm_svc_transport);
     return wt_spm_sched_add_common(runtime, partition_id, wt_spm_vault_entry,
                                    (void*)(intptr_t)partition_id, 1u);
+}
+
+/* The ITS partition's service loop: a normal UNPRIVILEGED scheduled SP.
+ * Context lives on its own stack — the narrowed MPU domain cannot read the
+ * service's file-scope seams in SPM RAM. */
+static void wt_spm_its_entry(void* arg)
+{
+    int32_t partition_id = (int32_t)(intptr_t)arg;
+    wt_storage_service_ctx_t ctx;
+
+    ctx.transport = wt_spm_svc_transport;
+    ctx.vault_sid = SERVICE_VAULT_SID;
+    ctx.vault_handle = 0;
+
+    for (;;) {
+        (void)wt_storage_service_dispatch(&ctx, NULL, partition_id);
+    }
+}
+
+int wt_spm_its_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_its_entry,
+                            (void*)(intptr_t)partition_id);
 }

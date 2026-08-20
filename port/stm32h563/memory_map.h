@@ -119,6 +119,13 @@
 #define WT_SP_VAULT_STACK_BASE   (WT_RAM_S_BASE + 0x00069000u)  /* 0x30091000 */
 #define WT_SP_VAULT_STACK_SIZE   WT_SP_SECURE_STACK_SIZE
 
+/* ITS partition stack: a normal unprivileged scheduled SP; this band is both
+ * its execution stack and its MPU-domain RW resource. Sits just below the
+ * vault stack; the linker RAM window is shortened to 412 KiB to make room.
+ * MUST match the ITSSTACK region in src/services/wolfhsm/runner/secure.ld. */
+#define WT_SP_ITS_STACK_BASE     (WT_RAM_S_BASE + 0x00067000u)  /* 0x3008F000 */
+#define WT_SP_ITS_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
+
 /* Per-partition pseudo-MMIO holes at the top of the CONFDATA window (P4/K4).
  * Each belongs to exactly one Arm conformance partition; the scheduler grants
  * every other SP the window WITHOUT its hole, so the L3 MMIO-isolation panic

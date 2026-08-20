@@ -53,8 +53,8 @@ int wt_hsm_vault_init(whNvmContext* nvm)
     return 0;
 }
 
-static void wt_hsm_vault_label(uint8_t* label, int32_t owner, uint64_t uid,
-                               uint32_t flags)
+static void wt_hsm_vault_label(uint8_t* label, int32_t owner, int32_t sub,
+                               uint64_t uid, uint32_t flags)
 {
     uint32_t magic = WT_HSM_VAULT_LABEL_MAGIC;
 
@@ -63,20 +63,23 @@ static void wt_hsm_vault_label(uint8_t* label, int32_t owner, uint64_t uid,
     (void)memcpy(label + 4, &owner, sizeof(owner));
     (void)memcpy(label + 8, &uid, sizeof(uid));
     (void)memcpy(label + 16, &flags, sizeof(flags));
+    (void)memcpy(label + 20, &sub, sizeof(sub));
 }
 
 static int wt_hsm_vault_label_match(const uint8_t* label, int32_t owner,
-                                    uint64_t uid)
+                                    int32_t sub, uint64_t uid)
 {
     uint32_t magic;
     int32_t l_owner;
+    int32_t l_sub;
     uint64_t l_uid;
 
     (void)memcpy(&magic, label, sizeof(magic));
     (void)memcpy(&l_owner, label + 4, sizeof(l_owner));
     (void)memcpy(&l_uid, label + 8, sizeof(l_uid));
+    (void)memcpy(&l_sub, label + 20, sizeof(l_sub));
     return magic == WT_HSM_VAULT_LABEL_MAGIC && l_owner == owner &&
-           l_uid == uid;
+           l_sub == sub && l_uid == uid;
 }
 
 static uint32_t wt_hsm_vault_label_flags(const uint8_t* label)
@@ -90,8 +93,9 @@ static uint32_t wt_hsm_vault_label_flags(const uint8_t* label)
 /* Find the (owner, uid) object in the vault id window. Returns PSA_SUCCESS
  * with the id + metadata, or PSA_ERROR_DOES_NOT_EXIST. out_free_id receives
  * the lowest unused id in the window (WH_NVM_ID_INVALID when full). */
-static psa_status_t wt_hsm_vault_find(int32_t owner, uint64_t uid,
-                                      whNvmId* out_id, whNvmMetadata* out_meta,
+static psa_status_t wt_hsm_vault_find(int32_t owner, int32_t sub,
+                                      uint64_t uid, whNvmId* out_id,
+                                      whNvmMetadata* out_meta,
                                       whNvmId* out_free_id)
 {
     whNvmMetadata meta;
@@ -110,7 +114,7 @@ static psa_status_t wt_hsm_vault_find(int32_t owner, uint64_t uid,
             }
         }
         else if (rc == WH_ERROR_OK) {
-            if (wt_hsm_vault_label_match(meta.label, owner, uid)) {
+            if (wt_hsm_vault_label_match(meta.label, owner, sub, uid)) {
                 if (out_id != NULL) {
                     *out_id = id;
                 }
@@ -156,9 +160,9 @@ static psa_status_t wt_hsm_vault_map_err(int rc)
     return status;
 }
 
-static psa_status_t wt_hsm_vault_set(int32_t owner, uint64_t uid,
-                                     uint32_t flags, const uint8_t* data,
-                                     size_t len)
+static psa_status_t wt_hsm_vault_set(int32_t owner, int32_t sub,
+                                     uint64_t uid, uint32_t flags,
+                                     const uint8_t* data, size_t len)
 {
     whNvmMetadata meta;
     whNvmId id = WH_NVM_ID_INVALID;
@@ -172,7 +176,7 @@ static psa_status_t wt_hsm_vault_set(int32_t owner, uint64_t uid,
             (flags & ~(uint32_t)WT_VAULT_FLAG_WRITE_ONCE) != 0U) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
-    status = wt_hsm_vault_find(owner, uid, &id, &meta, &free_id);
+    status = wt_hsm_vault_find(owner, sub, uid, &id, &meta, &free_id);
     if (status == PSA_SUCCESS) {
         /* Existing object: honour WRITE_ONCE before any backend write; the
          * *Checked add enforces the same policy at the NVM layer. */
@@ -200,14 +204,15 @@ static psa_status_t wt_hsm_vault_set(int32_t owner, uint64_t uid,
                       WH_NVM_FLAGS_NONDESTROYABLE;
     }
     meta.len = (whNvmSize)len;
-    wt_hsm_vault_label(meta.label, owner, uid, flags);
+    wt_hsm_vault_label(meta.label, owner, sub, uid, flags);
     return wt_hsm_vault_map_err(
         wh_Nvm_AddObjectChecked(g_vault_nvm, &meta, (whNvmSize)len, data));
 }
 
-static psa_status_t wt_hsm_vault_get(int32_t owner, uint64_t uid,
-                                     uint32_t offset, uint8_t* data,
-                                     size_t size, size_t* out_len)
+static psa_status_t wt_hsm_vault_get(int32_t owner, int32_t sub,
+                                     uint64_t uid, uint32_t offset,
+                                     uint8_t* data, size_t size,
+                                     size_t* out_len)
 {
     whNvmMetadata meta;
     whNvmId id = WH_NVM_ID_INVALID;
@@ -217,7 +222,7 @@ static psa_status_t wt_hsm_vault_get(int32_t owner, uint64_t uid,
     if (g_vault_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
     }
-    status = wt_hsm_vault_find(owner, uid, &id, &meta, NULL);
+    status = wt_hsm_vault_find(owner, sub, uid, &id, &meta, NULL);
     if (status != PSA_SUCCESS) {
         return status;
     }
@@ -240,8 +245,8 @@ static psa_status_t wt_hsm_vault_get(int32_t owner, uint64_t uid,
     return PSA_SUCCESS;
 }
 
-static psa_status_t wt_hsm_vault_get_info(int32_t owner, uint64_t uid,
-                                          wt_vault_info_t* info)
+static psa_status_t wt_hsm_vault_get_info(int32_t owner, int32_t sub,
+                                          uint64_t uid, wt_vault_info_t* info)
 {
     whNvmMetadata meta;
     psa_status_t status;
@@ -249,7 +254,7 @@ static psa_status_t wt_hsm_vault_get_info(int32_t owner, uint64_t uid,
     if (g_vault_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
     }
-    status = wt_hsm_vault_find(owner, uid, NULL, &meta, NULL);
+    status = wt_hsm_vault_find(owner, sub, uid, NULL, &meta, NULL);
     if (status != PSA_SUCCESS) {
         return status;
     }
@@ -260,7 +265,8 @@ static psa_status_t wt_hsm_vault_get_info(int32_t owner, uint64_t uid,
     return PSA_SUCCESS;
 }
 
-static psa_status_t wt_hsm_vault_remove(int32_t owner, uint64_t uid)
+static psa_status_t wt_hsm_vault_remove(int32_t owner, int32_t sub,
+                                        uint64_t uid)
 {
     whNvmMetadata meta;
     whNvmId id = WH_NVM_ID_INVALID;
@@ -269,7 +275,7 @@ static psa_status_t wt_hsm_vault_remove(int32_t owner, uint64_t uid)
     if (g_vault_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
     }
-    status = wt_hsm_vault_find(owner, uid, &id, &meta, NULL);
+    status = wt_hsm_vault_find(owner, sub, uid, &id, &meta, NULL);
     if (status != PSA_SUCCESS) {
         return status;
     }

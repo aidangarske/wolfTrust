@@ -267,6 +267,8 @@ if [ "$mode" != "build" ]; then
         "wolfTrust FF-M psa_framework_version=0x0100"
       expect "SERVICE_CRYPTO dispatch verified" \
         "wolfTrust FF-M SERVICE_CRYPTO dispatch verified"
+      expect "ITS set/get verified" \
+        "wolfTrust ITS set/get verified"
       expect "psa_hash_compute(SHA-256) KAT verified" \
         "psa_hash_compute(SHA-256) KAT verified"
       expect "psa_initial_attestation st=0" "psa_initial_attestation st=0"

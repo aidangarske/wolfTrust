@@ -813,6 +813,15 @@ int wt_ffm_msg_complete(const wt_ffm_runtime_t* runtime, uint16_t msg_index)
            runtime->messages[msg_index].complete != 0U;
 }
 
+int wt_ffm_dispatch_pending(wt_ffm_runtime_t* runtime, uint16_t msg_index)
+{
+    if (runtime == NULL || msg_index >= WT_FFM_MAX_MESSAGES ||
+            runtime->messages[msg_index].allocated == 0U) {
+        return WT_FFM_ERROR_ARGUMENT;
+    }
+    return wt_ffm_dispatch_message(runtime, msg_index);
+}
+
 psa_handle_t wt_ffm_connect_finish(wt_ffm_runtime_t* runtime,
                                    uint16_t msg_index)
 {

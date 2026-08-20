@@ -24,7 +24,7 @@
 
 #include "wolftrust/sched/coroutine.h"
 
-#define WT_CO_MAX 8u
+#define WT_CO_MAX 12u
 
 /* Magic sentinel placed at the bottom of the stack to detect overflow.
  * Checked at every switch; mismatch causes wt_platform_panic(). */

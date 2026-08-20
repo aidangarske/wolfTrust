@@ -365,5 +365,17 @@ int wt_spm_call_would_block(const wt_spm_call_t* call)
 
 int wt_spm_transport_direct(wt_ffm_runtime_t* runtime, wt_spm_call_t* call)
 {
-    return wt_spm_gate(runtime, NULL, call);
+    int status = wt_spm_gate(runtime, NULL, call);
+    unsigned int guard = 0U;
+
+    /* Host stand-in for the scheduler wake: an SP-as-client begin parks the
+     * message NOT_READY; dispatch the queued message inline, then harvest
+     * with the finish pass. Bounded so a never-replying service cannot spin. */
+    while (status == WT_FFM_SUCCESS && call->pending_valid != 0U &&
+            call->ret_int == WT_FFM_ERROR_NOT_READY && guard < 8U) {
+        (void)wt_ffm_dispatch_pending(runtime, call->pending_msg);
+        status = wt_spm_gate(runtime, NULL, call);
+        guard++;
+    }
+    return status;
 }

@@ -27,7 +27,10 @@ MEMORY {
   /* SRAM1 has Secure and Non-secure aliases to the same physical memory.
    * The first 32 KiB are assigned to the two guests through the 0x20000000
    * Non-secure alias, so keep secure .data/.bss above that physical window. */
-  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 420K
+  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 412K
+  /* ITS partition stack: the unprivileged storage SP's execution stack and
+   * MPU-domain RW resource (WT_SP_ITS_STACK_* in memory_map.h). */
+  ITSSTACK (rw): ORIGIN = 0x3008F000, LENGTH = 8K
   /* Vault partition stack (WT-FFM-0047): the privileged vault coroutine's
    * manifest-declared execution stack (WT_SP_VAULT_STACK_* in memory_map.h). */
   VAULTSTACK (rw): ORIGIN = 0x30091000, LENGTH = 8K
@@ -131,8 +134,10 @@ SECTIONS {
     KEEP(*(.sp_stacks*))
   } > SPSTACKS
 
-  ASSERT(ORIGIN(VAULTSTACK) == (ORIGIN(RAM) + LENGTH(RAM)),
-         "vault stack must sit directly above the secure RAM window")
+  ASSERT(ORIGIN(ITSSTACK) == (ORIGIN(RAM) + LENGTH(RAM)),
+         "ITS stack must sit directly above the secure RAM window")
+  ASSERT(ORIGIN(VAULTSTACK) == (ORIGIN(ITSSTACK) + LENGTH(ITSSTACK)),
+         "vault stack must sit directly above the ITS stack")
   ASSERT(ORIGIN(CONFDATA) == (ORIGIN(VAULTSTACK) + LENGTH(VAULTSTACK)),
          "conformance SP data must sit directly above the vault stack")
   /* The top 1 KiB of CONFDATA holds the per-partition pseudo-MMIO holes

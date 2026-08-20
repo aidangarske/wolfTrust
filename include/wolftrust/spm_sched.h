@@ -49,4 +49,8 @@ int wt_spm_sched_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
  * still cross the gate; the manifest's dependencies[] authorizes them. */
 int wt_spm_vault_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 
+/* Start the ITS partition as a normal UNPRIVILEGED scheduled SP whose service
+ * loop reaches SERVICE_VAULT over SP-to-SP IPC through the SVC gate. */
+int wt_spm_its_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
+
 #endif /* WOLFTRUST_SPM_SCHED_H */
