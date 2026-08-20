@@ -36,13 +36,18 @@
 #define WT_SCB_ICSR_S            (*(volatile uint32_t*)0xE000ED04u)
 #define WT_SCB_ICSR_NS           (*(volatile uint32_t*)0xE002ED04u)
 #define WT_SCB_AIRCR_S           (*(volatile uint32_t*)0xE000ED0Cu)
-#define WT_SCB_AIRCR_SYSRESETREQ ((0x05FAu << 16) | (1u << 2))
+#define WT_SCB_AIRCR_VECTKEY     (0x05FAu << 16)
+#define WT_SCB_AIRCR_SYSRESETREQ (WT_SCB_AIRCR_VECTKEY | (1u << 2))
+#define WT_SCB_AIRCR_SYSRESETREQS (1u << 3)
+/* Config bits that must be preserved across an AIRCR read-modify-write. */
+#define WT_SCB_AIRCR_CFG_MASK    ((1u << 3) | (1u << 13) | (1u << 14) | (7u << 8))
 #define WT_SCB_ICSR_PENDSVCLR    (1u << 27)
 #define WT_SCB_ICSR_PENDSVSET    (1u << 28)
 #define WT_SCB_ICSR_PENDSTCLR    (1u << 25)
 #define WT_SCB_ICSR_PENDSTSET    (1u << 26)
 
 #define WT_SCB_SHPR3_PENDSV_SHIFT 16u
+#define WT_SCB_SHPR3_SYSTICK_SHIFT 24u
 
 #define WT_SCB_SHCSR_MEMFAULTENA (1u << 16)
 #define WT_SCB_SHCSR_BUSFAULTENA (1u << 17)

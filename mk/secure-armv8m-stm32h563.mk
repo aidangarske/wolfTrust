@@ -256,6 +256,11 @@ ALL_SECURE_OBJS := \
 # range; P3b adds the driver partition.
 ifeq ($(WT_CONFORMANCE),1)
 SECURE_CFLAGS += -DWT_CONFORMANCE=1
+# WT_CONF_DIAG_TRAP=0 (hardware): the hang-probe diag trap deliberately faults
+# for the emulator's register dump; on silicon that fault becomes a
+# conformance-monitor reset that can eat the suite's report window.
+WT_CONF_DIAG_TRAP ?= 1
+SECURE_CFLAGS += -DWT_CONF_DIAG_TRAP=$(WT_CONF_DIAG_TRAP)
 UPSTREAM_DIR := $(BUILD_DIR)/upstream/psa-arch-tests/api-tests
 UPSTREAM_STAMP := $(BUILD_DIR)/.psa-arch-tests.stamp
 CONF_GEN_STAMP := $(MANIFEST_DIR)/.conformance-gen.stamp

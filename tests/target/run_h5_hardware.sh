@@ -147,7 +147,9 @@ if [ "$mode" != "flash" ]; then
   secure_flags=""; guest_flags=""
   [ "$scenario" = "crossdomain" ] && secure_flags="WT_FFM_NEGATIVE_PROBE=1"
   [ "$scenario" = "restart" ] && guest_flags="WT_GUEST_FAULT_PROBE=1"
-  [ "$scenario" = "confboot" ] && { secure_flags="WT_CONFORMANCE=1"; guest_flags="WT_RUN_CONFORMANCE=1"; }
+  # WT_CONF_DIAG_TRAP=0: the emulator-only hang-probe fault would become a
+  # conformance-monitor reset on silicon and can eat the suite's report window.
+  [ "$scenario" = "confboot" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0"; guest_flags="WT_RUN_CONFORMANCE=1"; }
 
   stage "building wolfTrust secure image ($scenario)"
   {

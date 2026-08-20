@@ -331,9 +331,18 @@ static void wt_spm_sched_diag_trap(uint32_t a, uint32_t b, uint32_t c)
     register uint32_t diag_c __asm__("r6") = c;
     volatile uint32_t probe;
 
+#if defined(WT_CONF_DIAG_TRAP) && (WT_CONF_DIAG_TRAP == 0)
+    /* Hardware: no fault-dump printer exists, and the conformance monitor
+     * answers the deliberate fault with a system reset — which can land in
+     * the suite's NS-only report window and silently restart the whole run.
+     * Keep the probes counting but never trap. */
+    (void)diag_a; (void)diag_b; (void)diag_c; (void)probe;
+    return;
+#else
     __asm__ volatile("" : : "r"(diag_a), "r"(diag_b), "r"(diag_c));
     probe = *(const volatile uint32_t*)0xEFFFFFF4u;
     (void)probe;
+#endif
 }
 
 static uint32_t wt_spm_sched_diag_word(const wt_ffm_runtime_t* runtime,

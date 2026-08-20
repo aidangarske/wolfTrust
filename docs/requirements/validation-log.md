@@ -1732,3 +1732,40 @@ Every implementation phase must repeat host tests and the complete M33MU
 matrix on its exact phase commit. When target hardware is available, the same
 phase must additionally record a physical-board smoke result covering the
 phase behavior.
+
+## MP5 confboot gate flake (#83) CLOSED — NS reset authority (2026-08-20)
+
+The automated `confboot` hardware gate reported one SIM ERROR in ~1/4 runs.
+Root-caused on the NUCLEO-H563ZI with a reset-survival SRAM black box (the reset
+defeats both the interleaved UART log and the ST-Link, which is itself reset by
+SYSRESETREQ). The recorder stamps each boot and each secure `wt_platform_system
+_reset`, plus a "reset-pending" flag only the secure path arms: a boot lacking
+that flag is a reboot that bypassed secure code.
+
+Finding: on failing runs a boot during test i003 (IOVECS — a non-panic test)
+carried RCC_RSR SFTRSTF (a SYSRESETREQ) but no secure-reset breadcrumb, i.e. a
+**Non-secure-initiated** system reset. guest0's Zephyr is built with
+`CONFIG_REBOOT` + `sys_reboot` (direct `AIRCR` access), and intermittently
+issued a full-SoC SYSRESETREQ mid-suite; val had armed `BOOT_NOT_EXPECTED`, so
+the unexpected reboot became a SIM ERROR. Intermittent because the guest only
+sometimes hit the reboot path (`bypass_boots` = 1 on clean rounds, 2 when it
+fired).
+
+Fix (all keeper, `port/stm32h563` + `src/monitor.c`):
+- `AIRCR.SYSRESETREQS` set in `wt_platform_init` — Secure world is the sole
+  reset authority; a NS SYSRESETREQ no longer resets the SoC. Correct
+  Secure-Manager policy (TF-M does the same). The guest's rogue reset is now
+  absorbed; legit secure panic-test reboots are unaffected.
+- SysTick given the same lowest priority as PendSV (SHPR3). SysTick defaulted to
+  priority 0 and could preempt PendSV mid-coroutine-switch, faulting INVPC on
+  the half-saved exception frame — a real latent bug the hunt surfaced.
+- HSM tasklet preempt gated on `wt_platform_secure_psp_thread_trap()` so an
+  async tick only preempts a coroutine physically running on PSP, never inside
+  the bootstrap's switch window.
+
+Evidence: with the fix, confboot is deterministic — 20/20 clean back-to-back
+(15 instrumented + 5 on the stripped production build), each 89 tests / 85
+passed / 0 failed / 4 skipped / 0 SIM ERROR, through the full authenticated
+wolfBoot chain and ~92 real SYSRESETREQ panic-reboots per run. Diagnostic
+instrumentation (black box, UART reset markers, NVM trace) was removed before
+the commit; the M33MU emulator matrix was re-run to confirm no regression.

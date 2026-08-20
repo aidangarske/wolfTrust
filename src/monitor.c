@@ -420,8 +420,14 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
             wt_hsm_guest_for_tasklet(wt_tasklet_current());
 
         wt_tick_restart_backoff();
-        if (tasklet_guest >= g_scheduler.guest_count ||
-            g_scheduler.runtime[tasklet_guest].state == WT_GUEST_WAITING_HSM) {
+        /* Preempt only a genuine HSM tasklet that is physically executing
+         * on its PSP. FF-M SP coroutines share this machinery but resolve
+         * to no HSM guest, and a tick inside the bootstrap's switch window
+         * (current already updated, PendSV not yet taken) would corrupt
+         * the in-flight switch — the confboot silent-hang/INVPC flake. */
+        if (tasklet_guest < g_scheduler.guest_count &&
+            g_scheduler.runtime[tasklet_guest].state == WT_GUEST_WAITING_HSM &&
+            wt_platform_secure_psp_thread_trap()) {
             (void)wt_tasklet_request_preempt();
         }
         return;

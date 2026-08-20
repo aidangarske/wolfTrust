@@ -98,6 +98,7 @@ typedef struct wt_exception_frame {
 #define WT_EXC_RETURN_MODE_THREAD          0x08u
 #define WT_EXC_RETURN_RETURN_TO_NONSECURE  0x00u
 #define WT_EXC_RETURN_SECURITY_MASK        0x40u
+#define WT_EXC_RETURN_SPSEL_PSP            0x04u
 
 _Static_assert(WT_GUEST_CONTEXT_PSP_NS_OFFSET == 32U, "unexpected psp_ns offset");
 _Static_assert(WT_GUEST_CONTEXT_MSP_NS_OFFSET == 36U, "unexpected msp_ns offset");
@@ -764,6 +765,19 @@ bool wt_platform_ns_thread_mode_trap(void)
            (WT_EXC_RETURN_MODE_THREAD | WT_EXC_RETURN_RETURN_TO_NONSECURE);
 }
 
+bool wt_platform_secure_psp_thread_trap(void)
+{
+    /* True only when the tick landed on a Secure Thread running on PSP —
+     * i.e. a coroutine is physically executing, not merely named current
+     * inside the bootstrap's do_switch/arch_enter window. Gates the HSM
+     * tasklet preempt so an async SysTick cannot corrupt a mid-switch frame. */
+    return (g_live_exc_return &
+            (WT_EXC_RETURN_MODE_THREAD | WT_EXC_RETURN_SPSEL_PSP |
+             WT_EXC_RETURN_SECURITY_MASK)) ==
+           (WT_EXC_RETURN_MODE_THREAD | WT_EXC_RETURN_SPSEL_PSP |
+            WT_EXC_RETURN_SECURITY_MASK);
+}
+
 void wt_platform_return_to_secure_thread(
     void (*entry)(void) __attribute__((noreturn)))
 {
@@ -998,8 +1012,22 @@ void wt_platform_init(void)
      * by the time we get the trap). STKOF on PSPLIM_S overflow surfaces
      * as a UsageFault. */
     WT_SCB_SHCSR_S |= WT_SCB_SHCSR_MEMFAULTENA | WT_SCB_SHCSR_USGFAULTENA;
+    /* Reset authority belongs to the Secure world. With SYSRESETREQS set, a
+     * Non-secure SYSRESETREQ (e.g. a guest RTOS calling sys_reboot on a fault)
+     * no longer resets the SoC — only Secure code can. This is the correct
+     * Secure-Manager policy and stops a rogue NS reboot from tearing the whole
+     * system down. Read-modify-write with VECTKEY, preserving the TrustZone
+     * config bits (PRIS/BFHFNMINS/PRIGROUP). */
+    WT_SCB_AIRCR_S = WT_SCB_AIRCR_VECTKEY |
+                     (WT_SCB_AIRCR_S & WT_SCB_AIRCR_CFG_MASK) |
+                     WT_SCB_AIRCR_SYSRESETREQS;
 #ifdef WT_ENGINE_HSM
-    WT_SCB_SHPR3_S |= (0xFFu << WT_SCB_SHPR3_PENDSV_SHIFT);
+    /* PendSV and the secure SysTick must share the lowest priority: SysTick at
+     * the reset default (0, highest) would preempt PendSV mid-coroutine switch,
+     * and a nested exception return off the half-saved frame faults INVPC.
+     * Equal priority makes the context switch atomic against the timer. */
+    WT_SCB_SHPR3_S |= (0xFFu << WT_SCB_SHPR3_PENDSV_SHIFT) |
+                      (0xFFu << WT_SCB_SHPR3_SYSTICK_SHIFT);
     WT_SCB_ICSR_S = WT_SCB_ICSR_PENDSVCLR;
 #endif
     /* Enable USART2/USART3 clocks in both security views before guests run. */

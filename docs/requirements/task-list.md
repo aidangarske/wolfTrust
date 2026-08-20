@@ -24,10 +24,13 @@ wolfTrust on the board — the TF-M drop-in proof.
   rungs (Provisioning / TZ-Closed / Closed → DA-cert regression → Open).
 - [x] **MP4** — core/port split enforced; core has zero arch code (CI-guarded);
   port contract + adding-a-port docs.
-- [~] **MP5** — TF-M drop-in proof. Unmodified Arm FF-M IPC suite reached
-  **85/4 on H563 silicon** via the new `confboot` hardware scenario (proven 3×).
-  ST-SM/H573I-DK side-by-side **descoped** (owner decision). **OPEN:** the
-  automated confboot gate is not yet deterministic — see Open items #A.
+- [x] **MP5** — TF-M drop-in proof. Unmodified Arm FF-M IPC suite reaches
+  **85/4 on H563 silicon** via the new `confboot` hardware scenario, now
+  **deterministic** (20/20 clean back-to-back). ST-SM/H573I-DK side-by-side
+  **descoped** (owner decision). Gate flake (#83) root-caused to a Non-secure
+  guest issuing SYSRESETREQ mid-suite; fixed by `AIRCR.SYSRESETREQS` (Secure
+  becomes sole reset authority), plus a SysTick/PendSV priority-inversion fix
+  and an SPSEL-gated HSM preempt. See Open items #A (closed).
 - [ ] **MP6** — docs + completion: consolidate port guide, SM-replacement guide,
   lock workflow, port contract; verify RM0481 encodings before external claims.
   Most material exists (port-contract.md, adding-a-port.md, MP3/MP5 evidence,
@@ -52,13 +55,17 @@ wolfTrust on the board — the TF-M drop-in proof.
 
 ## Open items (active)
 
-- **#A confboot gate flakiness (MP5).** ~1-in-4 the panic-reboot loop stalls
-  (infinite reboot, no report). Root cause: the K3 panic path writes its flash
-  boot-flag then fires SYSRESETREQ, but on real silicon the flash write
-  intermittently doesn't complete before the reset — flag lost, val re-runs,
-  loops. Emulator-invisible. Fix = flush/complete flash + barrier before
-  SYSRESETREQ in the panic-reset primitive; re-prove with N back-to-back suite
-  runs. Deep silicon-timing work (Fable-tier).
+- **#A confboot gate flakiness (MP5) — CLOSED (#83).** Now deterministic (20/20
+  clean, 0 SIM ERROR). Previously ~1-in-4 runs reported a single SIM ERROR.
+  Root cause (found via a reset-survival SRAM black box, since
+  the reset defeats both the UART log and the debugger): guest0's Zephyr
+  (`CONFIG_REBOOT` + `sys_reboot`) intermittently issued a **Non-secure
+  SYSRESETREQ** mid-suite, resetting the whole SoC while val had armed
+  `BOOT_NOT_EXPECTED` → SIM ERROR. Fix: set `AIRCR.SYSRESETREQS` in secure init
+  so a NS SYSRESETREQ can no longer reset the SoC (correct Secure-Manager
+  policy). Two latent bugs fixed alongside: SysTick defaulted to priority 0 and
+  preempted PendSV mid-coroutine-switch (INVPC faults) — now equal-lowest with
+  PendSV; and the HSM tasklet preempt is SPSEL-gated. Proven 20/20 clean.
 - **#63 m33mu upstream point-back.** Blocked on two upstream PRs (SPSEL #16 +
   ITSTATE-advance). When both merge: bump `M33MU_REF` in the runners + yml and
   drop `tests/target/m33mu-tb-sec-chain.patch` (carries both fixes locally).
