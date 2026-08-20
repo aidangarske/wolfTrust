@@ -144,8 +144,8 @@ from the SoC TRNG via wolfHAL (`lib/wolfhal/src/rng/stm32h5_rng.c`).
 
 ## Porting tasks
 
-A real SoC port must replace `src/platform_stub.c` (or supply a port like
-`port/stm32h563/platform_stm32h563.c`) with Secure firmware that:
+A real SoC port supplies a `port/<soc>/` implementation (like
+`port/stm32h563/platform_stm32h563.c`) — Secure firmware that:
 
 - configures the Secure scheduler timer,
 - programs Secure attribution and memory firewalls,

@@ -35,15 +35,21 @@ Net: "generally support Secure Manager for any ST part that isn't port-specific"
 = the core is generic; ST-part support is a port; other vendors are ports. Same
 shape every time.
 
-## Where we are (2026-08-18)
+## Where we are (2026-08-20)
 
 - **Core proven on M33MU emulator:** full Arm FF-M IPC suite 85/4, isolation,
-  panic-reset, all host suites green (validation `49f7dad`). Emulator evidence.
-- **H5 hardware, first boot:** the signed chain flashes and **wolfTrust boots on
-  the real Nucleo-H563ZI** — pyocd shows the core `Running [Nonsecure]`, i.e.
-  secure boot + wolfTrust + the TrustZone handoff to the guest all executed. The
-  console is **baud-mismatched** (garbled UART: the real clock tree ≠ the
-  emulator's fixed clock) — the first MP1 fix.
+  panic-reset, all host suites green. Emulator evidence.
+- **H5 port complete through MP6.** MP1–MP3 (bring-up, functional equivalence,
+  reversible immutable-RoT lock at all rungs), MP4 (core/port split enforced —
+  guard clean, hard leaks = 0), and MP5 (the unmodified Arm FF-M IPC suite
+  **85/4 on H563 silicon** via the `confboot` scenario, now deterministic 20/20
+  after the #83 `AIRCR.SYSRESETREQS` fix, commit `52f13bb`) are all done and
+  recorded in `validation-log.md`. MP6 consolidated the port + Secure-Manager
+  guides and cross-checked the encodings against RM0481
+  (`docs/rm0481-encoding-crosscheck.md`).
+- **Next: Phase 4** — Crypto / Protected Storage / ITS as isolated Secure
+  Partitions (wolfPSA→wolfHSM), widening the drop-in claim from FF-M IPC to full
+  PSA.
 
 ## Program — H5 reference port to completion
 

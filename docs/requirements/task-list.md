@@ -31,17 +31,21 @@ wolfTrust on the board — the TF-M drop-in proof.
   guest issuing SYSRESETREQ mid-suite; fixed by `AIRCR.SYSRESETREQS` (Secure
   becomes sole reset authority), plus a SysTick/PendSV priority-inversion fix
   and an SPSEL-gated HSM preempt. See Open items #A (closed).
-- [~] **MP6** — docs + completion of the H5 port. Consolidated guide written:
+- [x] **MP6** — docs + completion of the H5 port. Consolidated guide written:
   [`docs/stm32h5-secure-manager-guide.md`](../stm32h5-secure-manager-guide.md)
   — ties together the memory map, provisioning perimeter, the real
   Open→Provisioning→TZ-Closed→Closed lock-ladder transitions, the four hardware
   scenarios, the on-silicon 85/4 conformance run, and the silicon gotchas
   (incl. the #83 SYSRESETREQS fix), every state/result quoted from an actual
   board run under `docs/evidence/`. Ties into `port-contract.md`,
-  `adding-a-port.md`, `validation-log.md`, and the two skills. **Remaining:**
-  a formal RM0481 cross-check of the register/option-byte encodings before
-  external-facing claims (the product-state codes and SECWM/AIRCR values in the
-  guide are as-observed on hardware, not yet paper-verified against RM0481).
+  `adding-a-port.md`, `validation-log.md`, and the two skills. The
+  register/option-byte encodings are paper-verified against RM0481 and the Arm
+  Cortex-M33 architecture in
+  [`docs/rm0481-encoding-crosscheck.md`](../rm0481-encoding-crosscheck.md)
+  (product-state codes, TZEN/BOOT_UBE, SECWM watermarks, AIRCR SYSRESETREQS),
+  and a coherence pass was run across the guide + `port-contract.md` +
+  `adding-a-port.md` + `competitive-edge-vs-secure-manager.md` +
+  `wolftrust-secure-manager-port-plan.md`.
 
 ## Remaining implementation phases (`phases.md`)
 

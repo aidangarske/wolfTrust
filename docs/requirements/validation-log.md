@@ -1709,6 +1709,11 @@ Two real silicon defects found by the run (invisible to M33MU):
    Mitigation: the runner erases that sector (`pyocd erase -s 0x0C1FA000`)
    before each confboot run.
 
+**SUPERSEDED (2026-08-20) — CLOSED as #83 below.** The gate is now deterministic
+(20/20 clean); the flash-write-race theory in this paragraph was wrong — the real
+root cause was a Non-secure guest issuing `SYSRESETREQ` mid-suite. See "MP5
+confboot gate flake (#83) CLOSED" at the tail. Left here as the historical trail.
+
 OPEN — confboot gate is not yet deterministic. The suite passed 85/4 cleanly
 three times (one manual + two back-to-back standalone) but a fourth run stalled
 in an infinite reboot loop (476 reboots vs the expected 92, no report). Root
@@ -1769,3 +1774,29 @@ passed / 0 failed / 4 skipped / 0 SIM ERROR, through the full authenticated
 wolfBoot chain and ~92 real SYSRESETREQ panic-reboots per run. Diagnostic
 instrumentation (black box, UART reset markers, NVM trace) was removed before
 the commit; the M33MU emulator matrix was re-run to confirm no regression.
+
+## MP6 — H5 port docs consolidated + RM0481 cross-check (2026-08-20)
+
+Docs-completion milestone. The on-silicon Secure-Manager guide
+`docs/stm32h5-secure-manager-guide.md` consolidates the memory map, provisioning
+perimeter, the real Open→Provisioning→TZ-Closed→Closed lock-ladder transitions,
+the four hardware scenarios, the 85/4 conformance run, and the silicon gotchas —
+every state/result quoted from a board run under `docs/evidence/`, cross-linking
+`port-contract.md`, `adding-a-port.md`, and this ledger.
+
+RM0481 cross-check (the "verify encodings before external claims" gate):
+`docs/rm0481-encoding-crosscheck.md` verifies every register/option-byte value
+the guide and provisioning tooling assert against RM0481 and the Arm Cortex-M33
+architecture — product-state codes (Open `0xED`, Provisioning `0x17`, TZ-Closed
+`0xC6`, Closed `0x72`, Locked `0x5C`), `TZEN`/`BOOT_UBE=0xB4`, secure watermarks
+(`SECWM1_END=0x4F` = bank-1 sector 79 → secure through `0x0809FFFF`;
+`SECWM2_END=0x7F`), and the `AIRCR.SYSRESETREQS` (bit 3) / `VECTKEY` / `PRIS`
+(14) / `BFHFNMINS` (13) fields of the #83 fix. Provisioning `0x17` and Closed
+`0x72` are additionally confirmed against an ST application note; `TZEN=0xB4`
+against SEGGER's STM32H5 lifecycle note; the AIRCR bit positions against the Arm
+Cortex-M33 Devices Generic User Guide. All match; the guide's earlier
+"as-observed, not paper-verified" caveat is retired. Coherence pass run across
+the guide + `port-contract.md` + `adding-a-port.md` +
+`competitive-edge-vs-secure-manager.md` + `wolftrust-secure-manager-port-plan.md`;
+the superseded confboot-flake paragraph in the MP5 section above was marked
+CLOSED (#83).

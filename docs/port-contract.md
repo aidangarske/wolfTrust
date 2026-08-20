@@ -64,32 +64,28 @@ counters/reset. Today two of these exist but have **no header under
 (`include/wolftrust/port_nvm.h` / `port_entropy.h`) so the coupling is an
 interface, not an include-path accident.
 
-## Current split status — enforced vs. outstanding
+## Current split status — enforced
 
-The architecture port and `port/stm32h563/` are correctly scoped. Outstanding
-core→arch leaks the guard (`tools/check-core-port-split.sh`) reports, for MP4/MP6
-to resolve (deep refactor — tracked separately, touches the secure build so it
-must re-pass the M33MU + host suites):
+The architecture port and `port/stm32h563/` are correctly scoped, and MP4
+resolved the former core→arch leaks: the CMSE veneers were extracted to the arch
+port (`src/arch/armv8m/ffm_nsc.c`, `vnet_nsc.c`), the HSM fault-notify now goes
+through a platform callback (dropping the arch `cmse_transport.h` include from
+core), the `boot_handoff` `dmb`/`dsb` became platform hooks, and the guest
+context is held by pointer so `platform.h`/`monitor.h` need no arch layout. The
+guard (`tools/check-core-port-split.sh`) now reports **hard leaks = 0, soft
+(register-name) hits = 0**, enforced in CI — a new Armv8-M SoC port needs zero
+core edits.
 
-- `src/ffm_boot.c` — includes `wolftrust/arch/armv8m/cmse.h` + `spm_svc.h`;
-  5× `cmse_nonsecure_entry` veneers; `wt_cmse_check_*` calls.
-- `src/services/vnet/vnet_service.c` — same pattern (7× veneers).
-- `src/services/wolfhsm/wt_hsm.c` — includes arch `cmse_transport.h`;
-  `wt_cmse_transport_signal_fault`.
-- `src/services/boot_handoff.c` — inline `dmb`/`dsb` asm.
-- `include/wolftrust/types.h` — `WT_MAX_MPU_REGIONS 8U` + `wt_mpu_region_t` in
-  core types (`WT-PORT-0001` forbids MPU-count assumptions in common core).
-- `include/wolftrust/platform.h` — includes arch `context.h` for
-  `wt_guest_context_t`.
-- `src/services/wolfhsm/runner/` — board-specific glue (IVT, `secure.ld`, libc
-  stubs, board-tuned settings) living under `src/`; candidate to move under
-  `port/stm32h563/` wholesale rather than comment-scrub.
+Residual (cosmetic, not a leak the guard flags): `include/wolftrust/types.h`
+still names `WT_MAX_MPU_REGIONS` / `wt_mpu_region_t` where `WT-PORT-0001` prefers
+architecture-neutral `WT_MAX_MEM_REGIONS` / `wt_memory_region_t`; and the
+`src/services/wolfhsm/runner/` board glue (IVT, `secure.ld`, libc stubs) is a
+candidate to relocate wholesale under `port/stm32h563/`. Neither blocks a port.
 
-The **CMSE veneers are the real question**: they are architecturally bound (they
-must live in a `.gnu.sgstubs` section on Armv8-M) but currently sit in core
-service files. The intended fix mirrors `SERVICE_CRYPTO`'s history — keep the
-portable service logic in the core file and move only the veneer/CMSE shim into
-the arch port, so a non-Armv8-M target supplies its own gateway.
+The **CMSE veneers** were the real question and are now settled the way
+`SERVICE_CRYPTO` was: the portable service logic stays in the core file and only
+the veneer/CMSE shim (the `.gnu.sgstubs` section on Armv8-M) lives in the arch
+port, so a non-Armv8-M target supplies its own gateway without touching core.
 
 ## Porting plan to other targets (DOCS-ONLY — no implementation this milestone)
 
@@ -110,10 +106,10 @@ immutable-RoT primitives per vendor are catalogued in
 Each keeps the Armv8-M architecture port; the MCU-family port maps the target's
 native RoT onto the WT-PORT flash/identity/lifecycle/reset surface:
 - **NXP LPC55S6x** — CMPA/CFPA + ROTKH + Debug Auth (closest to STM32H5 DA).
-- **NXP i.MX RT5xx/RT6xx** — OTP fuses + BEE/OTFAD.
+- **NXP i.MX RT5xx/RT6xx** — OTP fuses + ROTKH + Debug Auth.
 - **Nordic nRF5340 / nRF54L15 / nRF91** — NSIB + UICR/KMU + APPROTECT.
 - **Renesas RA6M4/M5** — DLM + SKMT; RA8 — masked FSBL + SFP.
-- **Microchip SAM L11 / PIC32CM LS** — UROW/BOCOR + DAL + CEHL.
+- **Microchip SAM L11 / PIC32CM LS** — UROW/BOCOR + DAL + BOOTKEY (CEHL = one-way lock).
 
 **Different architecture (e.g. AArch64) — replace the architecture port only.**
 The core, services, manifest, IPC, and PSA contracts are unchanged

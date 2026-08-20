@@ -99,12 +99,14 @@ OEM owning the code and keys. Verified against ST docs + ST-staff community post
   before every lock.
 
 **wolfBoot's role (verified):** wolfBoot v2.7.0+ ships unified TrustZone-M support
-and automates the TZ-partitioning option bytes (`TZEN/SECBOOTADD/NSBOOTADD/SECWM/
-WRP`) via `tools/scripts/set-stm32-tz-option-bytes.sh`, running its own
-secure-boot verify chain. It does **not** drive ST's HDP/product-state seal — that
-OEMiRoT lock-down is a separate CubeProgrammer + STM32TrustedPackageCreator step
-we script. The immutability comes from ST's primitives; wolfBoot + wolfTrust ride
-on top.
+and provides `tools/scripts/set-stm32-tz-option-bytes.sh` as a generic
+TZ-partitioning helper. **wolfTrust does not use it as-is** — it computes the
+wrong `SECWM` for wolfTrust's secure-alias layout and never sets `BOOT_UBE`, so
+the perimeter is instead programmed by our own `tests/target/provisioning_ctrl.sh`
+(the real, evidence-backed `WT_OB` set — see the guide §3). wolfBoot also does
+**not** drive ST's HDP/product-state seal — that OEMiRoT lock-down is a separate
+CubeProgrammer + STM32TrustedPackageCreator step we script. The immutability
+comes from ST's primitives; wolfBoot + wolfTrust ride on top.
 
 ## Cross-vendor RoT landscape (Armv8-M) — verified 2026-08-18
 
@@ -126,7 +128,7 @@ body of proprietary knowledge.
 | Microchip | SAM L11 | No (Trust&Go is a *separate* SE chip) | UROW/BOCOR fuses + DAL + BOOTKEY | Yes (CEHL, forever) | No (uses Trustonic Kinibi-M) |
 | Microchip | PIC32CM LS | No | Same UROW/BOCOR/DAL/CEHL + DICE | Yes (CEHL) | No |
 | ST | **STM32H573** | **Yes — STiRoT + Secure Manager** | Debug Auth (reversible) / OEM-iRoT | No (DA reversible on H5) | Yes |
-| ST | STM32H563 | No (can't run Secure Manager) | RDP/HDP/SECWM/WRP + product state | No (DA reversible) | Yes |
+| ST | STM32H563 | No (can't run Secure Manager) | HDP/SECWM/WRP + product state | No (DA reversible) | Yes |
 | ST | STM32U5 / L5 | No (OEM builds TF-M) | RDP 0/0.5/1/2 + HDP + WRP | **Yes — RDP2 permanent** | Yes |
 
 **Takeaway.** Only the H573 has a pre-installed stack to "compete with"; every
@@ -157,11 +159,13 @@ external-facing deck._
 - Secure Manager facts (proprietary ProvenCore-M not TF-M; customer-installed;
   H573-class only; ST owns platform RoT): **verified** against ST docs 2026-08-18.
 - H5 lock mechanism (OEMiRoT + HDP/SECWM/WRP/BOOT_UBE + product-state, reversible
-  via `Closed` with a DA credential): **verified** 2026-08-18. Bit-level
-  option-byte encodings (`BOOT_LOCK` vs `SECBOOT_LOCK`, exact `HDPL`/
-  `PRODUCT_STATE` value tables, any H563-vs-H573 delta) still need a direct
-  **RM0481** pass before external-facing publication.
+  via `Closed` with a DA credential): **verified** 2026-08-18. The bit-level
+  option-byte and `PRODUCT_STATE` encodings are now cross-checked against
+  **RM0481** and the Arm Cortex-M33 architecture in
+  [`rm0481-encoding-crosscheck.md`](rm0481-encoding-crosscheck.md).
 - Cross-vendor landscape: **verified** 2026-08-18 (spot-check the bot-blocked
   NXP/Renesas app-note rows before an external deck).
-- Physical proof: the **P2 lock-in demo** (see the P2 plan) demonstrates it
-  reversibly on the Nucleo-H563ZI.
+- Physical proof: the MP3 lock-ladder walkthrough
+  ([`docs/evidence/2026-08-18-h5-mp3-lock/`](evidence/2026-08-18-h5-mp3-lock/2026-08-19-lock-ladder-walkthrough.md))
+  demonstrates it reversibly on the Nucleo-H563ZI; real console transitions are
+  in the guide §4 ([`stm32h5-secure-manager-guide.md`](stm32h5-secure-manager-guide.md)).

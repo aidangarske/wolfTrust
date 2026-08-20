@@ -19,9 +19,7 @@ If the SoC is a **different architecture** (e.g. AArch64) you also write a new
 
 ## Steps
 
-1. **Copy the skeleton.** Start from `port/stm32h563/` (or the reference stub
-   `src/platform_stub.c`, which implements the host-buildable subset) into
-   `port/<soc>/`.
+1. **Copy the skeleton.** Start from `port/stm32h563/` into `port/<soc>/`.
 2. **Implement the architecture-port surface** — the `wt_platform_*` functions
    in `include/wolftrust/platform.h` (context switch, memory/MPU program,
    fault/panic/reset, IRQ routing, mode queries). The list and grouping is in

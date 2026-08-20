@@ -8,6 +8,8 @@ an actual run on the lab board — the raw logs live under `docs/evidence/`.
 For the *portable contract* (what a new SoC port must implement) see
 [`port-contract.md`](port-contract.md) and [`adding-a-port.md`](adding-a-port.md).
 For the requirement traceability see [`requirements/validation-log.md`](requirements/validation-log.md).
+Every register/option-byte value below is cross-checked against RM0481 and the
+Arm Cortex-M33 architecture in [`rm0481-encoding-crosscheck.md`](rm0481-encoding-crosscheck.md).
 
 ---
 
@@ -93,9 +95,10 @@ Non-secure — exactly the isolation boundary a Secure Manager needs.
 
 ## 4. The product-state lock ladder (real transitions)
 
-STM32H5 has a one-way OEM-iRoT product-state ladder (RM0481). wolfTrust seals
-into each locked state and reverses it with a Debug Authentication (DA)
-certificate Full Regression. Full walkthrough + raw console:
+STM32H5 has a one-way OEM-iRoT product-state ladder (RM0481; codes cross-checked
+in [`rm0481-encoding-crosscheck.md`](rm0481-encoding-crosscheck.md) §1).
+wolfTrust seals into each locked state and reverses it with a Debug
+Authentication (DA) certificate Full Regression. Full walkthrough + raw console:
 [`docs/evidence/2026-08-18-h5-mp3-lock/2026-08-19-lock-ladder-walkthrough.md`](evidence/2026-08-18-h5-mp3-lock/2026-08-19-lock-ladder-walkthrough.md).
 
 | State | Code | Debug | Reversible |
