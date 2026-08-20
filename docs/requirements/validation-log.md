@@ -1823,3 +1823,60 @@ Evidence: host `make test` green (`PASS: unit/all`) — regression-safe; the
 setting is target-only (the host wolfHSM test uses its own `user_settings.h`).
 The enlarged-directory secure-build + M33MU NVM-init validation folds into the
 S1 box gate (the first slice that exercises the vault on target).
+
+## Phase 4 S1 — gated wolfHSM vault (keystone) (2026-08-20)
+
+The gated backing (WT-FFM-0047): PSA storage objects live behind a new
+`SERVICE_VAULT` (SID 4098, `PARTITION_VAULT`) that only manifest-authorized
+Secure Partitions reach through the SPM gate — `nonsecure_clients: false` and
+the `dependencies[]` check in `wt_ffm_caller_allowed`. The vault runs as a
+**scheduled privileged coroutine** (`wt_spm_vault_start` /
+`wt_spm_sched_add_common(priv=1)`): same slot machinery and SVC gate as every
+SP, but `wt_co_set_domain` is never called, because every vault op takes the
+shared wolfHSM NVM path whose mutex cannot be held from the bootstrap context
+(`wt_mutex_acquire` refuses, `src/sync/mutex.c`). Its slot table is the
+SVC/gate bounds-check whitelist only (whole secure flash RX + RAM RW); the MPU
+is never narrowed. This deliberately avoids the ATTEST shortcut of reaching
+wolfHSM by running dispatch inline.
+
+Backing (`src/services/wolfhsm/wt_hsm_vault.c`): objects are wolfHSM NVM
+objects in a reserved plain-NVM id window (0x0100..0x011F, disjoint from the
+keystore's composed ids), keyed by the SPM-stamped owner + 64-bit uid recorded
+in the object label. Only the `wh_Nvm_*Checked` entry points are used, so
+`PSA_STORAGE_FLAG_WRITE_ONCE` → `WH_NVM_FLAGS_NONMODIFIABLE|NONDESTROYABLE` is
+enforced by the NVM layer, not caller convention (WT-FFM-0045). The neutral
+service (`src/services/vault_service.c`) mirrors crypto_service: copied-IOVEC
+transfers, fail-closed default backend, transport seam.
+
+Manifest: `PARTITION_VAULT` added to the production manifest (domain 5,
+privilege_state 0 — honest) and the conformance manifest (domain 8, after the
+three Arm SPs); both validated through `tools/manifest/generate.py`. New 8 KiB
+vault stack band at 0x30091000 (`VAULTSTACK` in `secure.ld`, RAM shrunk
+428K→420K, chained ASSERTs). One real defect surfaced and fixed by the gate:
+the port's immutable capability table capped `max_domains = 8`, so the
+9-domain conformance manifest correctly **fail-closed panicked** at
+`wt_monitor_init` (resolved to `wt_platform_panic` ← `wt_spm_init` via
+addr2line) — the port capability now declares 9 (`partitions.c`).
+
+Evidence:
+- Host: new `tests/host/vault_service` — the REAL `wt_hsm_vault` backend over
+  the REAL wolfHSM NVM stack (wh_nvm + wh_nvm_flash on wh_flash_ramsim),
+  driven through real `wt_ffm_connect`/`wt_ffm_call` round trips. 19
+  assertions green: NS refused, dependency-less partition refused,
+  dependencies[] admits (WT-FFM-0047); per-owner namespacing incl. same-uid
+  independence and no cross-owner clobber (WT-FFM-0044); WRITE_ONCE refuses
+  set/remove and survives in get_info (WT-FFM-0045, host half); offset reads;
+  remove lifecycle; undersized-request refusal. Full `make test`:
+  `PASS: unit/all`.
+- M33MU positive: `PASS: target/positive`, all 11 checks (boot, FF-M dispatch,
+  KAT, attestation, clean exit) with the vault scheduled and the 32-object NVM
+  directory — S0's capacity change validated on target.
+- M33MU confboot: `PASS: target/confboot` — the unmodified Arm FF-M suite,
+  **89 / 85 passed / 0 failed / 4 skipped / 0 SIM ERROR**, with the vault
+  partition and 9-domain manifest in the image.
+
+Honest scope note: the on-target SP→vault round trip is exercised in S2 when
+the first in-image client (the ITS partition) lands; S1's target evidence is
+boot-enforced scheduling (start_sched panics on failure), manifest validation
+at the new sizes, and full-suite non-regression. WRITE_ONCE persistence across
+a physical reset is S4/S5 (silicon) evidence.

@@ -31,6 +31,7 @@
 #include "wolftrust/platform.h"
 #include "wolftrust/sched/coroutine.h"
 #include "wolftrust/services/crypto_service.h"
+#include "wolftrust/services/vault_service.h"
 #include "wolftrust/spm_gate.h"
 
 #include "memory_map.h"
@@ -494,8 +495,10 @@ static size_t wt_spm_conf_grant(wt_secure_domain_t* table, size_t count,
 }
 #endif
 
-int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
-                     wt_spm_sp_entry_fn entry, void* arg)
+static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
+                                   int32_t partition_id,
+                                   wt_spm_sp_entry_fn entry, void* arg,
+                                   unsigned int priv)
 {
     wt_spm_sp_t* slot;
     const wt_mpu_region_t* stack_region;
@@ -533,23 +536,40 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
         return WT_FFM_ERROR_STATE;
     }
 
-    /* Thread-domain MPU table: shared whole-image RX (the manifest's 4K code
-     * window lies inside it and Armv8-M regions must not overlap — task #26
-     * tracks narrowing) plus the domain's non-EXEC resources. */
     slot = &g_spm_sp[g_spm_sp_count];
     slot->table.domain_id = g_spm_sp_domain.domain_id;
-    slot->table.regions[0].base = WT_FLASH_S_BASE;
-    slot->table.regions[0].size = WT_FLASH_S_SIZE;
-    slot->table.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
-    region_count = 1u;
-    for (i = 0u; i < g_spm_sp_domain.region_count &&
-            region_count < WT_MAX_MPU_REGIONS; i++) {
-        if ((g_spm_sp_domain.regions[i].attributes & WT_MEM_ATTR_EXEC) ==
-                0u) {
-            slot->table.regions[region_count] = g_spm_sp_domain.regions[i];
-            region_count++;
-        }
+    if (priv != 0u) {
+        /* Privileged slot (vault): the table is only the SVC/gate
+         * bounds-check whitelist — wt_co_set_domain is never called, so
+         * the MPU stays wide and the coroutine runs privileged. */
+        slot->table.regions[0].base = WT_FLASH_S_BASE;
+        slot->table.regions[0].size = WT_FLASH_S_SIZE;
+        slot->table.regions[0].attributes = WT_MEM_ATTR_READ |
+                                            WT_MEM_ATTR_EXEC;
+        slot->table.regions[1].base = WT_RAM_S_BASE;
+        slot->table.regions[1].size = WT_RAM_S_SIZE;
+        slot->table.regions[1].attributes = WT_MEM_ATTR_READ |
+                                            WT_MEM_ATTR_WRITE;
+        region_count = 2u;
     }
+    else {
+        /* Thread-domain MPU table: shared whole-image RX (the manifest's 4K
+         * code window lies inside it and Armv8-M regions must not overlap —
+         * task #26 tracks narrowing) plus the domain's non-EXEC resources. */
+        slot->table.regions[0].base = WT_FLASH_S_BASE;
+        slot->table.regions[0].size = WT_FLASH_S_SIZE;
+        slot->table.regions[0].attributes = WT_MEM_ATTR_READ |
+                                            WT_MEM_ATTR_EXEC;
+        region_count = 1u;
+        for (i = 0u; i < g_spm_sp_domain.region_count &&
+                region_count < WT_MAX_MPU_REGIONS; i++) {
+            if ((g_spm_sp_domain.regions[i].attributes & WT_MEM_ATTR_EXEC) ==
+                    0u) {
+                slot->table.regions[region_count] =
+                    g_spm_sp_domain.regions[i];
+                region_count++;
+            }
+        }
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     /* Hosted Arm partitions read their val_api/psa_api tables from .data, which
      * the linker places in the shared CONFDATA window; grant it so the SP
@@ -586,6 +606,7 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
                                      WT_CONF_SP_DATA_BASE +
                                      WT_CONF_SP_DATA_SIZE);
 #endif
+    }
     slot->table.region_count = region_count;
 
     slot->co = wt_co_create_blocked_ex(
@@ -594,7 +615,9 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
     if (slot->co == NULL) {
         return WT_FFM_ERROR_RESOURCE;
     }
-    wt_co_set_domain(slot->co, &slot->table, 1u);
+    if (priv == 0u) {
+        wt_co_set_domain(slot->co, &slot->table, 1u);
+    }
     slot->partition_id = partition_id;
     slot->wait_kind = WT_SPM_WAIT_NONE;
 
@@ -631,8 +654,34 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
     return WT_FFM_SUCCESS;
 }
 
+int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                     wt_spm_sp_entry_fn entry, void* arg)
+{
+    return wt_spm_sched_add_common(runtime, partition_id, entry, arg, 0u);
+}
+
 int wt_spm_sched_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
     return wt_spm_sched_add(runtime, partition_id, wt_spm_sp_entry,
                             (void*)(intptr_t)partition_id);
+}
+
+/* The vault partition's service loop: privileged, so reading the service's
+ * file-scope backend/transport seams is legal — no per-call context needed. */
+static void wt_spm_vault_entry(void* arg)
+{
+    int32_t partition_id = (int32_t)(intptr_t)arg;
+
+    for (;;) {
+        (void)wt_vault_service_dispatch(NULL, NULL, partition_id);
+    }
+}
+
+int wt_spm_vault_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    /* The vault must run as a scheduled coroutine: every op takes the shared
+     * NVM path, whose mutex cannot be held from the bootstrap context. */
+    wt_vault_service_set_transport(wt_spm_svc_transport);
+    return wt_spm_sched_add_common(runtime, partition_id, wt_spm_vault_entry,
+                                   (void*)(intptr_t)partition_id, 1u);
 }

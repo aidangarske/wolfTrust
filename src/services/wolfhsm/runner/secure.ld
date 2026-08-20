@@ -27,7 +27,10 @@ MEMORY {
   /* SRAM1 has Secure and Non-secure aliases to the same physical memory.
    * The first 32 KiB are assigned to the two guests through the 0x20000000
    * Non-secure alias, so keep secure .data/.bss above that physical window. */
-  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 428K
+  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 420K
+  /* Vault partition stack (WT-FFM-0047): the privileged vault coroutine's
+   * manifest-declared execution stack (WT_SP_VAULT_STACK_* in memory_map.h). */
+  VAULTSTACK (rw): ORIGIN = 0x30091000, LENGTH = 8K
   /* Conformance Secure-Partition .data/.bss (P3a). Arm's partition sources hold
    * their val_api/psa_api tables in .data; a hosted SP must reach its own data
    * but not the SPM's, so it lives in this 8 KiB window (WT_CONF_SP_DATA_* in
@@ -128,8 +131,10 @@ SECTIONS {
     KEEP(*(.sp_stacks*))
   } > SPSTACKS
 
-  ASSERT(ORIGIN(CONFDATA) == (ORIGIN(RAM) + LENGTH(RAM)),
-         "conformance SP data must sit directly above the secure RAM window")
+  ASSERT(ORIGIN(VAULTSTACK) == (ORIGIN(RAM) + LENGTH(RAM)),
+         "vault stack must sit directly above the secure RAM window")
+  ASSERT(ORIGIN(CONFDATA) == (ORIGIN(VAULTSTACK) + LENGTH(VAULTSTACK)),
+         "conformance SP data must sit directly above the vault stack")
   /* The top 1 KiB of CONFDATA holds the per-partition pseudo-MMIO holes
    * (WT_CONF_SERVER/DRV_MMIO in memory_map.h); real data crossing into them
    * would be carved out of other partitions' domains and fault at runtime. */

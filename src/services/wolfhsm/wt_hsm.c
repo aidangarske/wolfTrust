@@ -64,6 +64,7 @@
 #include "wolftrust/sched/tasklet.h"
 #include "wolftrust/sync/mutex.h"
 #include "wolftrust/services/hsm.h"
+#include "wolftrust/services/vault_service.h"
 
 #include "wolftrust/port_nvm.h"
 
@@ -222,6 +223,11 @@ int wt_hsm_init(void)
     rc = wh_Nvm_Init(&g_nvm_ctx, &nvm_cfg);
     if (rc != WH_ERROR_OK) {
         return rc;
+    }
+
+    /* Bind the gated vault backing (WT-FFM-0047) to the shared NVM store. */
+    if (wt_hsm_vault_init(&g_nvm_ctx) == 0) {
+        wt_vault_service_set_backend(&wt_hsm_vault_backend);
     }
 
     return 0;

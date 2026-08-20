@@ -43,4 +43,10 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
  * built-in SP, scheduled via wt_spm_sched_add with the crypto service loop. */
 int wt_spm_sched_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 
+/* Start the vault partition (WT-FFM-0047) as a scheduled PRIVILEGED coroutine:
+ * same slot machinery and SVC gate, but wt_co_set_domain is never called, so
+ * the loop may reach the wolfHSM NVM state and block on its mutex. Clients
+ * still cross the gate; the manifest's dependencies[] authorizes them. */
+int wt_spm_vault_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
+
 #endif /* WOLFTRUST_SPM_SCHED_H */

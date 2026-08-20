@@ -49,11 +49,16 @@ wolfTrust on the board — the TF-M drop-in proof.
 
 ## Remaining implementation phases (`phases.md`)
 
-- [ ] **Phase 4 — Crypto + trusted storage** (the last big implementation
+- [~] **Phase 4 — Crypto + trusted storage** (the last big implementation
   chunk). Run Crypto / Protected Storage / ITS as isolated SPs; route key ops to
   wolfHSM via wolfPSA; enforce per-client identity + WRITE_ONCE across restarts.
   Unlocks the psa-arch-tests `dev_apis` suites → widens the drop-in claim from
-  FF-M IPC to full PSA.
+  FF-M IPC to full PSA. Requirements = `WT-FFM-0044`–`0048` (framework.md).
+  **S0 done** (reqs + NVM directory 8→32). **S1 done** (gated wolfHSM vault:
+  `SERVICE_VAULT` behind the SPM gate, dependencies[]-authorized, SP-only;
+  privileged scheduled coroutine; `wh_Nvm_*Checked` WRITE_ONCE; host suite +
+  M33MU positive + confboot 85/4 green). Next: S2 ITS SP → S3 PS SP → S4
+  crypto key-ops via wolfPSA→wolfHSM → S5 security negatives → S6 dev_apis.
 - [~] **Phase 5 — Initial Attestation** — core **implemented and
   hardware-verified**: `psa_initial_attestation` st=0, DICE/measured-boot
   handoff, IAK via wolfHSM, `COSE_Sign1`/ES256 verify (challenge/identity/

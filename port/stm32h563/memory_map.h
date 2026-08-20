@@ -105,10 +105,19 @@
 /* Conformance Secure-Partition .data/.bss window (P3a). Arm's partition sources
  * keep val_api/psa_api in .data; a hosted SP reaches its own data here while
  * SPM RAM at 0x30028000 stays outside its MPU domain. Sits just below the SP
- * stacks (the linker's RAM window is shortened to 432 KiB to make room); MUST
- * match the CONFDATA region in src/services/wolfhsm/runner/secure.ld. */
+ * stacks (the linker's RAM window is shortened to make room); MUST match the
+ * CONFDATA region in src/services/wolfhsm/runner/secure.ld. */
 #define WT_CONF_SP_DATA_BASE     (WT_RAM_S_BASE + 0x0006B000u)  /* 0x30093000 */
 #define WT_CONF_SP_DATA_SIZE     0x00003000u                    /* 12 KiB */
+
+/* Vault partition stack (WT-FFM-0047). The vault runs as a scheduled
+ * PRIVILEGED coroutine (its ops block on the shared wolfHSM NVM mutex), so
+ * this band is its manifest-declared execution stack, not an MPU domain.
+ * Sits just below the conformance data window; the linker RAM window is
+ * shortened to 420 KiB to make room. MUST match the VAULTSTACK region in
+ * src/services/wolfhsm/runner/secure.ld. */
+#define WT_SP_VAULT_STACK_BASE   (WT_RAM_S_BASE + 0x00069000u)  /* 0x30091000 */
+#define WT_SP_VAULT_STACK_SIZE   WT_SP_SECURE_STACK_SIZE
 
 /* Per-partition pseudo-MMIO holes at the top of the CONFDATA window (P4/K4).
  * Each belongs to exactly one Arm conformance partition; the scheduler grants

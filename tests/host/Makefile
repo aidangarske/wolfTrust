@@ -32,7 +32,7 @@ endif
 
 UNIT_SUITES := domain manifest lifecycle ipc ffm spm vnet wolfhsm_loopback \
     crypto_service attestation_service ffm_domain sp_layout spm_gate flash_nvm \
-    ffm_veneer
+    ffm_veneer vault_service
 
 .PHONY: all test test-compilers test-sanitize test-valgrind clean
 

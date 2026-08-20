@@ -98,4 +98,12 @@ int wt_hsm_attest_sign(const uint8_t* digest, size_t digestSize,
 int wt_hsm_attest_public_key(uint8_t* publicKey, size_t publicKeyCapacity,
                              size_t* publicKeySize);
 
+/* Gated vault backing (WT-FFM-0047): bind the shared NVM context, then
+ * install wt_hsm_vault_backend into SERVICE_VAULT. wt_hsm_init does both;
+ * host tests may bind their own (e.g. ramsim-backed) context directly. */
+struct whNvmContext_t;
+int wt_hsm_vault_init(struct whNvmContext_t* nvm);
+struct wt_vault_backend;
+extern const struct wt_vault_backend wt_hsm_vault_backend;
+
 #endif /* WOLFTRUST_SERVICES_HSM_H */

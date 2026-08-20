@@ -23,6 +23,7 @@
 #include "wolftrust/platform.h"
 #include "wolftrust/spm_sched.h"
 #include "wolftrust/services/crypto_service.h"
+#include "wolftrust/services/vault_service.h"
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
 #include "wolftrust/services/attestation_service.h"
 #endif
@@ -131,6 +132,7 @@ static const wt_ffm_port_ops_t g_ffm_port_ops = {
 int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
 {
     int ret;
+    int vault_ret;
 
     ret = wt_ffm_init(&g_ffm_runtime, manifest, &g_ffm_port_ops, NULL);
     if (ret == WT_FFM_SUCCESS) {
@@ -143,6 +145,15 @@ int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
                                         wt_attestation_service_dispatch, NULL);
     }
 #endif
+    if (ret == WT_FFM_SUCCESS) {
+        /* Manifest-optional vault: host fixtures without PARTITION_VAULT run
+         * without the gated backing (the service default fails closed);
+         * target boot enforces scheduling in wt_ffm_boot_start_sched. */
+        vault_ret = wt_ffm_register_partition(&g_ffm_runtime,
+                                              PARTITION_VAULT_ID,
+                                              wt_vault_service_dispatch, NULL);
+        (void)vault_ret;
+    }
     if (ret == WT_FFM_SUCCESS) {
         /* Run SERVICE_CRYPTO's compute isolated on the crypto SP's own
          * secure stack under a narrowed MPU domain (WT-FFM-0011). The
@@ -184,6 +195,9 @@ int wt_ffm_boot_start_sched(void)
     int ret;
 
     ret = wt_spm_sched_start(&g_ffm_runtime, PARTITION_CRYPTO_ID);
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_vault_start(&g_ffm_runtime, PARTITION_VAULT_ID);
+    }
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_sched_add(&g_ffm_runtime, SERVER_PARTITION_ID,
