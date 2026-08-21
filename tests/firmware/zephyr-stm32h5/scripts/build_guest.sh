@@ -80,6 +80,10 @@ if [ "${WT_RUN_CONFORMANCE:-0}" = "1" ]; then
     set -- "$@" "-DWT_RUN_CONFORMANCE=1" "-DCONFIG_MAIN_STACK_SIZE=10240"
 fi
 
+if [ -n "${WT_CONF_SUITE:-}" ]; then
+    set -- "$@" "-DWT_CONF_SUITE=$WT_CONF_SUITE"
+fi
+
 "$WEST_BIN" build -p auto \
     -d "$BUILD_DIR" \
     -b "$BOARD" \

@@ -222,6 +222,80 @@ static psa_status_t vault_remove(wt_ffm_runtime_t* runtime, int32_t caller,
                        in_vec, 1U, NULL, 0U);
 }
 
+/* WT-FFM-0044 capacity honesty on the target flash geometry (16K region,
+ * 8K sectors): a full data pool reports INSUFFICIENT_STORAGE without a
+ * doomed partial write, and remove + refill is deterministic. */
+static void test_capacity_gate(void)
+{
+    static uint8_t small_flash[16U * 1024U];
+    static whFlashRamsimCfg small_cfg;
+    static whFlashRamsimCtx small_ctx;
+    static const whFlashCb small_cb[1] = {WH_FLASH_RAMSIM_CB};
+    static whNvmFlashConfig small_nvm_flash_cfg;
+    static whNvmFlashContext small_nvm_flash_ctx;
+    static const whNvmCb small_nvm_cb[1] = {WH_NVM_FLASH_CB};
+    static whNvmConfig small_nvm_cfg;
+    static whNvmContext small_nvm_ctx;
+    static uint8_t big[512];
+    psa_status_t status = PSA_SUCCESS;
+    uint64_t uid;
+    uint64_t filled = 0U;
+    uint64_t refilled = 0U;
+
+    (void)memset(small_flash, 0xFF, sizeof(small_flash));
+    (void)memset(&small_cfg, 0, sizeof(small_cfg));
+    small_cfg.memory = small_flash;
+    small_cfg.size = sizeof(small_flash);
+    small_cfg.sectorSize = 8U * 1024U;
+    small_cfg.pageSize = 8U;
+    small_cfg.erasedByte = 0xFF;
+    (void)memset(&small_ctx, 0, sizeof(small_ctx));
+    (void)memset(&small_nvm_flash_cfg, 0, sizeof(small_nvm_flash_cfg));
+    small_nvm_flash_cfg.cb = small_cb;
+    small_nvm_flash_cfg.context = &small_ctx;
+    small_nvm_flash_cfg.config = &small_cfg;
+    (void)memset(&small_nvm_flash_ctx, 0, sizeof(small_nvm_flash_ctx));
+    (void)memset(&small_nvm_cfg, 0, sizeof(small_nvm_cfg));
+    small_nvm_cfg.cb = (whNvmCb*)small_nvm_cb;
+    small_nvm_cfg.context = &small_nvm_flash_ctx;
+    small_nvm_cfg.config = &small_nvm_flash_cfg;
+    (void)memset(&small_nvm_ctx, 0, sizeof(small_nvm_ctx));
+    if (wh_Nvm_Init(&small_nvm_ctx, &small_nvm_cfg) != WH_ERROR_OK ||
+            wt_hsm_vault_init(&small_nvm_ctx) != 0) {
+        check(0, "WT-FFM-0044 capacity harness init");
+        return;
+    }
+
+    (void)memset(big, 0xA5, sizeof(big));
+    for (uid = 1U; uid <= 40U; uid++) {
+        status = wt_hsm_vault_backend.set(TEST_CLIENT_A, 0, uid, 0U, big,
+                                          sizeof(big));
+        if (status != PSA_SUCCESS) {
+            break;
+        }
+        filled++;
+    }
+    check(filled > 0U && status == PSA_ERROR_INSUFFICIENT_STORAGE,
+          "WT-FFM-0044 full pool reports INSUFFICIENT_STORAGE");
+    for (uid = 1U; uid <= filled; uid++) {
+        if (wt_hsm_vault_backend.remove(TEST_CLIENT_A, 0, uid) !=
+                PSA_SUCCESS) {
+            check(0, "WT-FFM-0044 remove during recovery");
+            return;
+        }
+    }
+    for (uid = 1U; uid <= 40U; uid++) {
+        status = wt_hsm_vault_backend.set(TEST_CLIENT_A, 0, uid, 0U, big,
+                                          sizeof(big));
+        if (status != PSA_SUCCESS) {
+            break;
+        }
+        refilled++;
+    }
+    check(refilled == filled && status == PSA_ERROR_INSUFFICIENT_STORAGE,
+          "WT-FFM-0044 remove-all then refill is deterministic");
+}
+
 int main(void)
 {
     static const uint8_t data_a[] = "vault-secret-owner-A";
@@ -382,6 +456,8 @@ int main(void)
         (void)fprintf(stderr, "psa_close(SERVICE_VAULT) failed\n");
         return 1;
     }
+
+    test_capacity_gate();
 
     if (g_failures != 0) {
         return 1;

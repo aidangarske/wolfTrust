@@ -69,6 +69,11 @@ set_source_files_properties(
 if(WT_RUN_CONFORMANCE)
   set(WT_CONF_U ${WT_REPO_ROOT}/build/upstream/psa-arch-tests/api-tests)
   set(WT_CONF_GEN ${WT_REPO_ROOT}/build/manifest)
+  # P4-S6: WT_CONF_SUITE picks the suite; exactly one builds per configure.
+  if(NOT WT_CONF_SUITE)
+    set(WT_CONF_SUITE ipc)
+  endif()
+  if(WT_CONF_SUITE STREQUAL "ipc")
   target_sources(app PRIVATE
     src/conformance_pal.c
     ${WT_CONF_U}/val/common/val_log.c
@@ -555,4 +560,52 @@ if(WT_RUN_CONFORMANCE)
     PROPERTIES COMPILE_OPTIONS
       "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter"
   )
+  elseif(WT_CONF_SUITE STREQUAL "storage")
+    # dev_apis ITS/PS: test bodies run entirely Non-secure and reach
+    # SERVICE_ITS / SERVICE_PS through src/psa_storage_ns.c.
+    set(WT_STORAGE_SRCS
+      src/conformance_pal.c
+      src/psa_storage_ns.c
+      ${WT_CONF_U}/val/common/val_log.c
+      ${WT_CONF_U}/platform/targets/common/nspe/pal_weak.c
+      ${WT_CONF_U}/val/nspe/val_entry.c
+      ${WT_CONF_U}/val/nspe/val_dispatcher.c
+      ${WT_CONF_U}/val/nspe/val_framework.c
+      ${WT_CONF_U}/val/nspe/val_interfaces.c
+      ${WT_CONF_U}/val/nspe/val_peripherals.c
+      ${WT_CONF_U}/val/nspe/val_platform.c
+      ${WT_CONF_U}/val/nspe/val_crypto.c
+      ${WT_CONF_U}/val/nspe/val_storage.c
+      ${WT_CONF_U}/val/nspe/val_attestation.c
+      ${WT_CONF_U}/dev_apis/storage/common/test_storage_common.c
+    )
+    set(WT_STORAGE_INCS
+      ${WT_REPO_ROOT}/include
+      ${WT_CONF_GEN}/storage/ns
+      ${WT_CONF_GEN}
+      ${WT_CONF_U}/val/common
+      ${WT_CONF_U}/val/nspe
+      ${WT_CONF_U}/val/spe
+      ${WT_CONF_U}/platform/targets/common/nspe
+      ${WT_REPO_ROOT}/port/stm32h563/conformance
+      ${WT_CONF_U}/dev_apis/storage/common
+    )
+    foreach(n RANGE 1 17)
+      if(n LESS 10)
+        set(sid s00${n})
+      else()
+        set(sid s0${n})
+      endif()
+      list(APPEND WT_STORAGE_SRCS
+        ${WT_CONF_U}/dev_apis/storage/test_${sid}/test_entry_${sid}.c
+        ${WT_CONF_U}/dev_apis/storage/test_${sid}/test_${sid}.c)
+      list(APPEND WT_STORAGE_INCS ${WT_CONF_U}/dev_apis/storage/test_${sid})
+    endforeach()
+    target_sources(app PRIVATE ${WT_STORAGE_SRCS})
+    target_include_directories(app PRIVATE ${WT_STORAGE_INCS})
+    target_compile_definitions(app PRIVATE
+      WT_RUN_CONFORMANCE VAL_NSPE_BUILD NONSECURE_TEST_BUILD STORAGE VERBOSITY=3)
+    set_source_files_properties(${WT_STORAGE_SRCS} PROPERTIES COMPILE_OPTIONS
+      "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter")
+  endif()
 endif()

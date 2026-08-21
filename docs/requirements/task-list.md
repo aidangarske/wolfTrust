@@ -160,12 +160,22 @@ wolfTrust on the board — the TF-M drop-in proof.
     SYSRESETREQ proof as a hardware-pending item (needs the board; do not
     fake board evidence). #26's fault-recovery half remains separate.
 
-  - [ ] **P4-S6 — unlock dev_apis conformance**: real bodies for
+  - [~] **P4-S6 — unlock dev_apis conformance**: real bodies for
     `pal_its/ps/crypto_function` (conformance_pal.c stubs) translating
     VAL codes into `psa_connect(SID)/psa_call`; add `dev_apis/storage`
     (s001–s017) + `dev_apis/crypto` (c001–c080) to the WT_RUN_CONFORMANCE
     build. Run under M33MU, then on H5; record pass counts + any correct
     zero-alloc skips.
+    - [x] **S6a Storage**: NS ITS/PS shim (`psa_storage_ns.c`) +
+      `pal_its/ps_function` bodies; `WT_CONF_SUITE=storage` build plumbing;
+      `devstorage` scenario + CI. M33MU **11 passed / 6 skipped / 0 failed**
+      (skips = optional PS create/set_extended, get_support()=0). The suite
+      found and fixed two vault defects: full-pool adds now capacity-gated
+      (`wt_hsm_vault_reserve`, wolfHSM NOTBLANK poisoning) with counter-table
+      headroom so sealed REMOVE always fits; storage uid 0 rejected.
+    - [ ] **S6b Crypto**: 104-case `pal_crypto_function` port (wolfPSA is
+      the guest psa_* provider); `devcrypto` scenario; PAKE toggles off.
+    - [ ] On-H5 runs of both suites (board pending).
 
 
 - [~] **Phase 5 — Initial Attestation** — core **implemented and

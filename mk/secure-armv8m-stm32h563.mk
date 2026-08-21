@@ -778,6 +778,17 @@ $(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
 		$(MANIFEST_DIR)/ns/server_tests_list_declare.inc \
 		$(MANIFEST_DIR)/ns/server_tests_list.inc \
 		1 90
+	mkdir -p $(MANIFEST_DIR)/storage/ns
+	python3 $(UPSTREAM_DIR)/tools/scripts/gen_tests_list.py storage \
+		$(UPSTREAM_DIR)/dev_apis/storage/ps_testsuite.db 0 ALL \
+		$(MANIFEST_DIR)/storage/ns/testlist.txt \
+		$(MANIFEST_DIR)/storage/ns/test_entry_list.inc \
+		$(MANIFEST_DIR)/storage/ns/test_entry_fn_declare_list.inc \
+		$(MANIFEST_DIR)/storage/ns/client_tests_list_declare.inc \
+		$(MANIFEST_DIR)/storage/ns/client_tests_list.inc \
+		$(MANIFEST_DIR)/storage/ns/server_tests_list_declare.inc \
+		$(MANIFEST_DIR)/storage/ns/server_tests_list.inc \
+		1 17
 	touch $@
 
 $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/partition/%.c \

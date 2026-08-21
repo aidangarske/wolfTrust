@@ -34,6 +34,7 @@
 #include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_common.h"
 #include "wolfhsm/wh_nvm.h"
+#include "wolfhsm/wh_flash_unit.h"
 
 /* Vault NVM id window: plain-NVM id space (type nibble 0), disjoint from the
  * keystore's composed ids (type nibble >= 1, e.g. the attestation IAK). */
@@ -112,11 +113,55 @@ static psa_status_t wt_hsm_vault_table_load(wt_hsm_vault_table_t* table)
     return PSA_SUCCESS;
 }
 
+static psa_status_t wt_hsm_vault_map_err(int rc);
+
+/* Gate every pool write: a doomed add on a full data pool fails mid-write
+ * with NOTBLANK and poisons later adds, so compact reclaimable space when
+ * that frees enough and otherwise report INSUFFICIENT_STORAGE before any
+ * write starts. Object adds pass the counter table as headroom so the pool
+ * can never fill past the point where a sealed REMOVE's table rewrite —
+ * the operation that frees space — still fits. */
+static psa_status_t wt_hsm_vault_reserve(whNvmSize len, whNvmSize headroom)
+{
+    uint32_t avail_size;
+    uint32_t reclaim_size;
+    uint32_t need_size;
+    uint16_t avail_objects;
+    uint16_t reclaim_objects;
+    int rc;
+
+    need_size = (uint32_t)(WHFU_BYTES2UNITS(len) * WHFU_BYTES_PER_UNIT) +
+                (uint32_t)(WHFU_BYTES2UNITS(headroom) * WHFU_BYTES_PER_UNIT);
+    rc = wh_Nvm_GetAvailable(g_vault_nvm, &avail_size, &avail_objects,
+                             &reclaim_size, &reclaim_objects);
+    if (rc != WH_ERROR_OK) {
+        return wt_hsm_vault_map_err(rc);
+    }
+    if (avail_size < need_size || avail_objects == 0U) {
+        if (avail_size + reclaim_size >= need_size &&
+                (uint32_t)avail_objects + (uint32_t)reclaim_objects > 0U) {
+            rc = wh_Nvm_DestroyObjects(g_vault_nvm, 0U, NULL);
+            if (rc != WH_ERROR_OK) {
+                return wt_hsm_vault_map_err(rc);
+            }
+        }
+        else {
+            return PSA_ERROR_INSUFFICIENT_STORAGE;
+        }
+    }
+    return PSA_SUCCESS;
+}
+
 static psa_status_t wt_hsm_vault_table_store(const wt_hsm_vault_table_t* table)
 {
     whNvmMetadata meta;
+    psa_status_t status;
     int rc;
 
+    status = wt_hsm_vault_reserve((whNvmSize)sizeof(*table), 0U);
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
     (void)memset(&meta, 0, sizeof(meta));
     meta.id = WT_HSM_VAULT_TABLE_ID;
     meta.access = WH_NVM_ACCESS_ANY;
@@ -309,6 +354,11 @@ static psa_status_t wt_hsm_vault_set(int32_t owner, int32_t sub,
         store_len = (whNvmSize)(len + WT_VAULT_SEAL_TAG_LEN);
     }
     meta.len = store_len;
+    status = wt_hsm_vault_reserve(store_len,
+                                  (whNvmSize)sizeof(wt_hsm_vault_table_t));
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
     return wt_hsm_vault_map_err(
         wh_Nvm_AddObjectChecked(g_vault_nvm, &meta, store_len, store_data));
 }

@@ -89,4 +89,14 @@
 #include "psa_manifest/pid.h"
 #endif
 
+/* dev_apis Storage (P4-S6): the val NSPE and test TUs reach the PSA storage
+ * types and API version macros through this per-target config, mirroring the
+ * upstream tgt_dev_apis targets. */
+#if defined(STORAGE) || defined(INTERNAL_TRUSTED_STORAGE) || \
+    defined(PROTECTED_STORAGE)
+#include "psa/internal_trusted_storage.h"
+#include "psa/protected_storage.h"
+#define ARCH_TEST_STORAGE_UID_MAX_SIZE 512
+#endif
+
 #endif /* _PAL_CONFIG_H_ */

@@ -181,6 +181,10 @@ static psa_status_t wt_storage_service_call(wt_storage_service_ctx_t* ctx,
         return PSA_ERROR_INVALID_ARGUMENT;
     }
     (void)memcpy(&req, buffer, sizeof(req));
+    /* PSA Storage: uid 0 is invalid for every operation. */
+    if (req.uid == 0U) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
 
     /* Optional PS features (create/set_extended): psa_ps_get_support
      * advertises none (ctx->caps stays 0), so these are refused honestly —

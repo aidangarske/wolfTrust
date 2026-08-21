@@ -13,6 +13,8 @@
 #   run_m33mu_scenario.sh confboot     conformance image (Arm server/client SPs
 #                                       scheduled, WT_CONFORMANCE=1) boots the
 #                                       full positive lifecycle green
+#   run_m33mu_scenario.sh devstorage   dev_apis ITS/PS suite (test_s001-s017)
+#                                       runs Non-secure against SERVICE_ITS/PS
 #
 # This is the single source the local make test-target harness, the box skill
 # scripts, and the CI jobs all drive, so each scenario's markers stay identical.
@@ -21,8 +23,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|restart|crossdomain|confboot) ;;
-  *) echo "usage: $0 positive|restart|crossdomain|confboot" >&2; exit 2 ;;
+  positive|restart|crossdomain|confboot|devstorage) ;;
+  *) echo "usage: $0 positive|restart|crossdomain|confboot|devstorage" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -105,7 +107,7 @@ cd "$repo"
 secure_flags=""
 if [ "$scenario" = "crossdomain" ]; then
   secure_flags="WT_FFM_NEGATIVE_PROBE=1"
-elif [ "$scenario" = "confboot" ]; then
+elif [ "$scenario" = "confboot" ] || [ "$scenario" = "devstorage" ]; then
   secure_flags="WT_CONFORMANCE=1"
 fi
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
@@ -128,6 +130,8 @@ if [ "$scenario" = "restart" ]; then
   guest_flags="WT_GUEST_FAULT_PROBE=1"
 elif [ "$scenario" = "confboot" ]; then
   guest_flags="WT_RUN_CONFORMANCE=1"
+elif [ "$scenario" = "devstorage" ]; then
+  guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=storage"
 fi
 make -C tests/firmware/zephyr-stm32h5 clone
 env $guest_flags $secure_flags WT_REUSE_SECURE_BUILD=1 WT_EXPECTED_LIFECYCLE=0x1000u \
@@ -157,6 +161,11 @@ elif [ "$scenario" = "confboot" ]; then
   # and clean BKPT exit are the correctness gates.
   quit_flag=""
   timeout_s=1200
+elif [ "$scenario" = "devstorage" ]; then
+  # No panic tests in dev_apis storage, but keep faults non-fatal so any
+  # val-internal reset does not abort; TOTAL FAILED and the BKPT exit gate.
+  quit_flag=""
+  timeout_s=600
 fi
 
 log="$repo/ci-m33mu-$scenario.log"
@@ -248,6 +257,26 @@ case "$scenario" in
     expect_flat "Arm suite TOTAL FAILED : 0" "TOTAL FAILED    : 0"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/confboot"
+    ;;
+  devstorage)
+    expect "TEE client initialized" "wolfTrust TEE client initialized"
+    expect "conformance val_entry start" \
+      "wolfTrust FF-M conformance: val_entry start"
+    # Flatten the shared UART (guest1 can interject mid-line), then read the
+    # suite totals: every dev_apis storage test must pass or skip, none FAIL.
+    flat="$(sed 's/freertos_guest1:.*$//' "$log" | tr -d '\r\n')"
+    passed=$(printf '%s' "$flat" | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    skipped=$(printf '%s' "$flat" | grep -oE 'TOTAL SKIPPED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    : "${passed:=-1}"; : "${skipped:=-1}"; : "${failed:=-1}"
+    if [ "$failed" = "0" ] && [ "$((passed + skipped))" -eq 17 ]; then
+      check_pass "dev_apis storage: ${passed} passed, ${skipped} skipped, 0 failed (17 total)"
+    else
+      check_fail "dev_apis storage suite" \
+        "passed=$passed skipped=$skipped failed=$failed (want failed=0, passed+skipped=17)"
+    fi
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
+    echo "PASS: target/devstorage"
     ;;
   restart)
     expected=$((RESTART_LIMIT + 1))

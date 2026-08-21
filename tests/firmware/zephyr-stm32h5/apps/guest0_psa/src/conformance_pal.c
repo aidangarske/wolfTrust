@@ -31,10 +31,21 @@
 
 #include <zephyr/kernel.h>
 
+/* This TU implements the real PSA client API; without IPC defined the
+ * dev_apis builds get pal_common.h's fallback psa_invec/psa_outvec typedefs,
+ * which collide with psa/client.h. */
+#ifndef IPC
+#define IPC 1
+#endif
+
 #include "psa/client.h"
 #include "psa_manifest/sid.h"
 #include "pal_common.h"
 #include "wolftrust/ffm_veneer.h"
+
+#include "psa/storage_common.h"
+#include "psa/internal_trusted_storage.h"
+#include "psa/protected_storage.h"
 
 extern int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version);
 extern int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
@@ -219,18 +230,102 @@ int32_t pal_crypto_function(int type, va_list valist)
     return -1;
 }
 
+/* dev_apis Storage (P4-S6): dispatch the val ITS/PS function codes to the
+ * NS client shim (psa_storage_ns.c), which marshals each onto SERVICE_ITS /
+ * SERVICE_PS over FF-M IPC. The code values are val_storage.h's
+ * storage_function_type_t: ITS SET/GET/GET_INFO/REMOVE = 0x1..0x4,
+ * PS SET/GET/GET_INFO/REMOVE/CREATE/SET_EXTENDED/GET_SUPPORT = 0x5..0xB. */
 uint32_t pal_its_function(int type, va_list valist)
 {
-    (void)type;
-    (void)valist;
-    return (uint32_t)-1;
+    psa_storage_uid_t uid;
+    uint32_t data_size;
+    uint32_t offset;
+    const void* p_write_data;
+    void* p_read_data;
+    size_t* p_data_length;
+    psa_storage_create_flags_t create_flags;
+    struct psa_storage_info_t* p_info;
+
+    switch (type) {
+    case 0x1: /* VAL_ITS_SET */
+        uid = va_arg(valist, psa_storage_uid_t);
+        data_size = va_arg(valist, uint32_t);
+        p_write_data = va_arg(valist, const void*);
+        create_flags = va_arg(valist, psa_storage_create_flags_t);
+        return (uint32_t)psa_its_set(uid, data_size, p_write_data,
+                                     create_flags);
+    case 0x2: /* VAL_ITS_GET */
+        uid = va_arg(valist, psa_storage_uid_t);
+        offset = va_arg(valist, uint32_t);
+        data_size = va_arg(valist, uint32_t);
+        p_read_data = va_arg(valist, void*);
+        p_data_length = va_arg(valist, size_t*);
+        return (uint32_t)psa_its_get(uid, offset, data_size, p_read_data,
+                                     p_data_length);
+    case 0x3: /* VAL_ITS_GET_INFO */
+        uid = va_arg(valist, psa_storage_uid_t);
+        p_info = va_arg(valist, struct psa_storage_info_t*);
+        return (uint32_t)psa_its_get_info(uid, p_info);
+    case 0x4: /* VAL_ITS_REMOVE */
+        uid = va_arg(valist, psa_storage_uid_t);
+        return (uint32_t)psa_its_remove(uid);
+    default:
+        return PAL_STATUS_UNSUPPORTED_FUNC;
+    }
 }
 
 uint32_t pal_ps_function(int type, va_list valist)
 {
-    (void)type;
-    (void)valist;
-    return (uint32_t)-1;
+    psa_storage_uid_t uid;
+    uint32_t data_size;
+    uint32_t size;
+    uint32_t offset;
+    const void* p_write_data;
+    void* p_read_data;
+    size_t* p_data_length;
+    psa_storage_create_flags_t create_flags;
+    struct psa_storage_info_t* p_info;
+
+    switch (type) {
+    case 0x5: /* VAL_PS_SET */
+        uid = va_arg(valist, psa_storage_uid_t);
+        data_size = va_arg(valist, uint32_t);
+        p_write_data = va_arg(valist, const void*);
+        create_flags = va_arg(valist, psa_storage_create_flags_t);
+        return (uint32_t)psa_ps_set(uid, data_size, p_write_data,
+                                    create_flags);
+    case 0x6: /* VAL_PS_GET */
+        uid = va_arg(valist, psa_storage_uid_t);
+        offset = va_arg(valist, uint32_t);
+        data_size = va_arg(valist, uint32_t);
+        p_read_data = va_arg(valist, void*);
+        p_data_length = va_arg(valist, size_t*);
+        return (uint32_t)psa_ps_get(uid, offset, data_size, p_read_data,
+                                    p_data_length);
+    case 0x7: /* VAL_PS_GET_INFO */
+        uid = va_arg(valist, psa_storage_uid_t);
+        p_info = va_arg(valist, struct psa_storage_info_t*);
+        return (uint32_t)psa_ps_get_info(uid, p_info);
+    case 0x8: /* VAL_PS_REMOVE */
+        uid = va_arg(valist, psa_storage_uid_t);
+        return (uint32_t)psa_ps_remove(uid);
+    case 0x9: /* VAL_PS_CREATE */
+        uid = va_arg(valist, psa_storage_uid_t);
+        size = va_arg(valist, uint32_t);
+        create_flags = va_arg(valist, psa_storage_create_flags_t);
+        return (uint32_t)psa_ps_create(uid, size, create_flags);
+    case 0xA: /* VAL_PS_SET_EXTENDED */
+        uid = va_arg(valist, psa_storage_uid_t);
+        offset = va_arg(valist, uint32_t);
+        data_size = va_arg(valist, uint32_t);
+        p_write_data = va_arg(valist, const void*);
+        return (uint32_t)psa_ps_set_extended(uid, offset, data_size,
+                                             p_write_data);
+    case 0xB: /* VAL_PS_GET_SUPPORT */
+        return psa_ps_get_support();
+    default:
+        return PAL_STATUS_UNSUPPORTED_FUNC;
+    }
 }
 
 int32_t pal_attestation_function(int type, va_list valist)

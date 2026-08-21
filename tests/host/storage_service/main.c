@@ -366,6 +366,16 @@ int main(void)
                      buffer, sizeof(buffer), &got);
     check(status == PSA_ERROR_DOES_NOT_EXIST, "removed uid is gone");
 
+    /* PSA Storage: uid 0 is invalid for every operation. */
+    status = its_set(&runtime, TEST_NS_GUEST0, handle_g0, 0ULL, 0U,
+                     data_g0, sizeof(data_g0));
+    check(status == PSA_ERROR_INVALID_ARGUMENT, "its_set(uid 0) rejected");
+    status = its_get(&runtime, TEST_NS_GUEST0, handle_g0, 0ULL, 0U,
+                     buffer, sizeof(buffer), &got);
+    check(status == PSA_ERROR_INVALID_ARGUMENT, "its_get(uid 0) rejected");
+    status = its_remove(&runtime, TEST_NS_GUEST0, handle_g0, 0ULL);
+    check(status == PSA_ERROR_INVALID_ARGUMENT, "its_remove(uid 0) rejected");
+
     if (wt_ffm_close(&runtime, TEST_NS_GUEST0, handle_g0) != WT_FFM_SUCCESS ||
             wt_ffm_close(&runtime, TEST_NS_GUEST1, handle_g1) !=
                 WT_FFM_SUCCESS) {
