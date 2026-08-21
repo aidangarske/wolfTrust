@@ -55,7 +55,7 @@ static wt_guest_config_t g_partition_configs[] = {
             .words = {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U}
         },
         .memory_windows = {
-            {WT_GUEST0_FLASH_BASE, WT_GUEST_FLASH_SIZE,
+            {WT_GUEST0_FLASH_BASE, WT_GUEST0_FLASH_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC, WT_RESOURCE_SHARE_NONE},
             {0x20000000U, 0x00010000U,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_RESTART_CLEAR,
@@ -63,7 +63,7 @@ static wt_guest_config_t g_partition_configs[] = {
         },
         .memory_window_count = 2U,
         .mpu_regions = {
-            {WT_GUEST0_FLASH_BASE, WT_GUEST_FLASH_SIZE,
+            {WT_GUEST0_FLASH_BASE, WT_GUEST0_FLASH_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
             {0x20000000U, 0x00010000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE},
             {WT_GUEST0_USART_BASE, WT_USART_REGION_SIZE,
@@ -105,7 +105,7 @@ static wt_guest_config_t g_partition_configs[] = {
             .words = {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U}
         },
         .memory_windows = {
-            {WT_GUEST1_FLASH_BASE, WT_GUEST_FLASH_SIZE,
+            {WT_GUEST1_FLASH_BASE, WT_GUEST1_FLASH_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC, WT_RESOURCE_SHARE_NONE},
             {0x20010000U, 0x00010000U,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_RESTART_CLEAR,
@@ -113,7 +113,7 @@ static wt_guest_config_t g_partition_configs[] = {
         },
         .memory_window_count = 2U,
         .mpu_regions = {
-            {WT_GUEST1_FLASH_BASE, WT_GUEST_FLASH_SIZE,
+            {WT_GUEST1_FLASH_BASE, WT_GUEST1_FLASH_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
             {0x20010000U, 0x00010000U, WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE},
             {WT_GUEST1_USART_BASE, WT_USART_REGION_SIZE,
@@ -187,7 +187,7 @@ static bool wt_guest_reset_handler_valid(const wt_guest_config_t* config,
 
     return ((resetHandler & 1u) != 0u) &&
            (entry >= config->vector_table) &&
-           (entry < (config->vector_table + WT_GUEST_FLASH_SIZE));
+           (entry < (config->vector_table + config->memory_windows[0].size));
 }
 
 static uintptr_t wt_guest_reset_handler(const wt_guest_config_t* config)

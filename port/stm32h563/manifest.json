@@ -44,7 +44,7 @@
       "stack_base": 536870912,
       "stack_size": 65536,
       "memory_resources": [
-        {"base": 134873088, "size": 131072, "attributes": 5, "share_id": 0},
+        {"base": 134873088, "size": 262144, "attributes": 5, "share_id": 0},
         {"base": 536870912, "size": 65536, "attributes": 19, "share_id": 0}
       ],
       "interrupt_resources": [],
@@ -63,11 +63,11 @@
       "security_state": 1,
       "privilege_state": 1,
       "initial_lifecycle": 1,
-      "entry_point": 135004160,
+      "entry_point": 135135232,
       "stack_base": 536936448,
       "stack_size": 65536,
       "memory_resources": [
-        {"base": 135004160, "size": 131072, "attributes": 5, "share_id": 0},
+        {"base": 135135232, "size": 131072, "attributes": 5, "share_id": 0},
         {"base": 536936448, "size": 65536, "attributes": 19, "share_id": 0}
       ],
       "interrupt_resources": [],

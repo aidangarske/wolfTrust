@@ -8,7 +8,7 @@
 
 		slot0_ns_partition: partition@a0000 {
 			label = "image-0-nonsecure";
-			reg = <0x000a0000 DT_SIZE_K(128)>;
+			reg = <0x000a0000 DT_SIZE_K(256)>;
 		};
 	};
 };

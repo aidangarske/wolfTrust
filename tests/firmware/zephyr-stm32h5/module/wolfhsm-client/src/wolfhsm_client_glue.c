@@ -31,11 +31,11 @@
  *    libc heap and entropy driver own those symbols. The RNG stub is kept
  *    because user_settings.h still maps CUSTOM_RAND_GENERATE_BLOCK to it.
  *
- * Buffer layout per guest (WT_HSM_BUF_SIZE = 512 bytes):
+ * Buffer layout per guest (WT_HSM_BUF_SIZE = 768 bytes):
  *   +0x000   8 B   request  CSR  (whTransportMemCsr)
- *   +0x008 248 B   request  data
- *   +0x100   8 B   response CSR  (whTransportMemCsr)
- *   +0x108 248 B   response data
+ *   +0x008 376 B   request  data
+ *   +0x180   8 B   response CSR  (whTransportMemCsr)
+ *   +0x188 376 B   response data
  */
 
 #include <stdint.h>
@@ -53,6 +53,13 @@
 #include "wolfhsm/wh_client_cryptocb.h"
 
 #include "wolfssl/wolfcrypt/cryptocb.h"
+
+/* A wolfHSM message on the wire is a whCommHeader followed by up to
+ * WOLFHSM_CFG_COMM_DATA_LEN payload bytes, and each transport slot is sized to
+ * hold exactly that. Bound transfers by the whole packet, not the payload
+ * alone, or a max-size response is wrongly rejected as malformed. */
+#define WT_HSM_MAX_PACKET_SZ \
+    (sizeof(whCommHeader) + (size_t)WOLFHSM_CFG_COMM_DATA_LEN)
 
 /* The CMSE transport region carved out of guest-a SRAM by the board /ns
  * variant. DT_REG_ADDR resolves to 0x20000100 and DT_REG_SIZE to 0x200. */
@@ -126,7 +133,7 @@ static int guest_tx_send(void *ctx_v, uint16_t data_size, const void *data)
     if (ctx == NULL || data == NULL || ctx->req_csr == NULL) {
         return WH_ERROR_BADARGS;
     }
-    if (data_size > WOLFHSM_CFG_COMM_DATA_LEN) {
+    if (data_size > WT_HSM_MAX_PACKET_SZ) {
         return WH_ERROR_BADARGS;
     }
 
@@ -161,7 +168,7 @@ static int guest_tx_recv(void *ctx_v, uint16_t *out_size, void *data)
     }
 
     sz = ctx->resp_csr->s.len;
-    if (sz > WOLFHSM_CFG_COMM_DATA_LEN) {
+    if (sz > WT_HSM_MAX_PACKET_SZ) {
         ctx->last_resp_notify = cur;
         return WH_ERROR_ABORTED;
     }

@@ -80,9 +80,13 @@ int wt_mutex_acquire(wt_mutex_t *m)
         m->wait_tail = self;
     }
 
-    wt_co_block();
+    /* Re-check on every resume: a latched wake for an unrelated condition
+     * can end the block spuriously, and release() assigns m->holder = self
+     * before waking, so the loop condition is exact. */
+    do {
+        wt_co_block();
+    } while (m->holder != self);
 
-    /* Resumed — release() has already set m->holder = self. */
     m->acquire_count++;
     return 0;
 }

@@ -33,11 +33,11 @@
  *    by user_settings.h. Once the client is ready this delegates entropy
  *    requests to the secure-side HSM.
  *
- * Buffer layout per guest (WT_HSM_BUF_SIZE = 512 bytes):
+ * Buffer layout per guest (WT_HSM_BUF_SIZE = 768 bytes):
  *   +0x000   8 B   request  CSR  (whTransportMemCsr)
- *   +0x008 248 B   request  data (written by guest)
- *   +0x100   8 B   response CSR  (whTransportMemCsr)
- *   +0x108 248 B   response data (written by secure monitor)
+ *   +0x008 376 B   request  data (written by guest)
+ *   +0x180   8 B   response CSR  (whTransportMemCsr)
+ *   +0x188 376 B   response data (written by secure monitor)
  *
  * Both slots start at the linker-provided _hsm_transport_base and
  * (_hsm_transport_base + WT_HSM_BUF_SIZE/2) respectively; the data area of each slot immediately
@@ -59,6 +59,13 @@
 #include "wolfhsm/wh_client_cryptocb.h"
 
 #include "wolfssl/wolfcrypt/cryptocb.h"
+
+/* A wolfHSM message on the wire is a whCommHeader followed by up to
+ * WOLFHSM_CFG_COMM_DATA_LEN payload bytes, and each transport slot is sized to
+ * hold exactly that. Bound transfers by the whole packet, not the payload
+ * alone, or a max-size response is wrongly rejected as malformed. */
+#define WT_HSM_MAX_PACKET_SZ \
+    (sizeof(whCommHeader) + (size_t)WOLFHSM_CFG_COMM_DATA_LEN)
 
 /* ---------------------------------------------------------------------------
  * Per-guest buffer base.
@@ -169,7 +176,7 @@ static int guest_tx_send(void *ctx_v, uint16_t data_size, const void *data)
     if (ctx == NULL || data == NULL || ctx->req_csr == NULL) {
         return WH_ERROR_BADARGS;
     }
-    if (data_size > WOLFHSM_CFG_COMM_DATA_LEN) {
+    if (data_size > WT_HSM_MAX_PACKET_SZ) {
         return WH_ERROR_BADARGS;
     }
 
@@ -218,7 +225,7 @@ static int guest_tx_recv(void *ctx_v, uint16_t *out_size, void *data)
     }
 
     sz = ctx->resp_csr->s.len;
-    if (sz > WOLFHSM_CFG_COMM_DATA_LEN) {
+    if (sz > WT_HSM_MAX_PACKET_SZ) {
         /* Response is malformed; advance baseline so we do not loop. */
         ctx->last_resp_notify = cur;
         return WH_ERROR_ABORTED;

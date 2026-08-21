@@ -22,16 +22,16 @@
 /*
  * CMSE-backed wolfHSM transport — secure-side implementation.
  *
- * NS-RAM buffer layout per guest (WT_HSM_BUF_SIZE = 512 bytes):
+ * NS-RAM buffer layout per guest (WT_HSM_BUF_SIZE = 768 bytes):
  *
  *   Offset    Size   Field
  *   ------    ----   -----
  *   +0x000      8    request  slot CSR  (whTransportMemCsr union — notify/len/ack/wait)
- *   +0x008    248    request  slot data (WH_COMM_MTU bytes written by guest)
- *   +0x100      8    response slot CSR  (whTransportMemCsr union)
- *   +0x108    248    response slot data (WH_COMM_MTU bytes written by secure monitor)
+ *   +0x008    376    request  slot data (WH_COMM_MTU bytes written by guest)
+ *   +0x180      8    response slot CSR  (whTransportMemCsr union)
+ *   +0x188    376    response slot data (WH_COMM_MTU bytes written by secure monitor)
  *
- * The two slots are at fixed offsets of 0 and ns_buf_size/2 (= 0x100) within
+ * The two slots are at fixed offsets of 0 and ns_buf_size/2 (= 0x180) within
  * the buffer.  whTransportMemCsr is an 8-byte union (sizeof == 8); the data
  * area follows immediately at (csr + 1).
  *
@@ -73,13 +73,12 @@
 
 #include "memory_map.h"  /* WT_HSM_BUF_SIZE */
 
-/* Compile-time guard: the wolfHSM-advertised MTU must fit inside the
- * data area of one slot.  Each slot is (WT_HSM_BUF_SIZE / 2) bytes,
- * of which sizeof(whTransportMemCsr) (=8) is consumed by the header.
- * Drift here was the off-by-8 issue found in the Wave 4C audit. */
-_Static_assert(WOLFHSM_CFG_COMM_DATA_LEN <=
+/* Compile-time guard: one slot's data area must hold a whole wolfHSM comm
+ * packet — whCommHeader plus up to WOLFHSM_CFG_COMM_DATA_LEN payload bytes.
+ * Omitting the 8-byte header here let a max-size response overflow the slot. */
+_Static_assert(sizeof(whCommHeader) + WOLFHSM_CFG_COMM_DATA_LEN <=
                    (WT_HSM_BUF_SIZE / 2u) - sizeof(whTransportMemCsr),
-               "WOLFHSM_CFG_COMM_DATA_LEN exceeds CMSE slot data area");
+               "whCommHeader + WOLFHSM_CFG_COMM_DATA_LEN exceeds CMSE slot");
 
 #define WT_HSM_SLOT_DATA_BYTES \
     ((WT_HSM_BUF_SIZE / 2u) - sizeof(whTransportMemCsr))

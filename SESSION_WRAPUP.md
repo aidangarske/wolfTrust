@@ -3,90 +3,68 @@
 <!-- pre-compact-handoff -->
 
 ## Objective and success criteria
-Finish **P4-S6 dev_apis conformance** (task #90, last Phase-4 slice), two parts:
-S6a Storage (DONE pending final gate), S6b Crypto (next). Success = suites
-green under M33MU on one commit + validation-log entries.
+Finish **P4-S6b dev_apis Crypto** (task #90) — the last Phase 4 piece — and
+wrap up Phase 4. The RNG multi-chunk hang (task #92) and the two dev_apis-crypto
+gaps (c020, c047) are all resolved; the suite runs green on M33MU. **Phase 4 is
+complete** once the S6b slice is committed and #90/#92 closed.
 
 ## User decisions and constraints
-- Single-line commits, author `Aidan Garske <aidan@wolfssl.com>`, no AI
-  attribution. **NEVER push without fresh explicit approval.**
-- Per-slice gate: host `make test` → M33MU devstorage + positive + confboot on
-  the EXACT final tree (one-commit rule) → commit → validation-log.
+- On Opus 4.8 (no Fable). Single-line commits, author
+  `Aidan Garske <aidan@wolfssl.com>`, no AI attribution. **NEVER push without
+  fresh explicit approval.**
 - Box: container `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15` on wolf-prec5560
   (100.87.53.96), workdir `/home/aidangarske/wolfTrust-l3-work`, rsync WITHOUT
-  --delete. wolfSSL C style; no bare scopes; zero new allocation.
-- On Fable (`claude-fable-5`) by Aidan's choice for this slice.
+  --delete.
+- "pr it" = push the wolfPSA branch to Aidan's fork only; Aidan opens the PR.
 
 ## Repository state
-- Branch `wolftfm-l3`, HEAD `29f77db` = origin (S0–S5 pushed). Working tree =
-  the FULL S6a slice, UNCOMMITTED:
-  - NEW `tests/firmware/zephyr-stm32h5/apps/guest0_psa/src/psa_storage_ns.c`
-    (NS ITS/PS shim over SERVICE_ITS 4099 / SERVICE_PS 4100).
-  - `.../src/conformance_pal.c` — real pal_its/pal_ps bodies + TU-local
-    `#define IPC` (avoids pal_common.h fallback psa_invec collision).
-  - `port/stm32h563/conformance/pal_config.h` — STORAGE block: includes our
-    psa ITS/PS headers + `ARCH_TEST_STORAGE_UID_MAX_SIZE 512`.
-  - `mk/secure-armv8m-stm32h563.mk` — gen_tests_list.py `storage` run into
-    `build/manifest/storage/ns/` (17 tests from ps_testsuite.db).
-  - `.../guest0_psa/CMakeLists.txt` — `WT_CONF_SUITE` selector; storage branch
-    = val NSPE + val_log + pal_weak + 34 test_sNNN sources + `-DSTORAGE`.
-  - `tests/firmware/zephyr-stm32h5/scripts/build_guest.sh` — WT_CONF_SUITE
-    passthrough.
-  - `tests/target/run_m33mu_scenario.sh` — `devstorage` scenario (asserts
-    failed=0 && passed+skipped=17).
-  - `.github/workflows/stm32h563-build.yml` — devstorage in the matrix.
-  - **VAULT FIXES (production hardening found by the suite):**
-    `src/services/wolfhsm/wt_hsm_vault.c` — `wt_hsm_vault_reserve(len,
-    headroom)`: every pool write gated on GetAvailable (+compaction via
-    DestroyObjects(0,NULL)), object adds reserve a counter-table copy as
-    headroom so sealed REMOVE's table rewrite always fits. Root causes: (1)
-    wolfHSM plain AddObject on a full pool fails NOTBLANK (-2103) mid-write
-    and poisons later adds (host-repro'd, geometry 16K/8K); (2) the rollback
-    table shares the pool → full pool wedged REMOVE. Upstream wolfHSM
-    NOTBLANK quirk worth reporting later.
-    `src/services/storage_service.c` — uid==0 → INVALID_ARGUMENT (PSA spec).
-  - Host regressions: `tests/host/vault_service/main.c` (WT-FFM-0044 capacity
-    fill/INSUFFICIENT/refill-determinism on target geometry),
-    `tests/host/storage_service/main.c` (uid-0 rejected ×3).
-- `SESSION_WRAPUP.md` (this file) also modified.
+Branch `wolftfm-l3`. The S6b slice is committed (this session) on top of S6a
+(`e0f6365`). `lib/wolfPSA` submodule is **clean** at pin `dd557dc`; the wolfPSA
+TLS12_PRF fix is carried as a build-time patch, not a working-tree change.
+Nothing pushed — origin still at `29f77db` for the pushed slices; S6a + S6b are
+local and UNPUSHED (push not approved).
 
-## Verification evidence (this exact tree)
-- Host `make test`: `PASS: unit/all` (26 suites incl. new asserts).
-- M33MU `PASS: target/devstorage`: **11 passed / 6 skipped / 0 failed** (the 6
-  skips = optional PS create/set_extended APIs, get_support()=0, honest).
-- Scratch repro (fill/remove/refill, plain + fake-sealed):
-  `/private/tmp/claude-501/-Users-aidangarske-wolfTrust/e37c5d03-6a61-415f-bfad-24aa6121923d/scratchpad/fill_repro/`.
-- Gate iterations 1–6 ledger: 1 compile (headers), 2 link (val_log/pal_weak),
-  3 ran 6/6/5, 4 ran 10/6/1 (PS table wedge), 5 regression 3/6/8 (remove
-  wedge exposed), 6 GREEN.
+## Completed this session
+- **wolfPSA TLS12_PRF fix carried as a build-time patch (CI-reproducible).**
+  The fix previously lived only in the submodule working tree, which a fresh CI
+  checkout (`git submodule update` in the runners) would reset away, regressing
+  c020. Converted it to `tests/target/wolfpsa-tls12-prf-mac-alg.patch`, applied
+  with a guarded reverse-check after the submodule update in
+  `run_m33mu_scenario.sh` and `run_h5_hardware.sh` — same carry-then-point-back
+  pattern as the emulator's `m33mu-tb-sec-chain.patch` (#63). Submodule reverted
+  clean; pin stays `dd557dc`.
+- **Pin-bump tracked (task #93):** after the upstream wolfPSA PR
+  (`aidangarske:wolfPSA:tls12-prf-mac-alg`, skoll-clean) merges, advance
+  `lib/wolfPSA` past `dd557dc`, delete the patch, and drop the two apply blocks.
+- Docs finalized: task-list S6b + parent P4-S6 marked done, c020/c047
+  resolutions and the pin-bump item recorded; validation-log S6b crypto entry
+  added.
 
-## Current work — IN FLIGHT
-Chained `positive` + `confboot` re-proof running detached on the box
-(`/home/aidangarske/m33mu-posconf.log`, container `wt-m33mu`) because the
-secure image changed. Expect positive 15/15 + confboot 89/85/0/4/0.
+## Verification evidence (one tree, patch path)
+- **M33MU devcrypto: `PASS: target/devcrypto` — 64 passed / 13 skipped /
+  0 failed (77 scheduled; c047 CMAC config schedule-skipped).** Proven from a
+  CLEAN `dd557dc` submodule + `git apply` of the carry patch (the
+  CI-reproducible path, not the working-tree carry). c020 TLS12_PRF passes.
+  c047 is dropped from the schedule via `test_c047, skip` in the crypto sched
+  db (same mechanism as c064/c065), so the run has zero failures.
+- M33MU positive 15/15, confboot 89/85/0/4/0, devstorage 17/11/0/6 on the same
+  tree (earlier this session).
+- Host `make test`: PASS: unit/all on this tree.
+- This is M33MU **emulator** evidence, not physical silicon.
 
-## Next tasks (ordered)
-1. Chained gate result: if green → commit S6a as ONE single-line commit (all
-   files above + docs below). If confboot/positive fail → diagnose (vault
-   changes are the only secure-image delta; suspect reserve interaction with
-   ITS probes if anything).
-2. Before commit: bare-scope/malloc/goto scan of changed C; update
-   `docs/requirements/task-list.md` (P4-S6a) + `validation-log.md` (evidence
-   entry with the three scenario results + the two vault defects found).
-3. Do NOT push without explicit approval.
-4. **S6b Crypto**: copy 104-case
-   `platform/targets/common/nspe/crypto/pal_crypto_intf.c` into
-   `pal_crypto_function` (wolfPSA already linked in guest,
-   psa/crypto.h → lib/wolfPSA); add `devcrypto`: mk gen `crypto` from
-   `dev_apis/crypto/crypto_testsuite.db` into build/manifest/crypto/ns/;
-   CMake crypto branch (80 test_cNNN dirs, `-DCRYPTO`); disable PAKE toggles
-   (wolfPSA stubs JPAKE/SPAKE2P) via pal_crypto_config trim; scenario +
-   CI matrix. Then same gate → commit → close #90, Phase 4 COMPLETE.
-5. Follow-ups filed/to file: keyvault add path lacks reserve gate (same
-   NOTBLANK edge, small objects; harden later), report wolfHSM NOTBLANK
-   upstream, task #91 silicon WRITE_ONCE, on-H5 runs when board returns.
+## Next tasks
+1. Push (needs fresh approval): S6a `e0f6365` + the S6b commit.
+2. Task #93: bump the wolfPSA pin + drop the carry patch after the PR merges.
+3. On-H5 dev_apis runs (task #91 area, board-pending): HW scripts still pin the
+   old 128K guest layout — move guest1 to 0x080E0000 before on-target.
+
+## Relevant files and reports
+- Carry patch: `tests/target/wolfpsa-tls12-prf-mac-alg.patch`.
+- Box gate log: `/home/aidangarske/m33mu-gate.log` (last: devcrypto PASS).
+- wolfPSA PR worktree: `scratchpad/wolfpsa-pr` (branch `tls12-prf-mac-alg`,
+  commit `a96f8d7`); `git -C lib/wolfPSA worktree remove` to clean.
 
 ## Resume instruction
-Check the box container/log first (`docker ps`, tail m33mu-posconf.log).
-Continue at Next tasks #1. Commit only after all three scenarios are green on
-this tree. No push without approval.
+Phase 4 is done. If Aidan approves a push, push `wolftfm-l3` (S6a + S6b). The
+only open Phase-4-adjacent items are the wolfPSA pin bump (#93, after the PR
+merges) and the board-pending on-H5 runs.

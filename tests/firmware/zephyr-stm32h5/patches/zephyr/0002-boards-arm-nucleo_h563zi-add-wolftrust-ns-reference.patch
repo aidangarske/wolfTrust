@@ -73,7 +73,7 @@ index 000000000000..a1a1a1a1a1a1
 +	 * starting &sram1 above the carved-out window. */
 +	wolftrust_hsm_transport: memory@20000100 {
 +		compatible = "zephyr,memory-region", "mmio-sram";
-+		reg = <0x20000100 0x200>;
++		reg = <0x20000100 0x300>;
 +		zephyr,memory-region = "WOLFTRUST_HSM_TRANSPORT";
 +	};
 +};

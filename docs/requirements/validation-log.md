@@ -2181,3 +2181,63 @@ Evidence (one tree):
 - M33MU confboot: `PASS: target/confboot` — **89 / 85 / 0 / 4 / 0**.
 - On-H5 hardware: pending the board; the runner will carry the devstorage
   assertions with S6b.
+
+## Phase 4 S6b — dev_apis Crypto conformance (2026-08-21)
+
+The unmodified Arm psa-arch-tests `dev_apis/crypto` suite (test_c001–c080,
+78 scheduled — c064/c065 hash suspend/resume are db-excluded upstream) runs
+Non-secure against wolfPSA, driven by the `devcrypto` scenario. Bringing it up
+surfaced one transport defect and two real wolfPSA/config issues:
+
+1. Max-size HSM response overflowed the CMSE transport slot (task #92,
+   found by c017). The slot data area was sized for `WOLFHSM_CFG_COMM_DATA_LEN`
+   but must hold the whole comm packet — the 8-byte `whCommHeader` rides in
+   front of the payload in the same slot. A max-size RNG chunk yields a
+   response of `8 + COMM_DATA_LEN`, which `wt_cmse_transport_send` rejected
+   `WH_ERROR_BADARGS`; the tasklet's silent-error branch parked with no
+   response and the client spun `WH_ERROR_NOTREADY` forever. Fix:
+   COMM_DATA_LEN 376→368 so `sizeof(whCommHeader) + COMM_DATA_LEN` = one
+   slot's data area, and the `_Static_assert` in `cmse_transport.c` now
+   includes the comm header (a too-large setting fails the build, not the
+   boot). The same header accounting was mirrored on the guest client bound
+   (`WT_HSM_MAX_PACKET_SZ`). The silent-swallow + missing client timeout are
+   a robustness gap — candidate wolfHSM upstream report.
+
+2. c020 (TLS12_PRF) was a real wolfPSA bug. `wolfpsa_kdf_tls12_prf` and
+   `_psk_to_ms` passed a `WC_HASH_TYPE_*` value to `wc_PRF_TLS`, which wants
+   a `wc_MACAlgorithm` id. The enums alias (`WC_HASH_TYPE_SHA256` = 6 =
+   `sha512_mac`), so `wc_PRF` selected the wrong hash — `HASH_TYPE_E` on
+   builds without SHA-512 (the guest), a wrong SHA-512 digest with it —
+   surfacing as PSA `GENERIC_ERROR`. Fixed with a `wolfpsa_prf_mac_from_alg`
+   helper mapping only SHA-256/384/512 (others → NOT_SUPPORTED). PR'd upstream
+   (`aidangarske:wolfPSA:tls12-prf-mac-alg`, skoll `review --cli codex` = 0
+   findings) and carried in wolfTrust as
+   `tests/target/wolfpsa-tls12-prf-mac-alg.patch`, applied after
+   `git submodule update` in the M33MU and H5 runners with a guarded
+   reverse-check — the same carry-then-point-back pattern as the emulator's
+   `m33mu-tb-sec-chain.patch`. Bump the `lib/wolfPSA` pin past `dd557dc` and
+   drop the patch + apply steps once the PR merges.
+
+3. c047 is schedule-skipped, not a bug or a failure. It is an HMAC-key +
+   CMAC-alg negative case; CMAC is compiled out, so wolfPSA returns the
+   spec-permitted NOT_SUPPORTED instead of the test's assumed INVALID_ARGUMENT.
+   The crypto sched db marks `test_c047, skip` — the same mechanism the
+   upstream db already uses for c064/c065 — so it drops out of the schedule
+   (one `sed` line in the crypto test-list generation; the ARM test source is
+   unmodified). The run is 77 scheduled / 0 failed; the gate now requires every
+   scheduled test to pass or skip.
+
+Also: guest0 grew to a 256K flash window (crypto image ~200K > 128K) with
+guest1 moved to 0x080E0000; 7 missing PSA error codes added to `psa/error.h`;
+a destroyed-volatile-key lookup now returns not-found so wolfPSA yields
+INVALID_HANDLE; guest heap bumped to recover c080 (ECDH key-agreement).
+
+Evidence (one tree, final skoll-refined helper via the carry patch):
+- M33MU devcrypto: `PASS: target/devcrypto` — **64 passed / 13 skipped /
+  0 failed** (77 scheduled; c047 schedule-skipped). c020 TLS12_PRF passes.
+- M33MU positive: `PASS: target/positive` — 15/15 on the same tree.
+- M33MU confboot: `PASS: target/confboot` — 89 / 85 / 0 / 4 / 0.
+- M33MU devstorage: `PASS: target/devstorage` — 17 / 11 / 0 / 6.
+- Host: `PASS: unit/all` on this tree.
+- On-H5 hardware: pending the board (runner carries the devcrypto assertions;
+  scripts still pin the old 128K guest layout — move guest1 first).

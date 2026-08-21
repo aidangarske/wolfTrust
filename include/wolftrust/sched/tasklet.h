@@ -64,6 +64,11 @@ static inline wt_tasklet_state_t wt_tasklet_state(const wt_tasklet_t *tasklet)
     return wt_co_state(tasklet);
 }
 
+static inline bool wt_tasklet_wake_pending(const wt_tasklet_t *tasklet)
+{
+    return wt_co_wake_pending(tasklet);
+}
+
 static inline uint32_t wt_tasklet_resume(wt_tasklet_t *tasklet)
 {
     return wt_co_run(tasklet);

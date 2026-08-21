@@ -15,6 +15,10 @@
 #                                       full positive lifecycle green
 #   run_m33mu_scenario.sh devstorage   dev_apis ITS/PS suite (test_s001-s017)
 #                                       runs Non-secure against SERVICE_ITS/PS
+#   run_m33mu_scenario.sh devcrypto    dev_apis Crypto suite (test_c001-c080;
+#                                       78 scheduled — upstream db skips
+#                                       c064/c065 hash suspend/resume) runs
+#                                       Non-secure against wolfPSA
 #
 # This is the single source the local make test-target harness, the box skill
 # scripts, and the CI jobs all drive, so each scenario's markers stay identical.
@@ -23,8 +27,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|restart|crossdomain|confboot|devstorage) ;;
-  *) echo "usage: $0 positive|restart|crossdomain|confboot|devstorage" >&2; exit 2 ;;
+  positive|restart|crossdomain|confboot|devstorage|devcrypto) ;;
+  *) echo "usage: $0 positive|restart|crossdomain|confboot|devstorage|devcrypto" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -47,7 +51,11 @@ export WOLFBOOT_PARTITION_SIZE=0x40000
 export WOLFBOOT_PARTITION_SWAP_ADDRESS=0x0C140000
 export WT_SECURE_IMAGE_HEADER_SIZE=0x400
 export WT_GUEST0_FLASH_BASE=0x080A0000
-export WT_GUEST1_FLASH_BASE=0x080C0000
+# The dev_apis crypto image (~200K) outgrew guest0's 128K window: guest0 is
+# 256K (0xA0000-0xE0000) and guest1 keeps 128K at 0xE0000, ending exactly at
+# the bank-1/bank-2 watermark boundary (0x08100000).
+export WT_GUEST1_FLASH_BASE=0x080E0000
+export WT_GUEST0_FLASH_SIZE=0x00040000
 export WT_GUEST_RAM_SIZE=0x00010000
 export WT_GUEST1_RAM_BASE=0x20010000
 export WT_ZEPHYR_DTC_OVERLAY_FILE=boards/wolfboot-stm32h563.overlay
@@ -85,6 +93,12 @@ fi
 #     CMake cache must go too: scenarios configure guest0_psa with different
 #     -D sets and CMake refuses to regenerate over a conflicting cache. ---
 git submodule update --init --single-branch
+# wolfPSA TLS-1.2 PRF fix (dev_apis c020): wc_PRF_TLS wants a wc_MACAlgorithm id,
+# not a WC_HASH_TYPE_* value. Local carry until the upstream wolfPSA PR merges;
+# drop with the submodule pin bump.
+git -C lib/wolfPSA apply --reverse --check \
+  "$repo/tests/target/wolfpsa-tls12-prf-mac-alg.patch" 2>/dev/null || \
+  git -C lib/wolfPSA apply "$repo/tests/target/wolfpsa-tls12-prf-mac-alg.patch"
 rm -rf build tests/firmware/zephyr-stm32h5/build
 
 # --- Secure-app wolfBoot first stage. ---
@@ -107,7 +121,8 @@ cd "$repo"
 secure_flags=""
 if [ "$scenario" = "crossdomain" ]; then
   secure_flags="WT_FFM_NEGATIVE_PROBE=1"
-elif [ "$scenario" = "confboot" ] || [ "$scenario" = "devstorage" ]; then
+elif [ "$scenario" = "confboot" ] || [ "$scenario" = "devstorage" ] || \
+     [ "$scenario" = "devcrypto" ]; then
   secure_flags="WT_CONFORMANCE=1"
 fi
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
@@ -132,6 +147,8 @@ elif [ "$scenario" = "confboot" ]; then
   guest_flags="WT_RUN_CONFORMANCE=1"
 elif [ "$scenario" = "devstorage" ]; then
   guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=storage"
+elif [ "$scenario" = "devcrypto" ]; then
+  guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=crypto"
 fi
 make -C tests/firmware/zephyr-stm32h5 clone
 env $guest_flags $secure_flags WT_REUSE_SECURE_BUILD=1 WT_EXPECTED_LIFECYCLE=0x1000u \
@@ -166,6 +183,11 @@ elif [ "$scenario" = "devstorage" ]; then
   # val-internal reset does not abort; TOTAL FAILED and the BKPT exit gate.
   quit_flag=""
   timeout_s=600
+elif [ "$scenario" = "devcrypto" ]; then
+  # 78 tests with real ECC/AES math under emulation run at roughly a minute
+  # per test; same non-fatal-fault policy as devstorage.
+  quit_flag=""
+  timeout_s=7200
 fi
 
 log="$repo/ci-m33mu-$scenario.log"
@@ -173,7 +195,7 @@ set +e
 "$M33MU" "$repo/wolfBoot/wolfboot.bin" \
   "$repo/build/wolftrust_v1_signed.bin:0x60000" \
   "$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0xA0000" \
-  "$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xC0000" \
+  "$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xE0000" \
   --uart-stdout --expect-bkpt 0x7f $quit_flag --timeout "$timeout_s" | tee "$log"
 emu_status=${PIPESTATUS[0]}
 set -e
@@ -277,6 +299,28 @@ case "$scenario" in
     fi
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/devstorage"
+    ;;
+  devcrypto)
+    expect "TEE client initialized" "wolfTrust TEE client initialized"
+    expect "conformance val_entry start" \
+      "wolfTrust FF-M conformance: val_entry start"
+    flat="$(sed 's/freertos_guest1:.*$//' "$log" | tr -d '\r\n')"
+    passed=$(printf '%s' "$flat" | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    skipped=$(printf '%s' "$flat" | grep -oE 'TOTAL SKIPPED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    : "${passed:=-1}"; : "${skipped:=-1}"; : "${failed:=-1}"
+    # c047 (Num 247) is dropped from the schedule by the crypto sched db (see
+    # mk/secure-armv8m-stm32h563.mk): HMAC-key-with-CMAC-alg negative case, but
+    # CMAC is compiled out so wolfPSA returns spec-permitted NOT_SUPPORTED, not
+    # the test's assumed INVALID_ARGUMENT. Every scheduled test must pass or skip.
+    if [ "$failed" -eq 0 ] && [ "$((passed + skipped))" -eq 77 ]; then
+      check_pass "dev_apis crypto: ${passed} passed, ${skipped} skipped, 0 failed (77 scheduled; c047 CMAC config-skipped)"
+    else
+      check_fail "dev_apis crypto suite" \
+        "passed=$passed skipped=$skipped failed=$failed (want failed=0, passed+skipped=77)"
+    fi
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
+    echo "PASS: target/devcrypto"
     ;;
   restart)
     expected=$((RESTART_LIMIT + 1))

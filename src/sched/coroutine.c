@@ -323,11 +323,16 @@ void wt_co_wake(wt_co_t *co)
         return;
     }
     if (co->state == WT_CO_RUNNABLE || co->state == WT_CO_RUNNING) {
-        return; /* already active, nothing to do */
+        /* Active coroutines may be about to block on a condition this wake
+         * just satisfied (preempted between poll and block): latch the wake
+         * so the block/dispatch path can consume it. */
+        co->wake_pending = 1u;
+        return;
     }
     if (co->state == WT_CO_FAULTED) {
         return; /* terminal — never wake again */
     }
+    co->wake_pending = 0u;
     co->state = WT_CO_RUNNABLE;
     runqueue_enqueue(co);
 }
@@ -386,6 +391,11 @@ wt_co_t *wt_co_current(void)
 wt_co_state_t wt_co_state(const wt_co_t *co)
 {
     return co->state;
+}
+
+bool wt_co_wake_pending(const wt_co_t *co)
+{
+    return co != (const wt_co_t *)0 && co->wake_pending != 0u;
 }
 
 uint32_t wt_co_run(wt_co_t *co)

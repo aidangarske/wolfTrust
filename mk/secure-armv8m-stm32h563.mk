@@ -60,6 +60,8 @@ WT_SECURE_FLASH_SIZE ?= 0x00020000
 WT_SECURE_IMAGE_HEADER_SIZE ?= 0
 WT_GUEST0_FLASH_BASE ?= 0x08020000
 WT_GUEST1_FLASH_BASE ?= 0x08040000
+WT_GUEST0_FLASH_SIZE ?= 0x00020000
+WT_GUEST1_FLASH_SIZE ?= 0x00020000
 
 # Virtual-Ethernet (VNET) subsystem. Off until Wave 2 lands a working
 # core. Host-side unit tests under tests/host/vnet/ build regardless;
@@ -111,6 +113,8 @@ SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -DWT_SECURE_IMAGE_HEADER_SIZE=$(WT_SECURE_IMAGE_HEADER_SIZE) \
     -DWT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_BASE) \
     -DWT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_BASE) \
+    -DWT_GUEST0_FLASH_SIZE=$(WT_GUEST0_FLASH_SIZE) \
+    -DWT_GUEST1_FLASH_SIZE=$(WT_GUEST1_FLASH_SIZE) \
     -DWHAL_CFG_STM32H5_RNG_DIRECT_API_MAPPING \
     -mcmse \
     $(HSM_INCLUDES_SECURE) $(HSM_DEFS_SECURE) $(SECURE_CFLAGS_COSE) \
@@ -658,6 +662,11 @@ $(CONF_UPSTREAM_SRCS): $(UPSTREAM_STAMP) ;
 $(UPSTREAM_STAMP): | $(BUILD_DIR)
 	$(ROOT)/tests/upstream/fetch_psa_arch_tests.sh \
 		$(BUILD_DIR)/upstream/psa-arch-tests
+	git -C $(BUILD_DIR)/upstream/psa-arch-tests apply --reverse --check \
+		$(abspath $(ROOT)/tests/upstream/psa-arch-tests-ec-overflow.patch) \
+		2>/dev/null || \
+	git -C $(BUILD_DIR)/upstream/psa-arch-tests apply \
+		$(abspath $(ROOT)/tests/upstream/psa-arch-tests-ec-overflow.patch)
 	touch $@
 
 # Derived schedule, not a suite edit: skipped tests need a runtime capability
@@ -789,6 +798,23 @@ $(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
 		$(MANIFEST_DIR)/storage/ns/server_tests_list_declare.inc \
 		$(MANIFEST_DIR)/storage/ns/server_tests_list.inc \
 		1 17
+	mkdir -p $(MANIFEST_DIR)/crypto/ns
+	# c047 (HMAC key + CMAC alg negative case) expects INVALID_ARGUMENT, but CMAC
+	# is compiled out so wolfPSA returns spec-permitted NOT_SUPPORTED; skip it in
+	# the schedule the same way the upstream db already skips c064/c065.
+	sed -e 's/^test_c047$$/test_c047, skip/' \
+		$(UPSTREAM_DIR)/dev_apis/crypto/testsuite.db \
+		> $(MANIFEST_DIR)/crypto/ns/testsuite_sched.db
+	python3 $(UPSTREAM_DIR)/tools/scripts/gen_tests_list.py crypto \
+		$(MANIFEST_DIR)/crypto/ns/testsuite_sched.db 0 ALL \
+		$(MANIFEST_DIR)/crypto/ns/testlist.txt \
+		$(MANIFEST_DIR)/crypto/ns/test_entry_list.inc \
+		$(MANIFEST_DIR)/crypto/ns/test_entry_fn_declare_list.inc \
+		$(MANIFEST_DIR)/crypto/ns/client_tests_list_declare.inc \
+		$(MANIFEST_DIR)/crypto/ns/client_tests_list.inc \
+		$(MANIFEST_DIR)/crypto/ns/server_tests_list_declare.inc \
+		$(MANIFEST_DIR)/crypto/ns/server_tests_list.inc \
+		1 80
 	touch $@
 
 $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/partition/%.c \
@@ -1197,6 +1223,8 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		'WT_SECURE_IMAGE_HEADER_SIZE=$(WT_SECURE_IMAGE_HEADER_SIZE)' \
 		'WT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_BASE)' \
 		'WT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_BASE)' \
+		'WT_GUEST0_FLASH_SIZE=$(WT_GUEST0_FLASH_SIZE)' \
+		'WT_GUEST1_FLASH_SIZE=$(WT_GUEST1_FLASH_SIZE)' \
 		'WT_ENGINE_HSM=$(WT_ENGINE_HSM)' \
 		'WT_ATTEST_COSE=$(WT_ATTEST_COSE)' \
 		'WT_CONFORMANCE=$(WT_CONFORMANCE)' \

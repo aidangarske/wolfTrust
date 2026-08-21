@@ -40,7 +40,14 @@ typedef int32_t psa_status_t;
 #define PSA_ERROR_DOES_NOT_EXIST      ((psa_status_t)-140)
 #define PSA_ERROR_INSUFFICIENT_MEMORY ((psa_status_t)-141)
 #define PSA_ERROR_INSUFFICIENT_STORAGE ((psa_status_t)-142)
+#define PSA_ERROR_INSUFFICIENT_DATA   ((psa_status_t)-143)
+#define PSA_ERROR_SERVICE_FAILURE     ((psa_status_t)-144)
+#define PSA_ERROR_COMMUNICATION_FAILURE ((psa_status_t)-145)
 #define PSA_ERROR_STORAGE_FAILURE     ((psa_status_t)-146)
+#define PSA_ERROR_HARDWARE_FAILURE    ((psa_status_t)-147)
 #define PSA_ERROR_INVALID_SIGNATURE   ((psa_status_t)-149)
+#define PSA_ERROR_CORRUPTION_DETECTED ((psa_status_t)-151)
+#define PSA_ERROR_DATA_CORRUPT        ((psa_status_t)-152)
+#define PSA_ERROR_DATA_INVALID        ((psa_status_t)-153)
 
 #endif /* PSA_ERROR_H */

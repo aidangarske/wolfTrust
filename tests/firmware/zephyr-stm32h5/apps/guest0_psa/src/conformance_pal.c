@@ -223,12 +223,15 @@ void pal_terminate_simulation(void)
     printk("wolfTrust FF-M conformance: val_entry returned\n");
 }
 
+/* dev_apis Crypto builds compile the upstream pal_crypto_intf.c instead. */
+#if !defined(CRYPTO)
 int32_t pal_crypto_function(int type, va_list valist)
 {
     (void)type;
     (void)valist;
     return -1;
 }
+#endif
 
 /* dev_apis Storage (P4-S6): dispatch the val ITS/PS function codes to the
  * NS client shim (psa_storage_ns.c), which marshals each onto SERVICE_ITS /

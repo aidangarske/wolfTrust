@@ -251,7 +251,7 @@ static void wt_sau_init(void)
     }
 
     wt_sau_set_region(0u, WT_GUEST0_FLASH_BASE,
-                      WT_GUEST1_FLASH_BASE + WT_GUEST_FLASH_SIZE - 1u,
+                      WT_GUEST1_FLASH_BASE + WT_GUEST1_FLASH_SIZE - 1u,
                       false);
     wt_sau_set_region(1u, WT_RAM_NS_BASE, WT_RAM_NS_BASE + 0x0009FFFFu, false);
     wt_sau_set_region(2u, WT_FLASH_NSC_BASE, WT_FLASH_NSC_END, true);
@@ -378,7 +378,7 @@ static void wt_mpu_s_init(void)
      * Secure alias window for reliable access. */
     wt_mpu_s_set_region(7u,
         WT_FLASH_TO_S_ALIAS(WT_GUEST0_FLASH_BASE),
-        WT_FLASH_TO_S_ALIAS(WT_GUEST1_FLASH_BASE + WT_GUEST_FLASH_SIZE - 1u),
+        WT_FLASH_TO_S_ALIAS(WT_GUEST1_FLASH_BASE + WT_GUEST1_FLASH_SIZE - 1u),
         WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RO | WT_MPU_RBAR_SH_INNER,
         WT_MPU_RLAR_ATTRIDX_NORMAL);
 
@@ -1855,7 +1855,11 @@ int WolfTrust_HSM_Submit_Impl(uint16_t size)
 
     rc = wt_hsm_veneer_precheck();
     if (rc != WH_ERROR_OK) goto out;
-    if (size == 0u || size > WOLFHSM_CFG_COMM_DATA_LEN) {
+    /* Bound by the physical slot data area — the whole packet (whCommHeader
+     * plus up to COMM_DATA_LEN payload), matching the CMSE transport and the
+     * guest glue. COMM_DATA_LEN alone would reject a max-size request. */
+    if (size == 0u ||
+        size > (WT_HSM_BUF_SIZE / 2u) - sizeof(whTransportMemCsr)) {
         rc = WH_ERROR_BADARGS;
         goto out;
     }

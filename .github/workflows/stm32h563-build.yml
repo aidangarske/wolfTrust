@@ -95,7 +95,8 @@ jobs:
       WOLFBOOT_PARTITION_SWAP_ADDRESS: 0x0C140000
       WT_SECURE_IMAGE_HEADER_SIZE: 0x400
       WT_GUEST0_FLASH_BASE: 0x080A0000
-      WT_GUEST1_FLASH_BASE: 0x080C0000
+      WT_GUEST1_FLASH_BASE: 0x080E0000
+      WT_GUEST0_FLASH_SIZE: 0x00040000
       WT_GUEST_RAM_SIZE: 0x00010000
       WT_GUEST1_RAM_BASE: 0x20010000
       WT_ZEPHYR_DTC_OVERLAY_FILE: boards/wolfboot-stm32h563.overlay
@@ -191,15 +192,15 @@ jobs:
             *) echo "Zephyr entry $guest0_entry is outside 0x080A0000 slot" >&2; exit 1 ;;
           esac
           case "$guest1_entry" in
-            0x80c*) ;;
-            *) echo "FreeRTOS entry $guest1_entry is outside 0x080C0000 slot" >&2; exit 1 ;;
+            0x80e*) ;;
+            *) echo "FreeRTOS entry $guest1_entry is outside 0x080E0000 slot" >&2; exit 1 ;;
           esac
           set +e
           rc_file=$(mktemp)
           ( stdbuf -oL -eL "$M33MU" wolfBoot/wolfboot.bin \
               build/wolftrust_v1_signed.bin:0x60000 \
               tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0xA0000 \
-              tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xC0000 \
+              tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xE0000 \
               --uart-stdout --expect-bkpt 0x7f --quit-on-faults --timeout 60; \
             echo $? > "$rc_file" ) \
             | tee "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
@@ -250,7 +251,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [positive, restart, crossdomain, confboot, devstorage]
+        scenario: [positive, restart, crossdomain, confboot, devstorage, devcrypto]
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15

@@ -116,6 +116,11 @@ if [ "$mode" != "flash" ]; then
   stage "fetching wolfTrust dependencies"
   {
     git submodule update --init --single-branch
+    # wolfPSA TLS-1.2 PRF fix (dev_apis c020). Local carry until the upstream
+    # wolfPSA PR merges; drop with the submodule pin bump.
+    git -C lib/wolfPSA apply --reverse --check \
+      "$repo/tests/target/wolfpsa-tls12-prf-mac-alg.patch" 2>/dev/null || \
+      git -C lib/wolfPSA apply "$repo/tests/target/wolfpsa-tls12-prf-mac-alg.patch"
     rm -rf build tests/firmware/zephyr-stm32h5/build
   } >> "$LOGFILE" 2>&1
 

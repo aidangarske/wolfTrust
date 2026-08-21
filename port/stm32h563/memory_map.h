@@ -49,6 +49,14 @@
 #ifndef WT_GUEST_FLASH_SIZE
 #define WT_GUEST_FLASH_SIZE      0x00020000u
 #endif
+/* Per-guest window sizes; guest0 can grow past guest1's without moving it
+ * across the bank-1/bank-2 watermark boundary. */
+#ifndef WT_GUEST0_FLASH_SIZE
+#define WT_GUEST0_FLASH_SIZE     WT_GUEST_FLASH_SIZE
+#endif
+#ifndef WT_GUEST1_FLASH_SIZE
+#define WT_GUEST1_FLASH_SIZE     WT_GUEST_FLASH_SIZE
+#endif
 
 /* Secure wolfHSM NVM store.
  *
@@ -151,13 +159,15 @@
  * reserved for the existing shared-status mailbox). The secure side
  * validates every access via cmse_check_address_range.
  *
- * Buffer layout (512 bytes total):
- *   [0x000 .. 0x0FF]  request slot  — whCommHeader (8 B) + notify counter + payload
- *   [0x100 .. 0x1FF]  response slot — whCommHeader (8 B) + notify counter + payload
- * Payload size is bounded by WOLFHSM_CFG_COMM_DATA_LEN (256 B).
+ * Buffer layout (768 bytes total):
+ *   [0x000 .. 0x17F]  request slot  — whTransportMemCsr (8 B) + payload
+ *   [0x180 .. 0x2FF]  response slot — whTransportMemCsr (8 B) + payload
+ * Each 384 B slot carries an 8 B whCommHeader in front of the payload, so
+ * WOLFHSM_CFG_COMM_DATA_LEN is bounded to 384 - 8 - 8 = 368 B (a 352 B
+ * psa_generate_random fits one round-trip inside guest-a's ceded 1 KiB).
  * Exact layout in src/arch/armv8m/cmse_transport.c */
 #define WT_HSM_BUF_OFFSET        0x00000100u
-#define WT_HSM_BUF_SIZE          0x00000200u  /* 512 B = req + resp */
+#define WT_HSM_BUF_SIZE          0x00000300u  /* 768 B = req + resp slots */
 #define WT_GUEST0_HSM_BUF_BASE   (WT_GUEST0_RAM_BASE + WT_HSM_BUF_OFFSET)
 #define WT_GUEST1_HSM_BUF_BASE   (WT_GUEST1_RAM_BASE + WT_HSM_BUF_OFFSET)
 

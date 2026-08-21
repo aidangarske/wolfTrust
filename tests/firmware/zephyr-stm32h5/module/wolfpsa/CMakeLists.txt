@@ -60,6 +60,7 @@ if(CONFIG_WOLFPSA)
   set(WT_WOLFSSL_DIR ${WT_REPO_ROOT}/lib/wolfSSL)
   zephyr_library_sources(
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sha512.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/kdf.c
   )
 
   # Treat third-party warnings as warnings, not errors. wolfHSM-client
@@ -67,6 +68,7 @@ if(CONFIG_WOLFPSA)
   set_source_files_properties(
     ${WOLFPSA_SRCS}
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sha512.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/kdf.c
     PROPERTIES COMPILE_OPTIONS
       "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter;-Wno-type-limits"
   )

@@ -47,15 +47,15 @@
 /*---------------------------------------------------------------------------
  * Communication buffer
  *
- * MUST match the secure side exactly.  The CMSE shared buffer is 256 B per
- * slot; 8 B is consumed by the whTransportMemCsr header, leaving 248 B for
- * payload.  If client and server disagree, messages will be fragmented
- * incorrectly and the protocol will desync.
+ * MUST match the secure side exactly.  Each CMSE slot is 384 B: 8 B
+ * whTransportMemCsr + 8 B whCommHeader + 368 B payload.  If client and
+ * server disagree, messages will be fragmented incorrectly and the protocol
+ * will desync.
  *
  * WARNING: any change to this value MUST also be applied to
  * src/services/wolfhsm/runner/wh_settings_local.h.
  *---------------------------------------------------------------------------*/
-#define WOLFHSM_CFG_COMM_DATA_LEN 248
+#define WOLFHSM_CFG_COMM_DATA_LEN 368
 
 /*---------------------------------------------------------------------------
  * System time

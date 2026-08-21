@@ -55,15 +55,12 @@
 /*---------------------------------------------------------------------------
  * Communication buffer
  *
- * Cap the data payload at 256 bytes to match the CMSE shared-buffer size.
- * The default (1280 B) would overflow the transport; anything larger than
- * 256 B gets silently truncated by the NSC gateway.
+ * Each CMSE slot is WT_HSM_BUF_SIZE/2 = 384 B: 8 B whTransportMemCsr + 8 B
+ * whCommHeader + 368 B payload. COMM_DATA_LEN is that payload budget; the
+ * whCommHeader rides in front of it in the same slot, so the transport must
+ * carry sizeof(whCommHeader) + COMM_DATA_LEN. cmse_transport.c asserts this.
  *---------------------------------------------------------------------------*/
-/* 248, not 256: the CMSE shared buffer is 256 B per slot, of which
- * 8 B is the whTransportMemCsr header. The payload area is therefore
- * 256 - 8 = 248 B. cmse_transport.c carries a _Static_assert that
- * traps if this drifts away from (WT_HSM_BUF_SIZE/2 - 8). */
-#define WOLFHSM_CFG_COMM_DATA_LEN 248
+#define WOLFHSM_CFG_COMM_DATA_LEN 368
 
 /*---------------------------------------------------------------------------
  * Role: server only

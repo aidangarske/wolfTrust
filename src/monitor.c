@@ -77,6 +77,14 @@ static bool wt_hsm_tasklet_runnable(wt_guest_id_t guest_id)
         return false;
     }
 
+    /* A wake that landed while the tasklet was tick-preempted between its
+     * NOTREADY poll and its block is latched, not delivered: promote it
+     * here so the request it announced is served on the next dispatch. */
+    if (wt_tasklet_state(tasklet) == WT_TASKLET_BLOCKED &&
+            wt_tasklet_wake_pending(tasklet)) {
+        wt_tasklet_wake(tasklet);
+    }
+
     return wt_tasklet_state(tasklet) == WT_TASKLET_RUNNABLE;
 #else
     (void)guest_id;

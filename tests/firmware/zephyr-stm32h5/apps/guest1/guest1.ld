@@ -16,7 +16,7 @@ _sidata = LOADADDR(.data);
 
 SECTIONS {
   .hsm_transport_reserved (ORIGIN(RAM) + 0x100) (NOLOAD) : {
-    . += 0x200;
+    . += 0x300;
   } > RAM
 
   .vectors GUEST_FLASH_ORIGIN : {

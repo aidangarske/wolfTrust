@@ -607,5 +607,60 @@ if(WT_RUN_CONFORMANCE)
       WT_RUN_CONFORMANCE VAL_NSPE_BUILD NONSECURE_TEST_BUILD STORAGE VERBOSITY=3)
     set_source_files_properties(${WT_STORAGE_SRCS} PROPERTIES COMPILE_OPTIONS
       "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter")
+  elseif(WT_CONF_SUITE STREQUAL "crypto")
+    # dev_apis Crypto: test bodies run entirely Non-secure against wolfPSA
+    # (the guest's psa_* provider); the upstream PAL compiles directly
+    # against wolfPSA's psa/crypto.h.
+    set(WT_CRYPTO_SRCS
+      src/conformance_pal.c
+      ${WT_CONF_U}/val/common/val_log.c
+      ${WT_CONF_U}/platform/targets/common/nspe/pal_weak.c
+      ${WT_CONF_U}/platform/targets/common/nspe/crypto/pal_crypto_intf.c
+      ${WT_CONF_U}/val/nspe/val_entry.c
+      ${WT_CONF_U}/val/nspe/val_dispatcher.c
+      ${WT_CONF_U}/val/nspe/val_framework.c
+      ${WT_CONF_U}/val/nspe/val_interfaces.c
+      ${WT_CONF_U}/val/nspe/val_peripherals.c
+      ${WT_CONF_U}/val/nspe/val_platform.c
+      ${WT_CONF_U}/val/nspe/val_crypto.c
+      ${WT_CONF_U}/val/nspe/val_storage.c
+      ${WT_CONF_U}/val/nspe/val_attestation.c
+      ${WT_CONF_U}/dev_apis/crypto/common/test_crypto_common.c
+    )
+    set(WT_CRYPTO_INCS
+      ${WT_REPO_ROOT}/include
+      ${WT_CONF_GEN}/crypto/ns
+      ${WT_CONF_GEN}
+      ${WT_CONF_U}/val/common
+      ${WT_CONF_U}/val/nspe
+      ${WT_CONF_U}/val/spe
+      ${WT_CONF_U}/platform/targets/common/nspe
+      ${WT_CONF_U}/platform/targets/common/nspe/crypto
+      ${WT_REPO_ROOT}/port/stm32h563/conformance
+      ${WT_CONF_U}/dev_apis/crypto/common
+    )
+    foreach(n RANGE 1 80)
+      # c064/c065 (hash suspend/resume) are skipped by the upstream db and c047
+      # (CMAC compiled out) by the crypto sched db; their test_entry symbols are
+      # only declared for scheduled tests.
+      if(n EQUAL 47 OR n EQUAL 64 OR n EQUAL 65)
+        continue()
+      endif()
+      if(n LESS 10)
+        set(cid c00${n})
+      else()
+        set(cid c0${n})
+      endif()
+      list(APPEND WT_CRYPTO_SRCS
+        ${WT_CONF_U}/dev_apis/crypto/test_${cid}/test_entry_${cid}.c
+        ${WT_CONF_U}/dev_apis/crypto/test_${cid}/test_${cid}.c)
+      list(APPEND WT_CRYPTO_INCS ${WT_CONF_U}/dev_apis/crypto/test_${cid})
+    endforeach()
+    target_sources(app PRIVATE ${WT_CRYPTO_SRCS})
+    target_include_directories(app PRIVATE ${WT_CRYPTO_INCS})
+    target_compile_definitions(app PRIVATE
+      WT_RUN_CONFORMANCE VAL_NSPE_BUILD NONSECURE_TEST_BUILD CRYPTO VERBOSITY=3)
+    set_source_files_properties(${WT_CRYPTO_SRCS} PROPERTIES COMPILE_OPTIONS
+      "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter")
   endif()
 endif()

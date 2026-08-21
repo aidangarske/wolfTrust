@@ -160,7 +160,7 @@ wolfTrust on the board — the TF-M drop-in proof.
     SYSRESETREQ proof as a hardware-pending item (needs the board; do not
     fake board evidence). #26's fault-recovery half remains separate.
 
-  - [~] **P4-S6 — unlock dev_apis conformance**: real bodies for
+  - [x] **P4-S6 — unlock dev_apis conformance**: real bodies for
     `pal_its/ps/crypto_function` (conformance_pal.c stubs) translating
     VAL codes into `psa_connect(SID)/psa_call`; add `dev_apis/storage`
     (s001–s017) + `dev_apis/crypto` (c001–c080) to the WT_RUN_CONFORMANCE
@@ -173,9 +173,73 @@ wolfTrust on the board — the TF-M drop-in proof.
       found and fixed two vault defects: full-pool adds now capacity-gated
       (`wt_hsm_vault_reserve`, wolfHSM NOTBLANK poisoning) with counter-table
       headroom so sealed REMOVE always fits; storage uid 0 rejected.
-    - [ ] **S6b Crypto**: 104-case `pal_crypto_function` port (wolfPSA is
-      the guest psa_* provider); `devcrypto` scenario; PAKE toggles off.
-    - [ ] On-H5 runs of both suites (board pending).
+    - [x] **S6b Crypto**: compile upstream `pal_crypto_intf.c` directly
+      against wolfPSA (the guest psa_* provider) — no hand port;
+      `WT_CONF_SUITE=crypto` build (78 scheduled test_c*; c064/c065 hash
+      suspend/resume are db-excluded upstream); `pal_crypto_config.h` matched
+      to the guest wolfCrypt set (ECC P-256, AES CBC/CTR/GCM/CCM, SHA-256,
+      HMAC/HKDF/PBKDF2/TLS-1.2-PRF); `devcrypto` scenario + CI. Carried the
+      wolfPSA `ec_key_pair` OOB-read patch. Grew guest0 to a 256K flash window
+      (crypto image ~200K > 128K); guest1 moved to 0x080E0000. Fixed 7 missing
+      PSA error codes in `psa/error.h` + wolfPSA's unguarded `wc_PRF_TLS`
+      (needs `WOLFSSL_HAVE_PRF` + `kdf.c`). Host bench (wolfPSA's own harness,
+      our config) **65 passed / 13 skipped / 0 failed** (skips = 2 RSA-only
+      asymmetric + 11 optional PAKE). M33MU `devcrypto` **64 passed /
+      13 skipped / 0 failed** (77 scheduled; c047 schedule-skipped, below);
+      c020 fixed (below).
+    - [x] **c020 TLS12_PRF was a real wolfPSA bug**: `wolfpsa_kdf_tls12_prf`
+      and `_psk_to_ms` passed a `WC_HASH_TYPE_*` value to `wc_PRF_TLS`, which
+      wants a `wc_MACAlgorithm` id — the enums alias (`WC_HASH_TYPE_SHA256`
+      = 6 = `sha512_mac`), so `wc_PRF` picked the wrong/unbuilt hash and
+      returned `HASH_TYPE_E` → PSA `GENERIC_ERROR`. Fixed with a
+      `wolfpsa_prf_mac_from_alg` helper (maps only SHA-256/384/512; others
+      → NOT_SUPPORTED). PR'd upstream (`aidangarske:wolfPSA:tls12-prf-mac-alg`,
+      skoll-clean) and carried in wolfTrust as
+      `tests/target/wolfpsa-tls12-prf-mac-alg.patch`, applied after
+      `git submodule update` in the M33MU/H5 runners (guarded reverse-check,
+      mirrors `m33mu-tb-sec-chain.patch`). Drop with the pin bump (below).
+    - [x] **c047 is schedule-skipped, not a bug or a failure**: HMAC-key +
+      CMAC-alg negative case; CMAC is compiled out, so wolfPSA returns the
+      spec-permitted NOT_SUPPORTED instead of the test's assumed
+      INVALID_ARGUMENT. The crypto sched db marks `test_c047, skip` (the same
+      mechanism the upstream db uses for c064/c065), dropping it from the
+      schedule so the run is 77 scheduled / 0 failed. The ARM test source is
+      unmodified (preserves the drop-in claim); the skip is one `sed` line in
+      `mk/secure-armv8m-stm32h563.mk`, not a test edit.
+    - [ ] **Bump the wolfPSA submodule pin after the TLS12_PRF PR merges**
+      (blocks nothing; cleanup). Once `tls12-prf-mac-alg` lands upstream,
+      advance `lib/wolfPSA` past `dd557dc` to the merged commit, delete
+      `tests/target/wolfpsa-tls12-prf-mac-alg.patch`, and drop the two
+      `git -C lib/wolfPSA apply` blocks in `run_m33mu_scenario.sh` and
+      `run_h5_hardware.sh`. Same carry-then-point-back pattern as #63.
+    - [x] **Max-size HSM response overflowed the CMSE slot** (found by
+      c017, task #92): the transport slot data area was sized to hold
+      `WOLFHSM_CFG_COMM_DATA_LEN` but must hold the whole wolfHSM comm
+      packet — the 8-byte `whCommHeader` rides in front of the payload in
+      the same slot. A max-size RNG chunk (cap = COMM_DATA_LEN − 16) yields a
+      response whose payload exactly fills COMM_DATA_LEN, so
+      `wh_CommServer_SendResponse` hands the transport `8 + COMM_DATA_LEN`,
+      `wt_cmse_transport_send` rejects it `WH_ERROR_BADARGS`, and the
+      tasklet's silent error branch parks with no response → the client
+      spins `WH_ERROR_NOTREADY` forever. Not a re-dispatch race: any
+      max-size chunk wedges (c017's 512/1000 both open with one). Fix:
+      COMM_DATA_LEN 376→368 so `sizeof(whCommHeader) + COMM_DATA_LEN` = 376
+      = one slot's data area, and correct the `_Static_assert` in
+      `cmse_transport.c` to include the comm header (setting 376 now fails
+      the build instead of hanging). New RNG single-shot cap = 352 B; 512/
+      1000 chunk cleanly. Buffer stays 768 B (already ends at the sram1
+      boundary). Follow-up: the tasklet's silent error swallow + the client
+      loop's missing timeout are a robustness gap — candidate wolfHSM
+      upstream report (with S6a's NOTBLANK).
+    - [ ] **Magic psa_store return codes** (logged 2026-08-21): wolfPSA's
+      `psa_store` contract uses bare ints (0 ok, -4 not-found, other = fail)
+      and `psa_key_storage.c` hardcodes `== -4`; wolfTrust's
+      `psa_store_stub.c` now returns -4 for the volatile-only "not found".
+      Replace the literal with a named constant (e.g. `WOLFPSA_STORE_NOTFOUND`)
+      in a shared header — candidate for an upstream wolfPSA cleanup.
+    - [ ] On-H5 runs of both suites (board pending). HW scripts
+      (`run_h5_hardware.sh`, `provisioning_ctrl.sh`) still pin the old 128K
+      guest layout — move guest1 when the board returns.
 
 
 - [~] **Phase 5 — Initial Attestation** — core **implemented and

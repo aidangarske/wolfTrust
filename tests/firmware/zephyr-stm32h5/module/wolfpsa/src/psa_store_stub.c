@@ -21,12 +21,12 @@
 /* Minimal psa_store backend: keys can't be persisted in this Zephyr port.
  *
  * The wolfPSA upstream Makefile ships psa_store_posix.c which uses open(2)
- * / read(2) / write(2). Zephyr's NS image has no filesystem and no plans
- * for one in this demo — every PSA key we create is volatile, so the
- * persistent-store callbacks are never reached. Define WOLFPSA_CUSTOM_STORE
- * (via the wolfpsa module's compile-definitions) to keep psa_store_posix.c
- * compiled to an empty TU, and provide the API shells here returning
- * `not supported`. */
+ * / read(2) / write(2). Zephyr's NS image has no filesystem, so every PSA key
+ * is volatile. wolfPSA still calls these when a volatile lookup misses, to
+ * check for a persisted copy — it maps the -4 "not available" return to
+ * PSA_ERROR_INVALID_HANDLE and any other non-zero to PSA_ERROR_STORAGE_FAILURE.
+ * A volatile-only store has no such copy, so open/remove return -4 (not the
+ * generic -1) to yield the spec-correct INVALID_HANDLE for a missing key. */
 
 #include <stddef.h>
 
@@ -39,7 +39,7 @@ int wolfPSA_Store_Open(int type, unsigned long id1, unsigned long id2,
     if (out != NULL) {
         *out = NULL;
     }
-    return -1;
+    return -4;
 }
 
 int wolfPSA_Store_OpenSz(int type, unsigned long id1, unsigned long id2,
@@ -49,13 +49,13 @@ int wolfPSA_Store_OpenSz(int type, unsigned long id1, unsigned long id2,
     if (out != NULL) {
         *out = NULL;
     }
-    return -1;
+    return -4;
 }
 
 int wolfPSA_Store_Remove(int type, unsigned long id1, unsigned long id2)
 {
     (void)type; (void)id1; (void)id2;
-    return -1;
+    return -4;
 }
 
 void wolfPSA_Store_Close(void *store)

@@ -30,10 +30,9 @@
  * wh_client.c is gated on this define. */
 #define WOLFHSM_CFG_ENABLE_CLIENT
 
-/* MUST match the secure-side wh_settings_local.h. CMSE shared buffer is
- * 256 B per slot; 8 B is consumed by the whTransportMemCsr header,
- * leaving 248 B for payload. */
-#define WOLFHSM_CFG_COMM_DATA_LEN 248
+/* MUST match the secure-side wh_settings_local.h. Each CMSE slot is 384 B:
+ * 8 B whTransportMemCsr + 8 B whCommHeader + 368 B payload. */
+#define WOLFHSM_CFG_COMM_DATA_LEN 368
 
 /* No RTC / port-time on this target. */
 #define WOLFHSM_CFG_NO_SYS_TIME

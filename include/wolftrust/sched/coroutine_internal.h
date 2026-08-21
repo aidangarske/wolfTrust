@@ -63,6 +63,14 @@ struct wt_co {
      * CONTROL.nPRIV=1. PendSV asm reads unprivileged by fixed offset. */
     const struct wt_secure_domain *domain;
     uint8_t unprivileged;
+
+    /* Sticky wake token: set when wt_co_wake targets a coroutine that is
+     * already RUNNABLE/RUNNING (e.g. tick-preempted between a NOTREADY poll
+     * and its block) so the wake survives until the next block/dispatch
+     * instead of being discarded — the lost-wakeup behind the multi-chunk
+     * HSM RNG hang. Placed after unprivileged: PendSV asm reads earlier
+     * fields by fixed offset. */
+    volatile uint8_t wake_pending;
 };
 
 /* Exposed to the ARMv8-M exception-based switch path. */

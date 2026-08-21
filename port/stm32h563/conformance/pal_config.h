@@ -99,4 +99,11 @@
 #define ARCH_TEST_STORAGE_UID_MAX_SIZE 512
 #endif
 
+/* dev_apis Crypto (P4-S6): wolfPSA is the guest's psa_* provider; the
+ * algorithm surface the suite may exercise lives in pal_crypto_config.h. */
+#if defined(CRYPTO)
+#include "psa/crypto.h"
+#include "pal_crypto_config.h"
+#endif
+
 #endif /* _PAL_CONFIG_H_ */

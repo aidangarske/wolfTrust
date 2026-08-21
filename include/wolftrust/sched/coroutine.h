@@ -106,6 +106,10 @@ wt_co_t *wt_co_current(void);
  * decisions in user code. */
 wt_co_state_t wt_co_state(const wt_co_t *co);
 
+/* True when a wake arrived while the coroutine was active and is latched
+ * for the next block/dispatch (see wt_co_wake). */
+bool wt_co_wake_pending(const wt_co_t *co);
+
 /* Run one specific runnable coroutine from the bootstrap context.
  * Returns 1 if `co` ran and switched back, 0 if `co` was NULL, not
  * runnable, or the caller was not in the bootstrap context. */
