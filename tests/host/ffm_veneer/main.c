@@ -79,6 +79,12 @@ int wt_spm_its_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
     return WT_FFM_SUCCESS;
 }
 
+int wt_spm_ps_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    (void)runtime; (void)partition_id;
+    return WT_FFM_SUCCESS;
+}
+
 /* ---- the host memcheck standing in for the Armv8-M CMSE checker ---- */
 static int test_ns_check_read(wt_guest_id_t guest_id, const void* address,
                               size_t size)

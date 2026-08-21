@@ -41,5 +41,6 @@ typedef int32_t psa_status_t;
 #define PSA_ERROR_INSUFFICIENT_MEMORY ((psa_status_t)-141)
 #define PSA_ERROR_INSUFFICIENT_STORAGE ((psa_status_t)-142)
 #define PSA_ERROR_STORAGE_FAILURE     ((psa_status_t)-146)
+#define PSA_ERROR_INVALID_SIGNATURE   ((psa_status_t)-149)
 
 #endif /* PSA_ERROR_H */

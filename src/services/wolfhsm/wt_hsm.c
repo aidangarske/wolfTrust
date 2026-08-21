@@ -225,9 +225,14 @@ int wt_hsm_init(void)
         return rc;
     }
 
-    /* Bind the gated vault backing (WT-FFM-0047) to the shared NVM store. */
+    /* Bind the gated vault backing (WT-FFM-0047) to the shared NVM store,
+     * then the AES-GCM sealer (WT-FFM-0048). A failed sealer init leaves
+     * SEALED requests refused — fail closed, observable in the PS gate. */
     if (wt_hsm_vault_init(&g_nvm_ctx) == 0) {
         wt_vault_service_set_backend(&wt_hsm_vault_backend);
+        if (wt_hsm_seal_init(&g_nvm_ctx) == 0) {
+            wt_hsm_vault_set_sealer(&wt_hsm_sealer);
+        }
     }
 
     return 0;

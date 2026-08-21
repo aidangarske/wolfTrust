@@ -22,6 +22,7 @@
 #define WOLFTRUST_SERVICES_HSM_H
 
 #include "wolftrust/types.h"
+#include "psa/error.h"
 
 /* Pull in the wolfHSM comm header for the whTransportServerCb type.
  * This is the minimal wolfHSM dependency; the wolfCrypt settings header
@@ -105,5 +106,37 @@ struct whNvmContext_t;
 int wt_hsm_vault_init(struct whNvmContext_t* nvm);
 struct wt_vault_backend;
 extern const struct wt_vault_backend wt_hsm_vault_backend;
+
+/* Vault sealer (WT-FFM-0048): AES-GCM confidentiality + rollback binding for
+ * WT_VAULT_FLAG_SEALED objects, running entirely inside the privileged vault
+ * domain — the device-unique key never reaches any Secure Partition. seal
+ * writes pt_len + WT_VAULT_SEAL_TAG_LEN bytes ([ciphertext][tag]); unseal
+ * takes ct_len >= tag length and writes ct_len - tag plaintext bytes. The
+ * monotonic rollback counter is the GCM nonce, so a replayed (rolled-back)
+ * ciphertext fails tag authentication. */
+#define WT_VAULT_SEAL_TAG_LEN 16U
+
+/* Device-unique seal key + rollback counter table ids: directly above the
+ * vault object window (0x0100..0x011F), never matched by vault lookups. */
+#define WT_HSM_SEAL_KEY_ID     0x0120U
+#define WT_HSM_VAULT_TABLE_ID  0x0121U
+
+typedef struct wt_vault_sealer {
+    psa_status_t (*seal)(const uint8_t* aad, size_t aad_len, uint64_t counter,
+                         const uint8_t* pt, size_t pt_len, uint8_t* ct);
+    psa_status_t (*unseal)(const uint8_t* aad, size_t aad_len,
+                           uint64_t counter, const uint8_t* ct, size_t ct_len,
+                           uint8_t* pt);
+} wt_vault_sealer_t;
+
+/* Install the sealer. NULL restores the fail-closed default: SEALED requests
+ * are refused with PSA_ERROR_NOT_SUPPORTED. */
+void wt_hsm_vault_set_sealer(const wt_vault_sealer_t* sealer);
+
+/* wolfCrypt AES-256-GCM sealer over the device-unique key at
+ * WT_HSM_SEAL_KEY_ID (generated on first boot, NONEXPORTABLE and immutable).
+ * Only linked into builds that carry wolfCrypt. */
+int wt_hsm_seal_init(struct whNvmContext_t* nvm);
+extern const wt_vault_sealer_t wt_hsm_sealer;
 
 #endif /* WOLFTRUST_SERVICES_HSM_H */

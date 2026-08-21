@@ -699,6 +699,9 @@ static void wt_spm_its_entry(void* arg)
     ctx.transport = wt_spm_svc_transport;
     ctx.vault_sid = SERVICE_VAULT_SID;
     ctx.vault_handle = 0;
+    ctx.client_flags_mask = WT_VAULT_FLAG_WRITE_ONCE;
+    ctx.vault_flags = 0U;
+    ctx.caps = 0U;
 
     for (;;) {
         (void)wt_storage_service_dispatch(&ctx, NULL, partition_id);
@@ -708,5 +711,35 @@ static void wt_spm_its_entry(void* arg)
 int wt_spm_its_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
     return wt_spm_sched_add(runtime, partition_id, wt_spm_its_entry,
+                            (void*)(intptr_t)partition_id);
+}
+
+/* The PS partition: the same unprivileged storage loop, but every request is
+ * forwarded SEALED — AES-GCM under the device-unique wolfHSM key plus
+ * rollback binding, applied inside the privileged vault domain
+ * (WT-FFM-0048). The NO_* client hints are accepted and recorded, never
+ * honoured downward: wolfTrust always stores at full strength. */
+static void wt_spm_ps_entry(void* arg)
+{
+    int32_t partition_id = (int32_t)(intptr_t)arg;
+    wt_storage_service_ctx_t ctx;
+
+    ctx.transport = wt_spm_svc_transport;
+    ctx.vault_sid = SERVICE_VAULT_SID;
+    ctx.vault_handle = 0;
+    ctx.client_flags_mask = WT_VAULT_FLAG_WRITE_ONCE |
+                            WT_VAULT_FLAG_NO_CONFIDENTIALITY |
+                            WT_VAULT_FLAG_NO_REPLAY;
+    ctx.vault_flags = WT_VAULT_FLAG_SEALED;
+    ctx.caps = 0U;
+
+    for (;;) {
+        (void)wt_storage_service_dispatch(&ctx, NULL, partition_id);
+    }
+}
+
+int wt_spm_ps_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_ps_entry,
                             (void*)(intptr_t)partition_id);
 }

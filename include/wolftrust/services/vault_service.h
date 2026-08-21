@@ -36,8 +36,18 @@
 #define WT_VAULT_OP_GET_INFO 3
 #define WT_VAULT_OP_REMOVE   4
 
-/* PSA storage create flags understood by the vault (SRC-PSA-STORAGE). */
-#define WT_VAULT_FLAG_WRITE_ONCE 0x1U
+/* PSA storage create flags understood by the vault (SRC-PSA-STORAGE). The
+ * NO_* bits are client hints recorded for get_info fidelity; the vault always
+ * stores at least as securely as requested. */
+#define WT_VAULT_FLAG_WRITE_ONCE         0x1U
+#define WT_VAULT_FLAG_NO_CONFIDENTIALITY 0x2U
+#define WT_VAULT_FLAG_NO_REPLAY          0x4U
+
+/* Internal flag a storage frontend ORs in (never a PSA create flag): the
+ * object is AES-GCM sealed under the device-unique wolfHSM key with the
+ * monotonic rollback counter as nonce (WT-FFM-0048). Sealing runs entirely
+ * inside the privileged vault domain. */
+#define WT_VAULT_FLAG_SEALED 0x10000U
 
 /* Copied-IOVEC object bound (WT-FFM-0041): requests larger than this are
  * refused, kept well under the vault partition's 8 KiB secure stack. */

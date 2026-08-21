@@ -86,11 +86,29 @@ wolfTrust on the board — the TF-M drop-in proof.
     `tests/host/storage_service` (16 asserts); M33MU positive 12/12 incl.
     **"wolfTrust ITS set/get verified"** (NS → ITS SP → vault → flash NVM,
     three domains); confboot **89/85/0/4/0**.
-  - [ ] **P4-S3 — PS Secure Partition**: `SERVICE_PS` +
-    `include/psa/protected_storage.h`; `psa_ps_*` incl. `create`/
-    `set_extended` gated on `psa_ps_get_support()`; AES-GCM object wrap
-    under a device-unique wolfHSM key (fresh nonce per write) + default-on
-    NV-counter rollback protection. Reuses S2 machinery.
+  - [x] **P4-S3 — PS Secure Partition**: `SERVICE_PS` (sid 4100, NS-facing
+    unprivileged SP, prod domain 7 / conformance domain 10, 8 KiB stack @
+    0x3008D000) — the S2 storage loop parameterized (ctx gains
+    `client_flags_mask`/`vault_flags`/`caps`) so every PS request is
+    forwarded with `WT_VAULT_FLAG_SEALED`. Sealing runs entirely INSIDE the
+    privileged vault domain (`wt_hsm_seal.c`): AES-256-GCM under a
+    device-unique key generated on first boot (NVM id 0x0120,
+    NONEXPORTABLE + immutable, never enters any SP), nonce = the persisted
+    monotonic rollback counter (table @ 0x0121, counter persisted BEFORE
+    ciphertext so power loss can never repeat a nonce), AAD = the object
+    label — so a replayed/rolled-back or cross-object ciphertext fails tag
+    authentication (WT-FFM-0048). `create`/`set_extended` gated on
+    `psa_ps_get_support()` = 0 (honest NOT_SUPPORTED, no silent success);
+    NO_* hints accepted and recorded but never honored downward.
+    `include/psa/protected_storage.h` added. Capacity gates caught + fixed:
+    `WT_FFM_MAX_SERVICES` 16→20 (conformance image now carries 17
+    services), port `max_domains` 10→11; shared-UART `TOTAL` asserts made
+    interleave-tolerant (`expect_flat`). Evidence on one tree: host
+    `unit/all` incl. `tests/host/ps_service` (23 asserts: sealed round
+    trip, plaintext absent from flash at rest, rollback replay →
+    INVALID_SIGNATURE, WRITE_ONCE, support gating, key+counters survive
+    reboot); M33MU positive 13/13 incl. **"wolfTrust PS sealed set/get
+    verified"**; confboot **89/85/0/4/0** with the 11-domain manifest.
   - [ ] **P4-S4 — crypto key-ops via wolfPSA→wolfHSM** (deepest, Fable):
     wire wolfPSA into PARTITION_CRYPTO; route `psa_generate_key/import/
     export_public/sign/verify/{en,de}crypt` to the gated backing; keys

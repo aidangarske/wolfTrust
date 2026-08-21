@@ -60,6 +60,7 @@ LOG_MODULE_REGISTER(guest0_psa, LOG_LEVEL_INF);
 #define WOLFTRUST_FN_FFM_CLOSE   5u
 #define WT_CRYPTO_SID 4097u
 #define WT_ITS_SID    4099u
+#define WT_PS_SID     4100u
 
 #ifndef WT_EXPECTED_MEASUREMENT_HEX
 #define WT_EXPECTED_MEASUREMENT_HEX ""
@@ -249,6 +250,85 @@ static void exercise_ffm_its(void)
 			LOG_ERR("wolfTrust ITS get returned wrong data");
 		} else {
 			LOG_INF("wolfTrust ITS set/get verified");
+		}
+	}
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CLOSE;
+	param[0].a = (uint64_t)handle;
+	(void)tee_invoke_func(tee, &arg, 1, param);
+}
+
+/* P4-S3: the sealed-storage round trip. Same wire as ITS, but SERVICE_PS
+ * AES-GCM-seals every object inside the privileged vault domain, so a clean
+ * set/get proves seal + rollback-counter + unseal end to end on target. */
+static void exercise_ffm_ps(void)
+{
+	static const uint8_t payload[] = "wolfTrust PS on-target secret";
+	const struct device *tee = DEVICE_DT_GET_ANY(wolfssl_wolftrust_tee);
+	struct tee_invoke_func_arg arg;
+	struct tee_param param[2];
+	uint8_t setbuf[16 + sizeof(payload)];
+	uint8_t getbuf[sizeof(payload)];
+	uint64_t uid = 0x57545053u; /* "WTPS" */
+	int32_t handle;
+	int32_t st;
+	int rc;
+
+	if (tee == NULL || !device_is_ready(tee)) {
+		LOG_WRN("wolftrust TEE device not present/ready");
+		return;
+	}
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CONNECT;
+	param[0].a = WT_PS_SID;
+	param[0].b = 1u;
+	rc = tee_invoke_func(tee, &arg, 1, param);
+	handle = (int32_t)arg.ret;
+	if (rc != 0 || handle <= 0) {
+		LOG_ERR("FF-M psa_connect(SERVICE_PS) failed rc=%d handle=%d",
+			rc, handle);
+		return;
+	}
+
+	memset(setbuf, 0, sizeof(setbuf));
+	memcpy(setbuf, &uid, sizeof(uid));
+	memcpy(setbuf + 16, payload, sizeof(payload));
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CALL;
+	param[0].a = (uint64_t)handle;
+	param[0].b = 1u; /* WT_ITS_OP_SET */
+	param[0].c = (uint64_t)(uintptr_t)setbuf;
+	param[1].a = sizeof(setbuf);
+	rc = tee_invoke_func(tee, &arg, 2, param);
+	st = (int32_t)arg.ret;
+	if (rc != 0 || st != 0) {
+		LOG_ERR("psa_ps_set via SERVICE_PS failed rc=%d st=%d",
+			rc, st);
+	} else {
+		memset(getbuf, 0, sizeof(getbuf));
+		memset(&arg, 0, sizeof(arg));
+		memset(param, 0, sizeof(param));
+		arg.func = WOLFTRUST_FN_FFM_CALL;
+		param[0].a = (uint64_t)handle;
+		param[0].b = 2u; /* WT_ITS_OP_GET */
+		param[0].c = (uint64_t)(uintptr_t)setbuf;
+		param[1].a = 16u; /* header only */
+		param[1].b = (uint64_t)(uintptr_t)getbuf;
+		param[1].c = sizeof(getbuf);
+		rc = tee_invoke_func(tee, &arg, 2, param);
+		st = (int32_t)arg.ret;
+		if (rc != 0 || st != 0) {
+			LOG_ERR("psa_ps_get via SERVICE_PS failed rc=%d "
+				"st=%d", rc, st);
+		} else if (memcmp(getbuf, payload, sizeof(payload)) != 0) {
+			LOG_ERR("wolfTrust PS get returned wrong data");
+		} else {
+			LOG_INF("wolfTrust PS sealed set/get verified");
 		}
 	}
 
@@ -534,6 +614,7 @@ int main(void)
 	exercise_tee_driver();
 	exercise_ffm_crypto();
 	exercise_ffm_its();
+	exercise_ffm_ps();
 	exercise_ffm_negatives();
 #if !defined(WT_RUN_CONFORMANCE)
 	/* The COSE attestation path needs a deep stack; skip it in the conformance

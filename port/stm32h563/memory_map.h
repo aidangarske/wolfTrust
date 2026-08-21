@@ -126,6 +126,9 @@
 #define WT_SP_ITS_STACK_BASE     (WT_RAM_S_BASE + 0x00067000u)  /* 0x3008F000 */
 #define WT_SP_ITS_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
 
+#define WT_SP_PS_STACK_BASE      (WT_RAM_S_BASE + 0x00065000u)  /* 0x3008D000 */
+#define WT_SP_PS_STACK_SIZE      WT_SP_SECURE_STACK_SIZE
+
 /* Per-partition pseudo-MMIO holes at the top of the CONFDATA window (P4/K4).
  * Each belongs to exactly one Arm conformance partition; the scheduler grants
  * every other SP the window WITHOUT its hole, so the L3 MMIO-isolation panic

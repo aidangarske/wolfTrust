@@ -286,6 +286,7 @@ int main(void)
     its_ctx.transport = wt_spm_transport_direct;
     its_ctx.vault_sid = TEST_VAULT_SID;
     its_ctx.vault_handle = 0;
+    its_ctx.client_flags_mask = WT_VAULT_FLAG_WRITE_ONCE;
     if (wt_ffm_register_partition(&runtime, TEST_ITS_PARTITION,
                                   wt_storage_service_dispatch, &its_ctx) !=
             WT_FFM_SUCCESS) {

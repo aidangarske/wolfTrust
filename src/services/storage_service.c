@@ -182,6 +182,13 @@ static psa_status_t wt_storage_service_call(wt_storage_service_ctx_t* ctx,
     }
     (void)memcpy(&req, buffer, sizeof(req));
 
+    /* Optional PS features (create/set_extended): psa_ps_get_support
+     * advertises none (ctx->caps stays 0), so these are refused honestly —
+     * a build that raises caps must implement them first. */
+    if (msg->type == WT_PS_OP_CREATE || msg->type == WT_PS_OP_SET_EXTENDED) {
+        return PSA_ERROR_NOT_SUPPORTED;
+    }
+
     status = wt_storage_vault_handle(ctx, runtime, partition_id);
     if (status != PSA_SUCCESS) {
         return status;
@@ -197,6 +204,11 @@ static psa_status_t wt_storage_service_call(wt_storage_service_ctx_t* ctx,
 
     switch (msg->type) {
     case WT_ITS_OP_SET:
+        if ((req.flags & ~ctx->client_flags_mask) != 0U) {
+            status = PSA_ERROR_NOT_SUPPORTED;
+            break;
+        }
+        vreq.flags = req.flags | ctx->vault_flags;
         status = wt_storage_vault_call(ctx, runtime, partition_id,
                                        WT_VAULT_OP_SET, &vreq,
                                        buffer + sizeof(req),
@@ -224,6 +236,11 @@ static psa_status_t wt_storage_service_call(wt_storage_service_ctx_t* ctx,
         status = wt_storage_vault_call(ctx, runtime, partition_id,
                                        WT_VAULT_OP_GET_INFO, &vreq, NULL, 0U,
                                        &info, sizeof(info), NULL);
+        if (status == PSA_SUCCESS) {
+            /* Clients see the create flags they passed, not the frontend's
+             * internal sealing flag. */
+            info.flags &= ~ctx->vault_flags;
+        }
         if (status == PSA_SUCCESS &&
                 wt_storage_write_reply(ctx, runtime, partition_id,
                                        msg->handle, &info, sizeof(info)) !=
@@ -251,6 +268,7 @@ int wt_storage_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
     psa_msg_t msg;
     psa_status_t reply_status;
     wt_spm_call_t call;
+    uint32_t caps;
 
     if (ctx == NULL || ctx->transport == NULL) {
         return WT_FFM_ERROR_STATE;
@@ -278,7 +296,19 @@ int wt_storage_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
 
     if (msg.type == PSA_IPC_CONNECT || msg.type == PSA_IPC_DISCONNECT) {
         reply_status = PSA_SUCCESS;
-    } else if (msg.type >= WT_ITS_OP_SET && msg.type <= WT_ITS_OP_REMOVE) {
+    } else if (msg.type == WT_PS_OP_GET_SUPPORT) {
+        caps = ctx->caps;
+        if (msg.out_size[0] < sizeof(caps)) {
+            reply_status = PSA_ERROR_INVALID_ARGUMENT;
+        } else if (wt_storage_write_reply(ctx, runtime, partition_id,
+                                          msg.handle, &caps,
+                                          sizeof(caps)) != WT_FFM_SUCCESS) {
+            reply_status = PSA_ERROR_GENERIC_ERROR;
+        } else {
+            reply_status = PSA_SUCCESS;
+        }
+    } else if (msg.type >= WT_ITS_OP_SET &&
+               msg.type <= WT_PS_OP_SET_EXTENDED) {
         reply_status = wt_storage_service_call(ctx, runtime, partition_id,
                                                &msg);
     } else {

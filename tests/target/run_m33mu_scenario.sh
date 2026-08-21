@@ -177,6 +177,12 @@ check_pass() { printf '  [check] PASS  %s\n' "$1"; }
 check_fail() { printf '  [check] FAIL  %s  (%s)\n' "$1" "$2"; exit 1; }
 expect()     { if grep -Fq "$2" "$log"; then check_pass "$1"; \
                else check_fail "$1" "missing: $2"; fi; }
+# Shared-UART tolerant match: guest1's console can interject mid-line in a
+# secure print (e.g. "TOTAL SK<freertos_guest1: ...>IPPED   : 4"), so strip
+# guest1 text and rejoin split lines before requiring the exact bytes.
+expect_flat() { if sed 's/freertos_guest1:.*$//' "$log" | tr -d '\r\n' | \
+                    grep -Fq "$2"; then check_pass "$1"; \
+                else check_fail "$1" "missing: $2"; fi; }
 refute_re()  { if grep -Eq "$2" "$log"; then check_fail "$1" "unexpected: $2"; \
                else check_pass "$1"; fi; }
 
@@ -191,6 +197,8 @@ case "$scenario" in
       "wolfTrust FF-M SERVICE_CRYPTO dispatch verified"
     expect "ITS set/get verified" \
       "wolfTrust ITS set/get verified"
+    expect "PS sealed set/get verified" \
+      "wolfTrust PS sealed set/get verified"
     expect "forged-handle call rejected" \
       "wolfTrust FF-M forged-handle call rejected"
     expect "oversized-vector call rejected" \
@@ -231,9 +239,9 @@ case "$scenario" in
     # SAU/MPU isolation probes. 89 total: 85 pass, 4 heap tests report
     # SKIPPED (SP_HEAP_MEM_SUPP undefined: zero-allocation image); only i067
     # (heap) is skipped. Needs the M33MU-1 SPSEL patch applied above.
-    expect "Arm suite TOTAL PASSED : 85" "TOTAL PASSED    : 85"
-    expect "Arm suite TOTAL SKIPPED : 4" "TOTAL SKIPPED   : 4"
-    expect "Arm suite TOTAL FAILED : 0" "TOTAL FAILED    : 0"
+    expect_flat "Arm suite TOTAL PASSED : 85" "TOTAL PASSED    : 85"
+    expect_flat "Arm suite TOTAL SKIPPED : 4" "TOTAL SKIPPED   : 4"
+    expect_flat "Arm suite TOTAL FAILED : 0" "TOTAL FAILED    : 0"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/confboot"
     ;;

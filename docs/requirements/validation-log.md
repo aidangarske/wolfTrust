@@ -1925,3 +1925,71 @@ Evidence (one tree):
   runner, the H5 hardware runner, and the CI workflow.
 - M33MU confboot: `PASS: target/confboot` — the unmodified Arm FF-M suite
   **89 / 85 / 0 / 4 / 0** with ITS + vault + the 10-domain manifest in-image.
+
+## Phase 4 S3 — PS Secure Partition (2026-08-20)
+
+PSA Protected Storage as a second unprivileged storage partition:
+`PARTITION_PS` / `SERVICE_PS` (SID 4100, `nonsecure_clients: true`, prod
+domain 7 / conformance domain 10, own 8 KiB stack band at 0x3008D000). The S2
+storage loop is parameterized rather than duplicated — the dispatch context
+gains `client_flags_mask` (accepted PSA create flags), `vault_flags` (ORed
+into every forwarded request) and `caps` (the `psa_ps_get_support()` mask) —
+and the PS instance forwards everything with `WT_VAULT_FLAG_SEALED`.
+
+Sealing is applied entirely INSIDE the privileged vault domain (WT-FFM-0048),
+which is the beat-TF-M property: the storage key never enters any Secure
+Partition's memory. `src/services/wolfhsm/wt_hsm_seal.c` implements a
+`wt_vault_sealer_t` seam over wolfCrypt AES-256-GCM: the device-unique key is
+generated on first boot (local `WC_RNG` over the platform entropy source) and
+stored at NVM id 0x0120 as SENSITIVE + NONEXPORTABLE + NONMODIFIABLE +
+NONDESTROYABLE; the GCM nonce is the monotonic rollback counter persisted in
+a table at NVM id 0x0121, bumped and written BEFORE any ciphertext exists so
+a power loss can never repeat a nonce; the AAD is the object label
+(owner/sub_owner/uid/flags), binding each ciphertext to its identity. A
+replayed (rolled-back) or resurrected ciphertext therefore fails GCM tag
+authentication and returns PSA_ERROR_INVALID_SIGNATURE — rollback protection
+is default-on, not an option. `psa_ps_create`/`psa_ps_set_extended` are gated
+on `psa_ps_get_support()` (0 — refused NOT_SUPPORTED, no silent success);
+NO_CONFIDENTIALITY/NO_REPLAY hints are accepted and recorded for get_info
+fidelity but never honored downward. New client contract header:
+`include/psa/protected_storage.h`; `PSA_ERROR_INVALID_SIGNATURE` added to
+`psa/error.h`.
+
+Capacity gates surfaced and fixed (the fail-closed design working as built):
+- `WT_FFM_MAX_SERVICES` 16 → 20: the conformance image now carries 17
+  services (Arm SERVER 7 + DRIVER 4 + CLIENT 1 + ATTEST/CRYPTO/VAULT/ITS/PS
+  5); S2 sat exactly at the old cap, so the first confboot fail-closed
+  panicked in `wt_ffm_boot_init`. Root-caused with a HOST reproduction of
+  `wt_spm_init`/`wt_ffm_init` over the identical generated conformance
+  table (rc -601) instead of another emulator cycle.
+- Port capability `max_domains` 10 → 11 (partitions.c) for the 11-domain
+  conformance manifest.
+- The M33MU runner's confboot `TOTAL` asserts are now interleave-tolerant
+  (`expect_flat`): guest1's shared-UART banner can interject mid-line in the
+  val report ("TOTAL SK<freertos_guest1: ...>IPPED : 4"), which one run hit;
+  the hardened check strips guest1 text and rejoins split lines while still
+  requiring the exact counts. (The H5 runner already had a tolerant match.)
+- Host: `whFlashRamsim_Init` erases its backing memory unless `initData` is
+  provided — the ps_service reboot seam re-seeds the sim from a snapshot so
+  persistence is genuinely proven.
+
+Evidence (one tree):
+- Host: new `tests/host/ps_service` — the FULL sealed chain (NS client →
+  SERVICE_PS dispatch → SP-to-SP gate → SERVICE_VAULT → AES-256-GCM seal →
+  wolfHSM NVM on ramsim), 23 assertions: sealed set/get round trip; stored
+  object = plaintext length + GCM tag and the secret bytes absent from the
+  whole flash image at rest; get_info reports plaintext size and
+  client-visible flags; offset reads; per-end-client same-uid isolation;
+  captured-and-replayed v1 ciphertext after a v2 update fails with
+  PSA_ERROR_INVALID_SIGNATURE; WRITE_ONCE sealed set/remove refusals;
+  get_support = 0 and create refused NOT_SUPPORTED; key + rollback counters
+  survive a simulated reboot (NVM re-init over the same flash image).
+  Full `make test`: `PASS: unit/all` (24 suites).
+- M33MU positive: `PASS: target/positive` **13/13 incl. the new
+  "wolfTrust PS sealed set/get verified"** — a real Non-secure guest storing
+  and reading back through NS → PS SP → vault → AES-GCM → flash NVM with the
+  seal key generated on-target at first boot. Assertion added to the
+  scenario runner, the H5 hardware runner, and the CI workflow.
+- M33MU confboot: `PASS: target/confboot` — the unmodified Arm FF-M suite
+  **89 / 85 / 0 / 4 / 0** with PS + ITS + vault + the 11-domain manifest
+  in-image.

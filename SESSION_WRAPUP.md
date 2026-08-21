@@ -3,129 +3,122 @@
 <!-- pre-compact-handoff -->
 
 ## Objective and success criteria
-
-Full TF-M-parity conformance port (`docs/requirements/task-list.md` Item 10,
-P1–P9): run the UNMODIFIED Arm PSA Arch Test Suite v1.8 through wolfTrust's
-clean-room SPM on STM32H563/M33MU.
-
-**Immediate objective: execute the P4/P5 reboot-continuity plan** (commit
-`a652877`) — the shared panic→reset→resume keystone (K1–K4), then the P4/P5
-test buckets. Per-slice success = M33MU gate green on the exact commit + host
-`make test`.
+MP5 and **MP6 are COMPLETE**. The H5 port is done through MP6 (silicon drop-in
+proof + all docs consolidated and RM0481-verified). Next = **Phase 4** (Crypto +
+trusted storage: Crypto/PS/ITS as isolated Secure Partitions via wolfPSA→wolfHSM,
+per-client identity + WRITE_ONCE). Phase 4 is a large multi-slice implementation
+milestone — scope/slice it before coding; the isolation + wolfHSM-routing slices
+are Fable-tier.
 
 ## User decisions and constraints
-
-- **Plan-then-compact-then-execute** (Aidan's flow this session): P4/P5 were
-  decomposed into ordered subsections in the tracker BEFORE executing; this
-  handoff precedes the compact. Execution has NOT started.
-- **Announce scope before writing a big subsystem** — the reboot keystone is
-  one; the plan was presented and approved before any code.
-- Never push/post to GitHub without explicit per-time approval. The P3 push was
-  approved and done; the plan commit `a652877` is UNPUSHED and Aidan has NOT
-  approved pushing it — ask first.
-- Single-line commits, author `Aidan Garske <aidan@wolfssl.com>`, no AI
-  attribution. Never modify the Arm suite; panic/skip scheduling is the derived
-  `testsuite_sched.db`, never an edit to `testsuite.db`. M33MU is emulator
-  evidence, never hardware. No dynamic allocation; C89 decls; `/* */` only.
-- Model: back on `claude-opus-4-8` at `high` (baseline). Escalate to
-  `claude-fable-5` (separate bucket) only if a slice gets genuinely stuck, as
-  P3c-2 Phase D did. One M33MU-gated slice at a time.
+- Single-line commits; author `Aidan Garske <aidan@wolfssl.com>`; no AI
+  attribution. NEVER push without explicit approval (each push = fresh approval).
+- Board: never permanent Locked (0x5C); SECWM1_END must stay 0x4F.
+- Deep silicon/crypto work on `claude-fable-5`; routine on `claude-opus-4-8` high.
+- Zero-allocation design (no partition heaps) — the 4 conformance skips are
+  correct, not a gap.
 
 ## Repository state
+- cwd `/Users/aidangarske/wolfTrust`, branch `wolftfm-l3`.
+- **HEAD `ece551d`** ("Add ITS Secure Partition forwarding PSA storage to the
+  gated vault") — **Phase 4 S2 DONE**. Branch **3 ahead of origin, UNPUSHED**
+  (`97de1bb` S0 + `52b7239` S1 + `ece551d` S2); origin/wolftfm-l3 = `d51977f`.
+- S2 one-commit evidence: host `unit/all` (23 suites incl. full-chain
+  tests/host/storage_service, 16 asserts); M33MU positive **12/12 incl.
+  "wolfTrust ITS set/get verified"** (NS→ITS SP→vault→flash NVM, 3 domains);
+  confboot **89/85/0/4/0** (10-domain manifest). S2 shape: SERVICE_ITS 4099
+  NS-facing unprivileged SP, storage-less, forwards to the vault SP-to-SP
+  (deps [4098]); delegated sub_owner namespaces end clients (frontends only
+  partition their OWN namespace); single-invec [hdr][data] client wire (TEE
+  1+1 transport); psa/storage_common.h + psa/internal_trusted_storage.h.
+  Infra fixes: wt_ffm_dispatch_pending host wake stand-in in
+  wt_spm_transport_direct; WT_CO_MAX 8→12; psa_manifest includes
+  unconditional in spm_svc.c; ITSSTACK 8K @0x3008F000 (RAM 428→412K).
+  NEXT = **S3 PS SP** (AES-GCM wrap under a device-unique wolfHSM key +
+  default-on NV-counter rollback; reuses S2 machinery) → S4 → S5 → S6 per
+  the task-list Phase 4 checklist.
+- Working tree: only `SESSION_WRAPUP.md` modified (this handoff).
+- Phase 4 plan APPROVED at `~/.claude/plans/zany-wandering-stallman.md`
+  (Q1=gated backing, Q2=grow vault; keys never leave the wolfHSM vault —
+  stronger than TF-M). Slice tasks #84–#90 (#84 S0 done, #85 S1 done).
+- S1 one-commit evidence (all on the final tree): host `PASS: unit/all` incl.
+  new tests/host/vault_service (19 asserts, real wolfHSM NVM over ramsim);
+  M33MU `PASS: target/positive` (11/11); M33MU `PASS: target/confboot`
+  **89/85/0/4/0** with the vault + 9-domain manifest in the image. Logs on box:
+  /home/aidangarske/m33mu-s1-{pos,conf2,pos2}.log.
+- S1 shape: SERVICE_VAULT sid 4098, PARTITION_VAULT (prod domain 5 /
+  conformance domain 8), nonsecure_clients=false + dependencies[] gate;
+  privileged scheduled coroutine (wt_spm_vault_start / sched_add_common priv=1,
+  wide table for SVC bounds-check, MPU never narrowed — NVM mutex needs a
+  coroutine context); backend wt_hsm_vault.c over wh_Nvm_*Checked, ids
+  0x0100..0x011F, label = magic+owner+uid+flags; WRITE_ONCE →
+  NONMODIFIABLE|NONDESTROYABLE. VAULTSTACK band 0x30091000 (RAM 428K→420K).
+  Defect found by fail-closed gate: port capability max_domains 8→9
+  (partitions.c) — conformance manifest correctly panicked until declared.
+- aidans-skills: `656f5c2` + `61c4987` still UNPUSHED (H5 skill + gotcha).
 
-- cwd `/Users/aidangarske/wolfTrust`, branch `wolftfm-l3`, upstream
-  `origin/wolftfm-l3`, **ahead 1**. HEAD `a652877`.
-- Unpushed: `a652877` (the P4/P5 decomposition plan) only. Everything through
-  `1d7332f` (P3 close) is PUSHED.
-- Working tree clean except untracked `SESSION_WRAPUP.md` (this file).
-- No PR. aidans-skills unrelated.
+## Completed work — MP6 (this session)
+- **RM0481 cross-check** → new `docs/rm0481-encoding-crosscheck.md`: every
+  register/option-byte value the guide + provisioning tooling assert is verified
+  against RM0481 + the Arm Cortex-M33 arch — product-state ladder
+  (0xED/0x17/0xC6/0x72/0x5C), TZEN/BOOT_UBE=0xB4, SECWM (0x4F/0x7F), AIRCR
+  SYSRESETREQS bit 3. External confirmations: ST app-note (0x17/0x72), SEGGER
+  (TZEN 0xB4), Arm M33 UG (all AIRCR bits). "As-observed, not verified" caveat
+  retired.
+- **Coherence pass** across guide + port-contract + adding-a-port +
+  competitive-edge + port-plan (+ architecture.md). Fixed: dead `platform_stub.c`
+  refs (file was deleted in `335cdf9`) in 2 docs; wolfBoot `set-stm32-tz-option
+  -bytes.sh` misrepresented as the working tool (it's superseded by
+  `provisioning_ctrl.sh` — wrong SECWM, no BOOT_UBE); RDP wrongly listed for H5
+  (H5 replaced RDP with PRODUCT_STATE); cross-vendor table mismatches
+  (i.MX RT, SAM L11); stale MP1-frozen "Where we are" in port-plan; stale
+  "outstanding core→arch leaks" list in port-contract (guard now clean, hard=0);
+  dead "P2 plan" ref; superseded confboot-flake paragraph in validation-log.
+- MP6 flipped to `[x]` in task-list; MP6 evidence entry added to validation-log.
+- Task #71 marked completed.
 
-## Completed work (this session)
+## Verification evidence
+- Core/port guard `tools/check-core-port-split.sh`: **hard leaks = 0, soft
+  hits = 0** (confirms port-contract's rewritten "enforced" status).
+- All doc link targets verified to exist on disk; no dead refs remain
+  (grep-confirmed).
+- (Prior) MP5: confboot 20/20 clean on H563, each 89/85/0/4/0; M33MU positive
+  gate green.
 
-- **Item 10 P3 (bucket a) CLOSED + PUSHED.** Six-test schedule
-  (i001,i003,i058,i063,i071,i088) all `Result=Passed` on M33MU: confboot
-  `TOTAL PASSED : 6/FAILED : 0`, `[EXPECT BKPT] Success`, exit 0; positive +
-  crossdomain regression PASS same tree; host `make test` green. Commits
-  `6170886`..`1d7332f` (11), pushed `3a729ea..1d7332f`.
-- **Root cause that closed P3c-2 D/E:** the SP-side SVC transport re-issued ANY
-  NOT_READY gate call, so an FF-M `PSA_POLL` wait miss (returns NOT_READY but
-  must NOT suspend — i058's post-`psa_clear` doorbell poll) spun the client
-  coroutine forever. Fix: re-issue only calls that suspended
-  (`wt_spm_call_would_block`), `3bac964`. Sibling: crypto SP WAIT lacked
-  `timeout` after the POLL/BLOCK split, `1d37648` (host-guarded). WT_CONFORMANCE
-  hang tripwires (`src/arch/armv8m/spm_svc.c`) stay in-tree.
-- **P4/P5 plan written + committed** (`a652877`), mirrored as tasks #54–62.
-
-## Verification evidence (M33MU emulator, box wolf-prec5560, 2026-08-14)
-
-- confboot 6/6 Passed, clean BKPT exit; `PASS: target/positive`;
-  `PASS: target/crossdomain`; host `make test` green — all on the P3-close tree.
-- Box online. Container `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15`; work dir
-  `/home/aidangarske/wolfTrust-l3-work`; sync via rsync excluding build trees;
-  run `tests/target/run_m33mu_scenario.sh <scenario>` in the container detached,
-  ~15–20 min each, one at a time.
-
-## Current work
-
-None executing. Plan committed; no keystone phase started. Natural compaction
-break. No background box jobs running.
-
-## Next tasks (ordered — start at 1)
-
-The plan lives in `docs/requirements/task-list.md` under **P4/P5** (tasks
-#54–62). Rationale: 6 of P4's 7 tests are `panic_test`s and most of P5 is the
-same shape, so they share one keystone.
-
-1. **K1 (#54) — reset feasibility probe, GO/NO-GO.** Implement
-   `wt_platform_system_reset` (`NVIC_SystemReset` / AIRCR.SYSRESETREQ) behind a
-   `WT_RESET_PROBE` build flag; boot → write a sentinel to a reserved secure
-   flash word → trigger the reset → on reboot read the sentinel back. Confirm
-   the emulator (a) re-runs the wolfBoot→wolfTrust→guest chain and (b) preserves
-   the flash word. **If NO-GO, the panic-reboot bucket is hardware-gated —
-   record in `validation-log.md` and stop the keystone.** This is inherently a
-   target probe (one M33MU cycle).
-2. **K2 (#55)** flash-backed survive-reset NVM (driver NVMEM → reserved secure
-   flash sector, 0xFF at power-on). Reuse the secure flash driver already in the
-   link (`wt_sec_hsm_flash.o` / `wh_sec_wh_nvm_flash.o`). Host test + M33MU
-   write→reset→read.
-3. **K3 (#56)** controlled panic-reset: on an SP programmer error/panic, record
-   the reason to NVM and call `wt_platform_system_reset` instead of the
-   `bkpt;for(;;)` spin — WT_CONFORMANCE-only; production keeps fail-closed
-   quarantine. Host test + M33MU.
-4. **K4 (#57)** un-skip ONLY i047; prove run→panic→reset→reboot→val boot-flag
-   resume→i047 Passed→continue→clean `[EXPECT BKPT] Success`.
-5. **P4.1 (#58)** the 6 panic tests; **P4.2 (#59)** i021 UART-IRQ+psa_eoi (own
-   emulator-NVIC feasibility gate); **P5.1 (#60)** flash-NVM non-panic tests;
-   **P5.2 (#61)** panic-reboot P5 tests; **P5.3 (#62)** watchdog-reset tests
-   (own WDG feasibility gate).
+## Next tasks (ordered) — Phase 4 (plan approved; tasks #84–#90)
+- **#84 S0 DONE** (`97de1bb`) · **#85 S1 DONE** (`52b7239`) — see Repository
+  state above for the S1 shape + evidence.
+- **#86 S2 NEXT — ITS Secure Partition (Fable-tier).** New SERVICE_ITS
+  unprivileged SP + neutral `src/services/storage_service.c` + client header
+  `include/psa/internal_trusted_storage.h`. psa_its_set/get/get_info/remove
+  mapped onto the vault protocol (wt_vault_req_t SET/GET/GET_INFO/REMOVE over
+  psa_connect(SERVICE_VAULT_SID)/psa_call from the SP — SP-to-SP through the
+  SVC gate). Add SERVICE_VAULT_SID to the ITS partition's dependencies[] in
+  BOTH manifests. This is the first in-image vault client → the on-target
+  SP→vault round-trip evidence S1 deferred. Also wire the ITS pal on the
+  conformance side later (S6). **Do on `claude-fable-5`.**
+- #87 S3 PS SP (AES-GCM+rollback) · #88 S4 crypto key-ops via wolfPSA→wolfHSM
+  (deepest) · #89 S5 security negatives (beat-TF-M proof; WRITE_ONCE across
+  reset on silicon) · #90 S6 unlock dev_apis Crypto+Storage conformance.
+Each slice: host test → Cortex-M cross-build → M33MU gate → single-line commit →
+validation-log. Every behavior needs its own test, not a compile check.
 
 ## Blockers and uncertainties
-
-- **K1 is a feasibility gate.** Whether M33MU models AIRCR.SYSRESETREQ by
-  re-running the loaded images, and whether loaded flash persists across it, is
-  UNKNOWN — that is exactly what K1 answers. NO-GO hardware-gates the bucket.
-- Secondary gates: P4.2 needs the emulator to deliver a USART peripheral NVIC
-  line (SysTick works, peripheral IRQ unproven — this deferred psa_eoi/#13);
-  P5.3 needs a WDG-reset model (no-op today).
+- Push approval outstanding: wolfTrust `3a42dbd`+`d51977f`; skills `656f5c2`+
+  `61c4987`. Aidan must say "pr it" / approve push.
+- Phase 4 backend decisions (above) need Aidan's direction before slice 1.
 
 ## Relevant files and reports
-
-- Plan: `docs/requirements/task-list.md` P4/P5 block (K1–K4, P4.1/4.2,
-  P5.1/5.2/5.3), commit `a652877`.
-- K1/K3 code targets: `port/stm32h563/platform_stm32h563.c`
-  (`wt_platform_panic` ~line 1286, add `wt_platform_system_reset`);
-  `include/wolftrust/platform.h`. K2: driver NVMEM service (P3b,
-  `DRIVER_NVMEM_SID` 0xFC03) + secure flash driver.
-- Runner: `tests/target/run_m33mu_scenario.sh` (positive|restart|crossdomain|
-  confboot). Ledger: `docs/requirements/validation-log.md`.
-- Arm refs (read-only, build tree): `ff/ipc/test_i047/` (a panic test),
-  `val/nspe/val_framework.c` (`val_execute_*_tests` boot-flag resume),
-  `val/common/val.h` (`TEST_PANIC` = silent `while(1)`).
+- New: `docs/rm0481-encoding-crosscheck.md`.
+- Guide: `docs/stm32h5-secure-manager-guide.md`. Contract: `docs/port-contract.md`,
+  `docs/adding-a-port.md`. Landscape: `docs/competitive-edge-vs-secure-manager.md`.
+- Live tracker: `docs/requirements/task-list.md` (Phase 4 = next `[ ]`).
+- Evidence ledger: `docs/requirements/validation-log.md` (MP6 entry at tail).
+- Phase defs: `docs/requirements/phases.md` (Phase 4).
+- Box `wolf-prec5560` (100.87.53.96): M33MU + confboot build/runner.
 
 ## Resume instruction
-
-Recheck `git log origin/wolftfm-l3..HEAD` (expect just `a652877`) and box
-reachability, then start K1 (#54): the `NVIC_SystemReset` + flash-sentinel
-feasibility probe. It is a target probe — build the reset primitive, run one
-M33MU cycle, decide GO/NO-GO before investing in K2–K4. Keep one M33MU run in
-flight at a time.
+MP6 done and committed (`d51977f`, unpushed). Start Phase 4 by presenting the
+slice plan above and getting Aidan's direction on the backend/identity decisions
+and first slice — do not begin implementation blind. Do NOT push without explicit
+approval.

@@ -53,4 +53,7 @@ int wt_spm_vault_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
  * loop reaches SERVICE_VAULT over SP-to-SP IPC through the SVC gate. */
 int wt_spm_its_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 
+/* Schedule the PS partition: the storage loop with sealing forced on. */
+int wt_spm_ps_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
+
 #endif /* WOLFTRUST_SPM_SCHED_H */

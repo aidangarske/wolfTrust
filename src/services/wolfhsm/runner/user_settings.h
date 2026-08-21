@@ -114,6 +114,13 @@
 #define NO_ECC521
 
 /* -------------------------------------------------------------------------
+ * AES-GCM for the vault sealer (WT-FFM-0048). GCM_SMALL keeps the GHASH
+ * tables out of flash; sealed-storage writes are rare, so speed is moot.
+ * ---------------------------------------------------------------------- */
+#define HAVE_AESGCM
+#define GCM_SMALL
+
+/* -------------------------------------------------------------------------
  * Hash: SHA-256.
  * SHA-256 is compiled in by default; we only need to ensure we do NOT
  * define NO_SHA256.  Legacy SHA-1 is explicitly disabled.

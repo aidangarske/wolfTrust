@@ -159,6 +159,11 @@ int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
                                               wt_storage_service_dispatch,
                                               NULL);
         (void)vault_ret;
+        vault_ret = wt_ffm_register_partition(&g_ffm_runtime,
+                                              PARTITION_PS_ID,
+                                              wt_storage_service_dispatch,
+                                              NULL);
+        (void)vault_ret;
     }
     if (ret == WT_FFM_SUCCESS) {
         /* Run SERVICE_CRYPTO's compute isolated on the crypto SP's own
@@ -206,6 +211,9 @@ int wt_ffm_boot_start_sched(void)
     }
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_its_start(&g_ffm_runtime, PARTITION_ITS_ID);
+    }
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_ps_start(&g_ffm_runtime, PARTITION_PS_ID);
     }
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     if (ret == WT_FFM_SUCCESS) {
