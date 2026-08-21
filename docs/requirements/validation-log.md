@@ -2063,3 +2063,68 @@ Evidence (one tree):
 - On-H5 hardware: pending the board; `tests/target/run_h5_hardware.sh`
   carries the key-ops assertion so the next `make test-hardware` positive
   run banks it.
+
+## Phase 4 S5 — security negatives, the beat-TF-M proof (2026-08-20)
+
+A consolidated adversarial suite that enumerates the threat model
+wolfTrust's gated vault defeats and TF-M's Crypto-partition-RAM key storage
+does not. `tests/host/negatives` (24 assertions) drives the real
+wt_hsm_vault / wt_hsm_keyvault / wt_hsm_seal backends over real wolfHSM NVM;
+because the vault always namespaces by the SPM-stamped caller identity (the
+`owner` argument, unforgeable on target), host calls with distinct owners
+model distinct partitions:
+
+- N1 a key owned by SP-A is unusable by SP-B — cross-owner sign and
+  export_public both DOES_NOT_EXIST (WT-FFM-0046/0044).
+- N2 a compromised owner cannot read the raw bytes of its OWN key, at every
+  layer that could leak: NONEXPORTABLE makes wh_Nvm_ReadChecked return
+  WH_ERROR_ACCESS, the storage face returns NOT_PERMITTED for a key object,
+  and the only key export is the 65-byte X9.63 public point (no
+  private-export wire op exists at all).
+- N3 a forged sub_owner never crosses the SPM-stamped owner boundary: a
+  different sub in the same owner is disjoint (delegation works), a forged
+  sub in another owner is DOES_NOT_EXIST, the true (owner, sub) still reads
+  its object (WT-FFM-0044).
+- N4 a wrong-key AES-GCM decrypt fails authentication — key-C1 ciphertext
+  decrypted under key C2 returns INVALID_SIGNATURE; C1 still decrypts its
+  own (no cross-key oracle, WT-FFM-0046).
+- N5 storage/key type confusion refused both directions: a storage SET
+  cannot overwrite a key object, a plain storage object cannot be used as a
+  key (both NOT_PERMITTED).
+- N6 a sealed object is invisible cross-owner and bound to its own label
+  (WT-FFM-0048).
+- N7 the internal KEY / SEALED label flags cannot be forged from a storage
+  client — they sit outside the accepted storage flag mask, so a SET
+  carrying them is refused INVALID_ARGUMENT, never silently honoured.
+
+One note on the suite's development: the first run had the type/usage
+arguments transposed in the *test's* direct backend calls (the vtable is
+generate(owner, sub, uid, type, usage)); the production dispatch maps them
+correctly, which is why the S4 keyvault suite through the crypto face passed
+28/28. Corrected in the test, no code change.
+
+On target, a new `exercise_ffm_key_negatives` guest probe proves the
+wrong-key decrypt refusal end to end — generate two AES keys in the vault,
+encrypt under key A, decrypt under key B (st = INVALID_SIGNATURE), decrypt
+under key A round-trips — which is also the first on-target exercise of the
+key encrypt/decrypt path (the S4 key probe only signs/verifies). The
+tampered-verify refusal already rode the positive scenario. The negative
+M33MU isolation job (`crossdomain`, an SP-domain read of SPM RAM faulting
+with MEMFAULT) is already in the CI matrix, so the negative target job is
+wired; #26's separate fault-recovery half is unchanged.
+
+The silicon-only half of S5's plan — WRITE_ONCE survives a Non-secure
+SYSRESETREQ on real H563 — is split into task #91 (hardware-pending). Host +
+M33MU prove WRITE_ONCE refusal and reboot persistence over ramsim; the
+on-silicon durability across a guest-triggered reset needs the board and is
+not faked in emulation.
+
+Evidence (one tree):
+- Host: new `tests/host/negatives` (24 asserts, above). Full `make test`:
+  `PASS: unit/all` (26 suites).
+- M33MU positive: `PASS: target/positive` **15/15 incl. the new
+  "wolfTrust key negatives verified"**. Assertion added to the scenario
+  runner, the H5 hardware runner, and the CI workflow.
+- M33MU confboot: `PASS: target/confboot` — **89 / 85 / 0 / 4 / 0**.
+- On-H5 hardware: pending the board (#91 + the S4 key-ops run share the
+  session; the h5 runner carries both assertions).

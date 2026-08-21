@@ -137,11 +137,28 @@ wolfTrust on the board — the TF-M drop-in proof.
     verified"**; confboot **89/85/0/4/0**. On-H5 hardware run pending the
     board (both runners carry the new assertions).
 
-  - [ ] **P4-S5 — security negatives (the beat-TF-M proof, Fable)**:
-    cross-owner uid unreadable; WRITE_ONCE survives SYSRESETREQ on silicon;
-    key owned by SP-A unusable by SP-B; a compromised Crypto SP cannot read
-    the raw bytes of a key it owns; PS tamper/replay rejected. Wire the
-    negative M33MU job into CI (folds in #26).
+  - [x] **P4-S5 — security negatives (the beat-TF-M proof, Fable)**: a
+    consolidated adversarial suite `tests/host/negatives` (24 asserts)
+    enumerating the threat model wolfTrust's gated vault defeats and TF-M's
+    Crypto-partition-RAM key storage does not, over the real
+    wt_hsm_vault/keyvault/seal backends: a key owned by SP-A is unusable by
+    SP-B (cross-owner, WT-FFM-0046); a compromised owner cannot read the raw
+    bytes of its OWN key (NONEXPORTABLE blocks the Checked read, the storage
+    face refuses the key object, and no private-export op exists); a forged
+    sub_owner never crosses the SPM-stamped owner boundary (WT-FFM-0044); a
+    wrong-key AES-GCM decrypt fails authentication (no cross-key oracle);
+    storage/key type confusion refused both directions; a rolled-back /
+    cross-owner sealed ciphertext fails (WT-FFM-0048); the internal
+    KEY/SEALED flags cannot be forged from a storage client. On target: a
+    new `exercise_ffm_key_negatives` guest probe proves the wrong-key
+    decrypt refusal (**"wolfTrust key negatives verified"**, also the first
+    on-target exercise of the key encrypt/decrypt path); the tampered-verify
+    refusal already rode the positive scenario. The negative M33MU job
+    (`crossdomain`, SP-domain MEMFAULT) is already in the CI matrix. Evidence
+    on one tree: host `unit/all` (26 suites); M33MU positive 15/15;
+    confboot **89/85/0/4/0**. Splits out the silicon-only WRITE_ONCE-across-
+    SYSRESETREQ proof as a hardware-pending item (needs the board; do not
+    fake board evidence). #26's fault-recovery half remains separate.
 
   - [ ] **P4-S6 — unlock dev_apis conformance**: real bodies for
     `pal_its/ps/crypto_function` (conformance_pal.c stubs) translating

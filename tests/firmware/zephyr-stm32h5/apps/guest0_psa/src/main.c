@@ -500,6 +500,154 @@ static void exercise_ffm_keys(void)
 	(void)tee_invoke_func(tee, &arg, 1, param);
 }
 
+/* P4-S5 on-target negative (WT-FFM-0046): a wrong-key AES-GCM decrypt fails
+ * authentication — there is no cross-key oracle. Two AES keys are generated
+ * in the vault; ciphertext produced under key A cannot be decrypted under
+ * key B (st = INVALID_SIGNATURE), while key A still decrypts its own. This
+ * is also the first on-target exercise of the key encrypt/decrypt path. */
+static void exercise_ffm_key_negatives(void)
+{
+	static const uint8_t msg_pt[] = "wolfTrust key negative probe";
+	const struct device *tee = DEVICE_DT_GET_ANY(wolfssl_wolftrust_tee);
+	struct tee_invoke_func_arg arg;
+	struct tee_param param[2];
+	uint8_t req[16 + 128];
+	uint8_t ct[sizeof(msg_pt) + 28];
+	uint8_t pt[sizeof(msg_pt)];
+	uint64_t uid_a = 0x4E454741u; /* "NEGA" */
+	uint64_t uid_b = 0x4E454742u; /* "NEGB" */
+	uint32_t usage = 0xCu;   /* ENCRYPT | DECRYPT */
+	uint32_t key_type = 2u;  /* AES-256 */
+	int32_t handle;
+	int32_t st;
+	int rc;
+	int ok = 1;
+	uint32_t ct_len;
+
+	if (tee == NULL || !device_is_ready(tee)) {
+		LOG_WRN("wolftrust TEE device not present/ready");
+		return;
+	}
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CONNECT;
+	param[0].a = WT_CRYPTO_SID;
+	param[0].b = 1u;
+	rc = tee_invoke_func(tee, &arg, 1, param);
+	handle = (int32_t)arg.ret;
+	if (rc != 0 || handle <= 0) {
+		LOG_ERR("FF-M psa_connect(SERVICE_CRYPTO negatives) failed rc=%d "
+			"handle=%d", rc, handle);
+		return;
+	}
+
+	/* Generate both AES keys (destroy-first for hardware idempotence). */
+	memset(req, 0, sizeof(req));
+	memcpy(req + 8, &usage, sizeof(usage));
+	memcpy(req + 12, &key_type, sizeof(key_type));
+	memcpy(req, &uid_a, sizeof(uid_a));
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CALL;
+	param[0].a = (uint64_t)handle;
+	param[0].b = 8u; /* DESTROY */
+	param[0].c = (uint64_t)(uintptr_t)req;
+	param[1].a = 16u;
+	(void)tee_invoke_func(tee, &arg, 2, param);
+	param[0].b = 1u; /* GENERATE */
+	rc = tee_invoke_func(tee, &arg, 2, param);
+	if (rc != 0 || (int32_t)arg.ret != 0) {
+		ok = 0;
+	}
+	memcpy(req, &uid_b, sizeof(uid_b));
+	param[0].b = 8u; /* DESTROY */
+	(void)tee_invoke_func(tee, &arg, 2, param);
+	param[0].b = 1u; /* GENERATE */
+	rc = tee_invoke_func(tee, &arg, 2, param);
+	if (rc != 0 || (int32_t)arg.ret != 0) {
+		ok = 0;
+	}
+
+	/* Encrypt under key A. */
+	ct_len = 0u;
+	if (ok) {
+		memcpy(req, &uid_a, sizeof(uid_a));
+		memcpy(req + 16, msg_pt, sizeof(msg_pt));
+		memset(&arg, 0, sizeof(arg));
+		memset(param, 0, sizeof(param));
+		arg.func = WOLFTRUST_FN_FFM_CALL;
+		param[0].a = (uint64_t)handle;
+		param[0].b = 6u; /* ENCRYPT */
+		param[0].c = (uint64_t)(uintptr_t)req;
+		param[1].a = 16u + sizeof(msg_pt);
+		param[1].b = (uint64_t)(uintptr_t)ct;
+		param[1].c = sizeof(ct);
+		rc = tee_invoke_func(tee, &arg, 2, param);
+		st = (int32_t)arg.ret;
+		ct_len = (uint32_t)param[1].c;
+		if (rc != 0 || st != 0) {
+			LOG_ERR("negatives encrypt failed rc=%d st=%d", rc, st);
+			ok = 0;
+		}
+	}
+
+	/* Decrypt under key B must fail authentication (-149). */
+	if (ok) {
+		memcpy(req, &uid_b, sizeof(uid_b));
+		memcpy(req + 16, ct, ct_len);
+		memset(&arg, 0, sizeof(arg));
+		memset(param, 0, sizeof(param));
+		arg.func = WOLFTRUST_FN_FFM_CALL;
+		param[0].a = (uint64_t)handle;
+		param[0].b = 7u; /* DECRYPT */
+		param[0].c = (uint64_t)(uintptr_t)req;
+		param[1].a = 16u + ct_len;
+		param[1].b = (uint64_t)(uintptr_t)pt;
+		param[1].c = sizeof(pt);
+		rc = tee_invoke_func(tee, &arg, 2, param);
+		st = (int32_t)arg.ret;
+		if (rc != 0 || st != -149) {
+			LOG_ERR("wrong-key decrypt not refused rc=%d st=%d",
+				rc, st);
+			ok = 0;
+		}
+	}
+
+	/* Decrypt under key A must succeed and round-trip. */
+	if (ok) {
+		memcpy(req, &uid_a, sizeof(uid_a));
+		memcpy(req + 16, ct, ct_len);
+		memset(pt, 0, sizeof(pt));
+		memset(&arg, 0, sizeof(arg));
+		memset(param, 0, sizeof(param));
+		arg.func = WOLFTRUST_FN_FFM_CALL;
+		param[0].a = (uint64_t)handle;
+		param[0].b = 7u; /* DECRYPT */
+		param[0].c = (uint64_t)(uintptr_t)req;
+		param[1].a = 16u + ct_len;
+		param[1].b = (uint64_t)(uintptr_t)pt;
+		param[1].c = sizeof(pt);
+		rc = tee_invoke_func(tee, &arg, 2, param);
+		st = (int32_t)arg.ret;
+		if (rc != 0 || st != 0 ||
+		    memcmp(pt, msg_pt, sizeof(msg_pt)) != 0) {
+			LOG_ERR("right-key decrypt failed rc=%d st=%d", rc, st);
+			ok = 0;
+		}
+	}
+
+	if (ok) {
+		LOG_INF("wolfTrust key negatives verified");
+	}
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CLOSE;
+	param[0].a = (uint64_t)handle;
+	(void)tee_invoke_func(tee, &arg, 1, param);
+}
+
 /* Item 9: FF-M IPC negatives on the emulator path. A real Non-secure guest
  * makes two deliberately malformed psa_call requests through the SPM veneer and
  * asserts each is rejected without a fault or stale data — the target-side proof
@@ -777,6 +925,7 @@ int main(void)
 	exercise_ffm_its();
 	exercise_ffm_ps();
 	exercise_ffm_keys();
+	exercise_ffm_key_negatives();
 	exercise_ffm_negatives();
 #if !defined(WT_RUN_CONFORMANCE)
 	/* The COSE attestation path needs a deep stack; skip it in the conformance

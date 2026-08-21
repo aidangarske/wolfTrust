@@ -201,6 +201,8 @@ case "$scenario" in
       "wolfTrust PS sealed set/get verified"
     expect "key-ops sign/verify verified" \
       "wolfTrust key-ops sign/verify verified"
+    expect "key negatives verified" \
+      "wolfTrust key negatives verified"
     expect "forged-handle call rejected" \
       "wolfTrust FF-M forged-handle call rejected"
     expect "oversized-vector call rejected" \

@@ -20,10 +20,25 @@ are Fable-tier.
 
 ## Repository state
 - cwd `/Users/aidangarske/wolfTrust`, branch `wolftfm-l3`.
-- **HEAD `c8bdf2b`** ("Add PS Secure Partition sealing PSA storage in the
-  gated vault") — **Phase 4 S3 DONE**. Branch **4 ahead of origin, UNPUSHED**
-  (`97de1bb` S0 + `52b7239` S1 + `ece551d` S2 + `c8bdf2b` S3);
-  origin/wolftfm-l3 = `d51977f`.
+- **HEAD `ab0ae10`** ("Add vault key operations with SERVICE_CRYPTO
+  forwarding and per-owner nonexportable keys") — **Phase 4 S4 DONE**.
+  Branch **1 ahead of origin, UNPUSHED** (S0-S3 pushed: origin/wolftfm-l3 =
+  `c8bdf2b`).
+- S4 one-commit evidence: host `unit/all` (25 suites incl. full-chain
+  tests/host/keyvault, 28 asserts); M33MU positive **14/14 incl.
+  "wolfTrust key-ops sign/verify verified"**; confboot **89/85/0/4/0**.
+  S4 shape: vault wire ops 5-11 (generate/import/export_public/sign/verify/
+  encrypt/decrypt) served by wt_hsm_keyvault.c — wolfCrypt ECC P-256 +
+  AES-256-GCM INSIDE the privileged vault; keys SENSITIVE+NONEXPORTABLE NVM
+  objects, usage policy in label; P-256 stores [d][X9.63 pub]; raw r||s.
+  Three layers vs key exfiltration: no private-export op, storage face
+  refuses KEY-flagged objects, NONEXPORTABLE blocks *Checked reads.
+  SERVICE_CRYPTO ops 1-8 forward SP-to-SP (PARTITION_CRYPTO deps [4098]
+  both manifests). wolfPSA deferred to S6 as the NS psa_* shim (decided).
+  Gate catch: ECC verify (sp_256_ecc_mulmod_fast_8) overflowed the 8K vault
+  stack — REAL ARMv8-M PSPLIM STKOF (CFSR 0x00100000); VAULTSTACK 16K
+  @0x3008F000, ITS @0x3008D000, PS @0x3008B000, RAM 404→396K. On-H5 run
+  pending the board (h5 runner carries the assert). NEXT = S5 negatives.
 - S3 one-commit evidence: host `unit/all` (24 suites incl. full-chain
   tests/host/ps_service, 23 asserts); M33MU positive **13/13 incl.
   "wolfTrust PS sealed set/get verified"**; confboot **89/85/0/4/0**
