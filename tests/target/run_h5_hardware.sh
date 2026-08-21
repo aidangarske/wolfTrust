@@ -271,6 +271,8 @@ if [ "$mode" != "build" ]; then
         "wolfTrust ITS set/get verified"
       expect "PS sealed set/get verified" \
         "wolfTrust PS sealed set/get verified"
+      expect "key-ops sign/verify verified" \
+        "wolfTrust key-ops sign/verify verified"
       expect "psa_hash_compute(SHA-256) KAT verified" \
         "psa_hash_compute(SHA-256) KAT verified"
       expect "psa_initial_attestation st=0" "psa_initial_attestation st=0"

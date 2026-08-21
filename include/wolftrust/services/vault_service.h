@@ -30,11 +30,18 @@
  * never a caller-supplied field (WT-FFM-0044). Non-secure clients are
  * refused by the manifest (nonsecure_clients = false). */
 
-/* psa_call request types. */
-#define WT_VAULT_OP_SET      1
-#define WT_VAULT_OP_GET      2
-#define WT_VAULT_OP_GET_INFO 3
-#define WT_VAULT_OP_REMOVE   4
+/* psa_call request types. REMOVE also destroys keys (psa_destroy_key). */
+#define WT_VAULT_OP_SET               1
+#define WT_VAULT_OP_GET               2
+#define WT_VAULT_OP_GET_INFO          3
+#define WT_VAULT_OP_REMOVE            4
+#define WT_VAULT_OP_KEY_GENERATE      5
+#define WT_VAULT_OP_KEY_IMPORT        6
+#define WT_VAULT_OP_KEY_EXPORT_PUBLIC 7
+#define WT_VAULT_OP_KEY_SIGN          8
+#define WT_VAULT_OP_KEY_VERIFY        9
+#define WT_VAULT_OP_KEY_ENCRYPT      10
+#define WT_VAULT_OP_KEY_DECRYPT      11
 
 /* PSA storage create flags understood by the vault (SRC-PSA-STORAGE). The
  * NO_* bits are client hints recorded for get_info fidelity; the vault always
@@ -48,6 +55,37 @@
  * monotonic rollback counter as nonce (WT-FFM-0048). Sealing runs entirely
  * inside the privileged vault domain. */
 #define WT_VAULT_FLAG_SEALED 0x10000U
+
+/* Label marker for key objects (WT-FFM-0046). Never accepted from a storage
+ * SET (outside the storage flag mask), only written by the key backend, so a
+ * storage client cannot forge a key object; storage SET/GET refuse objects
+ * carrying it. Key material is additionally stored NONEXPORTABLE at the NVM
+ * layer — no *Checked read path can ever return private bytes. */
+#define WT_VAULT_FLAG_KEY 0x20000U
+
+/* Key types (wt_vault_req_t.reserved on generate/import). */
+#define WT_VAULT_KEY_P256   1U
+#define WT_VAULT_KEY_AES256 2U
+
+/* Usage policy bits (wt_vault_req_t.flags on generate/import), enforced by
+ * the vault at every key operation. There is deliberately no private-export
+ * usage and no private-export wire op. */
+#define WT_VAULT_KEY_USAGE_SIGN    0x1U
+#define WT_VAULT_KEY_USAGE_VERIFY  0x2U
+#define WT_VAULT_KEY_USAGE_ENCRYPT 0x4U
+#define WT_VAULT_KEY_USAGE_DECRYPT 0x8U
+#define WT_VAULT_KEY_USAGE_MASK    0xFU
+
+/* Fixed sizes on the key wire: P-256 private scalar / AES-256 key material
+ * (import payload), X9.63 public point (export_public), SHA-256 digest and
+ * raw r||s signature (sign/verify: invec[1] = [digest][sig] on verify), and
+ * the AES-GCM ciphertext framing [nonce][ct][tag] (encrypt/decrypt). */
+#define WT_VAULT_KEY_MATERIAL_LEN 32U
+#define WT_VAULT_KEY_PUB_LEN      65U
+#define WT_VAULT_KEY_DIGEST_LEN   32U
+#define WT_VAULT_KEY_SIG_LEN      64U
+#define WT_VAULT_KEY_NONCE_LEN    12U
+#define WT_VAULT_KEY_TAG_LEN      16U
 
 /* Copied-IOVEC object bound (WT-FFM-0041): requests larger than this are
  * refused, kept well under the vault partition's 8 KiB secure stack. */
@@ -87,9 +125,40 @@ typedef struct wt_vault_backend {
     psa_status_t (*remove)(int32_t owner, int32_t sub, uint64_t uid);
 } wt_vault_backend_t;
 
+/* Key-operation vtable (WT-FFM-0046): every operation executes INSIDE the
+ * privileged vault domain against material that never leaves it. There is
+ * deliberately no private-export entry point. sign/verify operate on a
+ * caller-supplied digest; encrypt frames its output [nonce][ct][tag] and
+ * decrypt consumes the same framing. */
+typedef struct wt_vault_key_backend {
+    psa_status_t (*generate)(int32_t owner, int32_t sub, uint64_t uid,
+                             uint32_t type, uint32_t usage);
+    psa_status_t (*import)(int32_t owner, int32_t sub, uint64_t uid,
+                           uint32_t type, uint32_t usage,
+                           const uint8_t* data, size_t len);
+    psa_status_t (*export_public)(int32_t owner, int32_t sub, uint64_t uid,
+                                  uint8_t* out, size_t cap, size_t* out_len);
+    psa_status_t (*sign)(int32_t owner, int32_t sub, uint64_t uid,
+                         const uint8_t* digest, size_t digest_len,
+                         uint8_t* sig, size_t cap, size_t* out_len);
+    psa_status_t (*verify)(int32_t owner, int32_t sub, uint64_t uid,
+                           const uint8_t* digest, size_t digest_len,
+                           const uint8_t* sig, size_t sig_len);
+    psa_status_t (*encrypt)(int32_t owner, int32_t sub, uint64_t uid,
+                            const uint8_t* input, size_t input_len,
+                            uint8_t* out, size_t cap, size_t* out_len);
+    psa_status_t (*decrypt)(int32_t owner, int32_t sub, uint64_t uid,
+                            const uint8_t* input, size_t input_len,
+                            uint8_t* out, size_t cap, size_t* out_len);
+} wt_vault_key_backend_t;
+
 /* Install the backing store. NULL restores the fail-closed default, which
  * refuses every request with PSA_ERROR_NOT_SUPPORTED. */
 void wt_vault_service_set_backend(const wt_vault_backend_t* backend);
+
+/* Install the key-operation backend. NULL restores the fail-closed default
+ * (every key op refused with PSA_ERROR_NOT_SUPPORTED). */
+void wt_vault_service_set_key_backend(const wt_vault_key_backend_t* backend);
 
 /* Transport seam, mirroring crypto_service: direct gate calls on the host,
  * the SVC transport when scheduled on target. NULL restores the default. */

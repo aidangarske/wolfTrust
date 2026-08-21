@@ -127,8 +127,8 @@ static psa_status_t wt_hsm_vault_table_store(const wt_hsm_vault_table_t* table)
     return (rc == WH_ERROR_OK) ? PSA_SUCCESS : PSA_ERROR_STORAGE_FAILURE;
 }
 
-static void wt_hsm_vault_label(uint8_t* label, int32_t owner, int32_t sub,
-                               uint64_t uid, uint32_t flags)
+void wt_hsm_vault_make_label(uint8_t* label, int32_t owner, int32_t sub,
+                             uint64_t uid, uint32_t flags)
 {
     uint32_t magic = WT_HSM_VAULT_LABEL_MAGIC;
 
@@ -156,7 +156,7 @@ static int wt_hsm_vault_label_match(const uint8_t* label, int32_t owner,
            l_sub == sub && l_uid == uid;
 }
 
-static uint32_t wt_hsm_vault_label_flags(const uint8_t* label)
+uint32_t wt_hsm_vault_flags_of(const uint8_t* label)
 {
     uint32_t flags;
 
@@ -164,13 +164,13 @@ static uint32_t wt_hsm_vault_label_flags(const uint8_t* label)
     return flags;
 }
 
-/* Find the (owner, uid) object in the vault id window. Returns PSA_SUCCESS
+/* Shared directory lookup for privileged vault backends: find the
+ * (owner, sub, uid) object in the vault id window. Returns PSA_SUCCESS
  * with the id + metadata, or PSA_ERROR_DOES_NOT_EXIST. out_free_id receives
  * the lowest unused id in the window (WH_NVM_ID_INVALID when full). */
-static psa_status_t wt_hsm_vault_find(int32_t owner, int32_t sub,
-                                      uint64_t uid, whNvmId* out_id,
-                                      whNvmMetadata* out_meta,
-                                      whNvmId* out_free_id)
+psa_status_t wt_hsm_vault_lookup(int32_t owner, int32_t sub, uint64_t uid,
+                                 whNvmId* out_id, whNvmMetadata* out_meta,
+                                 whNvmId* out_free_id)
 {
     whNvmMetadata meta;
     whNvmId id;
@@ -256,12 +256,13 @@ static psa_status_t wt_hsm_vault_set(int32_t owner, int32_t sub,
     if ((flags & WT_VAULT_FLAG_SEALED) != 0U && g_vault_sealer == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
     }
-    status = wt_hsm_vault_find(owner, sub, uid, &id, &meta, &free_id);
+    status = wt_hsm_vault_lookup(owner, sub, uid, &id, &meta, &free_id);
     if (status == PSA_SUCCESS) {
-        /* Existing object: honour WRITE_ONCE before any backend write; the
-         * *Checked add enforces the same policy at the NVM layer. */
-        if ((wt_hsm_vault_label_flags(meta.label) &
-                WT_VAULT_FLAG_WRITE_ONCE) != 0U) {
+        /* A storage SET must never overwrite a key object (WT-FFM-0046),
+         * and honours WRITE_ONCE before any backend write; the *Checked add
+         * enforces the same policy at the NVM layer. */
+        if ((wt_hsm_vault_flags_of(meta.label) &
+                (WT_VAULT_FLAG_KEY | WT_VAULT_FLAG_WRITE_ONCE)) != 0U) {
             return PSA_ERROR_NOT_PERMITTED;
         }
     }
@@ -283,7 +284,7 @@ static psa_status_t wt_hsm_vault_set(int32_t owner, int32_t sub,
         meta.flags |= WH_NVM_FLAGS_NONMODIFIABLE |
                       WH_NVM_FLAGS_NONDESTROYABLE;
     }
-    wt_hsm_vault_label(meta.label, owner, sub, uid, flags);
+    wt_hsm_vault_make_label(meta.label, owner, sub, uid, flags);
     store_data = data;
     store_len = (whNvmSize)len;
     if ((flags & WT_VAULT_FLAG_SEALED) != 0U) {
@@ -327,11 +328,17 @@ static psa_status_t wt_hsm_vault_get(int32_t owner, int32_t sub,
     if (g_vault_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
     }
-    status = wt_hsm_vault_find(owner, sub, uid, &id, &meta, NULL);
+    status = wt_hsm_vault_lookup(owner, sub, uid, &id, &meta, NULL);
     if (status != PSA_SUCCESS) {
         return status;
     }
-    if ((wt_hsm_vault_label_flags(meta.label) & WT_VAULT_FLAG_SEALED) != 0U) {
+    if ((wt_hsm_vault_flags_of(meta.label) & WT_VAULT_FLAG_KEY) != 0U) {
+        /* Key material is never readable through the storage face
+         * (WT-FFM-0046); the NVM NONEXPORTABLE flag enforces the same at
+         * the *Checked layer. */
+        return PSA_ERROR_NOT_PERMITTED;
+    }
+    if ((wt_hsm_vault_flags_of(meta.label) & WT_VAULT_FLAG_SEALED) != 0U) {
         if (g_vault_sealer == NULL) {
             return PSA_ERROR_NOT_SUPPORTED;
         }
@@ -404,13 +411,13 @@ static psa_status_t wt_hsm_vault_get_info(int32_t owner, int32_t sub,
     if (g_vault_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
     }
-    status = wt_hsm_vault_find(owner, sub, uid, NULL, &meta, NULL);
+    status = wt_hsm_vault_lookup(owner, sub, uid, NULL, &meta, NULL);
     if (status != PSA_SUCCESS) {
         return status;
     }
     info->capacity = meta.len;
     info->size = meta.len;
-    info->flags = wt_hsm_vault_label_flags(meta.label);
+    info->flags = wt_hsm_vault_flags_of(meta.label);
     if ((info->flags & WT_VAULT_FLAG_SEALED) != 0U) {
         if (meta.len < WT_VAULT_SEAL_TAG_LEN) {
             return PSA_ERROR_STORAGE_FAILURE;
@@ -433,15 +440,15 @@ static psa_status_t wt_hsm_vault_remove(int32_t owner, int32_t sub,
     if (g_vault_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
     }
-    status = wt_hsm_vault_find(owner, sub, uid, &id, &meta, NULL);
+    status = wt_hsm_vault_lookup(owner, sub, uid, &id, &meta, NULL);
     if (status != PSA_SUCCESS) {
         return status;
     }
-    if ((wt_hsm_vault_label_flags(meta.label) &
+    if ((wt_hsm_vault_flags_of(meta.label) &
             WT_VAULT_FLAG_WRITE_ONCE) != 0U) {
         return PSA_ERROR_NOT_PERMITTED;
     }
-    if ((wt_hsm_vault_label_flags(meta.label) & WT_VAULT_FLAG_SEALED) != 0U) {
+    if ((wt_hsm_vault_flags_of(meta.label) & WT_VAULT_FLAG_SEALED) != 0U) {
         /* Retire the counter first: a later flash-level resurrection of the
          * destroyed ciphertext then fails authentication (WT-FFM-0048). */
         status = wt_hsm_vault_table_load(&table);

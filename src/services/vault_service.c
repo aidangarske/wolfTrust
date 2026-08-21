@@ -64,12 +64,108 @@ static const wt_vault_backend_t g_vault_default_backend = {
     wt_vault_default_remove
 };
 
+/* Fail-closed key-op defaults (WT-FFM-0046): no key backend, no key ops. */
+static psa_status_t wt_vault_default_key_generate(int32_t owner, int32_t sub,
+                                                  uint64_t uid, uint32_t type,
+                                                  uint32_t usage)
+{
+    (void)owner; (void)sub; (void)uid; (void)type; (void)usage;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
+
+static psa_status_t wt_vault_default_key_import(int32_t owner, int32_t sub,
+                                                uint64_t uid, uint32_t type,
+                                                uint32_t usage,
+                                                const uint8_t* data,
+                                                size_t len)
+{
+    (void)owner; (void)sub; (void)uid; (void)type; (void)usage; (void)data;
+    (void)len;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
+
+static psa_status_t wt_vault_default_key_export_public(int32_t owner,
+                                                       int32_t sub,
+                                                       uint64_t uid,
+                                                       uint8_t* out,
+                                                       size_t cap,
+                                                       size_t* out_len)
+{
+    (void)owner; (void)sub; (void)uid; (void)out; (void)cap; (void)out_len;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
+
+static psa_status_t wt_vault_default_key_sign(int32_t owner, int32_t sub,
+                                              uint64_t uid,
+                                              const uint8_t* digest,
+                                              size_t digest_len, uint8_t* sig,
+                                              size_t cap, size_t* out_len)
+{
+    (void)owner; (void)sub; (void)uid; (void)digest; (void)digest_len;
+    (void)sig; (void)cap; (void)out_len;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
+
+static psa_status_t wt_vault_default_key_verify(int32_t owner, int32_t sub,
+                                                uint64_t uid,
+                                                const uint8_t* digest,
+                                                size_t digest_len,
+                                                const uint8_t* sig,
+                                                size_t sig_len)
+{
+    (void)owner; (void)sub; (void)uid; (void)digest; (void)digest_len;
+    (void)sig; (void)sig_len;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
+
+static psa_status_t wt_vault_default_key_encrypt(int32_t owner, int32_t sub,
+                                                 uint64_t uid,
+                                                 const uint8_t* input,
+                                                 size_t input_len,
+                                                 uint8_t* out, size_t cap,
+                                                 size_t* out_len)
+{
+    (void)owner; (void)sub; (void)uid; (void)input; (void)input_len;
+    (void)out; (void)cap; (void)out_len;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
+
+static psa_status_t wt_vault_default_key_decrypt(int32_t owner, int32_t sub,
+                                                 uint64_t uid,
+                                                 const uint8_t* input,
+                                                 size_t input_len,
+                                                 uint8_t* out, size_t cap,
+                                                 size_t* out_len)
+{
+    (void)owner; (void)sub; (void)uid; (void)input; (void)input_len;
+    (void)out; (void)cap; (void)out_len;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
+
+static const wt_vault_key_backend_t g_vault_default_key_backend = {
+    wt_vault_default_key_generate,
+    wt_vault_default_key_import,
+    wt_vault_default_key_export_public,
+    wt_vault_default_key_sign,
+    wt_vault_default_key_verify,
+    wt_vault_default_key_encrypt,
+    wt_vault_default_key_decrypt
+};
+
 static const wt_vault_backend_t* g_vault_backend = &g_vault_default_backend;
+static const wt_vault_key_backend_t* g_vault_key_backend =
+    &g_vault_default_key_backend;
 static wt_spm_transport_fn g_vault_transport = wt_spm_transport_direct;
 
 void wt_vault_service_set_backend(const wt_vault_backend_t* backend)
 {
     g_vault_backend = (backend != NULL) ? backend : &g_vault_default_backend;
+}
+
+void wt_vault_service_set_key_backend(const wt_vault_key_backend_t* backend)
+{
+    g_vault_key_backend = (backend != NULL) ? backend :
+                          &g_vault_default_key_backend;
 }
 
 void wt_vault_service_set_transport(wt_spm_transport_fn fn)
@@ -135,11 +231,13 @@ static psa_status_t wt_vault_service_call(wt_ffm_runtime_t* runtime,
                                           const psa_msg_t* msg)
 {
     uint8_t data[WT_VAULT_OBJECT_MAX];
+    uint8_t out[WT_VAULT_OBJECT_MAX];
     wt_vault_req_t req;
     wt_vault_info_t info;
     size_t req_len = 0U;
     size_t data_len = 0U;
     size_t out_len = 0U;
+    size_t cap;
     psa_status_t status;
 
     if (msg->in_size[0] != sizeof(req)) {
@@ -194,6 +292,107 @@ static psa_status_t wt_vault_service_call(wt_ffm_runtime_t* runtime,
         status = g_vault_backend->remove(msg->client_id, req.sub_owner,
                                          req.uid);
         break;
+    case WT_VAULT_OP_KEY_GENERATE:
+        /* Key ops carry type in reserved and usage in flags. */
+        status = g_vault_key_backend->generate(msg->client_id, req.sub_owner,
+                                               req.uid, req.reserved,
+                                               req.flags);
+        break;
+    case WT_VAULT_OP_KEY_IMPORT:
+        if (msg->in_size[1] > sizeof(data)) {
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
+        if (wt_vault_read_vec(runtime, partition_id, msg->handle, 1U, data,
+                              sizeof(data), &data_len) != WT_FFM_SUCCESS) {
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
+        status = g_vault_key_backend->import(msg->client_id, req.sub_owner,
+                                             req.uid, req.reserved, req.flags,
+                                             data, data_len);
+        break;
+    case WT_VAULT_OP_KEY_EXPORT_PUBLIC:
+        cap = msg->out_size[0];
+        if (cap > sizeof(out)) {
+            cap = sizeof(out);
+        }
+        status = g_vault_key_backend->export_public(msg->client_id,
+                                                    req.sub_owner, req.uid,
+                                                    out, cap, &out_len);
+        if (status == PSA_SUCCESS &&
+                wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
+                                   out, out_len) != WT_FFM_SUCCESS) {
+            status = PSA_ERROR_GENERIC_ERROR;
+        }
+        break;
+    case WT_VAULT_OP_KEY_SIGN:
+        if (msg->in_size[1] > sizeof(data)) {
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
+        if (wt_vault_read_vec(runtime, partition_id, msg->handle, 1U, data,
+                              sizeof(data), &data_len) != WT_FFM_SUCCESS) {
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
+        cap = msg->out_size[0];
+        if (cap > sizeof(out)) {
+            cap = sizeof(out);
+        }
+        status = g_vault_key_backend->sign(msg->client_id, req.sub_owner,
+                                           req.uid, data, data_len, out, cap,
+                                           &out_len);
+        if (status == PSA_SUCCESS &&
+                wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
+                                   out, out_len) != WT_FFM_SUCCESS) {
+            status = PSA_ERROR_GENERIC_ERROR;
+        }
+        break;
+    case WT_VAULT_OP_KEY_VERIFY:
+        /* invec[1] = [digest][raw r||s signature]. */
+        if (msg->in_size[1] > sizeof(data)) {
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
+        if (wt_vault_read_vec(runtime, partition_id, msg->handle, 1U, data,
+                              sizeof(data), &data_len) != WT_FFM_SUCCESS ||
+                data_len <= WT_VAULT_KEY_SIG_LEN) {
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
+        status = g_vault_key_backend->verify(msg->client_id, req.sub_owner,
+                                             req.uid, data,
+                                             data_len - WT_VAULT_KEY_SIG_LEN,
+                                             data + data_len -
+                                                 WT_VAULT_KEY_SIG_LEN,
+                                             WT_VAULT_KEY_SIG_LEN);
+        break;
+    case WT_VAULT_OP_KEY_ENCRYPT:
+    case WT_VAULT_OP_KEY_DECRYPT:
+        if (msg->in_size[1] > sizeof(data)) {
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
+        if (wt_vault_read_vec(runtime, partition_id, msg->handle, 1U, data,
+                              sizeof(data), &data_len) != WT_FFM_SUCCESS) {
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
+        cap = msg->out_size[0];
+        if (cap > sizeof(out)) {
+            cap = sizeof(out);
+        }
+        if (msg->type == WT_VAULT_OP_KEY_ENCRYPT) {
+            status = g_vault_key_backend->encrypt(msg->client_id,
+                                                  req.sub_owner, req.uid,
+                                                  data, data_len, out, cap,
+                                                  &out_len);
+        }
+        else {
+            status = g_vault_key_backend->decrypt(msg->client_id,
+                                                  req.sub_owner, req.uid,
+                                                  data, data_len, out, cap,
+                                                  &out_len);
+        }
+        if (status == PSA_SUCCESS &&
+                wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
+                                   out, out_len) != WT_FFM_SUCCESS) {
+            status = PSA_ERROR_GENERIC_ERROR;
+        }
+        break;
     default:
         status = PSA_ERROR_NOT_SUPPORTED;
         break;
@@ -239,7 +438,7 @@ int wt_vault_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
     } else if (msg.type == PSA_IPC_DISCONNECT) {
         reply_status = PSA_SUCCESS;
     } else if (msg.type >= WT_VAULT_OP_SET &&
-               msg.type <= WT_VAULT_OP_REMOVE) {
+               msg.type <= WT_VAULT_OP_KEY_DECRYPT) {
         reply_status = wt_vault_service_call(runtime, partition_id, &msg);
     } else {
         reply_status = PSA_ERROR_NOT_SUPPORTED;

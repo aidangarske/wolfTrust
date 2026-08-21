@@ -233,6 +233,9 @@ int wt_hsm_init(void)
         if (wt_hsm_seal_init(&g_nvm_ctx) == 0) {
             wt_hsm_vault_set_sealer(&wt_hsm_sealer);
         }
+        if (wt_hsm_keyvault_init(&g_nvm_ctx) == 0) {
+            wt_vault_service_set_key_backend(&wt_hsm_key_backend);
+        }
     }
 
     return 0;

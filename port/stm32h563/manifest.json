@@ -134,11 +134,11 @@
       "privilege_state": 0,
       "initial_lifecycle": 0,
       "entry_point": 201412608,
-      "stack_base": 805900288,
-      "stack_size": 8192,
+      "stack_base": 805892096,
+      "stack_size": 16384,
       "memory_resources": [
         {"base": 201412608, "size": 4096, "attributes": 5, "share_id": 0},
-        {"base": 805900288, "size": 8192, "attributes": 19, "share_id": 0}
+        {"base": 805892096, "size": 16384, "attributes": 19, "share_id": 0}
       ],
       "interrupt_resources": [],
       "restart_policy": {
@@ -157,11 +157,11 @@
       "privilege_state": 1,
       "initial_lifecycle": 0,
       "entry_point": 201416704,
-      "stack_base": 805892096,
+      "stack_base": 805883904,
       "stack_size": 8192,
       "memory_resources": [
         {"base": 201416704, "size": 4096, "attributes": 5, "share_id": 0},
-        {"base": 805892096, "size": 8192, "attributes": 19, "share_id": 0}
+        {"base": 805883904, "size": 8192, "attributes": 19, "share_id": 0}
       ],
       "interrupt_resources": [],
       "restart_policy": {
@@ -181,11 +181,11 @@
       "privilege_state": 1,
       "initial_lifecycle": 0,
       "entry_point": 201420800,
-      "stack_base": 805883904,
+      "stack_base": 805875712,
       "stack_size": 8192,
       "memory_resources": [
         {"base": 201420800, "size": 4096, "attributes": 5, "share_id": 0},
-        {"base": 805883904, "size": 8192, "attributes": 19, "share_id": 0}
+        {"base": 805875712, "size": 8192, "attributes": 19, "share_id": 0}
       ],
       "interrupt_resources": [],
       "restart_policy": {
@@ -237,7 +237,7 @@
           "connection_based": true
         }
       ],
-      "dependencies": [],
+      "dependencies": [4098],
       "interrupts": []
     },
     {

@@ -109,29 +109,60 @@ wolfTrust on the board — the TF-M drop-in proof.
     INVALID_SIGNATURE, WRITE_ONCE, support gating, key+counters survive
     reboot); M33MU positive 13/13 incl. **"wolfTrust PS sealed set/get
     verified"**; confboot **89/85/0/4/0** with the 11-domain manifest.
-  - [ ] **P4-S4 — crypto key-ops via wolfPSA→wolfHSM** (deepest, Fable):
-    wire wolfPSA into PARTITION_CRYPTO; route `psa_generate_key/import/
-    export_public/sign/verify/{en,de}crypt` to the gated backing; keys
-    NONEXPORTABLE, per-owner. Host + M33MU + on-H5.
+
+  - [x] **P4-S4 — crypto key-ops in the gated vault** (deepest, Fable):
+    key generate/import/export_public/sign/verify/{en,de}crypt as vault
+    wire ops 5-11 — ECC P-256 + AES-256-GCM compute runs INSIDE the
+    privileged vault (`wt_hsm_keyvault.c`; P-256 objects store
+    [d][X9.63 pub], public derived once at creation; raw r||s signatures),
+    keys stored SENSITIVE+NONEXPORTABLE in the S1 NVM window with usage
+    policy in the label, per-owner via delegated sub_owner. Three
+    independent layers between a compromised SP and raw key bytes: no
+    private-export wire op exists, the storage face refuses key-flagged
+    objects, and NONEXPORTABLE blocks every *Checked NVM read.
+    SERVICE_CRYPTO forwards ops 1-8 SP-to-SP (PARTITION_CRYPTO gains
+    `dependencies: [4098]` in both manifests — no new
+    domain/partition/service). wolfPSA becomes the NS-side psa_* shim at S6
+    (decided: private-key compute cannot leave the vault). Gate caught +
+    fixed: ECC verify's arbitrary-point multiply
+    (`sp_256_ecc_mulmod_fast_8`) overflowed the vault's 8 KiB coroutine
+    stack — a REAL ARMv8-M `PSPLIM` STKOF hardware catch (CFSR
+    0x00100000); VAULTSTACK grown to 16 KiB @ 0x3008F000 (ITS → 0x3008D000,
+    PS → 0x3008B000, RAM 404→396 KiB). Evidence on one tree: host
+    `unit/all` incl. `tests/host/keyvault` (28 asserts: generate/import/
+    export_public/sign/verify + tamper refusals, usage policy,
+    NONEXPORTABLE at both layers, cross-client invisibility, AES-GCM
+    round trip + tamper refusal, destroy, key + public stable across
+    reboot); M33MU positive 14/14 incl. **"wolfTrust key-ops sign/verify
+    verified"**; confboot **89/85/0/4/0**. On-H5 hardware run pending the
+    board (both runners carry the new assertions).
+
   - [ ] **P4-S5 — security negatives (the beat-TF-M proof, Fable)**:
     cross-owner uid unreadable; WRITE_ONCE survives SYSRESETREQ on silicon;
     key owned by SP-A unusable by SP-B; a compromised Crypto SP cannot read
     the raw bytes of a key it owns; PS tamper/replay rejected. Wire the
     negative M33MU job into CI (folds in #26).
+
   - [ ] **P4-S6 — unlock dev_apis conformance**: real bodies for
     `pal_its/ps/crypto_function` (conformance_pal.c stubs) translating
     VAL codes into `psa_connect(SID)/psa_call`; add `dev_apis/storage`
     (s001–s017) + `dev_apis/crypto` (c001–c080) to the WT_RUN_CONFORMANCE
     build. Run under M33MU, then on H5; record pass counts + any correct
     zero-alloc skips.
+
+
 - [~] **Phase 5 — Initial Attestation** — core **implemented and
   hardware-verified**: `psa_initial_attestation` st=0, DICE/measured-boot
   handoff, IAK via wolfHSM, `COSE_Sign1`/ES256 verify (challenge/identity/
   lifecycle/measurement all ok in the positive scenario). Remaining = the full
   negative-evidence / replay / key-isolation / claim-determinism test matrix.
+
+
 - [ ] **Phase 6 — authenticated boot + update; portability.** Complete update /
   rollback / recovery; add a **second Cortex-M port** (proves the MP4 port kit);
   define the Cortex-A / TFA replacement boundary (cross-architecture lift).
+
+
 - [ ] **Phase 7+ — OS integrations, HW/port qualification, parity + release.**
 
 ## Open items (active)

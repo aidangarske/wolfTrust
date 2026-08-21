@@ -1993,3 +1993,73 @@ Evidence (one tree):
 - M33MU confboot: `PASS: target/confboot` — the unmodified Arm FF-M suite
   **89 / 85 / 0 / 4 / 0** with PS + ITS + vault + the 11-domain manifest
   in-image.
+
+## Phase 4 S4 — crypto key-ops in the gated vault (2026-08-20)
+
+PSA key operations with the property that beats TF-M: private key material
+never exists outside the privileged vault domain. New vault wire ops 5-11
+(generate / import / export_public / sign / verify / encrypt / decrypt) are
+served by `src/services/wolfhsm/wt_hsm_keyvault.c` — wolfCrypt ECC P-256 and
+AES-256-GCM compute running INSIDE the vault. Keys are vault NVM objects in
+the shared (owner, sub_owner, uid) directory, stored SENSITIVE +
+NONEXPORTABLE with the usage policy recorded in the label and enforced at
+every operation. P-256 objects store [d 32][X9.63 public 65] with the public
+point derived once at creation; signatures are raw r||s (the PSA ECDSA
+format). Three independent layers stand between a compromised Secure
+Partition and raw key bytes (WT-FFM-0046):
+- no private-export wire op exists at all;
+- the storage face refuses key-flagged objects (SET and GET both
+  NOT_PERMITTED, and a storage SET cannot forge the KEY label flag — it is
+  outside the storage flag mask);
+- WH_NVM_FLAGS_NONEXPORTABLE blocks every *Checked NVM read at the wolfHSM
+  layer.
+
+`SERVICE_CRYPTO` gains client ops 1-8 (type 0 stays the SHA-256 hash) and
+only marshals: requests forward over SP-to-SP FF-M IPC to SERVICE_VAULT with
+the SPM-stamped end client as delegated sub_owner (`PARTITION_CRYPTO` gains
+`dependencies: [4098]` in both manifests — no new domain, partition, or
+service, so no capacity growth this slice). Key-op routing is a separate
+fail-closed `wt_vault_key_backend_t` vtable (every op NOT_SUPPORTED until
+the wolfCrypt backend binds). wolfPSA (in-tree, full PSA Crypto surface)
+becomes the NS-side psa_* API shim at S6 — decided with Aidan: private-key
+compute cannot leave the vault, so wolfPSA inside the Crypto SP would be
+pure marshaling with a far larger unprivileged build surface.
+
+Gate catch (a REAL hardware guard, not a capacity bookkeeping miss): the
+first M33MU positive run died with CFSR=0x00100000 — ARMv8-M UFSR **STKOF**,
+the vault coroutine's PSP hitting PSPLIM inside `sp_256_ecc_mulmod_fast_8`
+on the ECC verify path (`sp_256_calc_vfy_point_8` stacks an arbitrary-point
+multiplication table that an 8 KiB coroutine stack cannot hold; attestation
+never hit this because IAK signing uses the flash-table base-point path on a
+deeper stack). PSPLIM caught the overflow before it could touch the ITS
+band below. Fix: VAULTSTACK 8 → 16 KiB at 0x3008F000, ITS stack →
+0x3008D000, PS stack → 0x3008B000, secure RAM 404 → 396 KiB, linker asserts
+and both manifests re-banded.
+
+Evidence (one tree):
+- Host: new `tests/host/keyvault` — the FULL chain (NS client →
+  SERVICE_CRYPTO key ops → SP-to-SP gate → SERVICE_VAULT → wt_hsm_keyvault
+  wolfCrypt compute → wolfHSM NVM on ramsim), 28 assertions: P-256
+  generate; ALREADY_EXISTS on re-generate; export_public returns the X9.63
+  point; sign returns raw r||s and verify accepts it; tampered digest and
+  tampered signature both INVALID_SIGNATURE; sign with a verify-only key
+  NOT_PERMITTED (usage policy at the vault); import + sign/verify round
+  trip; NONEXPORTABLE proven at BOTH layers (wh_Nvm_ReadChecked →
+  WH_ERROR_ACCESS; storage-face get/set on a key object → NOT_PERMITTED);
+  cross-client key invisible (DOES_NOT_EXIST); AES-256-GCM
+  encrypt/decrypt round trip with [nonce][ct][tag] framing + tampered-
+  ciphertext refusal; destroy lifecycle; key AND its public point stable
+  across a simulated reboot. Full `make test`: `PASS: unit/all` (25
+  suites).
+- M33MU positive: `PASS: target/positive` **14/14 incl. the new
+  "wolfTrust key-ops sign/verify verified"** — a real Non-secure guest
+  destroying (idempotence), generating, exporting the public point,
+  signing, verifying, and getting a tampered-digest refusal end to end,
+  with the key generated on-target inside the vault. Assertion added to
+  the scenario runner, the H5 hardware runner, and the CI workflow.
+- M33MU confboot: `PASS: target/confboot` — the unmodified Arm FF-M suite
+  **89 / 85 / 0 / 4 / 0** with the key backend + 16 KiB vault stack
+  in-image.
+- On-H5 hardware: pending the board; `tests/target/run_h5_hardware.sh`
+  carries the key-ops assertion so the next `make test-hardware` positive
+  run banks it.

@@ -20,23 +20,28 @@ are Fable-tier.
 
 ## Repository state
 - cwd `/Users/aidangarske/wolfTrust`, branch `wolftfm-l3`.
-- **HEAD `ece551d`** ("Add ITS Secure Partition forwarding PSA storage to the
-  gated vault") — **Phase 4 S2 DONE**. Branch **3 ahead of origin, UNPUSHED**
-  (`97de1bb` S0 + `52b7239` S1 + `ece551d` S2); origin/wolftfm-l3 = `d51977f`.
-- S2 one-commit evidence: host `unit/all` (23 suites incl. full-chain
-  tests/host/storage_service, 16 asserts); M33MU positive **12/12 incl.
-  "wolfTrust ITS set/get verified"** (NS→ITS SP→vault→flash NVM, 3 domains);
-  confboot **89/85/0/4/0** (10-domain manifest). S2 shape: SERVICE_ITS 4099
-  NS-facing unprivileged SP, storage-less, forwards to the vault SP-to-SP
-  (deps [4098]); delegated sub_owner namespaces end clients (frontends only
-  partition their OWN namespace); single-invec [hdr][data] client wire (TEE
-  1+1 transport); psa/storage_common.h + psa/internal_trusted_storage.h.
-  Infra fixes: wt_ffm_dispatch_pending host wake stand-in in
-  wt_spm_transport_direct; WT_CO_MAX 8→12; psa_manifest includes
-  unconditional in spm_svc.c; ITSSTACK 8K @0x3008F000 (RAM 428→412K).
-  NEXT = **S3 PS SP** (AES-GCM wrap under a device-unique wolfHSM key +
-  default-on NV-counter rollback; reuses S2 machinery) → S4 → S5 → S6 per
-  the task-list Phase 4 checklist.
+- **HEAD `c8bdf2b`** ("Add PS Secure Partition sealing PSA storage in the
+  gated vault") — **Phase 4 S3 DONE**. Branch **4 ahead of origin, UNPUSHED**
+  (`97de1bb` S0 + `52b7239` S1 + `ece551d` S2 + `c8bdf2b` S3);
+  origin/wolftfm-l3 = `d51977f`.
+- S3 one-commit evidence: host `unit/all` (24 suites incl. full-chain
+  tests/host/ps_service, 23 asserts); M33MU positive **13/13 incl.
+  "wolfTrust PS sealed set/get verified"**; confboot **89/85/0/4/0**
+  (11-domain manifest). S3 shape: SERVICE_PS 4100 NS-facing unprivileged SP
+  (prod dom 7 / conf dom 10, 8K stack @0x3008D000), storage-less, forwards
+  every request SEALED to the vault SP-to-SP (deps [4098]). Sealing runs
+  INSIDE the privileged vault domain (wt_hsm_seal.c): AES-256-GCM under a
+  device-unique key (NVM 0x0120, NONEXPORTABLE+immutable, never leaves the
+  vault), nonce = persisted monotonic rollback counter (table 0x0121,
+  counter written BEFORE ciphertext), AAD = object label → rolled-back
+  ciphertext fails auth (WT-FFM-0048). S2 loop parameterized: ctx gains
+  client_flags_mask/vault_flags/caps. psa/protected_storage.h added.
+  Infra fixes: WT_FFM_MAX_SERVICES 16→20 (conf image now 17 svcs; found via
+  HOST repro of wt_ffm_init rc-601, not an emulator cycle); port max_domains
+  10→11; confboot TOTAL asserts made shared-UART-interleave-tolerant
+  (expect_flat); ps_service reboot seam re-seeds ramsim from a snapshot.
+  NEXT = **S4 crypto key-ops** (wolfPSA→wolfHSM, deepest; keys NONEXPORTABLE
+  per-owner; host+M33MU+on-H5) → S5 negatives → S6 dev_apis.
 - Working tree: only `SESSION_WRAPUP.md` modified (this handoff).
 - Phase 4 plan APPROVED at `~/.claude/plans/zany-wandering-stallman.md`
   (Q1=gated backing, Q2=grow vault; keys never leave the wolfHSM vault —

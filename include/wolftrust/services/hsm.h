@@ -28,6 +28,7 @@
  * This is the minimal wolfHSM dependency; the wolfCrypt settings header
  * must be visible on the include path before this file is processed. */
 #include "wolfhsm/wh_comm.h"
+#include "wolfhsm/wh_common.h"
 
 /* Initialise the wolfHSM service: wolfCrypt static memory pool,
  * target-backed NVM, shared lock, the per-guest crypto contexts, but NOT
@@ -138,5 +139,24 @@ void wt_hsm_vault_set_sealer(const wt_vault_sealer_t* sealer);
  * Only linked into builds that carry wolfCrypt. */
 int wt_hsm_seal_init(struct whNvmContext_t* nvm);
 extern const wt_vault_sealer_t wt_hsm_sealer;
+
+/* Shared vault directory helpers (wt_hsm_vault.c) for privileged backends:
+ * label-addressed lookup over the vault NVM id window, and the label
+ * make/flags codec. whNvmMetadata is an untagged typedef, so wh_common.h
+ * must be included for the real type. */
+psa_status_t wt_hsm_vault_lookup(int32_t owner, int32_t sub, uint64_t uid,
+                                 whNvmId* out_id, whNvmMetadata* out_meta,
+                                 whNvmId* out_free_id);
+void wt_hsm_vault_make_label(uint8_t* label, int32_t owner, int32_t sub,
+                             uint64_t uid, uint32_t flags);
+uint32_t wt_hsm_vault_flags_of(const uint8_t* label);
+
+/* wolfCrypt key-op backend (WT-FFM-0046): ECC P-256 and AES-256-GCM compute
+ * inside the privileged vault domain; key material stored NONEXPORTABLE in
+ * the vault NVM window and never exposed by any wire op. Only linked into
+ * builds that carry wolfCrypt. */
+int wt_hsm_keyvault_init(struct whNvmContext_t* nvm);
+struct wt_vault_key_backend;
+extern const struct wt_vault_key_backend wt_hsm_key_backend;
 
 #endif /* WOLFTRUST_SERVICES_HSM_H */

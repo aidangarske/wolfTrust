@@ -339,6 +339,167 @@ static void exercise_ffm_ps(void)
 	(void)tee_invoke_func(tee, &arg, 1, param);
 }
 
+/* P4-S4: vault key-ops through SERVICE_CRYPTO. The key never exists outside
+ * the privileged vault domain — this probe proves generate, export_public,
+ * sign, verify and a tampered-digest refusal end to end on target. The
+ * leading destroy keeps the probe idempotent on hardware, where the NVM
+ * persists across runs. */
+static void exercise_ffm_keys(void)
+{
+	static const uint8_t digest[32] = {
+		0x57, 0x54, 0x4B, 0x56, 0x01, 0x02, 0x03, 0x04,
+		0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
+		0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14,
+		0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C
+	};
+	const struct device *tee = DEVICE_DT_GET_ANY(wolfssl_wolftrust_tee);
+	struct tee_invoke_func_arg arg;
+	struct tee_param param[2];
+	uint8_t req[16 + 96];
+	uint8_t pub[65];
+	uint8_t sig[64];
+	uint64_t uid = 0x57544B56u; /* "WTKV" */
+	uint32_t usage = 0x3u;      /* SIGN | VERIFY */
+	uint32_t key_type = 1u;     /* P-256 */
+	int32_t handle;
+	int32_t st;
+	int rc;
+	int ok = 1;
+
+	if (tee == NULL || !device_is_ready(tee)) {
+		LOG_WRN("wolftrust TEE device not present/ready");
+		return;
+	}
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CONNECT;
+	param[0].a = WT_CRYPTO_SID;
+	param[0].b = 1u;
+	rc = tee_invoke_func(tee, &arg, 1, param);
+	handle = (int32_t)arg.ret;
+	if (rc != 0 || handle <= 0) {
+		LOG_ERR("FF-M psa_connect(SERVICE_CRYPTO keys) failed rc=%d "
+			"handle=%d", rc, handle);
+		return;
+	}
+
+	memset(req, 0, sizeof(req));
+	memcpy(req, &uid, sizeof(uid));
+	memcpy(req + 8, &usage, sizeof(usage));
+	memcpy(req + 12, &key_type, sizeof(key_type));
+
+	/* Idempotence on persistent NVM: a stale key from a prior run is
+	 * removed first; DOES_NOT_EXIST on first boot is expected. */
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CALL;
+	param[0].a = (uint64_t)handle;
+	param[0].b = 8u; /* WT_CRYPTO_OP_KEY_DESTROY */
+	param[0].c = (uint64_t)(uintptr_t)req;
+	param[1].a = 16u;
+	(void)tee_invoke_func(tee, &arg, 2, param);
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CALL;
+	param[0].a = (uint64_t)handle;
+	param[0].b = 1u; /* WT_CRYPTO_OP_KEY_GENERATE */
+	param[0].c = (uint64_t)(uintptr_t)req;
+	param[1].a = 16u;
+	rc = tee_invoke_func(tee, &arg, 2, param);
+	st = (int32_t)arg.ret;
+	if (rc != 0 || st != 0) {
+		LOG_ERR("key generate failed rc=%d st=%d", rc, st);
+		ok = 0;
+	}
+
+	if (ok) {
+		memset(pub, 0, sizeof(pub));
+		memset(&arg, 0, sizeof(arg));
+		memset(param, 0, sizeof(param));
+		arg.func = WOLFTRUST_FN_FFM_CALL;
+		param[0].a = (uint64_t)handle;
+		param[0].b = 3u; /* WT_CRYPTO_OP_KEY_EXPORT_PUBLIC */
+		param[0].c = (uint64_t)(uintptr_t)req;
+		param[1].a = 16u;
+		param[1].b = (uint64_t)(uintptr_t)pub;
+		param[1].c = sizeof(pub);
+		rc = tee_invoke_func(tee, &arg, 2, param);
+		st = (int32_t)arg.ret;
+		if (rc != 0 || st != 0 || pub[0] != 0x04u) {
+			LOG_ERR("export_public failed rc=%d st=%d", rc, st);
+			ok = 0;
+		}
+	}
+
+	if (ok) {
+		memcpy(req + 16, digest, sizeof(digest));
+		memset(sig, 0, sizeof(sig));
+		memset(&arg, 0, sizeof(arg));
+		memset(param, 0, sizeof(param));
+		arg.func = WOLFTRUST_FN_FFM_CALL;
+		param[0].a = (uint64_t)handle;
+		param[0].b = 4u; /* WT_CRYPTO_OP_KEY_SIGN */
+		param[0].c = (uint64_t)(uintptr_t)req;
+		param[1].a = 16u + sizeof(digest);
+		param[1].b = (uint64_t)(uintptr_t)sig;
+		param[1].c = sizeof(sig);
+		rc = tee_invoke_func(tee, &arg, 2, param);
+		st = (int32_t)arg.ret;
+		if (rc != 0 || st != 0) {
+			LOG_ERR("key sign failed rc=%d st=%d", rc, st);
+			ok = 0;
+		}
+	}
+
+	if (ok) {
+		memcpy(req + 16, digest, sizeof(digest));
+		memcpy(req + 16 + sizeof(digest), sig, sizeof(sig));
+		memset(&arg, 0, sizeof(arg));
+		memset(param, 0, sizeof(param));
+		arg.func = WOLFTRUST_FN_FFM_CALL;
+		param[0].a = (uint64_t)handle;
+		param[0].b = 5u; /* WT_CRYPTO_OP_KEY_VERIFY */
+		param[0].c = (uint64_t)(uintptr_t)req;
+		param[1].a = 16u + sizeof(digest) + sizeof(sig);
+		rc = tee_invoke_func(tee, &arg, 2, param);
+		st = (int32_t)arg.ret;
+		if (rc != 0 || st != 0) {
+			LOG_ERR("key verify failed rc=%d st=%d", rc, st);
+			ok = 0;
+		}
+	}
+
+	if (ok) {
+		req[16] ^= 0x01u; /* corrupt the digest */
+		memset(&arg, 0, sizeof(arg));
+		memset(param, 0, sizeof(param));
+		arg.func = WOLFTRUST_FN_FFM_CALL;
+		param[0].a = (uint64_t)handle;
+		param[0].b = 5u; /* WT_CRYPTO_OP_KEY_VERIFY */
+		param[0].c = (uint64_t)(uintptr_t)req;
+		param[1].a = 16u + sizeof(digest) + sizeof(sig);
+		rc = tee_invoke_func(tee, &arg, 2, param);
+		st = (int32_t)arg.ret;
+		if (rc != 0 || st != -149) {
+			LOG_ERR("tampered verify not refused rc=%d st=%d",
+				rc, st);
+			ok = 0;
+		}
+	}
+
+	if (ok) {
+		LOG_INF("wolfTrust key-ops sign/verify verified");
+	}
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CLOSE;
+	param[0].a = (uint64_t)handle;
+	(void)tee_invoke_func(tee, &arg, 1, param);
+}
+
 /* Item 9: FF-M IPC negatives on the emulator path. A real Non-secure guest
  * makes two deliberately malformed psa_call requests through the SPM veneer and
  * asserts each is rejected without a fault or stale data — the target-side proof
@@ -615,6 +776,7 @@ int main(void)
 	exercise_ffm_crypto();
 	exercise_ffm_its();
 	exercise_ffm_ps();
+	exercise_ffm_keys();
 	exercise_ffm_negatives();
 #if !defined(WT_RUN_CONFORMANCE)
 	/* The COSE attestation path needs a deep stack; skip it in the conformance

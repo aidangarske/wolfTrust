@@ -50,14 +50,41 @@ void wt_crypto_service_set_compute(wt_crypto_sp_compute_fn fn);
  * NULL restores the direct default. */
 void wt_crypto_service_set_transport(wt_spm_transport_fn fn);
 
+/* Key-op request types on the SERVICE_CRYPTO face (WT-FFM-0046). Type 0
+ * (PSA_IPC_CALL) stays the SHA-256 hash; key ops forward to SERVICE_VAULT
+ * over SP-to-SP IPC with the end client as delegated sub_owner — private
+ * key material never enters this partition. */
+#define WT_CRYPTO_OP_KEY_GENERATE      1
+#define WT_CRYPTO_OP_KEY_IMPORT        2
+#define WT_CRYPTO_OP_KEY_EXPORT_PUBLIC 3
+#define WT_CRYPTO_OP_KEY_SIGN          4
+#define WT_CRYPTO_OP_KEY_VERIFY        5
+#define WT_CRYPTO_OP_KEY_ENCRYPT       6
+#define WT_CRYPTO_OP_KEY_DECRYPT       7
+#define WT_CRYPTO_OP_KEY_DESTROY       8
+
+/* Client wire header: one concatenated input vector carries the header
+ * followed directly by the op payload ([wt_crypto_key_req_t][payload]), so
+ * the single-invec TEE transport reaches every op. usage/key_type use the
+ * WT_VAULT_KEY_* encodings and matter only on generate/import. */
+typedef struct wt_crypto_key_req {
+    uint64_t uid;
+    uint32_t usage;
+    uint32_t key_type;
+} wt_crypto_key_req_t;
+
 /* Per-call transport + compute, passed as the dispatch context so an
  * unprivileged scheduled Secure Partition supplies them from its own stack
  * instead of reading the file-scope globals, which live in SPM RAM outside
  * the partition's MPU domain. A NULL dispatch context falls back to the
- * globals (host tests, privileged inline dispatch). */
+ * globals (host tests, privileged inline dispatch). vault_sid/vault_handle
+ * carry the lazy SP-to-SP vault connection for key ops; key ops fail closed
+ * (NOT_SUPPORTED) when the context carries no vault SID. */
 typedef struct wt_crypto_service_ctx {
     wt_spm_transport_fn transport;
     wt_crypto_sp_compute_fn compute;
+    uint32_t vault_sid;
+    psa_handle_t vault_handle;
 } wt_crypto_service_ctx_t;
 
 /* SERVICE_CRYPTO's dispatch loop: wait, get, service one message, reply.

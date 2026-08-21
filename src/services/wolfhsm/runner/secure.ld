@@ -27,16 +27,17 @@ MEMORY {
   /* SRAM1 has Secure and Non-secure aliases to the same physical memory.
    * The first 32 KiB are assigned to the two guests through the 0x20000000
    * Non-secure alias, so keep secure .data/.bss above that physical window. */
-  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 404K
+  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 396K
   /* PS partition stack: the sealed-storage SP's execution stack and
    * MPU-domain RW resource (WT_SP_PS_STACK_* in memory_map.h). */
-  PSSTACK (rw): ORIGIN = 0x3008D000, LENGTH = 8K
+  PSSTACK (rw): ORIGIN = 0x3008B000, LENGTH = 8K
   /* ITS partition stack: the unprivileged storage SP's execution stack and
    * MPU-domain RW resource (WT_SP_ITS_STACK_* in memory_map.h). */
-  ITSSTACK (rw): ORIGIN = 0x3008F000, LENGTH = 8K
+  ITSSTACK (rw): ORIGIN = 0x3008D000, LENGTH = 8K
   /* Vault partition stack (WT-FFM-0047): the privileged vault coroutine's
-   * manifest-declared execution stack (WT_SP_VAULT_STACK_* in memory_map.h). */
-  VAULTSTACK (rw): ORIGIN = 0x30091000, LENGTH = 8K
+   * manifest-declared execution stack (WT_SP_VAULT_STACK_* in memory_map.h).
+   * 16K: ECC verify's point-table frame overflows 8K (PSPLIM STKOF). */
+  VAULTSTACK (rw): ORIGIN = 0x3008F000, LENGTH = 16K
   /* Conformance Secure-Partition .data/.bss (P3a). Arm's partition sources hold
    * their val_api/psa_api tables in .data; a hosted SP must reach its own data
    * but not the SPM's, so it lives in this 8 KiB window (WT_CONF_SP_DATA_* in

@@ -278,6 +278,8 @@ static void wt_spm_sp_entry(void* arg)
 
     ctx.transport = wt_spm_svc_transport;
     ctx.compute = wt_crypto_sp_hash;
+    ctx.vault_sid = SERVICE_VAULT_SID;
+    ctx.vault_handle = 0;
 
     for (;;) {
 #if defined(WT_FFM_NEGATIVE_PROBE) && (WT_FFM_NEGATIVE_PROBE == 1)

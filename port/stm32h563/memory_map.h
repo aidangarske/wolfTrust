@@ -116,17 +116,20 @@
  * Sits just below the conformance data window; the linker RAM window is
  * shortened to 420 KiB to make room. MUST match the VAULTSTACK region in
  * src/services/wolfhsm/runner/secure.ld. */
-#define WT_SP_VAULT_STACK_BASE   (WT_RAM_S_BASE + 0x00069000u)  /* 0x30091000 */
-#define WT_SP_VAULT_STACK_SIZE   WT_SP_SECURE_STACK_SIZE
+/* 16 KiB: ECC verify's arbitrary-point multiply (sp_256_ecc_mulmod_fast_8)
+ * stacks a point table that overflows an 8 KiB coroutine stack (M33MU
+ * PSPLIM STKOF proof). */
+#define WT_SP_VAULT_STACK_BASE   (WT_RAM_S_BASE + 0x00067000u)  /* 0x3008F000 */
+#define WT_SP_VAULT_STACK_SIZE   0x00004000u
 
 /* ITS partition stack: a normal unprivileged scheduled SP; this band is both
  * its execution stack and its MPU-domain RW resource. Sits just below the
  * vault stack; the linker RAM window is shortened to 412 KiB to make room.
  * MUST match the ITSSTACK region in src/services/wolfhsm/runner/secure.ld. */
-#define WT_SP_ITS_STACK_BASE     (WT_RAM_S_BASE + 0x00067000u)  /* 0x3008F000 */
+#define WT_SP_ITS_STACK_BASE     (WT_RAM_S_BASE + 0x00065000u)  /* 0x3008D000 */
 #define WT_SP_ITS_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
 
-#define WT_SP_PS_STACK_BASE      (WT_RAM_S_BASE + 0x00065000u)  /* 0x3008D000 */
+#define WT_SP_PS_STACK_BASE      (WT_RAM_S_BASE + 0x00063000u)  /* 0x3008B000 */
 #define WT_SP_PS_STACK_SIZE      WT_SP_SECURE_STACK_SIZE
 
 /* Per-partition pseudo-MMIO holes at the top of the CONFDATA window (P4/K4).
