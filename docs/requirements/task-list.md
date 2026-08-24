@@ -300,6 +300,13 @@ wolfTrust on the board — the TF-M drop-in proof.
     - [ ] **P5-S5 (bucket 5): replay + lifecycle** — different-challenge →
       different-token differential; boot-seed decision; real lifecycle
       transition (not the single fixed `0x1000`).
+    - [ ] **P5-CONF (ARM drop-in proof): unlock `dev_apis/initial_attestation`
+      (`test_a001`)** from the pinned psa-arch-tests (rev `e17d294`, already
+      fetched) — same unmodified-ARM credibility as Crypto/Storage. Mirror the
+      S6 storage/crypto CMake blocks in `guest0_psa/CMakeLists.txt`; implement
+      `pal_attestation_function` in `conformance_pal.c`; run under M33MU
+      (confboot-style) then H5. The hand-written slices above are complementary
+      unit/beat-TF-M evidence, not a substitute for this conformance pass.
     - [ ] **P5-CI:** `attestneg` M33MU scenario + `ci:attestneg` label +
       workflow markers, mirroring the `vaultrecover` pattern.
 
