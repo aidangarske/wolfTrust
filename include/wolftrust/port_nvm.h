@@ -32,4 +32,9 @@ extern const whFlashCb g_wt_hsm_flash_cb;
 void *wt_hsm_flash_context(void);
 const void *wt_hsm_flash_config(void);
 
+/* Erase the whole vault NVM region (both flash-log partitions). The port owns
+ * the geometry; the core calls this only to reformat a foreign/corrupt pool in
+ * an unlocked lifecycle. Returns 0 on success. */
+int wt_hsm_flash_format(void);
+
 #endif /* WOLFTRUST_PORT_NVM_H */

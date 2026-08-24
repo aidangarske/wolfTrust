@@ -37,6 +37,16 @@
  * success, negative on failure. Failure is fatal — the caller should panic. */
 int wt_hsm_init(void);
 
+/* Record the PSA lifecycle wolfBoot handed off, before wt_hsm_init. It gates
+ * whether a foreign/corrupt vault may be auto-reformatted: only the unlocked
+ * development states (ASSEMBLY_AND_TEST, PSA_ROT_PROVISIONING) permit it, so a
+ * SECURED device never auto-wipes WRITE_ONCE storage or the sealed key. A
+ * value never set (0/unknown) is treated as locked. */
+void wt_hsm_set_boot_lifecycle(uint32_t lifecycle);
+
+/* 1 if a foreign/corrupt vault was reformatted this boot (observability). */
+int wt_hsm_vault_was_reformatted(void);
+
 /* Initialise the per-guest wolfHSM server context, transport, and
  * tasklet. `transport_cb` and `transport_ctx` come from the CMSE transport
  * module. The tasklet starts blocked and is later scheduled by the monitor as

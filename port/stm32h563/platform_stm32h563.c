@@ -130,6 +130,7 @@ static volatile uint32_t g_active_guest;
 static volatile uint32_t g_secure_service_depth;
 static volatile uint32_t g_hsm_wait_skip_count;
 static volatile uint32_t g_tasklet_fault_count;
+static volatile uint32_t g_wt_attest_degraded __attribute__((used));
 static volatile uint32_t g_tasklet_fault_cfsr;
 static volatile uint32_t g_tasklet_fault_pc;
 static volatile uint32_t g_tasklet_fault_exc_return;
@@ -1621,6 +1622,14 @@ void Reset_Handler(void)
      *  3. one transport + server context + tasklet per guest
      * Any failure here is fatal because guests require this engine. */
     wt_tasklet_init();
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+    /* Gate vault auto-reformat on the wolfBoot-reported lifecycle before the
+     * store comes up: only unlocked development states permit a foreign-pool
+     * wipe (see wt_hsm_set_boot_lifecycle). */
+    if (handoffRet == 0) {
+        wt_hsm_set_boot_lifecycle(bootHandoff.lifecycle);
+    }
+#endif
     if (wt_hsm_init() != 0) wt_platform_panic();
     for (wt_guest_id_t gid = 0u; gid < WT_MAX_GUESTS; gid++) {
         const wt_guest_config_t *configs;
@@ -1639,13 +1648,20 @@ void Reset_Handler(void)
     }
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     if (wt_hsm_attest_bootstrap() != WH_ERROR_OK) {
-        wt_platform_panic();
+        /* The vault could not be provisioned and auto-reformat was not
+         * permitted (a foreign or corrupt pool on a SECURED device). Boot
+         * degraded rather than dead-trap: attestation fails closed and the
+         * condition is observable, never a mute HardFault. */
+        g_wt_attest_degraded = 1u;
     }
 #endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     if (handoffRet == 0) {
         if (wt_initial_attest_init(&bootHandoff) != WT_ATTEST_SUCCESS) {
-            wt_platform_panic();
+            /* Attestation could not initialize (e.g. the IAK was unavailable on
+             * a fail-closed vault). Degrade rather than dead-trap: the service
+             * returns errors, the rest of the system boots. */
+            g_wt_attest_degraded = 1u;
         }
     }
 #endif

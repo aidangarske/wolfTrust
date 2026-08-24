@@ -27,8 +27,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|restart|crossdomain|confboot|devstorage|devcrypto) ;;
-  *) echo "usage: $0 positive|restart|crossdomain|confboot|devstorage|devcrypto" >&2; exit 2 ;;
+  positive|restart|crossdomain|confboot|devstorage|devcrypto|vaultrecover|vaultrecoversec) ;;
+  *) echo "usage: $0 positive|restart|crossdomain|confboot|devstorage|devcrypto|vaultrecover|vaultrecoversec" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -124,6 +124,10 @@ if [ "$scenario" = "crossdomain" ]; then
 elif [ "$scenario" = "confboot" ] || [ "$scenario" = "devstorage" ] || \
      [ "$scenario" = "devcrypto" ]; then
   secure_flags="WT_CONFORMANCE=1"
+elif [ "$scenario" = "vaultrecover" ]; then
+  secure_flags="WT_CONFORMANCE=1 WT_VAULT_FOREIGN_PROBE=1"
+elif [ "$scenario" = "vaultrecoversec" ]; then
+  secure_flags="WT_CONFORMANCE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1"
 fi
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
 IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x40000 WOLFBOOT_SECTOR_SIZE=0x2000 \
@@ -147,7 +151,8 @@ elif [ "$scenario" = "confboot" ]; then
   guest_flags="WT_RUN_CONFORMANCE=1"
 elif [ "$scenario" = "devstorage" ]; then
   guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=storage"
-elif [ "$scenario" = "devcrypto" ]; then
+elif [ "$scenario" = "devcrypto" ] || [ "$scenario" = "vaultrecover" ] || \
+     [ "$scenario" = "vaultrecoversec" ]; then
   guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=crypto"
 fi
 make -C tests/firmware/zephyr-stm32h5 clone
@@ -321,6 +326,40 @@ case "$scenario" in
     fi
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/devcrypto"
+    ;;
+  vaultrecover)
+    # The foreign-pool probe forces the boot-time vault recovery. In the
+    # unlocked lifecycle it self-heals (reformat + re-provision), attestation
+    # comes back, and the crypto suite passes -- proving the recovery neither
+    # bricked the boot nor left the vault unusable. (The reformat counter is
+    # read over SWD on the H5 board; the emulator asserts the suite instead.)
+    expect "conformance val_entry start" \
+      "wolfTrust FF-M conformance: val_entry start"
+    flat="$(sed 's/freertos_guest1:.*$//' "$log" | tr -d '\r\n')"
+    passed=$(printf '%s' "$flat" | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    skipped=$(printf '%s' "$flat" | grep -oE 'TOTAL SKIPPED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    : "${passed:=-1}"; : "${skipped:=-1}"; : "${failed:=-1}"
+    if [ "$failed" -eq 0 ] && [ "$((passed + skipped))" -eq 77 ]; then
+      check_pass "crypto suite green after self-heal: ${passed} passed, ${skipped} skipped, 0 failed"
+    else
+      check_fail "crypto after self-heal" \
+        "passed=$passed skipped=$skipped failed=$failed (want failed=0, passed+skipped=77)"
+    fi
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
+    echo "PASS: target/vaultrecover"
+    ;;
+  vaultrecoversec)
+    # Forced SECURED lifecycle: the reformat is refused, attestation fails
+    # closed (unavailable by design), so the suite is not the check. The proof
+    # is that the secure boot survives and the guest still starts -- graceful
+    # fail-closed, never a mute brick. The vault-not-wiped guarantee is asserted
+    # over SWD on the H5 board (g_vault_reformatted=0, g_wt_attest_degraded=1).
+    refute_re "no fault (fail closed, not a brick)" \
+      '(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+    expect "guest starts under fail-closed attestation" \
+      "wolfTrust FF-M conformance: val_entry start"
+    echo "PASS: target/vaultrecoversec"
     ;;
   restart)
     expected=$((RESTART_LIMIT + 1))

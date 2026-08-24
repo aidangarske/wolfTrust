@@ -3,58 +3,56 @@
 <!-- pre-compact-handoff -->
 
 ## Objective and success criteria
-Phase 4 is COMPLETE, including the on-silicon half: both dev_apis suites pass
-on the real Nucleo-H563ZI (board on wolf-prec5560), matching the M33MU
-emulator exactly. This session's H5 slice is committed on `wolftfm-l3`.
+Phase 4 is **code-complete**. The last piece, #95 (vault NVM init recovery from
+a foreign/corrupt pool), is implemented and proven on both M33MU and H5 silicon.
+Next planned work (agreed with Aidan): restructure CI into fast-per-PR vs
+M33MU-nightly, and stand up a `dev` integration branch so `dev -> main` replaces
+one giant `wolftfm-l3 -> master` PR, with nightly CI verifying the M33MU matrix.
 
 ## User decisions and constraints
 - Single-line commits, author `Aidan Garske <aidan@wolfssl.com>`, no AI
-  attribution. **NEVER push without fresh explicit approval** (the earlier
-  approved push covered S6a+S6b only; the H5 slice commit is UNPUSHED).
-- Board: Nucleo-H563ZI on wolf-prec5560 (100.87.53.96), ST-Link + /dev/ttyACM0
-  on the host; builds only in container ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15;
-  rsync WITHOUT --delete. Board scope decision: crypto + storage (not #91).
+  attribution. NEVER push/create remote branches without fresh explicit approval.
+- Board: Nucleo-H563ZI on wolf-prec5560 (100.87.53.96); build in container
+  ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15, flash on host; rsync WITHOUT --delete.
+- CI plan: heavy M33MU scenarios move to a nightly `schedule:` trigger (minutes
+  not a concern nightly); fast lane (host test + cross-build + split guard) per PR.
 
 ## Repository state
-Branch `wolftfm-l3`. Pushed: S6a `e0f6365` + S6b `42e67a9` (origin in sync at
-42e67a9 before this slice). This session's on-H5 slice is committed on top,
-UNPUSHED. lib/wolfPSA submodule clean at `dd557dc` (fix carried via
-tests/target/wolfpsa-tls12-prf-mac-alg.patch).
+Branch `wolftfm-l3`. Pushed through the S6 slice `b6ecde1`. The #95 slice is
+committed on top this session (see below), UNPUSHED. lib/wolfPSA clean at
+`dd557dc` (TLS12_PRF fix carried via tests/target/wolfpsa-tls12-prf-mac-alg.patch).
 
-## Completed this session (on-H5 silicon closeout)
-- `run_h5_hardware.sh`: devcrypto/devstorage scenarios (256K guest layout for
-  dev images only, guest1 at 0x080E0000; WT_CONF_SUITE build flags;
-  report-terminated capture; suite assertions mirroring the M33MU gate);
-  post-flash `reset halt` → erase vault (0x0C1FC000/0x0C1FE000) + boot-flag
-  (0x0C1FA000) while halted → single boot; build/flash scenario stamp.
-- Silicon results: `PASS: hardware/h5/devcrypto` **64/13/0 (77)**;
-  `PASS: hardware/h5/devstorage` **11/6/0 (17) twice**, 0 SIM ERROR all runs.
-- Two silicon-only failures root-caused via pyocd forensics and fixed in the
-  runner (see validation-log "Phase 4 S6 — dev_apis conformance on H563
-  silicon"): (1) foreign MP5-era vault pool → WH_ERROR_ACCESS → BKPT trap →
-  mute HardFault pre-UART; (2) erase-on-live-target + double-reset tearing the
-  vault format → s001 stale-UID / s003 SIM-ERROR reboot.
-- Docs: validation-log H5 entry; task-list on-H5 item [x] + new vault-recovery
-  item; session tasks #94 done, #95 opened.
+## Completed this session (#95)
+- Root-caused the board brick: foreign IAK -> WH_ERROR_ACCESS -> BKPT -> mute
+  HardFault. Fix: lifecycle-gated recovery in wt_hsm_init/attest_init —
+  reformat+re-provision only in unlocked lifecycle (rebinding the attest server
+  to the fresh store); SECURED/unknown fails closed (g_wt_attest_degraded), never
+  auto-wipes. attest_bootstrap + initial_attest_init boot calls degrade instead
+  of panic. Geometry stays in the port (wt_hsm_flash_format). Refactored
+  wt_hsm_init -> wt_hsm_bind_store (re-callable).
+- Deterministic negative: WT_VAULT_FOREIGN_PROBE (+WT_VAULT_PROBE_SECURED) +
+  scenarios vaultrecover/vaultrecoversec in both runners.
+- Unified the HW runner to the 256K guest layout (guest1 @ 0x080E0000) for all
+  scenarios (matches M33MU); added a build/flash scenario stamp guard.
 
-## Verification evidence
-- H5 silicon: devcrypto 64/13/0 (77) once under the fixed flow (plus once
-  under the old flow); devstorage 11/6/0 (17) twice consecutively; 0 SIM
-  ERROR; no fault markers. Logs: box /home/aidangarske/h5-devcrypto-*.log,
-  h5-devstorage-*.log, h5-uart-capture.log.
-- M33MU emulator evidence unchanged from the S6b commit (64/13/0 devcrypto,
-  17/11/0/6 devstorage, positive 15/15, confboot 89/85/0/4/0).
+## Verification evidence (all green this tree)
+- H5: vaultrecover (self-heal: g_vault_reformatted=1, degraded=0, crypto 64/0);
+  vaultrecoversec (fail-closed: degraded=1, reformatted=0, no trap).
+- M33MU: vaultrecover (crypto 64/13/0, clean exit); vaultrecoversec (graceful,
+  no brick); + regressions positive 15/15, devcrypto 64/13/0, devstorage 11/6/0.
+- Host make test PASS earlier this tree; core/port split guard 0 leaks.
 
 ## Next tasks
-1. Push (needs fresh approval): the on-H5 slice commit.
-2. #95 vault NVM init recovery (reformat/quarantine on foreign pool, never
-   BKPT-trap; garbage-pool negative test) — the real defect behind finding 1.
-3. #93 wolfPSA pin bump after the upstream PR merges (Aidan opens the PR:
-   compare link in chat history).
-4. #91 WRITE_ONCE-survives-SYSRESETREQ on silicon (board is connected now;
-   needs its own scenario — do NOT erase the vault for it).
-5. Phase 5 negative-evidence matrix (attestation) = next program phase.
+1. Push #95 + all pending wolftfm-l3 commits (needs fresh approval).
+2. CI restructure: fast-per-PR vs M33MU-nightly (schedule cron); add
+   vaultrecover/vaultrecoversec to the nightly matrix. Then `dev` branch +
+   trigger wiring; `dev -> main` PR. (All remote actions need approval.)
+3. Fix the positive/attestation-only HW image not booting (guests not runnable;
+   128K-layout bit-rot in the positive HW path; separate from #95) — new task.
+4. #93 wolfPSA pin bump after upstream PR merges; #91 WRITE_ONCE on silicon.
+5. Phase 5 (attestation negative-evidence matrix) is the next program phase.
 
 ## Resume instruction
-Recheck `git status` (expect clean tree, 1+ commits ahead of origin). The
-board is flashed with devcrypto images and idle. Continue at Next tasks.
+Recheck git status (expect clean tree, #95 committed, ahead of origin). Continue
+at Next tasks — likely the CI restructure + dev branch after Aidan approves the
+push. Board is flashed with the vaultrecoversec image and idle.

@@ -2281,3 +2281,46 @@ pyocd forensics (stacked exception frame, HFSR/RSR, PC symbol mapping):
 
 This is real-hardware evidence, recorded separately from the M33MU emulator
 ledger per the evidence rules.
+
+## Phase 4 #95 — vault NVM init recovery from a foreign/corrupt pool (2026-08-24)
+
+The first Phase-4 board run found that a vault pool written by an older
+firmware generation bricks boot: the IAK slot is held by a NONMODIFIABLE
+object, so re-provisioning returns `WH_ERROR_ACCESS` (-2101) and the boot
+called the panic trap — a BKPT that, with no debugger, escalates to a mute
+HardFault before any UART. The emulator never saw it (blank flash each run).
+
+Fix (task #95): the boot-time IAK provisioning recovers instead of trapping,
+**gated by the wolfBoot-reported PSA lifecycle** so it can never become a
+data-wipe attack surface:
+
+- Unlocked development lifecycle (ASSEMBLY_AND_TEST / PSA_ROT_PROVISIONING):
+  reformat the vault (`wt_hsm_flash_format`, geometry owned by the port),
+  rebind the attest server to the fresh store, and re-provision. Self-heal.
+- SECURED or unknown lifecycle: never reformat. Attestation fails closed
+  (`g_wt_attest_degraded`), the boot degrades rather than dead-traps, and
+  WRITE_ONCE storage + the sealed device key survive untouched.
+
+The `attest_bootstrap` and `initial_attest_init` boot calls no longer panic on
+failure — they set the degraded marker and continue.
+
+A deterministic `WT_VAULT_FOREIGN_PROBE` build forces the foreign-pool ACCESS
+at first provisioning (`WT_VAULT_PROBE_SECURED` additionally forces a locked
+lifecycle), giving a pool-state-independent reproduction. Two scenarios prove
+both halves on both platforms:
+
+- H5 silicon `PASS: hardware/h5/vaultrecover` — self-heal: `g_vault_reformatted=1`,
+  attestation recovered (`g_wt_attest_degraded=0`), crypto suite 64/0 afterward.
+- H5 silicon `PASS: hardware/h5/vaultrecoversec` — fail-closed: `g_wt_attest_degraded=1`,
+  `g_vault_reformatted=0` (no wipe), no HardFault.
+- M33MU `PASS: target/vaultrecover` — crypto 64/13/0 after self-heal, clean exit.
+- M33MU `PASS: target/vaultrecoversec` — graceful boot under fail-closed
+  attestation, no fault.
+
+Regressions on the same tree (refactored `wt_hsm_init` → `wt_hsm_bind_store`):
+M33MU positive 15/15, devcrypto 64/13/0, devstorage 11/6/0 all still green;
+core/port split guard 0 leaks.
+
+Separately noted: the positive/attestation-only HW image stopped booting on the
+board (guests not runnable) — pre-existing 128K-layout bit-rot in the positive
+HW path, not #95; the recovery scenarios ride the conformance image, which boots.

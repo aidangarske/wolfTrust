@@ -67,6 +67,7 @@
 #include "wolftrust/services/vault_service.h"
 
 #include "wolftrust/port_nvm.h"
+#include "psa/lifecycle.h"
 
 #include <string.h>
 #include <stddef.h>
@@ -145,6 +146,41 @@ static whLockConfig g_nvm_lock_cfg;
 extern const whLockCb g_wt_hsm_lock_cb; /* defined in wt_hsm_lock.c */
 
 /* -------------------------------------------------------------------------
+ * Vault recovery policy. A vault pool written by an older firmware generation
+ * (or a corrupt one) can block boot provisioning: the IAK slot is held by a
+ * NONMODIFIABLE object, so a fresh keygen commit returns WH_ERROR_ACCESS.
+ * The recovery reformats and re-provisions, but only in an unlocked
+ * development lifecycle -- a SECURED device must never auto-wipe WRITE_ONCE
+ * storage or the sealed device key, so an unset/unknown lifecycle stays locked.
+ * ---------------------------------------------------------------------- */
+static uint32_t g_boot_lifecycle;       /* PSA lifecycle from wolfBoot handoff */
+static int      g_vault_reformatted;    /* observability: reformatted this boot */
+
+#if defined(WT_VAULT_FOREIGN_PROBE)
+/* Negative test: make the first provisioning look blocked, as if a
+ * NONMODIFIABLE IAK from an older firmware occupied the slot, so the real
+ * recovery path runs exactly once (self-heal when unlocked, fail closed when
+ * WT_VAULT_PROBE_SECURED forces a locked lifecycle). */
+static int g_foreign_probe_fired;
+#endif
+
+void wt_hsm_set_boot_lifecycle(uint32_t lifecycle)
+{
+    g_boot_lifecycle = lifecycle;
+}
+
+int wt_hsm_vault_was_reformatted(void)
+{
+    return g_vault_reformatted;
+}
+
+static int wt_hsm_reformat_allowed(void)
+{
+    return (g_boot_lifecycle == PSA_LIFECYCLE_ASSEMBLY_AND_TEST) ||
+           (g_boot_lifecycle == PSA_LIFECYCLE_PSA_ROT_PROVISIONING);
+}
+
+/* -------------------------------------------------------------------------
  * Forward declaration — tasklet body defined below.
  * ---------------------------------------------------------------------- */
 static void wt_hsm_tasklet_main(void *arg);
@@ -152,72 +188,31 @@ static void wt_hsm_tasklet_main(void *arg);
 /* =========================================================================
  * wt_hsm_init
  * ====================================================================== */
-int wt_hsm_init(void)
+/* Wire the NVM flash-log config, bring up the shared NVM context, and bind the
+ * vault, sealer, and key backends. Re-callable: wt_hsm_vault_format runs it
+ * again against a freshly erased pool. The lockConfig path is mandatory because
+ * per-guest tasklets share one wolfHSM NVM context. */
+static int wt_hsm_bind_store(void)
 {
-    int rc;
-
     whNvmFlashConfig nvm_flash_cfg;
     whNvmConfig      nvm_cfg;
+    int              rc;
 
-    /* ------------------------------------------------------------------
-     * 1. Global wolfCrypt init.
-     * ---------------------------------------------------------------- */
-    rc = wolfCrypt_Init();
-    if (rc != 0) {
-        return rc;
-    }
-
-    /* ------------------------------------------------------------------
-     * 2. Initialise the target flash backend.
-     * ---------------------------------------------------------------- */
-    rc = g_wt_hsm_flash_cb.Init(wt_hsm_flash_context(),
-                                wt_hsm_flash_config());
-    if (rc != 0) {
-        return rc;
-    }
-
-    /* ------------------------------------------------------------------
-     * 3. Initialise NVM flash-log layer.
-     *
-     * whNvmFlashConfig wires the target flash callback table and context into
-     * the flash-log NVM backend.
-     * ---------------------------------------------------------------- */
     (void)memset(&g_nvm_flash_ctx, 0, sizeof(g_nvm_flash_ctx));
     (void)memset(&nvm_flash_cfg, 0, sizeof(nvm_flash_cfg));
-
     nvm_flash_cfg.cb      = &g_wt_hsm_flash_cb;
     nvm_flash_cfg.context = wt_hsm_flash_context();
     nvm_flash_cfg.config  = wt_hsm_flash_config();
 
-    /* ------------------------------------------------------------------
-     * 4. Set up the NVM lock before calling wh_Nvm_Init.
-     *
-     * The lock must be initialised (via its init callback) before the
-     * NVM context is fully wired, because wh_Nvm_Init may attempt to
-     * call wh_Lock_Init internally via the whNvmConfig.lockConfig path.
-     * We pre-initialise our mutex here for clarity.
-     * ---------------------------------------------------------------- */
-    wt_mutex_init(&g_nvm_lock_mutex);
-
     g_nvm_lock_cfg.cb      = &g_wt_hsm_lock_cb;
     g_nvm_lock_cfg.context = &g_nvm_lock_mutex;
-    g_nvm_lock_cfg.config  = NULL; /* no extra config needed by our callbacks */
+    g_nvm_lock_cfg.config  = NULL;
 
-    /* ------------------------------------------------------------------
-     * 5. Initialise the NVM context.
-     *
-     * whNvmConfig.cb points to the flash-NVM callback table
-     * (wh_NvmFlash_Init etc.), .context is the whNvmFlashContext, and
-     * .config is the whNvmFlashConfig passed through to wh_NvmFlash_Init.
-     * The lockConfig field is mandatory in wolfTrust because multiple
-     * per-guest tasklets share one wolfHSM NVM context.
-     * ---------------------------------------------------------------- */
     (void)memset(&g_nvm_ctx, 0, sizeof(g_nvm_ctx));
     (void)memset(&nvm_cfg, 0, sizeof(nvm_cfg));
-
-    nvm_cfg.cb       = (whNvmCb *)g_nvm_flash_cb;
-    nvm_cfg.context  = &g_nvm_flash_ctx;
-    nvm_cfg.config   = &nvm_flash_cfg;
+    nvm_cfg.cb         = (whNvmCb *)g_nvm_flash_cb;
+    nvm_cfg.context    = &g_nvm_flash_ctx;
+    nvm_cfg.config     = &nvm_flash_cfg;
     nvm_cfg.lockConfig = &g_nvm_lock_cfg;
 
     rc = wh_Nvm_Init(&g_nvm_ctx, &nvm_cfg);
@@ -225,9 +220,6 @@ int wt_hsm_init(void)
         return rc;
     }
 
-    /* Bind the gated vault backing (WT-FFM-0047) to the shared NVM store,
-     * then the AES-GCM sealer (WT-FFM-0048). A failed sealer init leaves
-     * SEALED requests refused — fail closed, observable in the PS gate. */
     if (wt_hsm_vault_init(&g_nvm_ctx) == 0) {
         wt_vault_service_set_backend(&wt_hsm_vault_backend);
         if (wt_hsm_seal_init(&g_nvm_ctx) == 0) {
@@ -239,6 +231,44 @@ int wt_hsm_init(void)
     }
 
     return 0;
+}
+
+/* Erase the whole vault region and rebuild a blank store. Caller must have
+ * checked wt_hsm_reformat_allowed() -- this destroys every object, including
+ * WRITE_ONCE storage and the sealed device key. */
+static int wt_hsm_vault_format(void)
+{
+    int rc;
+
+    rc = wt_hsm_flash_format();
+    if (rc == 0) {
+        rc = wt_hsm_bind_store();
+    }
+    if (rc == 0) {
+        g_vault_reformatted = 1;
+    }
+    return rc;
+}
+
+int wt_hsm_init(void)
+{
+    int rc;
+
+    rc = wolfCrypt_Init();
+    if (rc != 0) {
+        return rc;
+    }
+
+    rc = g_wt_hsm_flash_cb.Init(wt_hsm_flash_context(),
+                                wt_hsm_flash_config());
+    if (rc != 0) {
+        return rc;
+    }
+
+    /* Initialise the shared NVM lock once, before wh_Nvm_Init wires it in. */
+    wt_mutex_init(&g_nvm_lock_mutex);
+
+    return wt_hsm_bind_store();
 }
 
 /* =========================================================================
@@ -714,6 +744,9 @@ int wt_hsm_attest_init(void)
 {
     int ret;
 
+#if defined(WT_VAULT_FOREIGN_PROBE) && defined(WT_VAULT_PROBE_SECURED)
+    g_boot_lifecycle = PSA_LIFECYCLE_SECURED;
+#endif
     if (g_attest_ready) {
         return WH_ERROR_OK;
     }
@@ -748,8 +781,43 @@ int wt_hsm_attest_init(void)
     }
     if (ret == WH_ERROR_OK) {
         ret = wt_hsm_attest_export_public();
+#if defined(WT_VAULT_FOREIGN_PROBE)
+        /* Force the existing key to look unreadable so the generate path runs
+         * regardless of pool state (an already-provisioned IAK would otherwise
+         * export cleanly and skip the recovery under test). */
+        if (!g_foreign_probe_fired) {
+            ret = WH_ERROR_ACCESS;
+        }
+#endif
         if (ret != WH_ERROR_OK) {
             ret = wt_hsm_attest_generate_key();
+#if defined(WT_VAULT_FOREIGN_PROBE)
+            if (!g_foreign_probe_fired) {
+                g_foreign_probe_fired = 1;
+                ret = WH_ERROR_ACCESS;
+            }
+#endif
+            /* A foreign or corrupt pool blocks provisioning: the IAK slot is
+             * held by an object from an older firmware generation whose
+             * NONMODIFIABLE/NONDESTROYABLE flags reject the fresh commit. In an
+             * unlocked lifecycle, reformat the vault once and re-provision; a
+             * SECURED device never reaches here, so its data is never wiped. */
+            if (ret != WH_ERROR_OK && wt_hsm_reformat_allowed()) {
+                if (wt_hsm_vault_format() == 0) {
+                    /* vault_format re-inited g_nvm_ctx under the attest server;
+                     * rebind the server to the fresh store before re-provisioning
+                     * so its keystore view is not stale. */
+                    ret = wh_Server_Init(&g_attest_server, &g_attest_server_cfg);
+                    if (ret == WH_ERROR_OK) {
+                        g_attest_server.comm->client_id = WH_CLIENT_ID_MAX;
+                        ret = wh_Server_SetConnected(&g_attest_server,
+                                                     WH_COMM_CONNECTED);
+                    }
+                    if (ret == WH_ERROR_OK) {
+                        ret = wt_hsm_attest_generate_key();
+                    }
+                }
+            }
             if (ret == WH_ERROR_OK) {
                 ret = wt_hsm_attest_export_public();
             }

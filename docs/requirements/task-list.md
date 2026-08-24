@@ -258,10 +258,21 @@ wolfTrust on the board — the TF-M drop-in proof.
          flashing, `reset halt` → erase vault+boot-flag while halted →
          boot exactly once. Also added a build/flash scenario stamp so
          mismatched images fail fast.
-    - [ ] **Vault NVM init recovery (silicon robustness)**: on a foreign or
-      corrupt pool, reformat (or quarantine the vault and boot degraded
-      with a report marker) instead of the BKPT dead-trap; add a
-      garbage-pool negative test. Found by the on-H5 runs above.
+    - [x] **Vault NVM init recovery (silicon robustness) — DONE (#95)**: the
+      boot-time IAK provisioning now recovers from a foreign/corrupt pool
+      instead of the BKPT dead-trap. On a pool whose IAK slot is held by a
+      NONMODIFIABLE object (or is otherwise unreadable), the recovery is
+      **lifecycle-gated**: only the unlocked development states
+      (ASSEMBLY_AND_TEST / PSA_ROT_PROVISIONING) may reformat + re-provision
+      (rebinding the attest server to the fresh store); a SECURED or unknown
+      lifecycle **never auto-wipes** — it fails closed (attestation degraded,
+      `g_wt_attest_degraded`, no trap), so WRITE_ONCE storage and the sealed
+      key survive. Geometry stays in the port (`wt_hsm_flash_format`). A
+      deterministic `WT_VAULT_FOREIGN_PROBE` build forces the foreign-pool
+      ACCESS; two scenarios (`vaultrecover` / `vaultrecoversec`) prove both
+      halves on **H5 silicon** (self-heal: crypto 64/0, `g_vault_reformatted=1`;
+      fail-closed: `degraded=1`, `reformatted=0`) **and M33MU** (crypto 64/13/0
+      after self-heal; graceful no-brick fail-closed).
 
 
 - [~] **Phase 5 — Initial Attestation** — core **implemented and

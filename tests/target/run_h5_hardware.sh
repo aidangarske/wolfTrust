@@ -37,7 +37,7 @@ set -o pipefail
 mode="${1:-all}"
 scenario="${2:-positive}"
 case "$mode" in build|flash|all) ;; *) echo "usage: $0 build|flash|all [scenario]" >&2; exit 2 ;; esac
-case "$scenario" in positive|restart|crossdomain|confboot|devstorage|devcrypto) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|confboot|devstorage|devcrypto" >&2; exit 2 ;; esac
+case "$scenario" in positive|restart|crossdomain|confboot|devstorage|devcrypto|vaultrecover|vaultrecoversec) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|confboot|devstorage|devcrypto|vaultrecover|vaultrecoversec" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -55,7 +55,7 @@ SERIAL="${H5_SERIAL:-/dev/ttyACM0}"
 # confboot reboots the whole chain once per panic test (real SYSRESETREQ, each
 # re-running wolfBoot), so it needs a long ceiling; the capture stops early on
 # the suite report.
-case "$scenario" in restart) cap_default=32 ;; confboot) cap_default=900 ;; devstorage|devcrypto) cap_default=600 ;; *) cap_default=25 ;; esac
+case "$scenario" in restart) cap_default=32 ;; confboot) cap_default=900 ;; devstorage|devcrypto|vaultrecover|vaultrecoversec) cap_default=600 ;; *) cap_default=25 ;; esac
 CAP_S="${H5_CAPTURE_SECONDS:-$cap_default}"
 LOGFILE="${WT_SCENARIO_LOG:-ci-h5-hardware-$scenario.log}"
 case "$LOGFILE" in /*) ;; *) LOGFILE="$repo/$LOGFILE" ;; esac
@@ -88,13 +88,10 @@ refute_re()  { if grep -Eq "$2" "$uart"; then check_fail "$1" "unexpected: $2"; 
 WOLFBOOT_ADDR=0x0C000000
 WOLFTRUST_ADDR=0x0C060000
 GUEST0_ADDR=0x080A0000
-# dev_apis crypto/storage images outgrow guest0's 128K window; use the 256K
-# layout the M33MU runner uses (guest0 256K, guest1 at 0x080E0000) so silicon
-# and emulator flash the same image. Other scenarios keep the proven 128K layout.
-case "$scenario" in
-  devcrypto|devstorage) GUEST1_ADDR=0x080E0000 ;;
-  *)                    GUEST1_ADDR=0x080C0000 ;;
-esac
+# All scenarios use the 256K guest0 layout (guest1 at 0x080E0000) the M33MU
+# runner uses, so silicon and emulator flash the same image. (dev_apis crypto
+# outgrew the old 128K guest0 window; the rest follow to keep one layout.)
+GUEST1_ADDR=0x080E0000
 guest0="$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin"
 guest1="$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
 
@@ -112,7 +109,7 @@ if [ "$mode" != "flash" ]; then
   export WT_SECURE_IMAGE_HEADER_SIZE=0x400
   export WT_GUEST0_FLASH_BASE=0x080A0000
   export WT_GUEST1_FLASH_BASE=$GUEST1_ADDR
-  case "$scenario" in devcrypto|devstorage) export WT_GUEST0_FLASH_SIZE=0x00040000 ;; esac
+  export WT_GUEST0_FLASH_SIZE=0x00040000
   export WT_GUEST_RAM_SIZE=0x00010000
   export WT_GUEST1_RAM_BASE=0x20010000
   export WT_ZEPHYR_DTC_OVERLAY_FILE=boards/wolfboot-stm32h563.overlay
@@ -164,6 +161,13 @@ if [ "$mode" != "flash" ]; then
   [ "$scenario" = "confboot" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0"; guest_flags="WT_RUN_CONFORMANCE=1"; }
   [ "$scenario" = "devstorage" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0"; guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=storage"; }
   [ "$scenario" = "devcrypto" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0"; guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=crypto"; }
+  # Vault-recovery negatives ride the dev_apis crypto image plus the foreign-pool
+  # probe: the crypto suite proves the vault still works after recovery, while
+  # the probe forces the boot-time recovery (self-heal unlocked / fail closed
+  # when it also forces SECURED). Crypto is used because it exercises the vault
+  # and boots the same image the board already runs green.
+  [ "$scenario" = "vaultrecover" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0 WT_VAULT_FOREIGN_PROBE=1"; guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=crypto"; }
+  [ "$scenario" = "vaultrecoversec" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1"; guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=crypto"; }
 
   stage "building wolfTrust secure image ($scenario)"
   {
@@ -251,7 +255,7 @@ if [ "$mode" != "build" ]; then
   # vault-format tears a flash write that s003's remove-all later trips over
   # (SIM ERROR reboot). So: park the core at the reset vector, erase while
   # halted, then boot exactly once.
-  if [ "$scenario" = "devstorage" ] || [ "$scenario" = "devcrypto" ]; then
+  if [ "$scenario" = "devstorage" ] || [ "$scenario" = "devcrypto" ] || [ "$scenario" = "vaultrecover" ] || [ "$scenario" = "vaultrecoversec" ]; then
     stage "reset-halt, erase vault NVM + boot-flag while halted, single boot"
     pyocd cmd -t "$PYOCD_TARGET" -c "reset halt" >> "$LOGFILE" 2>&1 || true
     pyocd erase -t "$PYOCD_TARGET" -s 0x0C1FC000 >> "$LOGFILE" 2>&1 || true
@@ -266,7 +270,7 @@ if [ "$mode" != "build" ]; then
   # boot flag; the run is done when the suite prints its report, so stop early on
   # it rather than wait the whole ceiling. The others have a fixed settling window.
   case "$scenario" in
-    confboot|devstorage|devcrypto)
+    confboot|devstorage|devcrypto|vaultrecover|vaultrecoversec)
       stage "waiting for the suite report (max ${CAP_S}s)"
       waited=0
       while [ "$waited" -lt "$CAP_S" ]; do
@@ -394,6 +398,46 @@ if [ "$mode" != "build" ]; then
       else
         check_fail "dev_apis $suite suite" \
           "passed=$passed skipped=$skipped failed=$failed (want failed=0, passed+skipped=$want)"
+      fi
+      ;;
+    vaultrecover|vaultrecoversec)
+      # Rides the dev_apis crypto image. The probe forces a foreign-pool ACCESS
+      # at first IAK provisioning; the recovery then either self-heals (unlocked)
+      # or fails closed (SECURED). Either way the boot must never mute-brick, and
+      # the crypto suite must still pass afterward (the vault works). Recovery
+      # counters read over SWD.
+      refute_re "no HardFault (recovery, not a mute brick)" \
+        '^(\[HARDFLT\]|HardFault|SecureFault)'
+      reformatted=$(read_secure_u32 g_vault_reformatted)
+      degraded=$(read_secure_u32 g_wt_attest_degraded)
+      if [ "$scenario" = "vaultrecover" ]; then
+        # Self-heal: attestation recovers, so the guest reaches the crypto suite
+        # and it passes -- the vault works after the reformat.
+        passed=$(sed 's/freertos_guest1:.*$//' "$uart" | tr -d '\r\n' | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+        failed=$(sed 's/freertos_guest1:.*$//' "$uart" | tr -d '\r\n' | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+        if [ "${failed:-1}" -eq 0 ] && [ "${passed:-0}" -eq 64 ]; then
+          check_pass "crypto suite green after self-heal (64 passed, 0 failed)"
+        else
+          check_fail "crypto after self-heal" "passed=${passed:-none} failed=${failed:-none} (want 64/0)"
+        fi
+        if [ -n "$reformatted" ] && [ $((0x$reformatted)) -eq 1 ]; then
+          check_pass "unlocked lifecycle: vault self-healed (g_vault_reformatted=1)"
+        else
+          check_fail "self-heal" "g_vault_reformatted=0x${reformatted:-none}, expected 1"
+        fi
+      else
+        # Fail-closed (SECURED): attestation is unavailable by design, so the
+        # crypto suite is not the check here -- the security properties are.
+        if [ -n "$degraded" ] && [ $((0x$degraded)) -eq 1 ]; then
+          check_pass "SECURED lifecycle: failed closed (g_wt_attest_degraded=1, no trap)"
+        else
+          check_fail "fail closed" "g_wt_attest_degraded=0x${degraded:-none}, expected 1"
+        fi
+        if [ -n "$reformatted" ] && [ $((0x$reformatted)) -eq 0 ]; then
+          check_pass "SECURED lifecycle: vault NOT reformatted (no data wipe)"
+        else
+          check_fail "no wipe" "g_vault_reformatted=0x${reformatted:-none}, expected 0"
+        fi
       fi
       ;;
   esac

@@ -549,6 +549,14 @@ const void *wt_hsm_flash_config(void)
     return &g_hsm_flash_cfg;
 }
 
+int wt_hsm_flash_format(void)
+{
+    /* Erase the whole vault NVM region so wh_Nvm_Init rebuilds a blank store.
+     * The context carries the geometry; the erase already honors sector
+     * alignment and the write-lock. Region size is a whole number of sectors. */
+    return wt_hsm_flash_erase(&g_hsm_flash_ctx, 0u, g_hsm_flash_ctx.size);
+}
+
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 static const wt_hsm_flash_config_t g_conf_nvm_cfg = {
     .base = WT_CONF_NVM_FLASH_BASE_S,

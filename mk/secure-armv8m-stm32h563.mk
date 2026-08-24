@@ -134,6 +134,18 @@ ifeq ($(WT_FFM_NEGATIVE_PROBE),1)
 SECURE_CFLAGS += -DWT_FFM_NEGATIVE_PROBE=1
 endif
 
+# Vault recovery negative test: force the foreign-pool ACCESS at first
+# provisioning so the lifecycle-gated reformat path runs. WT_VAULT_PROBE_SECURED
+# additionally forces a locked lifecycle to exercise the fail-closed branch.
+WT_VAULT_FOREIGN_PROBE ?= 0
+ifeq ($(WT_VAULT_FOREIGN_PROBE),1)
+SECURE_CFLAGS += -DWT_VAULT_FOREIGN_PROBE=1
+endif
+WT_VAULT_PROBE_SECURED ?= 0
+ifeq ($(WT_VAULT_PROBE_SECURED),1)
+SECURE_CFLAGS += -DWT_VAULT_PROBE_SECURED=1
+endif
+
 HSM_LIB_CFLAGS := $(SECURE_CFLAGS) \
     -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter \
     -Wno-type-limits
