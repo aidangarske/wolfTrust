@@ -19,15 +19,25 @@ label opt-in.
 
 ## Nightly M33MU matrix (11 concurrent jobs)
 
-`nightly.yml` calls `stm32h563-build.yml`, which fans out to:
+`nightly.yml` calls `stm32h563-build.yml` (workflow name **M33MU**), which
+fans out into one named check per test — each renders as `M33MU / <name>`:
 
-- `wolfboot-m33mu` — upstream wolfBoot signed boot + update/rollback lifecycle
-- `wolfboot-wolftrust-m33mu` × `{zephyr, freertos}` — full FF-M lifecycle
-  (IPC dispatch, ITS/PS, key-ops, key negatives, attestation COSE_Sign1,
-  forged-handle + oversized-vector rejects, SECURED-policy reject)
-- `wolfboot-wolftrust-m33mu-scenarios` × 8 scenarios:
-  `positive` `restart` `crossdomain` `confboot` `devstorage` `devcrypto`
-  `vaultrecover` `vaultrecoversec`
+| Check name | Label key | What it proves |
+|------------|-----------|----------------|
+| `M33MU / wolfBoot signed boot and rollback` | — | upstream wolfBoot signed boot + update/rollback |
+| `M33MU / wolfTrust zephyr lifecycle` | — | full FF-M chain, Zephyr guest |
+| `M33MU / wolfTrust freertos lifecycle` | — | full FF-M chain, FreeRTOS guest |
+| `M33MU / Positive lifecycle` | `ci:positive` | lifecycle green, no faults |
+| `M33MU / Guest restart recovery` | `ci:restart` | guest faults → monitor restarts it |
+| `M33MU / Cross-domain isolation (L3)` | `ci:crossdomain` | SP-internal probe read blocked |
+| `M33MU / FF-M IPC conformance (85/4)` | `ci:confboot` | full Arm FF-M IPC suite |
+| `M33MU / dev_apis Storage (s001-s017)` | `ci:devstorage` | PSA ITS/PS conformance |
+| `M33MU / dev_apis Crypto (c001-c080)` | `ci:devcrypto` | PSA Crypto conformance |
+| `M33MU / Vault recovery self-heal` | `ci:vaultrecover` | #95 foreign pool reformatted |
+| `M33MU / Vault recovery fail-closed` | `ci:vaultrecoversec` | #95 SECURED never wipes |
+
+The three lifecycle/wolfBoot builds are reachable on a PR via `ci:m33mu` /
+`ci:all` (the whole workflow); the 8 scenarios each have their own label.
 
 `nightly.yml` also runs the fast lane + `core-port-split`.
 
@@ -37,11 +47,11 @@ label opt-in.
 
 | Label | Effect |
 |-------|--------|
-| `ci:<scenario>` | run that one scenario on the PR branch (e.g. `ci:devcrypto`, `ci:vaultrecoversec`). Add several to run several. |
+| `ci:<scenario>` | run that one scenario on the PR branch (`ci:devcrypto`, `ci:vaultrecoversec`, …). Add several to run several. |
 | `ci:m33mu` / `ci:all` | run the full heavy workflow (both lifecycles + all 8 scenarios) on the PR branch. |
 | (no label) | nothing runs — a normal PR is unaffected. |
 
-`<scenario>` is one of the 8 scenario names above. The dispatcher fires
+`<scenario>` is one of the 8 label keys in the table above. The dispatcher fires
 only on label change; re-add a label to re-run after a push, then drop
 the labels when done — nothing to revert in the tree.
 

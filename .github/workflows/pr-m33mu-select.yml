@@ -52,21 +52,34 @@ jobs:
           done
           [ -n "$DISPATCH" ] && sel="$sel $DISPATCH"
           echo "run= $sel " >> "$GITHUB_OUTPUT"
-          # Individually-picked scenarios become a dynamic matrix. 'all' and
-          # 'm33mu' are handled by the full job below, not expanded here.
+          # Individually-picked scenarios become a dynamic matrix of
+          # {key,name} objects (same shape/names as stm32h563-build.yml).
+          # 'all'/'m33mu' are handled by the full job below, not expanded here.
           all="positive restart crossdomain confboot devstorage devcrypto vaultrecover vaultrecoversec"
           picked=""
           for s in $all; do
             case " $sel " in
-              *" $s "*) picked="$picked \"$s\"," ;;
+              *" $s "*) ;;
+              *) continue ;;
             esac
+            case "$s" in
+              positive)        n="Positive lifecycle" ;;
+              restart)         n="Guest restart recovery" ;;
+              crossdomain)     n="Cross-domain isolation (L3)" ;;
+              confboot)        n="FF-M IPC conformance (85/4)" ;;
+              devstorage)      n="dev_apis Storage (s001-s017)" ;;
+              devcrypto)       n="dev_apis Crypto (c001-c080)" ;;
+              vaultrecover)    n="Vault recovery self-heal" ;;
+              vaultrecoversec) n="Vault recovery fail-closed" ;;
+            esac
+            picked="$picked {\"key\":\"$s\",\"name\":\"$n\"},"
           done
           echo "scenarios={\"scenario\":[${picked%,}]}" >> "$GITHUB_OUTPUT"
 
   scenario:
     needs: select
     if: ${{ needs.select.outputs.scenarios != '{"scenario":[]}' }}
-    name: M33MU ${{ matrix.scenario }} (PR label)
+    name: ${{ matrix.scenario.name }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -83,7 +96,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf git@github.com:
 
       - name: Run FF-M target scenario
-        run: tests/target/run_m33mu_scenario.sh ${{ matrix.scenario }}
+        run: tests/target/run_m33mu_scenario.sh ${{ matrix.scenario.key }}
 
   full:
     needs: select
