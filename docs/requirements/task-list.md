@@ -275,11 +275,33 @@ wolfTrust on the board — the TF-M drop-in proof.
       after self-heal; graceful no-brick fail-closed).
 
 
-- [~] **Phase 5 — Initial Attestation** — core **implemented and
+- [~] **Phase 5 — Initial Attestation** — positive path **implemented and
   hardware-verified**: `psa_initial_attestation` st=0, DICE/measured-boot
   handoff, IAK via wolfHSM, `COSE_Sign1`/ES256 verify (challenge/identity/
-  lifecycle/measurement all ok in the positive scenario). Remaining = the full
-  negative-evidence / replay / key-isolation / claim-determinism test matrix.
+  lifecycle/measurement all ok in the positive scenario), but on M33MU/H5 only —
+  host attestation was stubbed. Remaining = the five stop-gate buckets
+  (`phases.md:116-118`) as real evidence. Beat-TF-M angle = IAK key-isolation
+  (the signing key never leaves the wolfHSM vault). Slices:
+    - [x] **P5-S2 (buckets 2+3 core): host COSE_Sign1 real ES256 sign→verify.**
+      New `tests/host/attestation/` drives the production `wt_attest_cose_*`
+      seam with a real P-256 signer, verifies via wolfCOSE against the IAK
+      public key, and rejects tampered signature / tampered body / truncated
+      token / wrong key / undersized buffer / bad flags / null signer (15/15
+      host checks). Added to `UNIT_SUITES` → runs in `make test` and as its own
+      `Unit tests / attestation` CI check.
+    - [ ] **P5-S1 (bucket 1): deterministic EAT claims** — byte-stable golden
+      vector for the encoded claim set; decide profile / boot-seed claims.
+    - [ ] **P5-S3 (bucket 3): negative evidence** — tampered measurement,
+      garbage DICE handoff (`wt_initial_attest_init` refusal), oversized
+      challenge (>64) runtime rejection.
+    - [ ] **P5-S4 (bucket 4, Fable, the beat-TF-M proof): IAK key-isolation** —
+      a foreign owner/partition cannot invoke `wt_hsm_attest_sign` or read
+      `WT_HSM_ATTEST_KEY_ID`; IAK export is public-only (NONEXPORTABLE).
+    - [ ] **P5-S5 (bucket 5): replay + lifecycle** — different-challenge →
+      different-token differential; boot-seed decision; real lifecycle
+      transition (not the single fixed `0x1000`).
+    - [ ] **P5-CI:** `attestneg` M33MU scenario + `ci:attestneg` label +
+      workflow markers, mirroring the `vaultrecover` pattern.
 
 
 - [ ] **Phase 6 — authenticated boot + update; portability.** Complete update /
