@@ -11,10 +11,29 @@ permissions:
   contents: read
 
 jobs:
+  discover:
+    name: Discover host suites
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.s.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: s
+        # Single source of truth: the Makefile's UNIT_SUITES. Adding a suite
+        # there makes it a new CI check automatically — no workflow edit.
+        run: |
+          suites=$(make -s -C tests/host print-suites)
+          json=$(printf '"%s",' $suites); json="[${json%,}]"
+          echo "matrix={\"suite\":$json}" >> "$GITHUB_OUTPUT"
+
   host-unit-tests:
-    name: Host unit tests
+    name: ${{ matrix.suite }}
+    needs: discover
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - name: Initialize test dependencies
@@ -22,8 +41,8 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://github.com/".insteadOf git@github.com:
           git submodule update --init --recursive
-      - name: Run aggregate host test suite
-        run: make test
+      - name: Run ${{ matrix.suite }} suite
+        run: make -C tests/host/${{ matrix.suite }} clean run
 
   psa-ff-conformance:
     name: Arm PSA FF conformance

@@ -34,9 +34,12 @@ UNIT_SUITES := domain manifest lifecycle ipc ffm spm vnet wolfhsm_loopback \
     crypto_service attestation_service ffm_domain sp_layout spm_gate flash_nvm \
     ffm_veneer vault_service storage_service ps_service keyvault negatives
 
-.PHONY: all test test-compilers test-sanitize test-valgrind clean
+.PHONY: all test test-compilers test-sanitize test-valgrind print-suites clean
 
 all: test
+
+print-suites:
+	@echo $(UNIT_SUITES)
 
 test:
 	@set -e -o pipefail; mkdir -p "$$(dirname "$(LOG_FILE)")"; : > "$(LOG_FILE)"; \

@@ -8,7 +8,7 @@ onto a PR before merge.
 
 | Tier | Trigger | Purpose |
 |------|---------|---------|
-| **Fast (per-PR)** | every PR; push to master/main/dev/churn | host unit tests, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
+| **Fast (per-PR)** | every PR; push to master/main/dev/churn | host unit suites (one check each), Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
 | **Nightly M33MU** | `cron: 0 8 * * *`, or `workflow_dispatch` | full M33MU emulator matrix — 11 concurrent jobs (see below) |
 | **PR opt-in** | add a `ci:*` label to a PR | run one M33MU scenario, or the whole matrix, on the PR branch |
 
@@ -64,3 +64,12 @@ gh workflow run pr-m33mu-select.yml --ref <branch> -f jobs="all"
 
 The local box gate `run_m33mu.sh` (a Zephyr+FreeRTOS lifecycle) and the
 `make test-target` loop remain the pre-push mirror of the M33MU jobs.
+
+## Host unit suites (per-suite checks)
+
+`unit-tests.yml` reads `UNIT_SUITES` from `tests/host/Makefile` (via
+`make -s -C tests/host print-suites`) and fans out one check per suite —
+`Unit tests / ffm`, `Unit tests / spm`, `Unit tests / crypto_service`, …
+Adding a suite to `UNIT_SUITES` makes it a new CI check automatically; no
+workflow edit. The compiler matrix, sanitizers, and valgrind keep running
+the aggregate `make test` (one job per compiler/tool) to bound job count.
