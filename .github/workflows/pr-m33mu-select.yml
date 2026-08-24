@@ -1,0 +1,91 @@
+name: PR M33MU (label-selected)
+
+# Pull heavy M33MU coverage onto a PR on demand, without editing code.
+# Add a label to the PR:
+#   ci:<scenario>  run that one scenario on the PR branch — one of
+#                  positive restart crossdomain confboot devstorage
+#                  devcrypto vaultrecover vaultrecoversec. Add several
+#                  to run several.
+#   ci:m33mu       run the full heavy workflow (wolfBoot + both guest
+#   ci:all         lifecycles + all 8 scenarios) on the PR branch.
+#   (no label)     nothing runs — a normal PR is unaffected.
+# Fires only on label change. Re-add a label to re-run after a push.
+# workflow_dispatch `jobs` is the off-PR equivalent (space list, or "all"):
+#   gh workflow run pr-m33mu-select.yml --ref <branch> -f jobs="positive devcrypto"
+#   gh workflow run pr-m33mu-select.yml --ref <branch> -f jobs="all"
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: "space-separated scenario names, 'm33mu'/'all' for everything"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: pr-m33mu-select-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.p.outputs.run }}
+      scenarios: ${{ steps.p.outputs.scenarios }}
+    steps:
+      - id: p
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          DISPATCH: ${{ github.event.inputs.jobs }}
+        run: |
+          sel=""
+          for l in $LABELS; do
+            case "$l" in
+              ci:*) sel="$sel ${l#ci:}" ;;
+            esac
+          done
+          [ -n "$DISPATCH" ] && sel="$sel $DISPATCH"
+          echo "run= $sel " >> "$GITHUB_OUTPUT"
+          # Individually-picked scenarios become a dynamic matrix. 'all' and
+          # 'm33mu' are handled by the full job below, not expanded here.
+          all="positive restart crossdomain confboot devstorage devcrypto vaultrecover vaultrecoversec"
+          picked=""
+          for s in $all; do
+            case " $sel " in
+              *" $s "*) picked="$picked \"$s\"," ;;
+            esac
+          done
+          echo "scenarios={\"scenario\":[${picked%,}]}" >> "$GITHUB_OUTPUT"
+
+  scenario:
+    needs: select
+    if: ${{ needs.select.outputs.scenarios != '{"scenario":[]}' }}
+    name: M33MU ${{ matrix.scenario }} (PR label)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.select.outputs.scenarios) }}
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: Run FF-M target scenario
+        run: tests/target/run_m33mu_scenario.sh ${{ matrix.scenario }}
+
+  full:
+    needs: select
+    if: contains(needs.select.outputs.run, ' all ') || contains(needs.select.outputs.run, ' m33mu ')
+    uses: ./.github/workflows/stm32h563-build.yml
