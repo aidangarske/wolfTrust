@@ -28,6 +28,10 @@
 #ifndef USER_SETTINGS_H
 #define USER_SETTINGS_H
 
+/* wc_ecc_get_curve_idx_from_name() calls strcasecmp(); under strict -std=c11
+ * glibc only declares it from <strings.h>, so pull it in for this host build. */
+#include <strings.h>
+
 #define HAVE_ANONYMOUS_INLINE_AGGREGATES 1
 #define WOLFSSL_KEY_GEN
 #define WOLFSSL_ASN_TEMPLATE
