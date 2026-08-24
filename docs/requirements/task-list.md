@@ -237,9 +237,31 @@ wolfTrust on the board — the TF-M drop-in proof.
       `psa_store_stub.c` now returns -4 for the volatile-only "not found".
       Replace the literal with a named constant (e.g. `WOLFPSA_STORE_NOTFOUND`)
       in a shared header — candidate for an upstream wolfPSA cleanup.
-    - [ ] On-H5 runs of both suites (board pending). HW scripts
-      (`run_h5_hardware.sh`, `provisioning_ctrl.sh`) still pin the old 128K
-      guest layout — move guest1 when the board returns.
+    - [x] **On-H5 runs of both suites — DONE (2026-08-24, real silicon)**:
+      `devcrypto`/`devstorage` scenarios wired into `run_h5_hardware.sh`
+      (scenario-conditional 256K guest layout, guest1 at 0x080E0000; other
+      scenarios keep the proven 128K layout). Results match the emulator
+      exactly: crypto **64/13/0 (77 scheduled)**, storage **11/6/0 (17)**
+      twice, 0 SIM ERROR. Two silicon-only findings, both root-caused with
+      the debugger and fixed in the runner:
+      1. A vault pool written by an older firmware generation made wolfHSM
+         NVM init fail (`WH_ERROR_ACCESS`) and the secure image BKPT-trap
+         into a mute HardFault pre-UART (emulator never sees it — blank
+         flash every run). Runner now guarantees a blank pool; the real
+         defect (init must reformat/quarantine, never dead-trap) is its
+         own tracked item below.
+      2. Erase-while-running + double-reset ordering: erasing the vault on
+         a live target let the old firmware's cached wolfHSM state rewrite
+         the pool pre-reset (s001 stale-UID failures), and the post-flash
+         cleanup reset landed mid vault-format, tearing a flash write that
+         s003's remove-all later tripped (SIM-ERROR reboot). Fix: after
+         flashing, `reset halt` → erase vault+boot-flag while halted →
+         boot exactly once. Also added a build/flash scenario stamp so
+         mismatched images fail fast.
+    - [ ] **Vault NVM init recovery (silicon robustness)**: on a foreign or
+      corrupt pool, reformat (or quarantine the vault and boot degraded
+      with a report marker) instead of the BKPT dead-trap; add a
+      garbage-pool negative test. Found by the on-H5 runs above.
 
 
 - [~] **Phase 5 — Initial Attestation** — core **implemented and

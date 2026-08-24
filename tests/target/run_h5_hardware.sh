@@ -37,7 +37,7 @@ set -o pipefail
 mode="${1:-all}"
 scenario="${2:-positive}"
 case "$mode" in build|flash|all) ;; *) echo "usage: $0 build|flash|all [scenario]" >&2; exit 2 ;; esac
-case "$scenario" in positive|restart|crossdomain|confboot) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|confboot" >&2; exit 2 ;; esac
+case "$scenario" in positive|restart|crossdomain|confboot|devstorage|devcrypto) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|confboot|devstorage|devcrypto" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -55,7 +55,7 @@ SERIAL="${H5_SERIAL:-/dev/ttyACM0}"
 # confboot reboots the whole chain once per panic test (real SYSRESETREQ, each
 # re-running wolfBoot), so it needs a long ceiling; the capture stops early on
 # the suite report.
-case "$scenario" in restart) cap_default=32 ;; confboot) cap_default=900 ;; *) cap_default=25 ;; esac
+case "$scenario" in restart) cap_default=32 ;; confboot) cap_default=900 ;; devstorage|devcrypto) cap_default=600 ;; *) cap_default=25 ;; esac
 CAP_S="${H5_CAPTURE_SECONDS:-$cap_default}"
 LOGFILE="${WT_SCENARIO_LOG:-ci-h5-hardware-$scenario.log}"
 case "$LOGFILE" in /*) ;; *) LOGFILE="$repo/$LOGFILE" ;; esac
@@ -88,7 +88,13 @@ refute_re()  { if grep -Eq "$2" "$uart"; then check_fail "$1" "unexpected: $2"; 
 WOLFBOOT_ADDR=0x0C000000
 WOLFTRUST_ADDR=0x0C060000
 GUEST0_ADDR=0x080A0000
-GUEST1_ADDR=0x080C0000
+# dev_apis crypto/storage images outgrow guest0's 128K window; use the 256K
+# layout the M33MU runner uses (guest0 256K, guest1 at 0x080E0000) so silicon
+# and emulator flash the same image. Other scenarios keep the proven 128K layout.
+case "$scenario" in
+  devcrypto|devstorage) GUEST1_ADDR=0x080E0000 ;;
+  *)                    GUEST1_ADDR=0x080C0000 ;;
+esac
 guest0="$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin"
 guest1="$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
 
@@ -105,7 +111,8 @@ if [ "$mode" != "flash" ]; then
   export WOLFBOOT_PARTITION_SWAP_ADDRESS=0x0C140000
   export WT_SECURE_IMAGE_HEADER_SIZE=0x400
   export WT_GUEST0_FLASH_BASE=0x080A0000
-  export WT_GUEST1_FLASH_BASE=0x080C0000
+  export WT_GUEST1_FLASH_BASE=$GUEST1_ADDR
+  case "$scenario" in devcrypto|devstorage) export WT_GUEST0_FLASH_SIZE=0x00040000 ;; esac
   export WT_GUEST_RAM_SIZE=0x00010000
   export WT_GUEST1_RAM_BASE=0x20010000
   export WT_ZEPHYR_DTC_OVERLAY_FILE=boards/wolfboot-stm32h563.overlay
@@ -155,6 +162,8 @@ if [ "$mode" != "flash" ]; then
   # WT_CONF_DIAG_TRAP=0: the emulator-only hang-probe fault would become a
   # conformance-monitor reset on silicon and can eat the suite's report window.
   [ "$scenario" = "confboot" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0"; guest_flags="WT_RUN_CONFORMANCE=1"; }
+  [ "$scenario" = "devstorage" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0"; guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=storage"; }
+  [ "$scenario" = "devcrypto" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0"; guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=crypto"; }
 
   stage "building wolfTrust secure image ($scenario)"
   {
@@ -183,6 +192,7 @@ if [ "$mode" != "flash" ]; then
   test -s "$repo/build/wolftrust_v1_signed.bin"
   test -s "$repo/wolfBoot/wolfboot.bin"
   test -s "$guest0"; test -s "$guest1"
+  echo "$scenario" > "$repo/build/h5-scenario.stamp"
   echo "BUILD OK: images ready for flash"
   echo "  wolfboot.bin            -> $WOLFBOOT_ADDR"
   echo "  wolftrust_v1_signed.bin -> $WOLFTRUST_ADDR"
@@ -195,6 +205,9 @@ if [ "$mode" != "build" ]; then
     echo "SKIP: H5 hardware ($("$repo/tests/target/detect_h5.sh" 2>&1))"
     exit 0
   fi
+  built="$(cat "$repo/build/h5-scenario.stamp" 2>/dev/null || echo unknown)"
+  [ "$built" = "$scenario" ] || {
+    echo "FAIL: built images are for '$built', not '$scenario' — run build $scenario first" >&2; exit 1; }
   test -s "$repo/wolfBoot/wolfboot.bin" || { echo "FAIL: wolfboot.bin missing — run build first" >&2; exit 1; }
   test -s "$repo/build/wolftrust_v1_signed.bin" || { echo "FAIL: signed secure image missing — run build first" >&2; exit 1; }
   test -s "$guest0" || { echo "FAIL: guest0 image missing — run build first" >&2; exit 1; }
@@ -208,7 +221,6 @@ if [ "$mode" != "build" ]; then
     stage "erasing conformance boot-flag NVM sector (0x0C1FA000)"
     pyocd erase -t "$PYOCD_TARGET" -s 0x0C1FA000 >/dev/null 2>&1 || true
   fi
-
   stage "capturing $SERIAL @ 115200 (max ${CAP_S}s)"
   stty -F "$SERIAL" 115200 raw -echo -echoe -echok -onlcr 2>/dev/null || true
   : > "$uart"
@@ -231,21 +243,41 @@ if [ "$mode" != "build" ]; then
 
   # CubeProgrammer -hardRst is unreliable (observed: board left parked in the
   # pre-flash state); always follow with an explicit debug-port reset.
-  pyocd cmd -t "$PYOCD_TARGET" -c reset >/dev/null 2>&1 || true
+  #
+  # dev scenarios: the pool must start blank (emulator-equivalent), and both
+  # failure modes observed on silicon come from ordering: erasing a RUNNING
+  # target lets the old firmware's cached wolfHSM state rewrite the pool before
+  # the reset (s001 finds stale UIDs), and a second reset landing mid
+  # vault-format tears a flash write that s003's remove-all later trips over
+  # (SIM ERROR reboot). So: park the core at the reset vector, erase while
+  # halted, then boot exactly once.
+  if [ "$scenario" = "devstorage" ] || [ "$scenario" = "devcrypto" ]; then
+    stage "reset-halt, erase vault NVM + boot-flag while halted, single boot"
+    pyocd cmd -t "$PYOCD_TARGET" -c "reset halt" >> "$LOGFILE" 2>&1 || true
+    pyocd erase -t "$PYOCD_TARGET" -s 0x0C1FC000 >> "$LOGFILE" 2>&1 || true
+    pyocd erase -t "$PYOCD_TARGET" -s 0x0C1FE000 >> "$LOGFILE" 2>&1 || true
+    pyocd erase -t "$PYOCD_TARGET" -s 0x0C1FA000 >> "$LOGFILE" 2>&1 || true
+    pyocd cmd -t "$PYOCD_TARGET" -c reset >/dev/null 2>&1 || true
+  else
+    pyocd cmd -t "$PYOCD_TARGET" -c reset >/dev/null 2>&1 || true
+  fi
 
   # confboot reboots the chain once per panic test and val resumes off its flash
   # boot flag; the run is done when the suite prints its report, so stop early on
   # it rather than wait the whole ceiling. The others have a fixed settling window.
-  if [ "$scenario" = "confboot" ]; then
-    stage "waiting for the Arm suite report (max ${CAP_S}s)"
-    waited=0
-    while [ "$waited" -lt "$CAP_S" ]; do
-      grep -aq "TOTAL FAILED" "$uart" && break
-      sleep 5; waited=$((waited + 5))
-    done
-  else
-    sleep "$CAP_S"
-  fi
+  case "$scenario" in
+    confboot|devstorage|devcrypto)
+      stage "waiting for the suite report (max ${CAP_S}s)"
+      waited=0
+      while [ "$waited" -lt "$CAP_S" ]; do
+        grep -aq "TOTAL FAILED" "$uart" && break
+        sleep 5; waited=$((waited + 5))
+      done
+      ;;
+    *)
+      sleep "$CAP_S"
+      ;;
+  esac
   kill "$cap_pid" 2>/dev/null || true
   wait "$cap_pid" 2>/dev/null || true
   echo "----- UART capture -----" >> "$LOGFILE"
@@ -345,6 +377,24 @@ if [ "$mode" != "build" ]; then
       expect "Arm suite TOTAL SKIPPED : 4" "TOTAL SKIPPED   : 4"
       expect "Arm suite TOTAL FAILED : 0" "TOTAL FAILED    : 0"
       expect "ACS run completed" "END OF ACS"
+      ;;
+    devstorage|devcrypto)
+      # dev_apis suite report. guest1 raw-writes the same USART3, so strip its
+      # lines then flatten before parsing the totals (mirrors the M33MU gate).
+      refute_re "no unhandled fault markers" \
+        '^(\[HARDFLT\]|HardFault|SecureFault)'
+      flat="$(sed 's/freertos_guest1:.*$//' "$uart" | tr -d '\r\n')"
+      passed=$(printf '%s' "$flat" | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+      skipped=$(printf '%s' "$flat" | grep -oE 'TOTAL SKIPPED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+      failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+      : "${passed:=-1}"; : "${skipped:=-1}"; : "${failed:=-1}"
+      if [ "$scenario" = "devcrypto" ]; then want=77; suite="crypto"; note="c047 CMAC config-skipped"; else want=17; suite="storage"; note="optional PS create/set_extended skipped"; fi
+      if [ "$failed" -eq 0 ] && [ "$((passed + skipped))" -eq "$want" ]; then
+        check_pass "dev_apis $suite: ${passed} passed, ${skipped} skipped, 0 failed ($want scheduled; $note)"
+      else
+        check_fail "dev_apis $suite suite" \
+          "passed=$passed skipped=$skipped failed=$failed (want failed=0, passed+skipped=$want)"
+      fi
       ;;
   esac
   echo "PASS: hardware/h5/$scenario"

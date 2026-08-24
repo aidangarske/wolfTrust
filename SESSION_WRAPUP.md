@@ -3,68 +3,58 @@
 <!-- pre-compact-handoff -->
 
 ## Objective and success criteria
-Finish **P4-S6b dev_apis Crypto** (task #90) — the last Phase 4 piece — and
-wrap up Phase 4. The RNG multi-chunk hang (task #92) and the two dev_apis-crypto
-gaps (c020, c047) are all resolved; the suite runs green on M33MU. **Phase 4 is
-complete** once the S6b slice is committed and #90/#92 closed.
+Phase 4 is COMPLETE, including the on-silicon half: both dev_apis suites pass
+on the real Nucleo-H563ZI (board on wolf-prec5560), matching the M33MU
+emulator exactly. This session's H5 slice is committed on `wolftfm-l3`.
 
 ## User decisions and constraints
-- On Opus 4.8 (no Fable). Single-line commits, author
-  `Aidan Garske <aidan@wolfssl.com>`, no AI attribution. **NEVER push without
-  fresh explicit approval.**
-- Box: container `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15` on wolf-prec5560
-  (100.87.53.96), workdir `/home/aidangarske/wolfTrust-l3-work`, rsync WITHOUT
-  --delete.
-- "pr it" = push the wolfPSA branch to Aidan's fork only; Aidan opens the PR.
+- Single-line commits, author `Aidan Garske <aidan@wolfssl.com>`, no AI
+  attribution. **NEVER push without fresh explicit approval** (the earlier
+  approved push covered S6a+S6b only; the H5 slice commit is UNPUSHED).
+- Board: Nucleo-H563ZI on wolf-prec5560 (100.87.53.96), ST-Link + /dev/ttyACM0
+  on the host; builds only in container ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15;
+  rsync WITHOUT --delete. Board scope decision: crypto + storage (not #91).
 
 ## Repository state
-Branch `wolftfm-l3`. The S6b slice is committed (this session) on top of S6a
-(`e0f6365`). `lib/wolfPSA` submodule is **clean** at pin `dd557dc`; the wolfPSA
-TLS12_PRF fix is carried as a build-time patch, not a working-tree change.
-Nothing pushed — origin still at `29f77db` for the pushed slices; S6a + S6b are
-local and UNPUSHED (push not approved).
+Branch `wolftfm-l3`. Pushed: S6a `e0f6365` + S6b `42e67a9` (origin in sync at
+42e67a9 before this slice). This session's on-H5 slice is committed on top,
+UNPUSHED. lib/wolfPSA submodule clean at `dd557dc` (fix carried via
+tests/target/wolfpsa-tls12-prf-mac-alg.patch).
 
-## Completed this session
-- **wolfPSA TLS12_PRF fix carried as a build-time patch (CI-reproducible).**
-  The fix previously lived only in the submodule working tree, which a fresh CI
-  checkout (`git submodule update` in the runners) would reset away, regressing
-  c020. Converted it to `tests/target/wolfpsa-tls12-prf-mac-alg.patch`, applied
-  with a guarded reverse-check after the submodule update in
-  `run_m33mu_scenario.sh` and `run_h5_hardware.sh` — same carry-then-point-back
-  pattern as the emulator's `m33mu-tb-sec-chain.patch` (#63). Submodule reverted
-  clean; pin stays `dd557dc`.
-- **Pin-bump tracked (task #93):** after the upstream wolfPSA PR
-  (`aidangarske:wolfPSA:tls12-prf-mac-alg`, skoll-clean) merges, advance
-  `lib/wolfPSA` past `dd557dc`, delete the patch, and drop the two apply blocks.
-- Docs finalized: task-list S6b + parent P4-S6 marked done, c020/c047
-  resolutions and the pin-bump item recorded; validation-log S6b crypto entry
-  added.
+## Completed this session (on-H5 silicon closeout)
+- `run_h5_hardware.sh`: devcrypto/devstorage scenarios (256K guest layout for
+  dev images only, guest1 at 0x080E0000; WT_CONF_SUITE build flags;
+  report-terminated capture; suite assertions mirroring the M33MU gate);
+  post-flash `reset halt` → erase vault (0x0C1FC000/0x0C1FE000) + boot-flag
+  (0x0C1FA000) while halted → single boot; build/flash scenario stamp.
+- Silicon results: `PASS: hardware/h5/devcrypto` **64/13/0 (77)**;
+  `PASS: hardware/h5/devstorage` **11/6/0 (17) twice**, 0 SIM ERROR all runs.
+- Two silicon-only failures root-caused via pyocd forensics and fixed in the
+  runner (see validation-log "Phase 4 S6 — dev_apis conformance on H563
+  silicon"): (1) foreign MP5-era vault pool → WH_ERROR_ACCESS → BKPT trap →
+  mute HardFault pre-UART; (2) erase-on-live-target + double-reset tearing the
+  vault format → s001 stale-UID / s003 SIM-ERROR reboot.
+- Docs: validation-log H5 entry; task-list on-H5 item [x] + new vault-recovery
+  item; session tasks #94 done, #95 opened.
 
-## Verification evidence (one tree, patch path)
-- **M33MU devcrypto: `PASS: target/devcrypto` — 64 passed / 13 skipped /
-  0 failed (77 scheduled; c047 CMAC config schedule-skipped).** Proven from a
-  CLEAN `dd557dc` submodule + `git apply` of the carry patch (the
-  CI-reproducible path, not the working-tree carry). c020 TLS12_PRF passes.
-  c047 is dropped from the schedule via `test_c047, skip` in the crypto sched
-  db (same mechanism as c064/c065), so the run has zero failures.
-- M33MU positive 15/15, confboot 89/85/0/4/0, devstorage 17/11/0/6 on the same
-  tree (earlier this session).
-- Host `make test`: PASS: unit/all on this tree.
-- This is M33MU **emulator** evidence, not physical silicon.
+## Verification evidence
+- H5 silicon: devcrypto 64/13/0 (77) once under the fixed flow (plus once
+  under the old flow); devstorage 11/6/0 (17) twice consecutively; 0 SIM
+  ERROR; no fault markers. Logs: box /home/aidangarske/h5-devcrypto-*.log,
+  h5-devstorage-*.log, h5-uart-capture.log.
+- M33MU emulator evidence unchanged from the S6b commit (64/13/0 devcrypto,
+  17/11/0/6 devstorage, positive 15/15, confboot 89/85/0/4/0).
 
 ## Next tasks
-1. Push (needs fresh approval): S6a `e0f6365` + the S6b commit.
-2. Task #93: bump the wolfPSA pin + drop the carry patch after the PR merges.
-3. On-H5 dev_apis runs (task #91 area, board-pending): HW scripts still pin the
-   old 128K guest layout — move guest1 to 0x080E0000 before on-target.
-
-## Relevant files and reports
-- Carry patch: `tests/target/wolfpsa-tls12-prf-mac-alg.patch`.
-- Box gate log: `/home/aidangarske/m33mu-gate.log` (last: devcrypto PASS).
-- wolfPSA PR worktree: `scratchpad/wolfpsa-pr` (branch `tls12-prf-mac-alg`,
-  commit `a96f8d7`); `git -C lib/wolfPSA worktree remove` to clean.
+1. Push (needs fresh approval): the on-H5 slice commit.
+2. #95 vault NVM init recovery (reformat/quarantine on foreign pool, never
+   BKPT-trap; garbage-pool negative test) — the real defect behind finding 1.
+3. #93 wolfPSA pin bump after the upstream PR merges (Aidan opens the PR:
+   compare link in chat history).
+4. #91 WRITE_ONCE-survives-SYSRESETREQ on silicon (board is connected now;
+   needs its own scenario — do NOT erase the vault for it).
+5. Phase 5 negative-evidence matrix (attestation) = next program phase.
 
 ## Resume instruction
-Phase 4 is done. If Aidan approves a push, push `wolftfm-l3` (S6a + S6b). The
-only open Phase-4-adjacent items are the wolfPSA pin bump (#93, after the PR
-merges) and the board-pending on-H5 runs.
+Recheck `git status` (expect clean tree, 1+ commits ahead of origin). The
+board is flashed with devcrypto images and idle. Continue at Next tasks.

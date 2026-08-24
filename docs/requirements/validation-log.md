@@ -2239,5 +2239,45 @@ Evidence (one tree, final skoll-refined helper via the carry patch):
 - M33MU confboot: `PASS: target/confboot` — 89 / 85 / 0 / 4 / 0.
 - M33MU devstorage: `PASS: target/devstorage` — 17 / 11 / 0 / 6.
 - Host: `PASS: unit/all` on this tree.
-- On-H5 hardware: pending the board (runner carries the devcrypto assertions;
-  scripts still pin the old 128K guest layout — move guest1 first).
+- On-H5 hardware: done — see the next entry.
+
+## Phase 4 S6 — dev_apis conformance on H563 silicon (HARDWARE, 2026-08-24)
+
+Both dev_apis suites now pass on the real Nucleo-H563ZI, matching the M33MU
+emulator exactly — the drop-in claim's Phase-4 half is proven on silicon:
+
+- `PASS: hardware/h5/devcrypto` — **64 passed / 13 skipped / 0 failed**
+  (77 scheduled; c047 config-skipped), 0 SIM ERROR.
+- `PASS: hardware/h5/devstorage` — **11 passed / 6 skipped / 0 failed**
+  (17 scheduled), 0 SIM ERROR, two consecutive runs (determinism).
+
+`run_h5_hardware.sh` gained `devcrypto`/`devstorage` scenarios: the dev images
+use the 256K guest0 layout (guest1 at 0x080E0000) so silicon flashes the same
+images the emulator boots; every other scenario keeps the proven 128K layout.
+The wolfPSA TLS-1.2 PRF carry patch applies in this runner too.
+
+The board time earned its keep — two real silicon-only failures, both invisible
+to the emulator (blank flash, no debugger-vs-BKPT distinction), root-caused via
+pyocd forensics (stacked exception frame, HFSR/RSR, PC symbol mapping):
+
+1. **Foreign vault pool bricks boot.** The board still held the MP5-era
+   firmware's NVM pool; Phase-4 vault init got `WH_ERROR_ACCESS` (-2101) and
+   called the panic trap — a BKPT, which with no debugger escalates to a
+   HardFault spin before any UART init. Diagnosis: HFSR=DEBUGEVT, CFSR=0,
+   stacked r0 = -2101. The runner now guarantees a blank pool for the dev
+   scenarios; the underlying defect (init must reformat or quarantine, never
+   dead-trap) is tracked as its own item with a garbage-pool negative test.
+
+2. **Test-harness ordering corrupted the pool.** Erasing the vault on a live
+   target let the old firmware's RAM-cached wolfHSM state rewrite pool
+   structures before the reset (s001 "UID not found" found a stale UID), and
+   the post-flash cleanup reset landed mid vault-format, tearing a flash word
+   that s003's remove-all later tripped — wolfHSM error, panic-reset, val
+   resume, 1 SIM ERROR. Deterministic under the old ordering, absent under a
+   single clean boot. Fix: after CubeProgrammer, `reset halt` (old firmware
+   dead), erase vault + boot-flag sectors while halted (output logged, not
+   silenced), then boot exactly once. A build/flash scenario stamp now fails
+   fast on mismatched images.
+
+This is real-hardware evidence, recorded separately from the M33MU emulator
+ledger per the evidence rules.
