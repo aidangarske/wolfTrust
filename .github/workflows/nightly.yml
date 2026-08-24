@@ -28,5 +28,8 @@ jobs:
   cross-compile:
     uses: ./.github/workflows/cross-compile.yml
 
+  core-port-split:
+    uses: ./.github/workflows/core-port-split.yml
+
   m33mu:
     uses: ./.github/workflows/stm32h563-build.yml

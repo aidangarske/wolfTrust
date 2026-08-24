@@ -2,7 +2,7 @@ name: Cross compilation
 
 on:
   push:
-    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3]
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3, wolfTrust-dev]
   pull_request:
   workflow_dispatch:
   workflow_call:
