@@ -32,8 +32,8 @@ endif
 
 UNIT_SUITES := domain manifest lifecycle ipc ffm spm vnet wolfhsm_loopback \
     crypto_service attestation_service attestation attestation_token \
-    ffm_domain sp_layout spm_gate flash_nvm ffm_veneer vault_service \
-    storage_service ps_service keyvault negatives qcbor_shim
+    attestation_golden ffm_domain sp_layout spm_gate flash_nvm ffm_veneer \
+    vault_service storage_service ps_service keyvault negatives qcbor_shim
 
 .PHONY: all test test-compilers test-sanitize test-valgrind print-suites clean
 

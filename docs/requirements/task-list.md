@@ -289,8 +289,14 @@ wolfTrust on the board — the TF-M drop-in proof.
       token / wrong key / undersized buffer / bad flags / null signer (15/15
       host checks). Added to `UNIT_SUITES` → runs in `make test` and as its own
       `Unit tests / attestation` CI check.
-    - [ ] **P5-S1 (bucket 1): deterministic EAT claims** — byte-stable golden
-      vector for the encoded claim set; decide profile / boot-seed claims.
+    - [x] **P5-S1 (bucket 1): deterministic EAT claims — DONE.** New
+      `tests/host/attestation_golden/` pins the production claim set against an
+      embedded 216-byte golden vector (fixed RFC 6979 P-256 IAK so the UEID is
+      deterministic, fixed handoff/challenge): tokens byte-identical up to the
+      ECDSA signature, claim bytes match the golden, 12/12 (gcc/clang/ASan).
+      Profile decision pinned by test: profile-2 claim set, no boot-seed (268).
+      Regenerate after an intended claim change with
+      `make run EXTRA_CFLAGS=-DWT_GOLDEN_GEN`. In `UNIT_SUITES`/CI.
     - [ ] **P5-S3 (bucket 3): negative evidence** — tampered measurement,
       garbage DICE handoff (`wt_initial_attest_init` refusal), oversized
       challenge (>64) runtime rejection.

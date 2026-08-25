@@ -2386,3 +2386,23 @@ lab host, vault NVM erased while halted, single boot):
 With host (26/26 + CBOR interop), M33MU (both backends), and H5 silicon (both
 backends) green, P5-CONF is complete: ARM's unmodified Initial Attestation
 conformance test passes against wolfTrust with the vault-held IAK.
+
+## Phase 5 S1 — deterministic EAT claim golden vector (2026-08-25)
+
+`tests/host/attestation_golden/` drives the production
+`wt_initial_attest_get_token` with a fully fixed environment — RFC 6979 A.2.5
+P-256 IAK (so the UEID, derived from the public key hash, is deterministic),
+fixed 0xAB measurement, lifecycle 0x3000, fixed 0x2A challenge — and pins the
+encoded claim set to an embedded 216-byte golden vector. Checks (12/12, also
+gcc/clang and ASan/UBSan clean):
+
+- two tokens from one boot are byte-identical up to the trailing 64-byte
+  ECDSA signature (the only permitted nondeterminism);
+- the recovered claim set matches the golden vector byte-for-byte;
+- the claim map carries no boot-seed claim (268) — the profile-2 shape is a
+  pinned decision, not an accident.
+
+Any unintended change to the token wire format now fails the
+`Unit tests / attestation_golden` CI check;
+`make run EXTRA_CFLAGS=-DWT_GOLDEN_GEN` reprints the vector after an
+intended claim change.
