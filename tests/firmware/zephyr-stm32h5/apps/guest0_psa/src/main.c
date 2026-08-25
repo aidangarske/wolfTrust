@@ -888,6 +888,84 @@ static void exercise_psa_initial_attestation(void)
     }
 }
 
+#if defined(WT_ATTEST_NEG_PROBE)
+/* Attestation negatives over the real FF-M IPC path (P5-CI attestneg): the
+ * secure side must reject invalid requests with the PSA statuses ARM's
+ * test_a001 depends on, and a tampered or misattributed token must fail the
+ * guest verify. */
+static void exercise_attestation_negatives(void)
+{
+    uint8_t challenge[PSA_INITIAL_ATTEST_CHALLENGE_SIZE_64 + 1u];
+    uint8_t token[512];
+    uint8_t publicKey[65];
+    size_t tokenSize = 0u;
+    size_t publicKeySize = 0u;
+    size_t querySize = 0u;
+    uint32_t verifiedLifecycle = 0u;
+    psa_status_t status;
+    int verify;
+    size_t i;
+
+    for (i = 0u; i < sizeof(challenge); ++i) {
+        challenge[i] = (uint8_t)(0xC0u + i);
+    }
+
+    status = psa_initial_attest_get_token_size(sizeof(challenge), &querySize);
+    if (status != PSA_ERROR_INVALID_ARGUMENT) {
+        LOG_ERR("attestneg oversized challenge not rejected st=%d",
+            (int)status);
+        return;
+    }
+    LOG_INF("attestneg oversized challenge rejected st=%d", (int)status);
+
+    status = psa_initial_attest_get_token(challenge,
+        PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32, token, 0u, &tokenSize);
+    if (status != PSA_ERROR_INVALID_ARGUMENT) {
+        LOG_ERR("attestneg zero token buffer not rejected st=%d",
+            (int)status);
+        return;
+    }
+    LOG_INF("attestneg zero token buffer rejected st=%d", (int)status);
+
+    status = psa_initial_attest_get_token(challenge,
+        PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32, token, sizeof(token),
+        &tokenSize);
+    if (status != PSA_SUCCESS) {
+        LOG_ERR("attestneg baseline token failed st=%d", (int)status);
+        return;
+    }
+    status = wolftrust_attestation_get_iak_public_key(publicKey,
+        sizeof(publicKey), &publicKeySize);
+    if (status != PSA_SUCCESS) {
+        LOG_ERR("attestneg public key fetch failed st=%d", (int)status);
+        return;
+    }
+
+    token[tokenSize - 1u] ^= 0x01u;
+    verify = wt_attestation_verify(token, tokenSize, publicKey, publicKeySize,
+        challenge, PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32,
+        WT_EXPECTED_MEASUREMENT_HEX, WT_EXPECTED_LIFECYCLE,
+        &verifiedLifecycle);
+    if (verify == 0) {
+        LOG_ERR("attestneg tampered token accepted");
+        return;
+    }
+    token[tokenSize - 1u] ^= 0x01u;
+    LOG_INF("attestneg tampered token rejected");
+
+    verify = wt_attestation_verify(token, tokenSize, publicKey, publicKeySize,
+        challenge, PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32,
+        WT_EXPECTED_MEASUREMENT_HEX, 0xEEEEu, &verifiedLifecycle);
+    if (verify == 0) {
+        LOG_ERR("attestneg lifecycle mismatch accepted");
+        return;
+    }
+    LOG_INF("attestneg lifecycle mismatch rejected");
+
+    LOG_INF("wolfTrust attestation negatives verified");
+}
+#endif
+
 #if defined(WT_GUEST_FAULT_PROBE)
 /* Test-only restart probe: a Non-secure read of Secure RAM raises a SecureFault
  * that escalates to the wolfTrust monitor, exercising the manifest restart_limit
@@ -932,6 +1010,9 @@ int main(void)
 	 * guest so the Arm val NSPE framework fits guest0's 32 KiB NS window. The
 	 * full lifecycle is covered by the positive scenario. */
 	exercise_psa_initial_attestation();
+#if defined(WT_ATTEST_NEG_PROBE)
+	exercise_attestation_negatives();
+#endif
 	exercise_psa_rng();
 	exercise_psa_hash();
 	exercise_psa_cipher();

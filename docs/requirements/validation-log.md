@@ -2469,3 +2469,29 @@ Checked face):
 The on-target counterpart (wrong-key AES decrypt + vault negatives) was
 proven in P4-S5; the attestation-specific on-target negative rides #102's
 attestneg scenario.
+
+## Phase 5 P5-CI — attestneg on-target scenario (2026-08-25); PHASE 5 COMPLETE
+
+New `attestneg` M33MU scenario: the production image plus a
+`WT_ATTEST_NEG_PROBE` guest probe drives the attestation negatives over the
+real FF-M IPC path — `PASS: target/attestneg`:
+
+- oversized (65-byte) challenge rejected with `PSA_ERROR_INVALID_ARGUMENT`
+  (`st=-135`) end to end;
+- zero-size token buffer rejected `st=-135` — the ARM test_a001 check-8
+  client mapping proven on target;
+- a tampered token and a lifecycle misattribution both refused by the guest
+  verify against the real vault-held IAK;
+- the positive lifecycle stays green in the same boot, clean `[EXPECT BKPT]`
+  exit, no fault markers.
+
+Wired into the M33MU CI matrix ("Attestation negatives (IPC + tamper)") and
+the `ci:attestneg` PR label. The H5 variant rides #96 (the positive HW image
+fix) since it uses the production image.
+
+**Phase 5 (Initial Attestation) is complete**: production tagged profile-2
+token; ARM test_a001 green on host, M33MU (shim + reference QCBOR), and H563
+silicon (both backends); deterministic claim-set golden vector; handoff /
+challenge / tamper negatives; replay + lifecycle binding; IAK key-isolation
+proven at the wolfHSM enforcement layers (the attestation beat-TF-M claim);
+and the on-target negative scenario in CI.

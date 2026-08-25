@@ -25,6 +25,9 @@
 #                                       qcbor shim
 #   run_m33mu_scenario.sh devattestqcbor  same suite parsed with the reference
 #                                       QCBOR library (fetched test-only)
+#   run_m33mu_scenario.sh attestneg    production image + guest probe: invalid
+#                                       attestation requests rejected over IPC,
+#                                       tampered/misattributed tokens refused
 #
 # This is the single source the local make test-target harness, the box skill
 # scripts, and the CI jobs all drive, so each scenario's markers stay identical.
@@ -33,8 +36,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec) ;;
-  *) echo "usage: $0 positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec" >&2; exit 2 ;;
+  positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec) ;;
+  *) echo "usage: $0 positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -166,6 +169,8 @@ elif [ "$scenario" = "devattest" ]; then
 elif [ "$scenario" = "devattestqcbor" ]; then
   tests/upstream/fetch_qcbor.sh >/dev/null
   guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=attestation WT_ATTEST_CBOR=qcbor"
+elif [ "$scenario" = "attestneg" ]; then
+  guest_flags="WT_ATTEST_NEG_PROBE=1"
 fi
 make -C tests/firmware/zephyr-stm32h5 clone
 env $guest_flags $secure_flags WT_REUSE_SECURE_BUILD=1 WT_EXPECTED_LIFECYCLE=0x1000u \
@@ -357,6 +362,26 @@ case "$scenario" in
     fi
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/$scenario"
+    ;;
+  attestneg)
+    # Production image + guest probe: the secure side must reject invalid
+    # attestation requests over IPC and tampered/misattributed tokens must
+    # fail the guest verify, with the positive lifecycle still green.
+    expect "psa_initial_attestation st=0" "psa_initial_attestation st=0"
+    expect "attestation COSE_Sign1 verified" \
+      "wolfTrust attestation: COSE_Sign1 verified"
+    expect "attestneg oversized challenge rejected st=-135" \
+      "attestneg oversized challenge rejected st=-135"
+    expect "attestneg zero token buffer rejected st=-135" \
+      "attestneg zero token buffer rejected st=-135"
+    expect "attestneg tampered token rejected" \
+      "attestneg tampered token rejected"
+    expect "attestneg lifecycle mismatch rejected" \
+      "attestneg lifecycle mismatch rejected"
+    expect "attestation negatives verified" \
+      "wolfTrust attestation negatives verified"
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
+    echo "PASS: target/attestneg"
     ;;
   vaultrecover)
     # The foreign-pool probe forces the boot-time vault recovery. In the

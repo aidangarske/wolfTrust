@@ -360,8 +360,13 @@ wolfTrust on the board — the TF-M drop-in proof.
         (shim, rerun after a one-time first-boot 0/0 transient on the image
         switch) + `PASS: hardware/devattestqcbor` — both `Result=Passed`,
         TOTAL 1/0, profile 2, no fault markers. P5-CONF COMPLETE.
-    - [ ] **P5-CI:** `attestneg` M33MU scenario + `ci:attestneg` label +
-      workflow markers, mirroring the `vaultrecover` pattern.
+    - [x] **P5-CI — DONE.** `attestneg` M33MU scenario (production image +
+      `WT_ATTEST_NEG_PROBE` guest probe over real FF-M IPC): oversized
+      challenge and zero token buffer rejected `st=-135`, tampered token and
+      lifecycle mismatch refused by the guest verify, positive lifecycle still
+      green, clean exit — `PASS: target/attestneg`. In the M33MU CI matrix +
+      `ci:attestneg` label. H5 variant rides #96 (positive HW image fix).
+      **PHASE 5 COMPLETE.**
 
 
 - [ ] **Phase 6 — authenticated boot + update; portability.** Complete update /

@@ -50,6 +50,10 @@ if(WT_GUEST_FAULT_PROBE)
     target_compile_definitions(app PRIVATE WT_GUEST_FAULT_PROBE=1)
 endif()
 
+if(WT_ATTEST_NEG_PROBE)
+    target_compile_definitions(app PRIVATE WT_ATTEST_NEG_PROBE=1)
+endif()
+
 if(WT_M33MU_EXPECT_BKPT)
     target_compile_definitions(app PRIVATE WT_M33MU_EXPECT_BKPT=1)
 endif()
