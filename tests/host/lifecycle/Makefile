@@ -25,7 +25,7 @@ CFLAGS := -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
     -I$(ROOT)/include $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)
 TEST := $(BUILD_DIR)/test_lifecycle
-SRCS := $(ROOT)/src/lifecycle.c main.c
+SRCS := $(ROOT)/src/restart_policy.c main.c
 
 .PHONY: all run compilers compiler-gcc compiler-clang sanitize valgrind \
     run-valgrind clean

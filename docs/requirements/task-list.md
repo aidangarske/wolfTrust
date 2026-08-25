@@ -378,10 +378,17 @@ wolfTrust on the board — the TF-M drop-in proof.
   gate passes. Guest auth = **hash-pin + monotonic version** (re-hash each guest
   at dispatch vs a manifest-pinned digest + min-version; fail closed). Plan:
   `~/.claude/plans/zany-wandering-stallman.md`. Slices:
-    - [ ] **S0 (baseline): Phase-6 reqs + collapse dead `src/lifecycle.c` into
-      `src/monitor.c` (#28).** WT-FWU block + runtime-verification req +
-      WT-SYS-0002 guest-auth criteria into system.md/framework.md; single-source
-      the restart engine before S3 extends it. Host + cross-build green.
+    - [x] **S0 (baseline): Phase-6 reqs + collapse dead `src/lifecycle.c` into
+      `src/monitor.c` (#28) — DONE.** Added `WT-SYS-0013` (runtime
+      re-measurement) and a framework Phase 6 block (`WT-FFM-0049..0052`,
+      `WT-FWU-0001..0003`) + acceptance gate. Single-sourced the live restart
+      engine: extracted `wt_restart_policy_evaluate` (`src/restart_policy.c`,
+      byte-identical to the old inline `wt_restart_guest` math), deleted dead
+      `src/lifecycle.{c,h}` from the secure build, repointed
+      `tests/host/lifecycle/` at the real predicate. Host `make test` green
+      (`unit/lifecycle` 25, gcc/clang + ASan/UBSan); M33MU `PASS: target/restart`
+      (guest restarted 3x then FAULTED, banners 4/4) — extracted engine proven
+      on-target.
     - [ ] **S1 (keystone, Fable): authenticated guest launch (WT-SYS-0002).**
       Per-guest `expected_digest`+`min_version` in the manifest; `wt_dispatch_guest`
       SHA-256s + version-checks each guest, fails closed on mismatch/rollback;

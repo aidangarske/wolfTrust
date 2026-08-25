@@ -111,3 +111,33 @@ Storage suites pass on the production path, and the negative matrix proves a
 compromised Crypto partition cannot read a key it owns, one client cannot reach
 another's stored objects, write-once and rollback survive reset, and every
 enabled capability has a matching negative test.
+
+## Phase 6 authenticated boot and update requirements
+
+wolfTrust authenticates and measures every guest before launch, binds a
+monotonic firmware version to block rollback, recovers a faulted restartable
+partition without resetting the platform, re-measures domains at runtime, and
+stages firmware updates through an isolated PSA Firmware Update service. A
+swapped image runs only after passing the same authenticated-launch and
+anti-rollback checks as any other guest.
+
+| ID | Behavior | Failure | Source | Tests | Commit |
+| --- | --- | --- | --- | --- | --- |
+| WT-FFM-0049 | Before entering a guest domain, wolfTrust re-hashes the guest image window against a manifest-pinned expected digest, enforces a minimum version, and validates the layout. The verified measurement is recorded as a software component for attestation. | A digest mismatch, a version below the floor, or an invalid layout fails closed: the domain is not entered and unrelated domains keep running. | SRC-FFM 3.5; WT-SYS-0002 | Guest hash-pin, version, and fail-closed launch tests | |
+| WT-FFM-0050 | A wolfTrust or guest image whose version is below the monotonic floor persisted in the wolfHSM vault is rejected before launch, and a successful authenticated boot advances the floor. Floor advancement is lifecycle-gated. | A downgraded image is refused before domain entry, and provisioning or unlocked development lifecycles are not bricked by the floor. | SRC-PSA-FWU; WT-SYS-0002, WT-FFM-0016 | Firmware anti-rollback and version-binding tests | |
+| WT-FFM-0051 | A fault in a restartable Secure Partition releases its held locks, unblocks any pinned Non-secure client with a defined error, scrubs its domain, and restarts it under its declared restart policy without resetting unrelated domains or the platform. | An exhausted restart budget or a mandatory-service fault escalates to fail-closed platform recovery. | SRC-FFM 3.5; WT-SYS-0008, WT-FFM-0017 | Graceful partition-recovery tests | |
+| WT-FFM-0052 | On demand after boot, wolfTrust re-measures a Secure Partition or guest domain and compares it to the domain's expected measurement. | A runtime measurement mismatch drives the domain through the fail-closed fault path instead of continued trust in the boot-time measurement. | WT-SYS-0013, WT-SYS-0008 | Runtime re-measurement and quarantine tests | |
+| WT-FWU-0001 | The Firmware Update service runs as an isolated Secure Partition reached only through the SPM gate and exposes the PSA Firmware Update subset: query, start, write, finish or install, and abort. | A caller that touches update state directly, or a malformed request, faults or returns the specified error without partial effect. | SRC-PSA-FWU; WT-SYS-0006, WT-SYS-0007 | FWU service surface and gating tests | |
+| WT-FWU-0002 | A staged candidate image is written to the wolfBoot update partition and armed for swap on next boot, and the swapped image runs only after passing authenticated launch and anti-rollback. | A candidate that fails the staged write or arming leaves the running image unchanged. | SRC-PSA-FWU; WT-FFM-0049, WT-FFM-0050 | Staged-swap and gated-launch tests | |
+| WT-FWU-0003 | A malformed, oversize, or rolled-back candidate is rejected by the update state machine before it is armed, and an aborted update restores the prior state. | A rejected or aborted update never arms a swap and never advances the version floor. | SRC-PSA-FWU | FWU negative and abort-safety tests | |
+
+## Phase 6 acceptance gate
+
+Phase 6 is complete only when every guest is authenticated and measured before
+launch, firmware anti-rollback rejects a downgraded image, a faulted restartable
+partition recovers without resetting the platform, runtime re-measurement
+quarantines a tampered domain, the Firmware Update service stages and installs an
+update through the gated wolfBoot path, `WT-FFM-0049` through `WT-FFM-0052` and
+`WT-FWU-0001` through `WT-FWU-0003` have passing host and Cortex-M33 tests, and
+the full emulated boot-and-update gate passes on M33MU with H563 silicon
+agreement.

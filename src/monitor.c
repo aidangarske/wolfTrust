@@ -21,6 +21,7 @@
 
 #include "wolftrust/ffm_boot.h"
 #include "wolftrust/monitor.h"
+#include "wolftrust/restart_policy.h"
 #include "wolftrust/spm.h"
 #include "wolftrust_manifest_generated.h"
 
@@ -282,37 +283,25 @@ static void wt_restart_guest(wt_guest_id_t guest_id, wt_fault_reason_t reason)
     const wt_guest_config_t* config = wt_guest_config(guest_id);
     wt_guest_runtime_t* runtime = wt_guest_runtime(guest_id);
     const wt_memory_window_t* restart_window;
-    uint32_t restart_limit;
-    uint32_t restart_window_ticks;
 
     if (config == NULL || runtime == NULL) {
         wt_platform_panic();
     }
 
     runtime->last_fault = reason;
-    restart_limit = config->restart_policy.restart_limit;
-    restart_window_ticks = config->restart_policy.restart_window_ticks;
-    if (restart_limit > 0U) {
-        /* Reset the restart budget only after a full crash-free window since
-         * the LAST restart (field holds the last-restart tick): wall-time
-         * alone must not clear a crash-looping guest, or a reboot cycle
-         * slower than the window would evade the limit forever on silicon. */
-        if (runtime->restart_count > 0U && restart_window_ticks > 0U &&
-            (g_scheduler.monotonic_ticks - runtime->first_restart_tick) >=
-                restart_window_ticks) {
-            runtime->restart_count = 0U;
-        }
-        if (runtime->restart_count >= restart_limit) {
-            /* FAULTED is terminal until an external policy action resets or
-             * reinitializes the partition. */
-            runtime->state = WT_GUEST_FAULTED;
-            g_wt_quarantine_events++;
-            return;
-        }
+    if (wt_restart_policy_evaluate(config->restart_policy.restart_limit,
+                                   config->restart_policy.restart_window_ticks,
+                                   g_scheduler.monotonic_ticks,
+                                   &runtime->restart_count,
+                                   &runtime->first_restart_tick) ==
+            WT_RESTART_DECISION_FAULT) {
+        /* FAULTED is terminal until an external policy action resets or
+         * reinitializes the partition. */
+        runtime->state = WT_GUEST_FAULTED;
+        g_wt_quarantine_events++;
+        return;
     }
 
-    runtime->restart_count++;
-    runtime->first_restart_tick = g_scheduler.monotonic_ticks;
     runtime->state = WT_GUEST_RESTARTING;
     g_wt_restart_events++;
     runtime->remaining_delay_ticks =

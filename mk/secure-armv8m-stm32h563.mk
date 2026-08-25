@@ -160,7 +160,7 @@ SECURE_SRCS := \
     $(ROOT)/src/ffm_boot.c \
     $(ROOT)/src/ffm_domain.c \
     $(ROOT)/src/ipc.c \
-    $(ROOT)/src/lifecycle.c \
+    $(ROOT)/src/restart_policy.c \
     $(ROOT)/src/spm_gate.c \
     $(ROOT)/src/manifest.c \
     $(ROOT)/src/monitor.c \

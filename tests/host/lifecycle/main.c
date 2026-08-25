@@ -18,187 +18,125 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "wolftrust/lifecycle.h"
+/* WT-SYS-0008 / WT-FFM-0017: a restartable partition fault stays within the
+ * declared restart budget and window; exhausting the budget fails closed. This
+ * exercises the production restart-budget engine (wt_restart_policy_evaluate)
+ * that src/monitor.c drives on every guest fault. */
+
+#include "wolftrust/restart_policy.h"
 
 #include <stdio.h>
-#include <string.h>
 
 static unsigned int g_checks;
 static unsigned int g_failures;
 
-#define EXPECT_RESULT(actual, expected) \
+#define EXPECT_DECISION(actual, expected) \
     do { \
-        int actual_result = (actual); \
-        int expected_result = (expected); \
+        wt_restart_decision_t actual_decision = (actual); \
+        wt_restart_decision_t expected_decision = (expected); \
         g_checks++; \
-        if (actual_result != expected_result) { \
-            (void)fprintf(stderr, "line %d: expected %d, received %d\n", \
-                          __LINE__, expected_result, actual_result); \
+        if (actual_decision != expected_decision) { \
+            (void)fprintf(stderr, "line %d: expected decision %d, received %d\n", \
+                          __LINE__, (int)expected_decision, (int)actual_decision); \
             g_failures++; \
         } \
     } while (0)
 
-#define EXPECT_STATE(runtime, expected) \
+#define EXPECT_U32(actual, expected) \
     do { \
+        uint32_t actual_value = (actual); \
+        uint32_t expected_value = (expected); \
         g_checks++; \
-        if ((runtime).state != (expected)) { \
-            (void)fprintf(stderr, "line %d: unexpected lifecycle state\n", \
-                          __LINE__); \
+        if (actual_value != expected_value) { \
+            (void)fprintf(stderr, "line %d: expected %u, received %u\n", \
+                          __LINE__, expected_value, actual_value); \
             g_failures++; \
         } \
     } while (0)
 
-static wt_lifecycle_policy_t wt_domain_policy(void)
+/* Budget of 2 over a 10-tick window: two restarts allowed, the third within the
+ * window faults, and a full crash-free window clears the budget. */
+static void wt_test_budget_and_window(void)
 {
-    wt_lifecycle_policy_t policy;
+    uint32_t count = 0U;
+    uint32_t first = 0U;
 
-    (void)memset(&policy, 0, sizeof(policy));
-    policy.action = WT_RESTART_ACTION_DOMAIN;
-    policy.restart_limit = 2U;
-    policy.restart_window_ticks = 10U;
-    return policy;
+    EXPECT_DECISION(wt_restart_policy_evaluate(2U, 10U, 0U, &count, &first),
+                    WT_RESTART_DECISION_RESTART);
+    EXPECT_U32(count, 1U);
+    EXPECT_U32(first, 0U);
+
+    EXPECT_DECISION(wt_restart_policy_evaluate(2U, 10U, 5U, &count, &first),
+                    WT_RESTART_DECISION_RESTART);
+    EXPECT_U32(count, 2U);
+    EXPECT_U32(first, 5U);
+
+    /* Budget exhausted within the window: fail closed, counters unchanged. */
+    EXPECT_DECISION(wt_restart_policy_evaluate(2U, 10U, 8U, &count, &first),
+                    WT_RESTART_DECISION_FAULT);
+    EXPECT_U32(count, 2U);
+    EXPECT_U32(first, 5U);
+
+    /* A full crash-free window since the last restart (tick 5) clears the
+     * budget, so the next fault restarts again. */
+    EXPECT_DECISION(wt_restart_policy_evaluate(2U, 10U, 20U, &count, &first),
+                    WT_RESTART_DECISION_RESTART);
+    EXPECT_U32(count, 1U);
+    EXPECT_U32(first, 20U);
 }
 
-static void wt_test_lifecycle_flow(void)
+/* Wall-time alone must not clear a crash loop: with a zero window the budget
+ * never resets, so once exhausted the domain stays faulted. */
+static void wt_test_zero_window(void)
 {
-    wt_lifecycle_runtime_t runtime = {
-        WT_DOMAIN_LIFECYCLE_STOPPED, 0U, 0U
-    };
-    wt_lifecycle_policy_t policy = wt_domain_policy();
+    uint32_t count = 0U;
+    uint32_t first = 0U;
 
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_START, 0U),
-                  WT_LIFECYCLE_ERROR_TRANSITION);
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_INITIALIZE, 0U),
-                  WT_LIFECYCLE_VALID);
-    EXPECT_STATE(runtime, WT_DOMAIN_LIFECYCLE_READY);
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_START, 1U),
-                  WT_LIFECYCLE_VALID);
-    EXPECT_STATE(runtime, WT_DOMAIN_LIFECYCLE_RUNNING);
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_WAIT, 2U),
-                  WT_LIFECYCLE_VALID);
-    EXPECT_STATE(runtime, WT_DOMAIN_LIFECYCLE_BLOCKED);
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_SIGNAL, 3U),
-                  WT_LIFECYCLE_VALID);
-    EXPECT_STATE(runtime, WT_DOMAIN_LIFECYCLE_READY);
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_PREEMPT, 4U),
-                  WT_LIFECYCLE_ERROR_TRANSITION);
+    EXPECT_DECISION(wt_restart_policy_evaluate(1U, 0U, 0U, &count, &first),
+                    WT_RESTART_DECISION_RESTART);
+    EXPECT_U32(count, 1U);
+    EXPECT_DECISION(wt_restart_policy_evaluate(1U, 0U, 1000U, &count, &first),
+                    WT_RESTART_DECISION_FAULT);
+    EXPECT_U32(count, 1U);
 }
 
-static void wt_test_restart_containment(void)
+/* A zero restart limit means unlimited restarts. */
+static void wt_test_unlimited(void)
 {
-    wt_lifecycle_runtime_t runtime = {
-        WT_DOMAIN_LIFECYCLE_RUNNING, 0U, 0U
-    };
-    wt_lifecycle_policy_t policy = wt_domain_policy();
+    uint32_t count = 0U;
+    uint32_t first = 0U;
+    unsigned int i;
 
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_PANIC, 10U),
-                  WT_LIFECYCLE_VALID);
-    EXPECT_STATE(runtime, WT_DOMAIN_LIFECYCLE_RESTARTING);
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_RESTART, 11U),
-                  WT_LIFECYCLE_VALID);
-    EXPECT_STATE(runtime, WT_DOMAIN_LIFECYCLE_READY);
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_START, 12U),
-                  WT_LIFECYCLE_VALID);
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_PANIC, 13U),
-                  WT_LIFECYCLE_VALID);
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_RESTART, 14U),
-                  WT_LIFECYCLE_VALID);
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_START, 15U),
-                  WT_LIFECYCLE_VALID);
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_PANIC, 16U),
-                  WT_LIFECYCLE_ERROR_TERMINAL);
-    EXPECT_STATE(runtime, WT_DOMAIN_LIFECYCLE_FAULTED);
-}
-
-static void wt_test_terminal_policy(void)
-{
-    wt_lifecycle_runtime_t runtime = {
-        WT_DOMAIN_LIFECYCLE_RUNNING, 0U, 0U
-    };
-    wt_lifecycle_policy_t policy = {
-        WT_RESTART_ACTION_NEVER, 0U, 0U
-    };
-
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_PANIC, 0U),
-                  WT_LIFECYCLE_ERROR_TERMINAL);
-    EXPECT_STATE(runtime, WT_DOMAIN_LIFECYCLE_FAULTED);
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, &policy,
-                                          WT_LIFECYCLE_EVENT_START, 1U),
-                  WT_LIFECYCLE_ERROR_TRANSITION);
-}
-
-static void wt_test_selector(void)
-{
-    wt_lifecycle_slot_t slots[4] = {
-        { WT_DOMAIN_LIFECYCLE_READY, 1U },
-        { WT_DOMAIN_LIFECYCLE_READY, 2U },
-        { WT_DOMAIN_LIFECYCLE_READY, 2U },
-        { WT_DOMAIN_LIFECYCLE_BLOCKED, 3U }
-    };
-    size_t selected = 0U;
-
-    EXPECT_RESULT(wt_lifecycle_select_next(slots, 4U, 1U, &selected),
-                  WT_LIFECYCLE_VALID);
-    EXPECT_RESULT((int)selected, 1);
-    slots[1].state = WT_DOMAIN_LIFECYCLE_RUNNING;
-    EXPECT_RESULT(wt_lifecycle_select_next(slots, 4U, 1U, &selected),
-                  WT_LIFECYCLE_VALID);
-    EXPECT_RESULT((int)selected, 2);
-    slots[0].state = WT_DOMAIN_LIFECYCLE_BLOCKED;
-    slots[2].state = WT_DOMAIN_LIFECYCLE_BLOCKED;
-    EXPECT_RESULT(wt_lifecycle_select_next(slots, 4U, 0U, &selected),
-                  WT_LIFECYCLE_ERROR_NO_READY);
+    for (i = 0U; i < 5U; ++i) {
+        EXPECT_DECISION(wt_restart_policy_evaluate(0U, 10U, i, &count, &first),
+                        WT_RESTART_DECISION_RESTART);
+    }
+    EXPECT_U32(count, 5U);
+    EXPECT_U32(first, 4U);
 }
 
 static void wt_test_arguments(void)
 {
-    wt_lifecycle_runtime_t runtime = {
-        WT_DOMAIN_LIFECYCLE_STOPPED, 0U, 0U
-    };
-    wt_lifecycle_policy_t policy = wt_domain_policy();
-    wt_lifecycle_slot_t slot = {
-        WT_DOMAIN_LIFECYCLE_STOPPED, 0U
-    };
-    size_t selected = 0U;
+    uint32_t count = 0U;
+    uint32_t first = 0U;
 
-    EXPECT_RESULT(wt_lifecycle_transition(NULL, &policy,
-                                          WT_LIFECYCLE_EVENT_START, 0U),
-                  WT_LIFECYCLE_ERROR_ARGUMENT);
-    EXPECT_RESULT(wt_lifecycle_transition(&runtime, NULL,
-                                          WT_LIFECYCLE_EVENT_START, 0U),
-                  WT_LIFECYCLE_ERROR_ARGUMENT);
-    EXPECT_RESULT(wt_lifecycle_select_next(NULL, 1U, 0U, &selected),
-                  WT_LIFECYCLE_ERROR_ARGUMENT);
-    EXPECT_RESULT(wt_lifecycle_select_next(&slot, 1U, 0U, NULL),
-                  WT_LIFECYCLE_ERROR_ARGUMENT);
+    EXPECT_DECISION(wt_restart_policy_evaluate(2U, 10U, 0U, NULL, &first),
+                    WT_RESTART_DECISION_FAULT);
+    EXPECT_DECISION(wt_restart_policy_evaluate(2U, 10U, 0U, &count, NULL),
+                    WT_RESTART_DECISION_FAULT);
 }
 
 int main(void)
 {
-    wt_test_lifecycle_flow();
-    wt_test_restart_containment();
-    wt_test_terminal_policy();
-    wt_test_selector();
+    wt_test_budget_and_window();
+    wt_test_zero_window();
+    wt_test_unlimited();
     wt_test_arguments();
     if (g_failures != 0U) {
-        (void)fprintf(stderr, "lifecycle checks failed: %u/%u\n",
+        (void)fprintf(stderr, "restart-policy checks failed: %u/%u\n",
                       g_failures, g_checks);
         return 1;
     }
-    (void)printf("lifecycle checks passed: %u\n", g_checks);
+    (void)printf("WT-SYS-0008 restart-policy checks passed: %u\n", g_checks);
     return 0;
 }

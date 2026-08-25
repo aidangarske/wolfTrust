@@ -2495,3 +2495,37 @@ silicon (both backends); deterministic claim-set golden vector; handoff /
 challenge / tamper negatives; replay + lifecycle binding; IAK key-isolation
 proven at the wolfHSM enforcement layers (the attestation beat-TF-M claim);
 and the on-target negative scenario in CI.
+
+## P6-S0 — Phase 6 requirements + restart-engine single-sourcing (#28)
+
+Opened Phase 6 by seating its requirements and removing the last duplicate
+restart engine before S3 extends it.
+
+Requirements: `WT-SYS-0013` (runtime re-measurement) in system.md; a Phase 6
+block in framework.md — `WT-FFM-0049` (authenticated + measured guest launch),
+`WT-FFM-0050` (firmware anti-rollback / version binding), `WT-FFM-0051`
+(graceful restartable-partition recovery), `WT-FFM-0052` (runtime
+re-measurement), `WT-FWU-0001` through `WT-FWU-0003` (the PSA Firmware Update
+service) — plus the Phase 6 acceptance gate. The Commit column fills in per
+slice as each lands.
+
+Collapse (#28): `src/lifecycle.c` was a formal state machine plus a priority
+selector that no `src/` caller ever used — only its own host test — while the
+live engine is `src/monitor.c`. Extracted the restart-budget and window
+decision that `wt_restart_guest` runs on every fault into the neutral
+`wt_restart_policy_evaluate` (`src/restart_policy.c`), byte-identical behavior.
+`monitor.c` now calls it; `src/lifecycle.c` and `include/wolftrust/lifecycle.h`
+are deleted and dropped from the secure source list; `tests/host/lifecycle/`
+drives the real production predicate (budget exhaustion, window reset,
+zero-window crash loop, unlimited restarts, NULL guards) — coverage the monitor
+engine never had.
+
+Evidence:
+
+- Host `make test` green including `unit/lifecycle` (WT-SYS-0008 restart-policy,
+  25 checks); clean under gcc, clang, and ASan/UBSan.
+- M33MU (emulator, wolf-prec5560, `v1.15` container): `PASS: target/restart` —
+  a guest restarted 3 times then FAULTED (banners 4/4), the extracted restart
+  engine proven on the production Cortex-M path. The scenario's secure
+  cross-build links, standing in for the local cross-build (the Mac toolchain
+  lacks newlib).
