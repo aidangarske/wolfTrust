@@ -155,6 +155,21 @@ jobs:
         run: |
           make build/wolftrust.bin build/secure_cmse_implib.o
 
+      - name: Build Zephyr PSA and FreeRTOS PKCS11 guests
+        run: |
+          make -C tests/firmware/zephyr-stm32h5 \
+            WT_REUSE_SECURE_BUILD=1 \
+            WT_EXPECTED_LIFECYCLE=0x1000u \
+            WT_ATTESTATION_DEVELOPMENT_PROFILE=1 \
+            WT_M33MU_EXPECT_BKPT=1 \
+            build-guest0-psa build-freertos-guest1
+
+      - name: Pin guest measurements into the secure image
+        run: |
+          python3 tools/measure/patch_guest_digests.py build/wolftrust.bin \
+            "0:1:tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin" \
+            "1:1:tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
+
       - name: Sign wolfTrust secure runtime
         working-directory: wolfBoot
         run: |
@@ -171,15 +186,6 @@ jobs:
           measurement=$(python3 tests/scripts/read_wolfboot_measurement.py \
             build/wolftrust_v1_signed.bin)
           echo "WT_EXPECTED_MEASUREMENT_HEX=$measurement" >> "$GITHUB_ENV"
-
-      - name: Build Zephyr PSA and FreeRTOS PKCS11 guests
-        run: |
-          make -C tests/firmware/zephyr-stm32h5 \
-            WT_REUSE_SECURE_BUILD=1 \
-            WT_EXPECTED_LIFECYCLE=0x1000u \
-            WT_ATTESTATION_DEVELOPMENT_PROFILE=1 \
-            WT_M33MU_EXPECT_BKPT=1 \
-            build-guest0-psa build-freertos-guest1
 
       - name: Boot the authenticated wolfBoot → wolfTrust → guests chain
         run: |
@@ -234,6 +240,7 @@ jobs:
           grep -Fq "psa_initial_attestation st=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "wolfTrust attestation: wolfCOSE COSE_Sign1 signed by wolfHSM" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "wolfTrust attestation: COSE_Sign1 verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          grep -Fq "wolfTrust attestation: token measurement=$WT_EXPECTED_MEASUREMENT_HEX" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "secured lifecycle policy rejected development token" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
           grep -Fq "[EXPECT BKPT] Success" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
@@ -267,6 +274,7 @@ jobs:
           - { key: devattestqcbor,  name: "dev_apis Initial Attestation (a001, QCBOR)" }
           - { key: attestneg,       name: "Attestation negatives (IPC + tamper)" }
           - { key: authneg,         name: "Authenticated launch fail-closed" }
+          - { key: rollbackneg,     name: "Anti-rollback downgrade refused" }
           - { key: vaultrecover,    name: "Vault recovery self-heal" }
           - { key: vaultrecoversec, name: "Vault recovery fail-closed" }
     timeout-minutes: 45

@@ -5,9 +5,9 @@ name: PR M33MU (label-selected)
 #   ci:<scenario>  run that one scenario on the PR branch — one of
 #                  positive restart crossdomain confboot devstorage
 #                  devcrypto devattest devattestqcbor attestneg authneg
-#                  vaultrecover vaultrecoversec. Add several to run several.
+#                  rollbackneg vaultrecover vaultrecoversec. Add several to run several.
 #   ci:m33mu       run the full heavy workflow (wolfBoot + both guest
-#   ci:all         lifecycles + all 12 scenarios) on the PR branch.
+#   ci:all         lifecycles + all 13 scenarios) on the PR branch.
 #   (no label)     nothing runs — a normal PR is unaffected.
 # Fires only on label change. Re-add a label to re-run after a push.
 # workflow_dispatch `jobs` is the off-PR equivalent (space list, or "all"):
@@ -55,7 +55,7 @@ jobs:
           # Individually-picked scenarios become a dynamic matrix of
           # {key,name} objects (same shape/names as stm32h563-build.yml).
           # 'all'/'m33mu' are handled by the full job below, not expanded here.
-          all="positive restart crossdomain confboot devstorage devcrypto devattest devattestqcbor attestneg authneg vaultrecover vaultrecoversec"
+          all="positive restart crossdomain confboot devstorage devcrypto devattest devattestqcbor attestneg authneg rollbackneg vaultrecover vaultrecoversec"
           picked=""
           for s in $all; do
             case " $sel " in
@@ -73,6 +73,7 @@ jobs:
               devattestqcbor)  n="dev_apis Initial Attestation (a001, QCBOR)" ;;
               attestneg)       n="Attestation negatives (IPC + tamper)" ;;
               authneg)         n="Authenticated launch fail-closed" ;;
+              rollbackneg)     n="Anti-rollback downgrade refused" ;;
               vaultrecover)    n="Vault recovery self-heal" ;;
               vaultrecoversec) n="Vault recovery fail-closed" ;;
             esac

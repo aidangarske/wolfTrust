@@ -31,6 +31,9 @@
 #   run_m33mu_scenario.sh authneg      corrupt guest0 image vs its pinned
 #                                       digest: authenticated launch fails
 #                                       closed, guest1 keeps running
+#   run_m33mu_scenario.sh rollbackneg  probe arms the NVM version floor above
+#                                       the running image and reboots: the
+#                                       downgraded boot is refused fail-closed
 #
 # This is the single source the local make test-target harness, the box skill
 # scripts, and the CI jobs all drive, so each scenario's markers stay identical.
@@ -39,8 +42,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg) ;;
-  *) echo "usage: $0 positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg" >&2; exit 2 ;;
+  positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg) ;;
+  *) echo "usage: $0 positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -141,6 +144,8 @@ elif [ "$scenario" = "vaultrecover" ]; then
   secure_flags="WT_CONFORMANCE=1 WT_VAULT_FOREIGN_PROBE=1"
 elif [ "$scenario" = "vaultrecoversec" ]; then
   secure_flags="WT_CONFORMANCE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1"
+elif [ "$scenario" = "rollbackneg" ]; then
+  secure_flags="WT_ROLLBACK_PROBE=1"
 fi
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
 # Stash the pre-patch image and matching elf: the guest build below can relink
@@ -302,6 +307,15 @@ case "$scenario" in
       "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/positive"
+    ;;
+  rollbackneg)
+    refute_re "no fault markers in boot log" \
+      '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+    expect "downgraded boot refused fail-closed (all guests quarantined)" \
+      "[BKPT] imm=0x7d"
+    refute_re "no guest entered a domain after the floor armed" \
+      'guest0_psa alive'
+    echo "PASS: target/rollbackneg"
     ;;
   authneg)
     refute_re "no fault markers in boot log" \

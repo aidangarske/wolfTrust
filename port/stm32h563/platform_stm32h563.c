@@ -1659,6 +1659,15 @@ void Reset_Handler(void)
     }
 #endif
     if (wt_hsm_init() != 0) wt_platform_panic();
+    /* WT-FFM-0050: the vault NVM is live and no guest has dispatched, so the
+     * monotonic version floors gate every domain now. A missing handoff
+     * reports version zero, which fails closed once a floor is armed. */
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+    (void)wt_hsm_rollback_enforce((handoffRet == 0) ?
+                                  bootHandoff.image_version : 0u);
+#else
+    (void)wt_hsm_rollback_enforce(0u);
+#endif
     for (wt_guest_id_t gid = 0u; gid < WT_MAX_GUESTS; gid++) {
         const wt_guest_config_t *configs;
         size_t cfg_count;

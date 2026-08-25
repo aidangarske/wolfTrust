@@ -44,6 +44,14 @@ int wt_hsm_init(void);
  * value never set (0/unknown) is treated as locked. */
 void wt_hsm_set_boot_lifecycle(uint32_t lifecycle);
 
+/* WT-FFM-0050 firmware anti-rollback, run after wt_hsm_init and before the
+ * first guest dispatch: the wolfTrust image version and every pinned guest
+ * version must meet the monotonic floors persisted in the vault NVM. A
+ * below-floor image quarantines the affected guests (all of them when the
+ * wolfTrust image itself is rolled back) before any domain is entered; an
+ * accepted boot advances the floors. Returns 0 or WT_ROLLBACK_REFUSED. */
+int wt_hsm_rollback_enforce(uint32_t image_version);
+
 /* 1 if a foreign/corrupt vault was reformatted this boot (observability). */
 int wt_hsm_vault_was_reformatted(void);
 
@@ -129,8 +137,9 @@ extern const struct wt_vault_backend wt_hsm_vault_backend;
 
 /* Device-unique seal key + rollback counter table ids: directly above the
  * vault object window (0x0100..0x011F), never matched by vault lookups. */
-#define WT_HSM_SEAL_KEY_ID     0x0120U
-#define WT_HSM_VAULT_TABLE_ID  0x0121U
+#define WT_HSM_SEAL_KEY_ID        0x0120U
+#define WT_HSM_VAULT_TABLE_ID     0x0121U
+#define WT_HSM_ROLLBACK_TABLE_ID  0x0122U
 
 typedef struct wt_vault_sealer {
     psa_status_t (*seal)(const uint8_t* aad, size_t aad_len, uint64_t counter,

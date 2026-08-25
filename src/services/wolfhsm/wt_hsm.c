@@ -61,6 +61,9 @@
 
 /* wolfTrust headers. */
 #include "wolftrust/types.h"
+#include "wolftrust/guest_verify.h"
+#include "wolftrust/monitor.h"
+#include "wolftrust/rollback.h"
 #include "wolftrust/sched/tasklet.h"
 #include "wolftrust/sync/mutex.h"
 #include "wolftrust/services/hsm.h"
@@ -178,6 +181,122 @@ static int wt_hsm_reformat_allowed(void)
 {
     return (g_boot_lifecycle == PSA_LIFECYCLE_ASSEMBLY_AND_TEST) ||
            (g_boot_lifecycle == PSA_LIFECYCLE_PSA_ROT_PROVISIONING);
+}
+
+/* -------------------------------------------------------------------------
+ * WT-FFM-0050 firmware anti-rollback: monotonic version floors in a plain
+ * NVM object (WT_HSM_ROLLBACK_TABLE_ID), same access idiom as the vault
+ * counter table. Runs on the boot stack after wt_hsm_init and before the
+ * first dispatch.
+ * ---------------------------------------------------------------------- */
+static int wt_hsm_rollback_load(wt_rollback_table_t* table)
+{
+    whNvmMetadata meta;
+    int rc;
+
+    rc = wh_Nvm_GetMetadata(&g_nvm_ctx, WT_HSM_ROLLBACK_TABLE_ID, &meta);
+    if (rc == WH_ERROR_NOTFOUND) {
+        wt_rollback_table_init(table);
+        return 0;
+    }
+    if (rc != WH_ERROR_OK || meta.len != sizeof(*table)) {
+        return -1;
+    }
+    rc = wh_Nvm_Read(&g_nvm_ctx, WT_HSM_ROLLBACK_TABLE_ID, 0U,
+                     (whNvmSize)sizeof(*table), (uint8_t*)table);
+    if (rc != WH_ERROR_OK || !wt_rollback_table_valid(table)) {
+        return -1;
+    }
+    return 0;
+}
+
+static int wt_hsm_rollback_store(const wt_rollback_table_t* table)
+{
+    whNvmMetadata meta;
+    int rc;
+
+    (void)memset(&meta, 0, sizeof(meta));
+    meta.id = WT_HSM_ROLLBACK_TABLE_ID;
+    meta.access = WH_NVM_ACCESS_ANY;
+    meta.flags = 0U;
+    meta.len = (whNvmSize)sizeof(*table);
+    rc = wh_Nvm_AddObject(&g_nvm_ctx, &meta, (whNvmSize)sizeof(*table),
+                          (const uint8_t*)table);
+    return (rc == WH_ERROR_OK) ? 0 : -1;
+}
+
+int wt_hsm_rollback_enforce(uint32_t image_version)
+{
+    wt_rollback_table_t table;
+    const wt_guest_measurement_t* records;
+    size_t record_count = 0U;
+    size_t guest_count;
+    size_t i;
+    int refused_platform = 0;
+    int changed = 0;
+
+    guest_count = wt_monitor_state()->guest_count;
+
+    if (wt_hsm_rollback_load(&table) != 0) {
+        /* An unreadable floor cannot prove anything: fail closed. */
+        refused_platform = 1;
+    }
+
+#if defined(WT_ROLLBACK_PROBE)
+    /* Negative test: force the locked lifecycle (the emulator chain boots in
+     * assembly-and-test, which rightly bypasses enforcement), then on the
+     * first pass arm the image floor one above the running version and
+     * reboot, so the second pass exercises the real downgrade refusal
+     * against a floor that survived SYSRESETREQ. A failed arming store is a
+     * broken test, not a refusal: trap loudly. */
+    g_boot_lifecycle = PSA_LIFECYCLE_SECURED;
+    if (!refused_platform && table.image_floor <= image_version) {
+        table.image_floor = image_version + 1U;
+        if (wt_hsm_rollback_store(&table) != 0) {
+            wt_platform_panic();
+        }
+        wt_platform_system_reset();
+    }
+#endif
+
+    if (!refused_platform &&
+            wt_rollback_check(g_boot_lifecycle, image_version,
+                              table.image_floor) != WT_ROLLBACK_OK) {
+        refused_platform = 1;
+    }
+
+    records = wt_platform_guest_measurements(&record_count);
+
+    if (refused_platform) {
+        for (i = 0U; i < guest_count; i++) {
+            wt_monitor_quarantine_guest((wt_guest_id_t)i);
+        }
+        return WT_ROLLBACK_REFUSED;
+    }
+
+    changed = wt_rollback_advance(image_version, &table.image_floor);
+    for (i = 0U; records != NULL && i < record_count; i++) {
+        uint32_t guest = records[i].guest_id;
+
+        if (guest >= WT_GUEST_MEAS_MAX_RECORDS) {
+            continue;
+        }
+        if (wt_rollback_check(g_boot_lifecycle, records[i].version,
+                              table.guest_floor[guest]) != WT_ROLLBACK_OK) {
+            wt_monitor_quarantine_guest((wt_guest_id_t)guest);
+        }
+        else if (wt_rollback_advance(records[i].version,
+                                     &table.guest_floor[guest]) != 0) {
+            changed = 1;
+        }
+    }
+
+    if (changed && wt_hsm_rollback_store(&table) != 0) {
+        /* A lost advance keeps the old floor; the next boot retries. */
+        return WT_ROLLBACK_ERROR_ARGUMENT;
+    }
+
+    return WT_ROLLBACK_OK;
 }
 
 /* -------------------------------------------------------------------------

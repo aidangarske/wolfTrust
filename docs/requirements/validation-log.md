@@ -2593,3 +2593,49 @@ Evidence:
 - H563 silicon: pending the next board session (S1-HW in the task list; the
   hardware runner already carries the patch-then-sign flow and the harness
   measurement assertion).
+
+## P6-S2 — Firmware anti-rollback and version binding (WT-FFM-0050)
+
+The previously unread `boot_handoff.image_version` is now consumed and bound
+to a monotonic version floor persisted in the wolfHSM vault NVM, so a validly
+signed but older wolfTrust or guest image is refused before any domain is
+entered. The floor table is a new plain-id NVM object
+(`WT_HSM_ROLLBACK_TABLE_ID` = 0x0122, directly above the WT-FFM-0048 counter
+table and using the same `wh_Nvm_GetMetadata`/`Read`/`AddObject` idiom):
+one image floor plus one floor per pinned guest record.
+
+Enforcement runs in `wt_hsm_rollback_enforce` on the secure boot stack, after
+`wt_hsm_init` brings the NVM up and before `wt_monitor_start` dispatches the
+first guest. The neutral predicate (`src/rollback.c`) accepts a version only
+at or above its floor and never lowers a floor; the unlocked provisioning
+lifecycles (assembly-and-test, PSA RoT provisioning) bypass refusal — the #95
+pattern, so a version floor cannot brick development flows — while SECURED,
+unknown, and every other lifecycle enforce strictly. A rolled-back wolfTrust
+image (or an unreadable floor table, or a missing handoff once a floor is
+armed) quarantines every guest via the new `wt_monitor_quarantine_guest`
+monitor API and the platform halts fail-closed; a rolled-back guest is
+quarantined alone. An accepted boot advances the floors, writing NVM only
+when a floor actually moved so a steady-state reboot costs no flash wear.
+
+Evidence:
+
+- Host: new `rollback` suite (WT-FFM-0050, 51 checks — locked-lifecycle
+  refusal matrix incl. UNKNOWN, provisioning bypass, monotone advance,
+  no-retreat, missing-handoff-as-version-zero fail-closed, table validity)
+  green under gcc/clang + ASan/UBSan and in the 35-suite `unit/all`.
+- M33MU (emulator, wolf-prec5560, v1.15 container): `PASS: target/positive` —
+  a normal boot initializes and advances the floors with no behavior change;
+  `PASS: target/rollbackneg` — the `WT_ROLLBACK_PROBE` build arms the image
+  floor one above the running version, stores it, SYSRESETREQs, and the
+  second boot reads the floor back from flash NVM and refuses fail-closed
+  (`[BKPT] imm=0x7d`, no guest entered a domain, no fault markers) — proving
+  both the downgrade refusal and floor persistence across reset in one run.
+  The probe forces PSA_LIFECYCLE_SECURED (the emulator chain boots in
+  assembly-and-test, which correctly bypasses enforcement — the first probe
+  run demonstrated exactly that bypass and was the reason the forced-SECURED
+  half was added, mirroring vaultrecoversec).
+- CI: `rollbackneg` in the M33MU matrix ("Anti-rollback downgrade refused")
+  and the `ci:rollbackneg` PR label. The inline per-guest CI job was also
+  reordered to the S1 patch-then-sign flow (it would otherwise boot an
+  unpatched slot and refuse every guest).
+- H563 silicon: rides the #113 board session.

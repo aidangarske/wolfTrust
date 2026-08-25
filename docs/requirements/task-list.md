@@ -413,9 +413,23 @@ wolfTrust on the board — the TF-M drop-in proof.
     - [ ] **S1-HW: repeat authenticated-launch evidence on H563 silicon**
       (devattest + authneg via the updated `run_h5_hardware.sh` patch-then-sign
       flow) — hardware-pending, board session (rides with #91/#96).
-    - [ ] **S2 (Fable): firmware anti-rollback.** Consume the unread
-      `image_version`; monotonic version floor in wolfHSM (WT-FFM-0048 pattern),
-      lifecycle-gated like #95. Host + M33MU positive/negative (downgrade refused).
+    - [x] **S2 (Fable): firmware anti-rollback (WT-FFM-0050) — DONE on M33MU.**
+      `boot_handoff.image_version` finally consumed: `wt_hsm_rollback_enforce`
+      runs on the boot stack after `wt_hsm_init` (NVM live) and before the
+      first dispatch, checking the image version + every S1 pinned guest
+      version against monotonic floors in a new vault NVM object
+      (`WT_HSM_ROLLBACK_TABLE_ID` 0x0122, WT-FFM-0048 idiom). Below-floor
+      image ⇒ all guests quarantined (new `wt_monitor_quarantine_guest`);
+      below-floor guest ⇒ that guest only; floors advance on an accepted boot
+      (NVM write only when changed). Lifecycle-gated like #95: assembly/
+      provisioning bypass, SECURED/unknown enforce. Neutral predicate
+      `src/rollback.c` + host `rollback` suite 51/51 (35-suite unit/all);
+      M33MU `PASS: target/positive` (floor advance, no regression) +
+      `PASS: target/rollbackneg` (probe arms floor above the running version,
+      SYSRESETREQ, second boot refused fail-closed 0x7D — floor proven
+      persistent across reset; probe forces SECURED like vaultrecoversec).
+      `rollbackneg` in the CI matrix + `ci:rollbackneg`; the inline per-guest
+      CI job reordered to the S1 patch-then-sign flow. Silicon rides #113.
     - [ ] **S3 (Fable): graceful SP fault recovery + CI (#26).** Generalize the
       HSM-tasklet cleanup to any faulted SP (restart under policy, don't reset the
       world); wire the negative M33MU fault-recovery scenario into CI. Host + M33MU

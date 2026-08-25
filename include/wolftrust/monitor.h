@@ -44,6 +44,7 @@ void wt_monitor_start(void);
 void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame);
 void wt_monitor_on_guest_fault(const wt_trap_frame_t* frame,
                                wt_fault_reason_t reason);
+void wt_monitor_quarantine_guest(wt_guest_id_t guest_id);
 const wt_scheduler_state_t* wt_monitor_state(void);
 
 #ifdef WT_ENGINE_HSM

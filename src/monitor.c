@@ -592,6 +592,22 @@ void wt_monitor_on_guest_fault(const wt_trap_frame_t* frame,
     wt_schedule_next_guest();
 }
 
+/* Refuse a guest from outside the fault path (launch policy, anti-rollback,
+ * runtime verification): terminal FAULTED, never entered until an external
+ * policy action reinitializes it. */
+void wt_monitor_quarantine_guest(wt_guest_id_t guest_id)
+{
+    wt_guest_runtime_t* runtime = wt_guest_runtime(guest_id);
+
+    if (runtime == NULL) {
+        return;
+    }
+
+    runtime->state = WT_GUEST_FAULTED;
+    g_wt_quarantine_events++;
+    g_wt_launch_refused_mask |= (uint32_t)1U << guest_id;
+}
+
 const wt_scheduler_state_t* wt_monitor_state(void)
 {
     return &g_scheduler;
