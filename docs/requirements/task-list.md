@@ -297,9 +297,13 @@ wolfTrust on the board — the TF-M drop-in proof.
       Profile decision pinned by test: profile-2 claim set, no boot-seed (268).
       Regenerate after an intended claim change with
       `make run EXTRA_CFLAGS=-DWT_GOLDEN_GEN`. In `UNIT_SUITES`/CI.
-    - [ ] **P5-S3 (bucket 3): negative evidence** — tampered measurement,
-      garbage DICE handoff (`wt_initial_attest_init` refusal), oversized
-      challenge (>64) runtime rejection.
+    - [x] **P5-S3 (bucket 3): negative evidence — DONE.** New
+      `tests/host/attestation_negatives/` (19/19, gcc/clang/ASan): NOT_READY
+      before any handoff; NULL/unknown-hash/truncated-measurement handoffs
+      rejected without arming the state; challenge 0/31/33/65 + NULL rejected
+      at runtime; a good token then fails against a different measurement,
+      a different lifecycle, and with one in-token measurement byte flipped
+      (ES256 catches it). In `UNIT_SUITES`/CI. On-target attestneg = #102.
     - [ ] **P5-S4 (bucket 4, Fable, the beat-TF-M proof): IAK key-isolation** —
       a foreign owner/partition cannot invoke `wt_hsm_attest_sign` or read
       `WT_HSM_ATTEST_KEY_ID`; IAK export is public-only (NONEXPORTABLE).

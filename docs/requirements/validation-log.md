@@ -2406,3 +2406,21 @@ Any unintended change to the token wire format now fails the
 `Unit tests / attestation_golden` CI check;
 `make run EXTRA_CFLAGS=-DWT_GOLDEN_GEN` reprints the vector after an
 intended claim change.
+
+## Phase 5 S3 — attestation negative evidence (2026-08-25)
+
+`tests/host/attestation_negatives/` proves the production attestation path
+refuses everything it must (19/19, gcc/clang and ASan/UBSan clean), ordered so
+the not-ready and garbage-handoff refusals run before the one valid
+`wt_initial_attest_init`:
+
+- no handoff → `get_token`/`get_token_size` return NOT_READY, never sign;
+- NULL handoff, unknown hash algorithm, truncated measurement → all rejected,
+  and the state stays unarmed (still NOT_READY afterward);
+- challenge sizes 0/31/33/65 and a NULL challenge → INVALID_ARGUMENT at
+  runtime (65 is the oversized >64 case);
+- a valid token then fails verification against a different measurement,
+  against a different lifecycle, and with a single flipped measurement byte
+  inside the signed payload — the ES256 signature binds the measurement.
+
+On-target attestneg M33MU scenario and `ci:attestneg` label are #102 (P5-CI).
