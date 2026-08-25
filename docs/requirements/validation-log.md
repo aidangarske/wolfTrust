@@ -2368,3 +2368,21 @@ Evidence (both runs on the wolf-prec5560 container, one tree):
 CI: scenarios `devattest` + `devattestqcbor` added to the M33MU matrix,
 `make`-driven runner, and the `ci:devattest`/`ci:devattestqcbor` PR labels.
 H5 silicon run pending (conformance image boots on the board per #94).
+
+## Phase 5 P5-CONF — test_a001 on H563 silicon (HARDWARE, 2026-08-24)
+
+Both CBOR backends re-proven on the real Nucleo-H563ZI via
+`run_h5_hardware.sh` (build in the CI container, flash + UART capture on the
+lab host, vault NVM erased while halted, single boot):
+
+- H5 silicon `PASS: hardware/h5/devattest` — shim backend, `Result=Passed`,
+  TOTAL 1/0/0/0, profile 2, no fault markers. The first attempt after
+  switching image families reported an empty 0/0 val report (one-time
+  first-boot transient); the clean re-run passed and its UART capture is the
+  recorded evidence.
+- H5 silicon `PASS: hardware/devattestqcbor` — reference QCBOR backend,
+  `Result=Passed`, TOTAL 1/0, first try.
+
+With host (26/26 + CBOR interop), M33MU (both backends), and H5 silicon (both
+backends) green, P5-CONF is complete: ARM's unmodified Initial Attestation
+conformance test passes against wolfTrust with the vault-held IAK.

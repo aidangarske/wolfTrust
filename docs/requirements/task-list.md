@@ -300,8 +300,9 @@ wolfTrust on the board — the TF-M drop-in proof.
     - [ ] **P5-S5 (bucket 5): replay + lifecycle** — different-challenge →
       different-token differential; boot-seed decision; real lifecycle
       transition (not the single fixed `0x1000`).
-    - [~] **P5-CONF (ARM drop-in proof): unlock `dev_apis/initial_attestation`
-      (`test_a001`)** from the pinned psa-arch-tests (rev `e17d294`).
+    - [x] **P5-CONF (ARM drop-in proof): unlock `dev_apis/initial_attestation`
+      (`test_a001`)** from the pinned psa-arch-tests (rev `e17d294`) — DONE:
+      host + M33MU both ways + H5 silicon both ways, all green.
       - [x] **CBOR backend done + interop proven.** `test_a001`'s val needs QCBOR;
         wolfTrust uses wolfCOSE. Built a wolfCOSE-backed `qcbor.h`/`qcbor_shim.c`
         (`tests/conformance/qcbor-shim/`) so ARM's `val_attestation.c` stays
@@ -334,7 +335,10 @@ wolfTrust on the board — the TF-M drop-in proof.
       - [x] `test_a001` on M33MU **both ways**: `PASS: target/devattest` (shim,
         16/16 checks, TOTAL 1/0) + `PASS: target/devattestqcbor` (reference
         QCBOR, TOTAL 1/0), one tree, profile 2 — see validation-log.
-      - [ ] Run `test_a001` on H5 silicon (conformance image boots per #94).
+      - [x] `test_a001` on H5 **silicon** both ways: `PASS: hardware/h5/devattest`
+        (shim, rerun after a one-time first-boot 0/0 transient on the image
+        switch) + `PASS: hardware/devattestqcbor` — both `Result=Passed`,
+        TOTAL 1/0, profile 2, no fault markers. P5-CONF COMPLETE.
     - [ ] **P5-CI:** `attestneg` M33MU scenario + `ci:attestneg` label +
       workflow markers, mirroring the `vaultrecover` pattern.
 
