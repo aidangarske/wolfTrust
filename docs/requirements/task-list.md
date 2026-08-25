@@ -300,13 +300,33 @@ wolfTrust on the board — the TF-M drop-in proof.
     - [ ] **P5-S5 (bucket 5): replay + lifecycle** — different-challenge →
       different-token differential; boot-seed decision; real lifecycle
       transition (not the single fixed `0x1000`).
-    - [ ] **P5-CONF (ARM drop-in proof): unlock `dev_apis/initial_attestation`
-      (`test_a001`)** from the pinned psa-arch-tests (rev `e17d294`, already
-      fetched) — same unmodified-ARM credibility as Crypto/Storage. Mirror the
-      S6 storage/crypto CMake blocks in `guest0_psa/CMakeLists.txt`; implement
-      `pal_attestation_function` in `conformance_pal.c`; run under M33MU
-      (confboot-style) then H5. The hand-written slices above are complementary
-      unit/beat-TF-M evidence, not a substitute for this conformance pass.
+    - [~] **P5-CONF (ARM drop-in proof): unlock `dev_apis/initial_attestation`
+      (`test_a001`)** from the pinned psa-arch-tests (rev `e17d294`).
+      - [x] **CBOR backend done + interop proven.** `test_a001`'s val needs QCBOR;
+        wolfTrust uses wolfCOSE. Built a wolfCOSE-backed `qcbor.h`/`qcbor_shim.c`
+        (`tests/conformance/qcbor-shim/`) so ARM's `val_attestation.c` stays
+        unmodified. Proven on host (`tests/host/qcbor_shim/`, 10/10) parsing a
+        real wolfCOSE `COSE_Sign1` (array-of-4 + tag 18 + claims map) and byte-
+        exact Sig_structure encode; also builds the SAME test against the
+        reference QCBOR lib (fetched test-only, `tests/upstream/fetch_qcbor.sh` +
+        `qcbor.rev`, gitignored) — a wolfCOSE token verifies under both. Both run
+        in CI: `Unit tests / qcbor_shim` (in UNIT_SUITES) + `Unit tests / CBOR
+        interop (wolfCOSE and QCBOR)`. Green host + gcc + ASan/UBSan.
+      - [ ] **Target integration (remaining):** add an `attestation` suite block
+        to `guest0_psa/CMakeLists.txt` (mirror S6 crypto) compiling val_attestation
+        + `test_a001` + the two upstream attestation PALs + the shim (or fetched
+        QCBOR); author `port/stm32h563/conformance/pal_attestation_config.h` +
+        `PSA_INITIAL_ATTEST_MAX_TOKEN_SIZE` + an IAK-pubkey shim; guard the
+        `conformance_pal.c` stub under `#if !defined(INITIAL_ATTESTATION)`; add
+        the test-list gen block to `mk/secure-armv8m-stm32h563.mk`; defines
+        `INITIAL_ATTESTATION PSA_ATTESTATION_PROFILE_2 CRYPTO_VERSION_BETA3`.
+      - [ ] **Production token change (blocker for verify):** wolfTrust must emit
+        a **tagged** COSE_Sign1 (val calls `IsTagged(18)`; today `get_token` sets
+        `WT_ATTEST_COSE_FLAG_UNTAGGED`) AND add a **signer_id** (label 5) to the
+        SW component so profile-2 `mandatory_sw_components==2` — bump the map
+        `3u→4u` at `initial_attestation.c:173`. Re-verify on M33MU (confboot +
+        the guest's own attest verify) since this changes the token bytes.
+      - [ ] Run `test_a001` on M33MU **both ways** (shim + real QCBOR), then H5.
     - [ ] **P5-CI:** `attestneg` M33MU scenario + `ci:attestneg` label +
       workflow markers, mirroring the `vaultrecover` pattern.
 
