@@ -307,9 +307,13 @@ wolfTrust on the board — the TF-M drop-in proof.
     - [ ] **P5-S4 (bucket 4, Fable, the beat-TF-M proof): IAK key-isolation** —
       a foreign owner/partition cannot invoke `wt_hsm_attest_sign` or read
       `WT_HSM_ATTEST_KEY_ID`; IAK export is public-only (NONEXPORTABLE).
-    - [ ] **P5-S5 (bucket 5): replay + lifecycle** — different-challenge →
-      different-token differential; boot-seed decision; real lifecycle
-      transition (not the single fixed `0x1000`).
+    - [x] **P5-S5 (bucket 5): replay + lifecycle — DONE.** New
+      `tests/host/attestation_replay/` (13/13, gcc/clang/ASan): different
+      challenges → different tokens, each verifying only under its own
+      challenge (replay of an old token under a fresh nonce is rejected both
+      directions); a real lifecycle transition 0x1000→0x3000 via a new
+      handoff — the secured token is rejected as development and vice versa.
+      Boot-seed decision pinned in P5-S1 (no claim 268). In `UNIT_SUITES`/CI.
     - [x] **P5-CONF (ARM drop-in proof): unlock `dev_apis/initial_attestation`
       (`test_a001`)** from the pinned psa-arch-tests (rev `e17d294`) — DONE:
       host + M33MU both ways + H5 silicon both ways, all green.

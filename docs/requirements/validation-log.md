@@ -2424,3 +2424,18 @@ the not-ready and garbage-handoff refusals run before the one valid
   inside the signed payload — the ES256 signature binds the measurement.
 
 On-target attestneg M33MU scenario and `ci:attestneg` label are #102 (P5-CI).
+
+## Phase 5 S5 — replay + lifecycle binding (2026-08-25)
+
+`tests/host/attestation_replay/` (13/13, gcc/clang and ASan/UBSan clean)
+proves the token is bound to its challenge and its boot lifecycle:
+
+- two tokens for two challenges differ, and each verifies only under its own
+  challenge — a replayed token fails a fresh nonce in both directions;
+- a real lifecycle transition (0x1000 development → 0x3000 secured, delivered
+  by a second DICE handoff) is reflected in the next token, and the binding
+  holds both ways: the secured token is rejected when checked as development
+  and the old development token is rejected when checked as secured.
+
+Boot-seed remains deliberately absent from the claim set (pinned by the P5-S1
+golden vector).
