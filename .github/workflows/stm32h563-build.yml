@@ -120,6 +120,9 @@ jobs:
           git clone --no-checkout https://github.com/danielinux/m33mu.git m33mu
           git -C m33mu fetch --depth 1 origin "$M33MU_REF"
           git -C m33mu checkout --detach "$M33MU_REF"
+          # Carry the tb-sec-chain (SPSEL + ITSTATE) fix like run_m33mu_scenario.sh
+          # until M33MU_REF includes it; without it wolfTrust key-ops fault (#63).
+          git -C m33mu apply "$GITHUB_WORKSPACE/tests/target/m33mu-tb-sec-chain.patch"
           cmake -S m33mu -B m33mu/build -DM33MU_ENABLE_WOLFSSL=OFF
           cmake --build m33mu/build --target m33mu -j2
           echo "M33MU=$GITHUB_WORKSPACE/m33mu/build/m33mu" >> "$GITHUB_ENV"
