@@ -370,12 +370,54 @@ wolfTrust on the board — the TF-M drop-in proof.
       **PHASE 5 COMPLETE.**
 
 
-- [ ] **Phase 6 — authenticated boot + update; portability.** Complete update /
-  rollback / recovery; add a **second Cortex-M port** (proves the MP4 port kit);
-  define the Cortex-A / TFA replacement boundary (cross-architecture lift).
+- [ ] **Phase 6 — authenticated boot, runtime verification, and update**
+  (`phases.md:120-126`). Scoped to the normative source: authenticated/measured
+  guest launch, firmware rollback + recovery, runtime verification, and a PSA
+  Firmware Update service. **Second Cortex-M port + Cortex-A/TFA boundary moved
+  to Phase 8** (decided 2026-08-25). Stop = the full emulated boot-and-update
+  gate passes. Guest auth = **hash-pin + monotonic version** (re-hash each guest
+  at dispatch vs a manifest-pinned digest + min-version; fail closed). Plan:
+  `~/.claude/plans/zany-wandering-stallman.md`. Slices:
+    - [ ] **S0 (baseline): Phase-6 reqs + collapse dead `src/lifecycle.c` into
+      `src/monitor.c` (#28).** WT-FWU block + runtime-verification req +
+      WT-SYS-0002 guest-auth criteria into system.md/framework.md; single-source
+      the restart engine before S3 extends it. Host + cross-build green.
+    - [ ] **S1 (keystone, Fable): authenticated guest launch (WT-SYS-0002).**
+      Per-guest `expected_digest`+`min_version` in the manifest; `wt_dispatch_guest`
+      SHA-256s + version-checks each guest, fails closed on mismatch/rollback;
+      verified measurement becomes an extra SW component in the attestation token
+      (array 1→N). Host accept/reject + M33MU positive + negative; regen the
+      P5-S1 golden vector; keep test_a001 green.
+    - [ ] **S2 (Fable): firmware anti-rollback.** Consume the unread
+      `image_version`; monotonic version floor in wolfHSM (WT-FFM-0048 pattern),
+      lifecycle-gated like #95. Host + M33MU positive/negative (downgrade refused).
+    - [ ] **S3 (Fable): graceful SP fault recovery + CI (#26).** Generalize the
+      HSM-tasklet cleanup to any faulted SP (restart under policy, don't reset the
+      world); wire the negative M33MU fault-recovery scenario into CI. Host + M33MU
+      negative. Collapses #26.
+    - [ ] **S4 (Fable, deepest): PSA Firmware Update service.** New `SERVICE_FWU`
+      SP + `include/psa/update.h` (`psa_fwu_*`); stages into the wolfBoot update
+      partition + trigger, gated by S1/S2 on the next boot. New SID + regen. Host
+      FWU state machine + M33MU (stage→reboot→new image runs, old rejected).
+    - [ ] **S5 (Fable): runtime verification.** Post-boot on-demand re-measurement
+      of a domain → S3 fault path on mismatch. Host + M33MU negative (post-boot
+      tamper caught + quarantined).
+    - [ ] **S6 (Fable + silicon): full boot-and-update gate.** `bootupdate` M33MU
+      scenario end to end (boot→update via FWU→reboot→new image + token + rollback
+      + recovery), CI matrix + `ci:bootupdate`, then H563 silicon. Passing this
+      closes Phase 6 (`phases.md:126` stop condition).
 
 
-- [ ] **Phase 7+ — OS integrations, HW/port qualification, parity + release.**
+- [ ] **Phase 7 — OS integrations** (`phases.md:128-134`): OS-neutral NS client
+  ABI + thin Zephyr/FreeRTOS integrations; same PSA/isolation tests from both.
+
+
+- [ ] **Phase 8 — hardware and port qualification** (`phases.md:136-143`):
+  **second Cortex-M port** (proves the MP4 port kit) + Cortex-A/TFA replacement
+  boundary; H5/C5 hardware qualification. (Moved here from the old Phase 6 line.)
+
+
+- [ ] **Phase 9+ — parity, security review, release qualification.**
 
 ## Open items (active)
 
