@@ -104,6 +104,32 @@ $(TEST_BIN): $(ALL_OBJS) | $(BUILD_DIR)
 run: $(TEST_BIN)
 	$(TEST_BIN)
 
+# Interop: build the SAME test against the reference QCBOR library (fetched
+# test-only) instead of the wolfCOSE shim, proving a wolfCOSE-produced token
+# parses under upstream QCBOR too. Not in UNIT_SUITES (needs a network fetch).
+QCBOR_DIR ?= $(ROOT)/build/upstream/qcbor
+INTEROP_BIN := $(BUILD_DIR)/test_real_qcbor
+INTEROP_CFLAGS := \
+    -DWOLFSSL_USER_SETTINGS -UHAVE_CONFIG_H -DWOLFCOSE_ENABLE_EXT_SIGN \
+    -I. -I$(ROOT)/include -I$(WOLFSSL) -I$(WOLFCOSE)/include \
+    -I$(QCBOR_DIR)/inc -I$(QCBOR_DIR)/inc/qcbor \
+    -std=c11 -O0 -g -Wall -Wextra -Wno-unused-function -Wno-unused-parameter \
+    -Wno-implicit-function-declaration
+INTEROP_SRCS := \
+    main.c \
+    $(QCBOR_DIR)/src/UsefulBuf.c $(QCBOR_DIR)/src/qcbor_encode.c \
+    $(QCBOR_DIR)/src/qcbor_decode.c $(QCBOR_DIR)/src/ieee754.c \
+    $(ROOT)/src/services/attestation_cose.c \
+    $(WOLFCOSE)/src/wolfcose.c $(WOLFCOSE)/src/wolfcose_cbor.c \
+    $(_WC_SRCS)
+
+.PHONY: run-interop
+
+run-interop: | $(BUILD_DIR)
+	$(ROOT)/tests/upstream/fetch_qcbor.sh $(QCBOR_DIR) >/dev/null
+	$(CC) $(INTEROP_CFLAGS) $(EXTRA_CFLAGS) $(EXTRA_LDFLAGS) -o $(INTEROP_BIN) $(INTEROP_SRCS)
+	$(INTEROP_BIN)
+
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc
 	$(MAKE) clean run CC=clang BUILD_DIR=$(BUILD_DIR)/clang

@@ -52,3 +52,19 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run pinned Arm PSA FF tests
         run: make test-conformance
+
+  qcbor-interop:
+    name: CBOR interop (wolfCOSE and QCBOR)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize test dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Parse a wolfCOSE COSE_Sign1 with the wolfCOSE-backed shim
+        run: make -C tests/host/qcbor_shim clean run
+      - name: Parse the same token with the reference QCBOR library
+        run: make -C tests/host/qcbor_shim run-interop
