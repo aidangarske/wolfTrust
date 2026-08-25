@@ -389,12 +389,30 @@ wolfTrust on the board — the TF-M drop-in proof.
       (`unit/lifecycle` 25, gcc/clang + ASan/UBSan); M33MU `PASS: target/restart`
       (guest restarted 3x then FAULTED, banners 4/4) — extracted engine proven
       on-target.
-    - [ ] **S1 (keystone, Fable): authenticated guest launch (WT-SYS-0002).**
-      Per-guest `expected_digest`+`min_version` in the manifest; `wt_dispatch_guest`
-      SHA-256s + version-checks each guest, fails closed on mismatch/rollback;
-      verified measurement becomes an extra SW component in the attestation token
-      (array 1→N). Host accept/reject + M33MU positive + negative; regen the
-      P5-S1 golden vector; keep test_a001 green.
+    - [x] **S1 (keystone, Fable): authenticated guest launch (WT-SYS-0002 /
+      WT-FFM-0049) — DONE on M33MU.** Manifest carries the policy
+      (`launch_required`+`launch_min_version` per domain, schema + conformance
+      regen + fixture); the pinned digests ride in a `.wt_guest_meas` slot the
+      image-assembly patcher (`tools/measure/patch_guest_digests.py`) stamps
+      into `wolftrust.bin` BEFORE wolfBoot signs, so the pins share the image
+      root of trust (patch-then-sign; forced by build order — guests link
+      against the secure implib). `wt_monitor_init` + every relaunch re-hash
+      the guest image (`wt_guest_verify_image`, SHA-256 + constant-time pin +
+      version floor) and fail closed to FAULTED/quarantine. Verified digests
+      become lean per-guest SW components (measurement+signer_id) in the
+      attestation token; the expected-measurement assertion moved into the
+      harness (breaks the guest↔image circular build dependency;
+      `wt_attestation_verify_ex` report-only mode). Host `guest_verify` 30/30
+      + 34-suite `unit/all` green (golden vector byte-identical); M33MU
+      `PASS: target/positive` (token measurement == harness-computed wolfBoot
+      measurement), `PASS: target/authneg` (corrupt guest0 refused, guest1
+      survives), `PASS: target/devattest` (a001 green on the 3-component
+      token). Defect found by the gate: the const slot accessor const-folded
+      the unpatched marker — fixed with a volatile load. `authneg` in the CI
+      matrix + `ci:authneg`.
+    - [ ] **S1-HW: repeat authenticated-launch evidence on H563 silicon**
+      (devattest + authneg via the updated `run_h5_hardware.sh` patch-then-sign
+      flow) — hardware-pending, board session (rides with #91/#96).
     - [ ] **S2 (Fable): firmware anti-rollback.** Consume the unread
       `image_version`; monotonic version floor in wolfHSM (WT-FFM-0048 pattern),
       lifecycle-gated like #95. Host + M33MU positive/negative (downgrade refused).

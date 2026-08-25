@@ -15,13 +15,10 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+# along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-ROOT     := ../../..
-WOLFSSL  := $(ROOT)/lib/wolfSSL
-WOLFCOSE := $(ROOT)/lib/wolfCOSE
-WOLFHSM  := $(ROOT)/lib/wolfHSM
+ROOT    := ../../..
+WOLFSSL := $(ROOT)/lib/wolfSSL
 
 CC ?= cc
 BUILD_DIR ?= build
@@ -29,57 +26,32 @@ BUILD_DIR ?= build
 CFLAGS := \
     -DWOLFSSL_USER_SETTINGS \
     -UHAVE_CONFIG_H \
-    -DWOLFCOSE_ENABLE_EXT_SIGN \
-    -DWOLFHSM_CFG_NO_CRYPTO \
-    -DWOLFHSM_CFG_NO_SYS_TIME \
     -I. \
     -I$(ROOT)/include \
     -I$(WOLFSSL) \
-    -I$(WOLFHSM) \
-    -I$(WOLFCOSE)/include \
     -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
-    -Wno-unused-function -Wno-unused-parameter
+    -Wno-unused-function
 CFLAGS += $(EXTRA_CFLAGS)
 
-# wolfCOSE sources are not -pedantic/-Werror clean under this profile; build
-# them with the warnings relaxed while keeping wolfTrust + test code strict.
-COSE_CFLAGS := $(filter-out -Werror -pedantic,$(CFLAGS))
-
-_WT_SRCS := \
-    $(ROOT)/src/services/initial_attestation.c \
-    $(ROOT)/src/services/attestation_cose.c \
-    $(ROOT)/src/guest_verify.c
+_WT_SRCS := $(ROOT)/src/guest_verify.c
 
 _WC_SRCS := \
-    $(WOLFSSL)/wolfcrypt/src/ecc.c      \
-    $(WOLFSSL)/wolfcrypt/src/aes.c      \
-    $(WOLFSSL)/wolfcrypt/src/hmac.c     \
     $(WOLFSSL)/wolfcrypt/src/sha256.c   \
-    $(WOLFSSL)/wolfcrypt/src/random.c   \
-    $(WOLFSSL)/wolfcrypt/src/tfm.c      \
-    $(WOLFSSL)/wolfcrypt/src/wolfmath.c \
+    $(WOLFSSL)/wolfcrypt/src/hash.c     \
     $(WOLFSSL)/wolfcrypt/src/memory.c   \
     $(WOLFSSL)/wolfcrypt/src/error.c    \
     $(WOLFSSL)/wolfcrypt/src/logging.c  \
-    $(WOLFSSL)/wolfcrypt/src/hash.c     \
     $(WOLFSSL)/wolfcrypt/src/wc_port.c  \
-    $(WOLFSSL)/wolfcrypt/src/asn.c      \
-    $(WOLFSSL)/wolfcrypt/src/coding.c   \
     $(WOLFSSL)/wolfcrypt/src/misc.c
-
-_CO_SRCS := \
-    $(WOLFCOSE)/src/wolfcose.c \
-    $(WOLFCOSE)/src/wolfcose_cbor.c
 
 _TEST_SRCS := main.c
 
 _WT_OBJS   := $(patsubst %.c,wt_%.o,$(notdir $(_WT_SRCS)))
 _WC_OBJS   := $(patsubst %.c,wc_%.o,$(notdir $(_WC_SRCS)))
-_CO_OBJS   := $(patsubst %.c,co_%.o,$(notdir $(_CO_SRCS)))
 _TEST_OBJS := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
 
-ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WT_OBJS) $(_WC_OBJS) $(_CO_OBJS) $(_TEST_OBJS))
-TEST_BIN := $(BUILD_DIR)/test_attestation_golden
+ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WT_OBJS) $(_WC_OBJS) $(_TEST_OBJS))
+TEST_BIN := $(BUILD_DIR)/test_guest_verify
 
 .PHONY: all run compilers sanitize valgrind clean
 
@@ -88,19 +60,13 @@ all: $(TEST_BIN)
 $(BUILD_DIR):
 	mkdir -p $@
 
-$(BUILD_DIR)/wt_%.o: $(ROOT)/src/services/%.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
 $(BUILD_DIR)/wt_%.o: $(ROOT)/src/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wc_%.o: $(WOLFSSL)/wolfcrypt/src/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/co_%.o: $(WOLFCOSE)/src/%.c | $(BUILD_DIR)
-	$(CC) $(COSE_CFLAGS) -c -o $@ $<
-
-$(BUILD_DIR)/%.o: %.c golden_payload.inc | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(TEST_BIN): $(ALL_OBJS) | $(BUILD_DIR)

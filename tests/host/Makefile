@@ -30,7 +30,8 @@ else
 SUBMAKE_FLAGS := --no-print-directory -s
 endif
 
-UNIT_SUITES := domain manifest lifecycle ipc ffm spm vnet wolfhsm_loopback \
+UNIT_SUITES := domain manifest lifecycle guest_verify ipc ffm spm vnet \
+    wolfhsm_loopback \
     crypto_service attestation_service attestation attestation_token \
     attestation_golden attestation_negatives attestation_replay \
     attestation_iak ffm_domain sp_layout spm_gate flash_nvm ffm_veneer \

@@ -19,10 +19,59 @@
  */
 
 #include "wolftrust/arch/armv8m/context.h"
+#include "wolftrust/guest_verify.h"
 #include "wolftrust/partition.h"
 #include "memory_map.h"
 
 #include <string.h>
+
+/* Pinned guest-measurement slot. The image-assembly patcher locates it by
+ * magic inside wolftrust.bin, stamps the guest digests, and only then is the
+ * image signed for wolfBoot — so the pins share the image's root of trust.
+ * An unpatched slot advertises zero records, which fails launch closed. */
+#define WT_GUEST_MEAS_SLOT_MAGIC_LEN 16u
+#define WT_GUEST_MEAS_SLOT_UNPATCHED 0xFFFFFFFFu
+#if defined(__ARM_EABI__)
+#define WT_GUEST_MEAS_SECTION \
+    __attribute__((section(".wt_guest_meas"), used, aligned(4)))
+#else
+#define WT_GUEST_MEAS_SECTION
+#endif
+
+typedef struct wt_guest_meas_slot {
+    uint8_t magic[WT_GUEST_MEAS_SLOT_MAGIC_LEN];
+    uint32_t count;
+    wt_guest_measurement_t records[WT_GUEST_MEAS_MAX_RECORDS];
+} wt_guest_meas_slot_t;
+
+static const wt_guest_meas_slot_t g_guest_meas_slot WT_GUEST_MEAS_SECTION = {
+    { 0x57u, 0x54u, 0x47u, 0x4Du, 0x45u, 0x41u, 0x53u, 0x31u,
+      0xA5u, 0x3Cu, 0x96u, 0xE1u, 0x78u, 0x0Fu, 0xB2u, 0x4Bu },
+    WT_GUEST_MEAS_SLOT_UNPATCHED,
+    { { 0u, 0u, 0u, { 0u } } }
+};
+
+const wt_guest_measurement_t* wt_platform_guest_measurements(size_t* count)
+{
+    /* The slot is stamped into the binary after linking, so this const
+     * object's initializer lies: force a runtime load of the count or the
+     * compiler folds the unpatched marker into an unconditional NULL. */
+    const volatile uint32_t* slot_count = &g_guest_meas_slot.count;
+    uint32_t records = *slot_count;
+
+    if (count == NULL) {
+        return NULL;
+    }
+
+    if (records == WT_GUEST_MEAS_SLOT_UNPATCHED ||
+            records > WT_GUEST_MEAS_MAX_RECORDS) {
+        *count = 0u;
+        return NULL;
+    }
+
+    *count = (size_t)records;
+    return g_guest_meas_slot.records;
+}
 
 #ifndef WT_TIMESLICE_MS
 #define WT_TIMESLICE_MS 2U
@@ -372,6 +421,8 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
          * an NS application declared READY boots runnable; STOPPED stays out
          * of the schedule until an explicit lifecycle action. */
         config->initial_state = (wt_guest_state_t)domain->initial_lifecycle;
+        config->launch_required = domain->launch_required;
+        config->launch_min_version = domain->launch_min_version;
 
         if (domain->memory_resource_count != config->memory_window_count ||
                 domain->memory_resource_count > config->mpu_region_count) {

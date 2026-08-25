@@ -74,6 +74,8 @@ SECTIONS {
 
   .text (WT_SECURE_FLASH_ORIGIN + WT_SECURE_IMAGE_HEADER_SIZE + 0x800) : {
     *(.text*)
+    . = ALIGN(4);
+    KEEP(*(.wt_guest_meas))
     *(.rodata*)
     *(.ARM.extab* .gnu.linkonce.armextab.*)
     *(.ARM.exidx* .gnu.linkonce.armexidx.*)

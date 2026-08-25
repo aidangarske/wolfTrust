@@ -20,6 +20,8 @@
 
 #include "wolftrust/services/initial_attestation.h"
 
+#include "wolftrust/guest_verify.h"
+
 #include "wolftrust/services/attestation_cose.h"
 #include "wolftrust/services/hsm.h"
 
@@ -44,8 +46,11 @@
 #define WT_PSA_SW_MEASUREMENT_SIGNER_ID 5
 #define WT_PSA_SW_MEASUREMENT_DESCRIPTION 6
 #define WT_UEID_TYPE_RANDOM 0x01u
-#define WT_ATTEST_PAYLOAD_SIZE 320u
-#define WT_ATTEST_SCRATCH_SIZE 448u
+/* Sized for the base claim set plus one lean measurement+signer component per
+ * verified guest (WT-FFM-0049); the signed token stays under the 512-byte
+ * PSA_INITIAL_ATTEST_MAX_TOKEN_SIZE the conformance suite compiles with. */
+#define WT_ATTEST_PAYLOAD_SIZE 512u
+#define WT_ATTEST_SCRATCH_SIZE 640u
 
 static const uint8_t g_measurement_type[] = "sha-256";
 static const uint8_t g_measurement_description[] = "wolftrust";
@@ -173,7 +178,8 @@ static int wt_attest_encode_payload(wt_guest_id_t guestId,
         ret = wc_CBOR_EncodeInt(&cbor, WT_PSA_CLAIM_SW_COMPONENTS);
     }
     if (ret == 0) {
-        ret = wc_CBOR_EncodeArrayStart(&cbor, 1u);
+        ret = wc_CBOR_EncodeArrayStart(&cbor,
+                  1u + (unsigned int)wt_guest_measurement_count());
     }
     if (ret == 0) {
         ret = wc_CBOR_EncodeMapStart(&cbor, 4u);
@@ -205,6 +211,40 @@ static int wt_attest_encode_payload(wt_guest_id_t guestId,
     if (ret == 0) {
         ret = wc_CBOR_EncodeTstr(&cbor, g_measurement_description,
                                  sizeof(g_measurement_description) - 1u);
+    }
+
+    /* One lean component per launch-verified guest (WT-FFM-0049): the pinned
+     * digest and the boot-chain signer that authenticated the pin. */
+    if (ret == 0) {
+        size_t component;
+
+        for (component = 0u;
+             (ret == 0) && (component < wt_guest_measurement_count());
+             component++) {
+            const wt_guest_measurement_t* guest =
+                wt_guest_measurement_get(component, NULL);
+
+            if (guest == NULL) {
+                ret = -1;
+                break;
+            }
+            ret = wc_CBOR_EncodeMapStart(&cbor, 2u);
+            if (ret == 0) {
+                ret = wc_CBOR_EncodeUint(&cbor, WT_PSA_SW_MEASUREMENT_VALUE);
+            }
+            if (ret == 0) {
+                ret = wc_CBOR_EncodeBstr(&cbor, guest->digest,
+                                         sizeof(guest->digest));
+            }
+            if (ret == 0) {
+                ret = wc_CBOR_EncodeUint(&cbor,
+                                         WT_PSA_SW_MEASUREMENT_SIGNER_ID);
+            }
+            if (ret == 0) {
+                ret = wc_CBOR_EncodeBstr(&cbor, g_signer_id,
+                                         sizeof(g_signer_id));
+            }
+        }
     }
     if (ret != 0) {
         return WT_ATTEST_ERROR_BUFFER_TOO_SMALL;

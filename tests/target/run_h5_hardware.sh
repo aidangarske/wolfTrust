@@ -174,26 +174,36 @@ if [ "$mode" != "flash" ]; then
   stage "building wolfTrust secure image ($scenario)"
   {
     env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
-    IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x40000 WOLFBOOT_SECTOR_SIZE=0x2000 \
-      "$repo/wolfBoot/tools/keytools/sign" --ecc256 \
-        "$repo/build/wolftrust.bin" \
-        "$repo/wolfBoot/wolfboot_signing_private_key.der" 1
-    test -s "$repo/build/wolftrust_v1_signed.bin"
+    # Patch-then-sign (WT-FFM-0049): stash the pre-patch image; signing waits
+    # for the guest digests below so the wolfBoot signature covers the pins.
+    cp "$repo/build/wolftrust.bin" "$repo/build/wolftrust-unsigned.bin"
     cp "$repo/build/wolftrust.elf" "$repo/build/wolftrust-signed.elf"
   } >> "$LOGFILE" 2>&1
-
-  WT_EXPECTED_MEASUREMENT_HEX="$(python3 tests/scripts/read_wolfboot_measurement.py \
-    build/wolftrust_v1_signed.bin 2>>"$LOGFILE")"
 
   # Hardware guest build: NO WT_M33MU_EXPECT_BKPT (emulator-only breakpoint).
   stage "building guests (hardware variant, no emulator BKPT, $scenario)"
   {
     make -C tests/firmware/zephyr-stm32h5 clone
     env $guest_flags $secure_flags WT_REUSE_SECURE_BUILD=1 WT_EXPECTED_LIFECYCLE=0x1000u \
-      WT_EXPECTED_MEASUREMENT_HEX="$WT_EXPECTED_MEASUREMENT_HEX" \
       WT_ATTESTATION_DEVELOPMENT_PROFILE=1 \
       make -C tests/firmware/zephyr-stm32h5 build-guest0-psa build-freertos-guest1
   } >> "$LOGFILE" 2>&1
+
+  stage "pinning guest measurements + signing ($scenario)"
+  {
+    cp "$repo/build/wolftrust-unsigned.bin" "$repo/build/wolftrust.bin"
+    python3 tools/measure/patch_guest_digests.py "$repo/build/wolftrust.bin" \
+      "0:${WT_GUEST0_VERSION:-1}:$guest0" \
+      "1:${WT_GUEST1_VERSION:-1}:$guest1"
+    IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x40000 WOLFBOOT_SECTOR_SIZE=0x2000 \
+      "$repo/wolfBoot/tools/keytools/sign" --ecc256 \
+        "$repo/build/wolftrust.bin" \
+        "$repo/wolfBoot/wolfboot_signing_private_key.der" 1
+    test -s "$repo/build/wolftrust_v1_signed.bin"
+  } >> "$LOGFILE" 2>&1
+
+  WT_EXPECTED_MEASUREMENT_HEX="$(python3 tests/scripts/read_wolfboot_measurement.py \
+    build/wolftrust_v1_signed.bin 2>>"$LOGFILE")"
 
   test -s "$repo/build/wolftrust_v1_signed.bin"
   test -s "$repo/wolfBoot/wolfboot.bin"
@@ -323,6 +333,8 @@ if [ "$mode" != "build" ]; then
       expect "psa_initial_attestation st=0" "psa_initial_attestation st=0"
       expect "attestation COSE_Sign1 verified" \
         "wolfTrust attestation: COSE_Sign1 verified"
+      expect "token measurement equals wolfBoot measurement of the signed image" \
+        "wolfTrust attestation: token measurement=$WT_EXPECTED_MEASUREMENT_HEX"
       expect "guest0_psa done" "guest0_psa done"
       ;;
     restart)

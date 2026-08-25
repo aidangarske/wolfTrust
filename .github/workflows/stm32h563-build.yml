@@ -266,6 +266,7 @@ jobs:
           - { key: devattest,       name: "dev_apis Initial Attestation (a001, shim)" }
           - { key: devattestqcbor,  name: "dev_apis Initial Attestation (a001, QCBOR)" }
           - { key: attestneg,       name: "Attestation negatives (IPC + tamper)" }
+          - { key: authneg,         name: "Authenticated launch fail-closed" }
           - { key: vaultrecover,    name: "Vault recovery self-heal" }
           - { key: vaultrecoversec, name: "Vault recovery fail-closed" }
     timeout-minutes: 45

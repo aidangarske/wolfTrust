@@ -127,6 +127,8 @@ typedef struct wt_domain_descriptor {
     size_t interrupt_resource_count;
     wt_domain_restart_policy_t restart_policy;
     uint32_t required_capabilities;
+    uint32_t launch_required;
+    uint32_t launch_min_version;
 } wt_domain_descriptor_t;
 
 typedef struct wt_profile_capabilities {
@@ -161,7 +163,8 @@ typedef enum wt_domain_validation_result {
     WT_DOMAIN_ERROR_INTERRUPT_COUNT = -21,
     WT_DOMAIN_ERROR_INTERRUPT = -22,
     WT_DOMAIN_ERROR_INTERRUPT_OWNERSHIP = -23,
-    WT_DOMAIN_ERROR_SPM_COUNT = -24
+    WT_DOMAIN_ERROR_SPM_COUNT = -24,
+    WT_DOMAIN_ERROR_LAUNCH_POLICY = -25
 } wt_domain_validation_result_t;
 
 /* Phase 3 must call this on generated manifests before runtime scheduling. */

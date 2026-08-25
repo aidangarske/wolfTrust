@@ -70,8 +70,13 @@ static int wt_decode_measurement(const char* hex, uint8_t* measurement)
     return 0;
 }
 
+/* Component zero is the wolfTrust runtime and is verified strictly; later
+ * components are the launch-verified guest measurements (WT-FFM-0049) and
+ * must be well-formed measurement/signer pairs. When expectedMeasurement is
+ * NULL the component-zero digest is reported, not compared, so the harness
+ * can hold the reference value outside the image under test. */
 static int wt_verify_software_component(WOLFCOSE_CBOR_CTX* cbor,
-    const uint8_t* expectedMeasurement)
+    const uint8_t* expectedMeasurement, uint8_t* tokenMeasurement)
 {
     static const uint8_t type[] = "sha-256";
     static const uint8_t description[] = "wolftrust";
@@ -79,60 +84,92 @@ static int wt_verify_software_component(WOLFCOSE_CBOR_CTX* cbor,
     size_t dataSize;
     size_t arrayCount;
     size_t mapCount;
+    size_t component;
     size_t i;
     int64_t label;
-    uint32_t fields = 0u;
+    uint32_t fields;
     int ret;
 
     ret = wc_CBOR_DecodeArrayStart(cbor, &arrayCount);
-    if ((ret != 0) || (arrayCount != 1u)) {
+    if ((ret != 0) || (arrayCount < 1u)) {
         return -1;
     }
-    ret = wc_CBOR_DecodeMapStart(cbor, &mapCount);
-    for (i = 0u; (ret == 0) && (i < mapCount); ++i) {
-        ret = wc_CBOR_DecodeInt(cbor, &label);
-        if ((ret == 0) && (label == WT_PSA_SW_MEASUREMENT_TYPE)) {
-            ret = wc_CBOR_DecodeTstr(cbor, &data, &dataSize);
-            if ((ret == 0) && (dataSize == sizeof(type) - 1u) &&
-                (memcmp(data, type, dataSize) == 0)) {
-                fields |= 1u;
+    for (component = 0u; (ret == 0) && (component < arrayCount);
+         ++component) {
+        fields = 0u;
+        ret = wc_CBOR_DecodeMapStart(cbor, &mapCount);
+        for (i = 0u; (ret == 0) && (i < mapCount); ++i) {
+            ret = wc_CBOR_DecodeInt(cbor, &label);
+            if ((ret == 0) && (component != 0u)) {
+                if (label == WT_PSA_SW_MEASUREMENT_VALUE) {
+                    ret = wc_CBOR_DecodeBstr(cbor, &data, &dataSize);
+                    if ((ret == 0) && (dataSize == 32u)) {
+                        fields |= 2u;
+                    }
+                    else {
+                        ret = -1;
+                    }
+                }
+                else {
+                    ret = wc_CBOR_Skip(cbor);
+                }
+                continue;
             }
-            else {
-                ret = -1;
+            if ((ret == 0) && (label == WT_PSA_SW_MEASUREMENT_TYPE)) {
+                ret = wc_CBOR_DecodeTstr(cbor, &data, &dataSize);
+                if ((ret == 0) && (dataSize == sizeof(type) - 1u) &&
+                    (memcmp(data, type, dataSize) == 0)) {
+                    fields |= 1u;
+                }
+                else {
+                    ret = -1;
+                }
+            }
+            else if ((ret == 0) && (label == WT_PSA_SW_MEASUREMENT_VALUE)) {
+                ret = wc_CBOR_DecodeBstr(cbor, &data, &dataSize);
+                if ((ret == 0) && (dataSize == 32u) &&
+                    ((expectedMeasurement == NULL) ||
+                     (memcmp(data, expectedMeasurement, dataSize) == 0))) {
+                    if (tokenMeasurement != NULL) {
+                        (void)memcpy(tokenMeasurement, data, dataSize);
+                    }
+                    fields |= 2u;
+                }
+                else {
+                    ret = -1;
+                }
+            }
+            else if ((ret == 0) &&
+                     (label == WT_PSA_SW_MEASUREMENT_DESCRIPTION)) {
+                ret = wc_CBOR_DecodeTstr(cbor, &data, &dataSize);
+                if ((ret == 0) && (dataSize == sizeof(description) - 1u) &&
+                    (memcmp(data, description, dataSize) == 0)) {
+                    fields |= 4u;
+                }
+                else {
+                    ret = -1;
+                }
+            }
+            else if (ret == 0) {
+                ret = wc_CBOR_Skip(cbor);
             }
         }
-        else if ((ret == 0) && (label == WT_PSA_SW_MEASUREMENT_VALUE)) {
-            ret = wc_CBOR_DecodeBstr(cbor, &data, &dataSize);
-            if ((ret == 0) && (dataSize == 32u) &&
-                (memcmp(data, expectedMeasurement, dataSize) == 0)) {
-                fields |= 2u;
+        if (ret == 0) {
+            if (component == 0u) {
+                ret = (fields == 7u) ? 0 : -1;
             }
             else {
-                ret = -1;
+                ret = ((fields & 2u) != 0u) ? 0 : -1;
             }
-        }
-        else if ((ret == 0) &&
-                 (label == WT_PSA_SW_MEASUREMENT_DESCRIPTION)) {
-            ret = wc_CBOR_DecodeTstr(cbor, &data, &dataSize);
-            if ((ret == 0) && (dataSize == sizeof(description) - 1u) &&
-                (memcmp(data, description, dataSize) == 0)) {
-                fields |= 4u;
-            }
-            else {
-                ret = -1;
-            }
-        }
-        else if (ret == 0) {
-            ret = wc_CBOR_Skip(cbor);
         }
     }
-    return ((ret == 0) && (fields == 7u)) ? 0 : -1;
+    return (ret == 0) ? 0 : -1;
 }
 
 static int wt_verify_claims(const uint8_t* payload, size_t payloadSize,
     const uint8_t* challenge, size_t challengeSize,
     const uint8_t* expectedMeasurement, uint32_t expectedLifecycle,
-    uint32_t* verifiedLifecycle)
+    uint32_t* verifiedLifecycle, uint8_t* tokenMeasurement)
 {
     WOLFCOSE_CBOR_CTX cbor;
     const uint8_t* data;
@@ -202,7 +239,8 @@ static int wt_verify_claims(const uint8_t* payload, size_t payloadSize,
             }
         }
         else if ((ret == 0) && (label == WT_PSA_CLAIM_SW_COMPONENTS)) {
-            ret = wt_verify_software_component(&cbor, expectedMeasurement);
+            ret = wt_verify_software_component(&cbor, expectedMeasurement,
+                                               tokenMeasurement);
             if (ret == 0) {
                 claims |= 32u;
             }
@@ -217,14 +255,15 @@ static int wt_verify_claims(const uint8_t* payload, size_t payloadSize,
     return ((ret == 0) && (claims == WT_REQUIRED_CLAIMS)) ? 0 : -1;
 }
 
-int wt_attestation_verify(const uint8_t* token, size_t tokenSize,
+int wt_attestation_verify_ex(const uint8_t* token, size_t tokenSize,
     const uint8_t* publicKey, size_t publicKeySize,
     const uint8_t* challenge, size_t challengeSize,
     const char* expectedMeasurementHex, uint32_t expectedLifecycle,
-    uint32_t* verifiedLifecycle)
+    uint32_t* verifiedLifecycle, uint8_t* tokenMeasurement)
 {
     uint8_t expectedMeasurement[32];
-    uint8_t scratch[384];
+    const uint8_t* expected = NULL;
+    uint8_t scratch[640];
     const uint8_t* payload = NULL;
     size_t payloadSize = 0u;
     WOLFCOSE_HDR header;
@@ -240,9 +279,17 @@ int wt_attestation_verify(const uint8_t* token, size_t tokenSize,
         return -1;
     }
     *verifiedLifecycle = 0u;
-    ret = wt_decode_measurement(expectedMeasurementHex, expectedMeasurement);
-    if (ret != 0) {
-        return ret;
+    /* An absent expected measurement selects report-only mode: the token
+     * digest is returned for the caller (harness) to compare against a
+     * reference held outside the image under test. */
+    if ((expectedMeasurementHex != NULL) &&
+        (expectedMeasurementHex[0] != '\0')) {
+        ret = wt_decode_measurement(expectedMeasurementHex,
+                                    expectedMeasurement);
+        if (ret != 0) {
+            return ret;
+        }
+        expected = expectedMeasurement;
     }
 
     ret = wc_ecc_init(&eccKey);
@@ -269,8 +316,8 @@ int wt_attestation_verify(const uint8_t* token, size_t tokenSize,
     }
     if (ret == 0) {
         ret = wt_verify_claims(payload, payloadSize, challenge, challengeSize,
-                               expectedMeasurement, expectedLifecycle,
-                               verifiedLifecycle);
+                               expected, expectedLifecycle,
+                               verifiedLifecycle, tokenMeasurement);
     }
 
     if (coseKeyInited != 0) {
@@ -282,4 +329,15 @@ int wt_attestation_verify(const uint8_t* token, size_t tokenSize,
     (void)memset(expectedMeasurement, 0, sizeof(expectedMeasurement));
     (void)memset(scratch, 0, sizeof(scratch));
     return ret;
+}
+
+int wt_attestation_verify(const uint8_t* token, size_t tokenSize,
+    const uint8_t* publicKey, size_t publicKeySize,
+    const uint8_t* challenge, size_t challengeSize,
+    const char* expectedMeasurementHex, uint32_t expectedLifecycle,
+    uint32_t* verifiedLifecycle)
+{
+    return wt_attestation_verify_ex(token, tokenSize, publicKey,
+        publicKeySize, challenge, challengeSize, expectedMeasurementHex,
+        expectedLifecycle, verifiedLifecycle, NULL);
 }

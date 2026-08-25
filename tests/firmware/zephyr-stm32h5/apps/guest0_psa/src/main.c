@@ -807,6 +807,7 @@ static void exercise_psa_initial_attestation(void)
     uint8_t token[512];
     uint8_t undersizedToken[1];
     uint8_t publicKey[65];
+    uint8_t tokenMeasurement[32];
     size_t tokenSize = 0u;
     size_t undersizedTokenSize = sizeof(undersizedToken);
     size_t publicKeySize = 0u;
@@ -861,11 +862,24 @@ static void exercise_psa_initial_attestation(void)
     LOG_INF("wolfTrust attestation: IAK public key prefix=%08x%08x",
         (unsigned)keyPrefixHigh, (unsigned)keyPrefixLow);
 
-    verify = wt_attestation_verify(token, tokenSize, publicKey, publicKeySize,
-        challenge, sizeof(challenge), WT_EXPECTED_MEASUREMENT_HEX,
-        WT_EXPECTED_LIFECYCLE, &verifiedLifecycle);
+    verify = wt_attestation_verify_ex(token, tokenSize, publicKey,
+        publicKeySize, challenge, sizeof(challenge),
+        WT_EXPECTED_MEASUREMENT_HEX, WT_EXPECTED_LIFECYCLE,
+        &verifiedLifecycle, tokenMeasurement);
     if (verify == 0) {
+        static const char hexDigits[] = "0123456789abcdef";
+        char measurementHex[65];
+        unsigned int hexIndex;
+
+        for (hexIndex = 0u; hexIndex < 32u; hexIndex++) {
+            measurementHex[hexIndex * 2u] =
+                hexDigits[(tokenMeasurement[hexIndex] >> 4) & 0x0Fu];
+            measurementHex[(hexIndex * 2u) + 1u] =
+                hexDigits[tokenMeasurement[hexIndex] & 0x0Fu];
+        }
+        measurementHex[64] = '\0';
         LOG_INF("wolfTrust attestation: COSE_Sign1 verified");
+        LOG_INF("wolfTrust attestation: token measurement=%s", measurementHex);
         LOG_INF("attestation verify=0 challenge=ok identity=ok "
             "lifecycle=0x%04x measurement=ok cose=ES256",
             (unsigned)WT_EXPECTED_LIFECYCLE);

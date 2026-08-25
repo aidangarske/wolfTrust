@@ -147,6 +147,8 @@ def sp_domain(domain_id, index, code_base, stack_base, stack_size):
         "interrupt_resources": [],
         "restart_policy": copy.deepcopy(SP_RESTART_POLICY),
         "required_capabilities": SP_REQUIRED_CAPS,
+        "launch_required": 0,
+        "launch_min_version": 0,
     }
 
 

@@ -63,6 +63,8 @@ typedef struct wt_guest_config {
     uint32_t timeslice_ms;
     wt_guest_port_binding_t port;
     wt_guest_state_t initial_state;
+    uint32_t launch_required;
+    uint32_t launch_min_version;
 } wt_guest_config_t;
 
 /* Per-guest scheduler runtime. The execution context is an architecture-port

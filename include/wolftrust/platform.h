@@ -85,6 +85,12 @@ void wt_platform_log_fault(wt_guest_id_t guest_id,
                            wt_fault_reason_t reason,
                            uintptr_t fault_address,
                            uintptr_t pc);
+/* Pinned guest measurements stamped into the signed image by the assembly
+ * patcher. Returns NULL with *count zero when no patched slot exists, which
+ * launch verification treats as fail-closed for required guests. */
+struct wt_guest_measurement;
+const struct wt_guest_measurement* wt_platform_guest_measurements(
+    size_t* count);
 uintptr_t wt_platform_read_fault_address(void);
 void wt_platform_all_guests_faulted(void) __attribute__((noreturn));
 void wt_platform_panic(void) __attribute__((noreturn));

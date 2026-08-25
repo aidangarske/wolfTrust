@@ -41,7 +41,9 @@
         "restart_window_ticks": 0,
         "initial_delay_ticks": 0
       },
-      "required_capabilities": 127
+      "required_capabilities": 127,
+      "launch_required": 0,
+      "launch_min_version": 0
     },
     {
       "id": 1,
@@ -74,7 +76,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 1,
+      "launch_min_version": 1
     },
     {
       "id": 2,
@@ -107,7 +111,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 1,
+      "launch_min_version": 1
     },
     {
       "id": 3,
@@ -140,7 +146,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
     },
     {
       "id": 4,
@@ -173,7 +181,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
     },
     {
       "id": 5,
@@ -206,7 +216,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
     },
     {
       "id": 6,
@@ -239,7 +251,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
     },
     {
       "id": 7,
@@ -272,7 +286,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
     },
     {
       "id": 8,
@@ -305,7 +321,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
     },
     {
       "id": 9,
@@ -344,7 +362,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
     },
     {
       "id": 10,
@@ -377,7 +397,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
     }
   ],
   "partitions": [

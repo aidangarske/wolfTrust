@@ -49,7 +49,8 @@ COSE_CFLAGS := $(filter-out -Werror -pedantic,$(CFLAGS))
 
 _WT_SRCS := \
     $(ROOT)/src/services/initial_attestation.c \
-    $(ROOT)/src/services/attestation_cose.c
+    $(ROOT)/src/services/attestation_cose.c \
+    $(ROOT)/src/guest_verify.c
 
 _GUEST_SRCS := $(GUEST)/attestation_verify.c
 
@@ -93,6 +94,9 @@ $(BUILD_DIR):
 	mkdir -p $@
 
 $(BUILD_DIR)/wt_%.o: $(ROOT)/src/services/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_%.o: $(ROOT)/src/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/gt_%.o: $(GUEST)/%.c | $(BUILD_DIR)

@@ -21,8 +21,18 @@
       "stack_base": 14336,
       "stack_size": 1024,
       "memory_resources": [
-        {"base": 4096, "size": 4096, "attributes": 5, "share_id": 0},
-        {"base": 12288, "size": 4096, "attributes": 19, "share_id": 0}
+        {
+          "base": 4096,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 12288,
+          "size": 4096,
+          "attributes": 19,
+          "share_id": 0
+        }
       ],
       "interrupt_resources": [],
       "restart_policy": {
@@ -31,7 +41,9 @@
         "restart_window_ticks": 0,
         "initial_delay_ticks": 0
       },
-      "required_capabilities": 19
+      "required_capabilities": 19,
+      "launch_required": 0,
+      "launch_min_version": 0
     },
     {
       "id": 1,
@@ -44,11 +56,25 @@
       "stack_base": 30720,
       "stack_size": 1024,
       "memory_resources": [
-        {"base": 20480, "size": 4096, "attributes": 5, "share_id": 0},
-        {"base": 28672, "size": 4096, "attributes": 19, "share_id": 0}
+        {
+          "base": 20480,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 28672,
+          "size": 4096,
+          "attributes": 19,
+          "share_id": 0
+        }
       ],
       "interrupt_resources": [
-        {"interrupt": 21, "attributes": 0, "share_id": 0}
+        {
+          "interrupt": 21,
+          "attributes": 0,
+          "share_id": 0
+        }
       ],
       "restart_policy": {
         "action": 1,
@@ -56,7 +82,9 @@
         "restart_window_ticks": 100,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 104
+      "required_capabilities": 104,
+      "launch_required": 0,
+      "launch_min_version": 0
     },
     {
       "id": 2,
@@ -69,11 +97,25 @@
       "stack_base": 47104,
       "stack_size": 1024,
       "memory_resources": [
-        {"base": 36864, "size": 4096, "attributes": 5, "share_id": 0},
-        {"base": 45056, "size": 4096, "attributes": 19, "share_id": 0}
+        {
+          "base": 36864,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 45056,
+          "size": 4096,
+          "attributes": 19,
+          "share_id": 0
+        }
       ],
       "interrupt_resources": [
-        {"interrupt": 22, "attributes": 0, "share_id": 0}
+        {
+          "interrupt": 22,
+          "attributes": 0,
+          "share_id": 0
+        }
       ],
       "restart_policy": {
         "action": 1,
@@ -81,7 +123,9 @@
         "restart_window_ticks": 100,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 104
+      "required_capabilities": 104,
+      "launch_required": 0,
+      "launch_min_version": 0
     }
   ],
   "partitions": [
@@ -103,9 +147,15 @@
           "connection_based": true
         }
       ],
-      "dependencies": [8192],
+      "dependencies": [
+        8192
+      ],
       "interrupts": [
-        {"signal_name": "ALPHA_IRQ", "interrupt": 21, "signal": 32}
+        {
+          "signal_name": "ALPHA_IRQ",
+          "interrupt": 21,
+          "signal": 32
+        }
       ]
     },
     {
@@ -128,7 +178,11 @@
       ],
       "dependencies": [],
       "interrupts": [
-        {"signal_name": "BETA_IRQ", "interrupt": 22, "signal": 32}
+        {
+          "signal_name": "BETA_IRQ",
+          "interrupt": 22,
+          "signal": 32
+        }
       ]
     }
   ],

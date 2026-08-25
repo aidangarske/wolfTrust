@@ -28,6 +28,9 @@
 #   run_m33mu_scenario.sh attestneg    production image + guest probe: invalid
 #                                       attestation requests rejected over IPC,
 #                                       tampered/misattributed tokens refused
+#   run_m33mu_scenario.sh authneg      corrupt guest0 image vs its pinned
+#                                       digest: authenticated launch fails
+#                                       closed, guest1 keeps running
 #
 # This is the single source the local make test-target harness, the box skill
 # scripts, and the CI jobs all drive, so each scenario's markers stay identical.
@@ -36,8 +39,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec) ;;
-  *) echo "usage: $0 positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec" >&2; exit 2 ;;
+  positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg) ;;
+  *) echo "usage: $0 positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -140,17 +143,12 @@ elif [ "$scenario" = "vaultrecoversec" ]; then
   secure_flags="WT_CONFORMANCE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1"
 fi
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
-IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x40000 WOLFBOOT_SECTOR_SIZE=0x2000 \
-  "$repo/wolfBoot/tools/keytools/sign" --ecc256 \
-    "$repo/build/wolftrust.bin" \
-    "$repo/wolfBoot/wolfboot_signing_private_key.der" 1
-test -s "$repo/build/wolftrust_v1_signed.bin"
-# Snapshot the elf that matches the signed image: the guest build below can
-# relink build/wolftrust.elf, which poisons post-mortem symbolization.
+# Stash the pre-patch image and matching elf: the guest build below can relink
+# build/wolftrust.elf (poisoning post-mortem symbolization), and signing now
+# happens only after the guest digests are stamped into the measurement slot
+# (patch-then-sign, WT-FFM-0049), which needs the final guest binaries.
+cp "$repo/build/wolftrust.bin" "$repo/build/wolftrust-unsigned.bin"
 cp "$repo/build/wolftrust.elf" "$repo/build/wolftrust-signed.elf"
-
-WT_EXPECTED_MEASUREMENT_HEX="$(python3 tests/scripts/read_wolfboot_measurement.py \
-  build/wolftrust_v1_signed.bin)"
 
 # --- Guests. The restart scenario injects a Non-secure fault probe in the PSA
 #     guest; the others build it unmodified. ---
@@ -174,13 +172,42 @@ elif [ "$scenario" = "attestneg" ]; then
 fi
 make -C tests/firmware/zephyr-stm32h5 clone
 env $guest_flags $secure_flags WT_REUSE_SECURE_BUILD=1 WT_EXPECTED_LIFECYCLE=0x1000u \
-  WT_EXPECTED_MEASUREMENT_HEX="$WT_EXPECTED_MEASUREMENT_HEX" \
   WT_ATTESTATION_DEVELOPMENT_PROFILE=1 WT_M33MU_EXPECT_BKPT=1 \
   make -C tests/firmware/zephyr-stm32h5 build-guest0-psa build-freertos-guest1
 
 echo "Guest vector tables (SP, reset PC):"
 od -An -tx4 -N8 "$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin"
 od -An -tx4 -N8 "$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
+
+# --- Pin the guest measurements into the secure image, then sign: the wolfBoot
+#     signature covers the pins, extending the chain of trust to the guests.
+#     The harness (not the guest) holds the expected wolfBoot measurement and
+#     asserts the token's reported value below. ---
+cp "$repo/build/wolftrust-unsigned.bin" "$repo/build/wolftrust.bin"
+python3 tools/measure/patch_guest_digests.py "$repo/build/wolftrust.bin" \
+  "0:${WT_GUEST0_VERSION:-1}:$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin" \
+  "1:${WT_GUEST1_VERSION:-1}:$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
+IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x40000 WOLFBOOT_SECTOR_SIZE=0x2000 \
+  "$repo/wolfBoot/tools/keytools/sign" --ecc256 \
+    "$repo/build/wolftrust.bin" \
+    "$repo/wolfBoot/wolfboot_signing_private_key.der" 1
+test -s "$repo/build/wolftrust_v1_signed.bin"
+WT_EXPECTED_MEASUREMENT_HEX="$(python3 tests/scripts/read_wolfboot_measurement.py \
+  build/wolftrust_v1_signed.bin)"
+
+if [ "$scenario" = "authneg" ]; then
+  # Corrupt one byte of the flashed guest0 image AFTER its digest was pinned
+  # and signed: launch verification must fail closed for guest0 while guest1
+  # and the platform keep running.
+  python3 - "$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin" <<'PYEOF'
+import sys
+with open(sys.argv[1], "r+b") as f:
+    f.seek(0x400)
+    byte = f.read(1)
+    f.seek(0x400)
+    f.write(bytes([byte[0] ^ 0x01]))
+PYEOF
+fi
 
 # --- Boot. The restart scenario must NOT pass --quit-on-faults: its guest fault
 #     is handled by the monitor, which restarts the guest; halting on the fault
@@ -189,6 +216,10 @@ quit_flag="--quit-on-faults"
 timeout_s=60
 if [ "$scenario" = "restart" ]; then
   quit_flag=""
+  timeout_s=40
+elif [ "$scenario" = "authneg" ]; then
+  # Guest0 is refused at launch so the BKPT scenario end never fires; the run
+  # ends on timeout with guest1's heartbeats as the survival evidence.
   timeout_s=40
 elif [ "$scenario" = "confboot" ]; then
   # Panic-test resets reboot the whole chain mid-suite: the must-panic checks,
@@ -265,10 +296,23 @@ case "$scenario" in
     expect "psa_initial_attestation st=0" "psa_initial_attestation st=0"
     expect "attestation COSE_Sign1 verified" \
       "wolfTrust attestation: COSE_Sign1 verified"
+    expect "token measurement equals wolfBoot measurement of the signed image" \
+      "wolfTrust attestation: token measurement=$WT_EXPECTED_MEASUREMENT_HEX"
     expect "attestation fields verify=0 lifecycle=0x1000 measurement=ok cose=ES256" \
       "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/positive"
+    ;;
+  authneg)
+    refute_re "no fault markers in boot log" \
+      '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+    refute_re "tampered guest0 never entered its domain" \
+      'guest0_psa alive'
+    expect "guest1 (unrelated domain) still runs" \
+      "freertos_guest1: heartbeat"
+    expect "guest1 wolfHSM services still live" \
+      "freertos_guest1: C_Digest(SHA-256) rv=0"
+    echo "PASS: target/authneg"
     ;;
   confboot)
     # The conformance guest is lean (no deep-stack attestation path) so the val

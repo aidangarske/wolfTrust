@@ -141,6 +141,19 @@ static int wt_domain_validate_identity(const wt_domain_descriptor_t* domain)
     return WT_DOMAIN_VALID;
 }
 
+static int wt_domain_validate_launch(const wt_domain_descriptor_t* domain)
+{
+    if (domain->launch_required > 1U)
+        return WT_DOMAIN_ERROR_LAUNCH_POLICY;
+
+    if (domain->launch_required == 1U &&
+            domain->domain_class != WT_DOMAIN_CLASS_NONSECURE_APPLICATION) {
+        return WT_DOMAIN_ERROR_LAUNCH_POLICY;
+    }
+
+    return WT_DOMAIN_VALID;
+}
+
 static int wt_domain_validate_restart(const wt_domain_descriptor_t* domain)
 {
     const wt_domain_restart_policy_t* policy = &domain->restart_policy;
@@ -427,6 +440,10 @@ int wt_domain_validate_set(const wt_domain_descriptor_t* domains,
 
     for (i = 0U; i < domain_count; i++) {
         ret = wt_domain_validate_restart(&domains[i]);
+        if (ret != WT_DOMAIN_VALID)
+            return ret;
+
+        ret = wt_domain_validate_launch(&domains[i]);
         if (ret != WT_DOMAIN_VALID)
             return ret;
 

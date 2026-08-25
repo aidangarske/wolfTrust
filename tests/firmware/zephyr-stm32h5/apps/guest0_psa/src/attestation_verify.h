@@ -30,4 +30,14 @@ int wt_attestation_verify(const uint8_t* token, size_t tokenSize,
     const char* expectedMeasurementHex, uint32_t expectedLifecycle,
     uint32_t* verifiedLifecycle);
 
+/* As wt_attestation_verify, plus: a NULL or empty expectedMeasurementHex
+ * skips the component-zero comparison (report-only mode), and a non-NULL
+ * tokenMeasurement receives the 32-byte component-zero digest so the harness
+ * can compare it against a reference held outside the image under test. */
+int wt_attestation_verify_ex(const uint8_t* token, size_t tokenSize,
+    const uint8_t* publicKey, size_t publicKeySize,
+    const uint8_t* challenge, size_t challengeSize,
+    const char* expectedMeasurementHex, uint32_t expectedLifecycle,
+    uint32_t* verifiedLifecycle, uint8_t* tokenMeasurement);
+
 #endif /* WOLFTRUST_ATTESTATION_VERIFY_H */

@@ -2529,3 +2529,67 @@ Evidence:
   engine proven on the production Cortex-M path. The scenario's secure
   cross-build links, standing in for the local cross-build (the Mac toolchain
   lacks newlib).
+
+## P6-S1 — Authenticated guest launch (WT-SYS-0002 / WT-FFM-0049)
+
+wolfTrust now authenticates and measures every guest before domain entry, on
+first launch and on every relaunch. The manifest declares the policy
+(`launch_required`, `launch_min_version` per domain — schema, generated
+descriptors, conformance manifest, and fixture all extended); the pinned
+digest values live in a `.wt_guest_meas` slot inside the wolfTrust image that
+`tools/measure/patch_guest_digests.py` stamps after the guests build and
+BEFORE the wolfBoot signing step, so the pins are covered by the same
+signature that authenticates wolfTrust itself. Patch-then-sign is forced by
+the build order: guests link against the secure image's CMSE implib, so the
+secure image cannot know their hashes at compile time.
+
+At boot, `wt_monitor_init` (and the restart path, on every relaunch) locates
+each required guest's executable window and pinned record and runs the
+neutral `wt_guest_verify_image` predicate: SHA-256 over the recorded image
+size, constant-time digest pin, and the manifest version floor. Any failure
+fails closed — the guest is marked FAULTED and quarantined, never entered —
+and the outcome is exposed in `g_wt_launch_verified_mask` /
+`g_wt_launch_refused_mask` for the hardware harness. Verified digests are
+recorded and emitted as lean per-guest software components
+(measurement + signer_id) in the attestation token, so measured guest launch
+is provable in the token; ARM's val only counts component zero toward the
+mandatory-claim set and type-checks the rest, so test_a001 stays green.
+
+The old compile-time expected-measurement check in the guests created a
+circular dependency against patch-then-sign (guest binary → pinned digest →
+signed image → measurement → guest binary), so the reference value moved to
+the harness: the guest verifier gained a report-only mode
+(`wt_attestation_verify_ex` — NULL/empty expected hex skips the compare and
+returns the token's component-zero digest; the original API is unchanged) and
+the runner asserts the printed value equals the wolfBoot measurement it
+computes from the signed artifact. This is also the DICE-correct shape: the
+verifier holds the reference values, the device reports evidence.
+
+Defect found by the gate (and the reason the first target run failed closed):
+the port's slot accessor read a `static const` object whose initializer is
+the unpatched marker, and the compiler folded the check into an unconditional
+NULL — every launch was refused despite a correctly patched image. Fixed with
+a volatile load of the slot count; triaged with the `WT_LAUNCH_DEBUG`
+per-reason BKPT instrumentation, which stays available (compiled out by
+default) for the later Phase 6 slices.
+
+Evidence:
+
+- Host: new `guest_verify` suite (WT-SYS-0002/WT-FFM-0049, 30 checks —
+  accept, tamper both sides of the pin, rollback, layout, argument abuse,
+  measurement table) green under gcc/clang + ASan/UBSan and in the 34-suite
+  `unit/all`; the P5-S1 golden vector is byte-identical (empty host
+  measurement table), and manifest suite + `make test-conformance`
+  reproducibility stay green with the new schema.
+- M33MU (emulator, wolf-prec5560, v1.15 container): `PASS: target/positive` —
+  both guests launch only after verification and the token's reported
+  measurement equals the harness-computed wolfBoot measurement of the
+  patched+signed image; `PASS: target/authneg` — one byte of guest0 flipped
+  after pin+sign is refused at launch while guest1 and the platform keep
+  running, no fault markers; `PASS: target/devattest` — unmodified
+  dev_apis/initial_attestation test_a001 green on the three-component token.
+- CI: `authneg` in the M33MU matrix ("Authenticated launch fail-closed") and
+  the `ci:authneg` PR label.
+- H563 silicon: pending the next board session (S1-HW in the task list; the
+  hardware runner already carries the patch-then-sign flow and the harness
+  measurement assertion).

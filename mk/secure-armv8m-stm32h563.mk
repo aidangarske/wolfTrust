@@ -43,6 +43,7 @@ WT_WOLFCRYPT_STM32_HASH ?= 0
 WT_ENGINE_HSM ?= 1
 WT_ATTEST_COSE ?= 1
 WT_FFM_NEGATIVE_PROBE ?= 0
+WT_LAUNCH_DEBUG ?= 0
 WT_CONFORMANCE ?= 0
 
 # wolfHSM resumes SHA-256 operations from the portable digest and length
@@ -130,6 +131,9 @@ SECURE_CFLAGS += -DCONFIG_VNET=1 \
     -DWT_VNET_UNKNOWN_UCAST_FLOOD=$(WT_VNET_UNKNOWN_UCAST_FLOOD)
 endif
 
+ifeq ($(WT_LAUNCH_DEBUG),1)
+SECURE_CFLAGS += -DWT_LAUNCH_DEBUG=1
+endif
 ifeq ($(WT_FFM_NEGATIVE_PROBE),1)
 SECURE_CFLAGS += -DWT_FFM_NEGATIVE_PROBE=1
 endif
@@ -159,6 +163,7 @@ SECURE_SRCS := \
     $(ROOT)/src/ffm.c \
     $(ROOT)/src/ffm_boot.c \
     $(ROOT)/src/ffm_domain.c \
+    $(ROOT)/src/guest_verify.c \
     $(ROOT)/src/ipc.c \
     $(ROOT)/src/restart_policy.c \
     $(ROOT)/src/spm_gate.c \

@@ -67,6 +67,8 @@ DOMAIN_SCHEMA = {
     "interrupt_resources": [INTERRUPT_RESOURCE_SCHEMA],
     "restart_policy": RESTART_SCHEMA,
     "required_capabilities": UINT,
+    "launch_required": UINT,
+    "launch_min_version": UINT,
 }
 
 SERVICE_SCHEMA = {
@@ -354,6 +356,11 @@ def validate_policy(manifest, supported_features, word_max):
                 policy_error("Secure Partition identity is invalid")
         elif domain["rot_role"] != 0 or domain["security_state"] != 1:
             policy_error("Non-secure identity is invalid")
+
+        if domain["launch_required"] not in (0, 1):
+            policy_error("domain launch_required must be 0 or 1")
+        if domain["launch_required"] == 1 and domain_class != 2:
+            policy_error("authenticated launch applies to Non-secure domains")
 
         restart = domain["restart_policy"]
         if restart["action"] not in (0, 1, 2):

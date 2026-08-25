@@ -1433,6 +1433,34 @@ void wt_platform_panic(void)
     }
 }
 
+#ifdef WT_LAUNCH_DEBUG
+/* Temporary launch-verify triage: one distinct BKPT per failure reason so the
+ * emulator log names the guest and error. Never built into production. */
+void wt_platform_launch_debug(int code, uint32_t guest)
+{
+    unsigned int index = (unsigned int)(-700 - code);
+
+    if (index > 5u) {
+        index = 6u;
+    }
+    switch (index + (guest * 8u)) {
+        case 0u:  __asm volatile("bkpt #0x50"); break;
+        case 1u:  __asm volatile("bkpt #0x51"); break;
+        case 2u:  __asm volatile("bkpt #0x52"); break;
+        case 3u:  __asm volatile("bkpt #0x53"); break;
+        case 4u:  __asm volatile("bkpt #0x54"); break;
+        case 5u:  __asm volatile("bkpt #0x55"); break;
+        case 8u:  __asm volatile("bkpt #0x58"); break;
+        case 9u:  __asm volatile("bkpt #0x59"); break;
+        case 10u: __asm volatile("bkpt #0x5A"); break;
+        case 11u: __asm volatile("bkpt #0x5B"); break;
+        case 12u: __asm volatile("bkpt #0x5C"); break;
+        case 13u: __asm volatile("bkpt #0x5D"); break;
+        default:  __asm volatile("bkpt #0x5F"); break;
+    }
+}
+#endif
+
 void wt_platform_system_reset(void)
 {
     wt_dsb();

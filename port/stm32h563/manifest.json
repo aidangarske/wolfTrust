@@ -21,8 +21,18 @@
       "stack_base": 805470208,
       "stack_size": 4096,
       "memory_resources": [
-        {"base": 201326592, "size": 4096, "attributes": 5, "share_id": 0},
-        {"base": 805470208, "size": 4096, "attributes": 19, "share_id": 0}
+        {
+          "base": 201326592,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805470208,
+          "size": 4096,
+          "attributes": 19,
+          "share_id": 0
+        }
       ],
       "interrupt_resources": [],
       "restart_policy": {
@@ -31,7 +41,9 @@
         "restart_window_ticks": 0,
         "initial_delay_ticks": 0
       },
-      "required_capabilities": 127
+      "required_capabilities": 127,
+      "launch_required": 0,
+      "launch_min_version": 0
     },
     {
       "id": 1,
@@ -44,8 +56,18 @@
       "stack_base": 536870912,
       "stack_size": 65536,
       "memory_resources": [
-        {"base": 134873088, "size": 262144, "attributes": 5, "share_id": 0},
-        {"base": 536870912, "size": 65536, "attributes": 19, "share_id": 0}
+        {
+          "base": 134873088,
+          "size": 262144,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 536870912,
+          "size": 65536,
+          "attributes": 19,
+          "share_id": 0
+        }
       ],
       "interrupt_resources": [],
       "restart_policy": {
@@ -54,7 +76,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 1,
+      "launch_min_version": 1
     },
     {
       "id": 2,
@@ -67,8 +91,18 @@
       "stack_base": 536936448,
       "stack_size": 65536,
       "memory_resources": [
-        {"base": 135135232, "size": 131072, "attributes": 5, "share_id": 0},
-        {"base": 536936448, "size": 65536, "attributes": 19, "share_id": 0}
+        {
+          "base": 135135232,
+          "size": 131072,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 536936448,
+          "size": 65536,
+          "attributes": 19,
+          "share_id": 0
+        }
       ],
       "interrupt_resources": [],
       "restart_policy": {
@@ -77,7 +111,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 1,
+      "launch_min_version": 1
     },
     {
       "id": 3,
@@ -90,8 +126,18 @@
       "stack_base": 805928960,
       "stack_size": 8192,
       "memory_resources": [
-        {"base": 201392128, "size": 4096, "attributes": 5, "share_id": 0},
-        {"base": 805928960, "size": 8192, "attributes": 19, "share_id": 0}
+        {
+          "base": 201392128,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805928960,
+          "size": 8192,
+          "attributes": 19,
+          "share_id": 0
+        }
       ],
       "interrupt_resources": [],
       "restart_policy": {
@@ -100,7 +146,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
     },
     {
       "id": 4,
@@ -113,8 +161,18 @@
       "stack_base": 805920768,
       "stack_size": 8192,
       "memory_resources": [
-        {"base": 201396224, "size": 4096, "attributes": 5, "share_id": 0},
-        {"base": 805920768, "size": 8192, "attributes": 19, "share_id": 0}
+        {
+          "base": 201396224,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805920768,
+          "size": 8192,
+          "attributes": 19,
+          "share_id": 0
+        }
       ],
       "interrupt_resources": [],
       "restart_policy": {
@@ -123,9 +181,10 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
-    }
-,
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
     {
       "id": 5,
       "domain_class": 1,
@@ -137,8 +196,18 @@
       "stack_base": 805892096,
       "stack_size": 16384,
       "memory_resources": [
-        {"base": 201412608, "size": 4096, "attributes": 5, "share_id": 0},
-        {"base": 805892096, "size": 16384, "attributes": 19, "share_id": 0}
+        {
+          "base": 201412608,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805892096,
+          "size": 16384,
+          "attributes": 19,
+          "share_id": 0
+        }
       ],
       "interrupt_resources": [],
       "restart_policy": {
@@ -147,7 +216,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
     },
     {
       "id": 6,
@@ -160,8 +231,18 @@
       "stack_base": 805883904,
       "stack_size": 8192,
       "memory_resources": [
-        {"base": 201416704, "size": 4096, "attributes": 5, "share_id": 0},
-        {"base": 805883904, "size": 8192, "attributes": 19, "share_id": 0}
+        {
+          "base": 201416704,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805883904,
+          "size": 8192,
+          "attributes": 19,
+          "share_id": 0
+        }
       ],
       "interrupt_resources": [],
       "restart_policy": {
@@ -170,9 +251,10 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
-    }
-,
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
     {
       "id": 7,
       "domain_class": 1,
@@ -184,8 +266,18 @@
       "stack_base": 805875712,
       "stack_size": 8192,
       "memory_resources": [
-        {"base": 201420800, "size": 4096, "attributes": 5, "share_id": 0},
-        {"base": 805875712, "size": 8192, "attributes": 19, "share_id": 0}
+        {
+          "base": 201420800,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805875712,
+          "size": 8192,
+          "attributes": 19,
+          "share_id": 0
+        }
       ],
       "interrupt_resources": [],
       "restart_policy": {
@@ -194,7 +286,9 @@
         "restart_window_ticks": 8000,
         "initial_delay_ticks": 1
       },
-      "required_capabilities": 80
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
     }
   ],
   "partitions": [
@@ -237,7 +331,9 @@
           "connection_based": true
         }
       ],
-      "dependencies": [4098],
+      "dependencies": [
+        4098
+      ],
       "interrupts": []
     },
     {
@@ -279,10 +375,11 @@
           "connection_based": true
         }
       ],
-      "dependencies": [4098],
+      "dependencies": [
+        4098
+      ],
       "interrupts": []
-    }
-,
+    },
     {
       "name": "PARTITION_PS",
       "domain_id": 7,
@@ -301,7 +398,9 @@
           "connection_based": true
         }
       ],
-      "dependencies": [4098],
+      "dependencies": [
+        4098
+      ],
       "interrupts": []
     }
   ],

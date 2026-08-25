@@ -20,6 +20,7 @@
  */
 
 #include "wolftrust/ffm_boot.h"
+#include "wolftrust/guest_verify.h"
 #include "wolftrust/monitor.h"
 #include "wolftrust/restart_policy.h"
 #include "wolftrust/spm.h"
@@ -31,6 +32,9 @@
 #include "wolftrust/sched/tasklet.h"
 #include "wolftrust/services/hsm.h"
 #endif
+#ifdef WT_LAUNCH_DEBUG
+void wt_platform_launch_debug(int code, uint32_t guest);
+#endif
 #ifdef CONFIG_VNET
 #include "wolftrust/services/vnet_service.h"
 #endif
@@ -41,6 +45,9 @@ static wt_spm_t g_spm;
  * them by symbol over the debug port (UART markers can interleave-split). */
 volatile uint32_t g_wt_restart_events;
 volatile uint32_t g_wt_quarantine_events;
+/* WT-FFM-0049 launch-verification outcome, one bit per guest. */
+volatile uint32_t g_wt_launch_verified_mask;
+volatile uint32_t g_wt_launch_refused_mask;
 #ifdef WT_ENGINE_HSM
 static wt_guest_id_t g_pending_tasklet_guest;
 static bool g_pending_tasklet_guest_valid;
@@ -149,6 +156,74 @@ static wt_guest_id_t wt_find_next_runnable(wt_guest_id_t start,
     return g_scheduler.guest_count;
 }
 
+/* WT-SYS-0002 / WT-FFM-0049: measure a guest before it may enter its domain.
+ * Guests without a launch policy pass through; a required guest with no
+ * pinned record, no executable window, or a failed pin is refused. */
+static int wt_verify_guest_launch(wt_guest_id_t guest_id)
+{
+    const wt_guest_config_t* config = wt_guest_config(guest_id);
+    const wt_guest_measurement_t* records;
+    const wt_guest_measurement_t* record = NULL;
+    const wt_memory_window_t* window = NULL;
+    size_t record_count = 0U;
+    size_t i;
+    int ret;
+
+    if (config == NULL) {
+        return WT_GUEST_VERIFY_ERROR_ARGUMENT;
+    }
+    if (config->launch_required == 0U) {
+        return WT_GUEST_VERIFY_OK;
+    }
+
+    for (i = 0U; i < config->memory_window_count; ++i) {
+        if ((config->memory_windows[i].attributes & WT_MEM_ATTR_EXEC) != 0U) {
+            window = &config->memory_windows[i];
+            break;
+        }
+    }
+
+    records = wt_platform_guest_measurements(&record_count);
+    for (i = 0U; records != NULL && i < record_count; ++i) {
+        if (records[i].guest_id == (uint32_t)guest_id) {
+            record = &records[i];
+            break;
+        }
+    }
+
+    if (window == NULL || record == NULL) {
+        ret = WT_GUEST_VERIFY_ERROR_ARGUMENT;
+    }
+    else {
+        ret = wt_guest_verify_image((const void*)window->base,
+                                    (size_t)window->size, record,
+                                    config->launch_min_version);
+    }
+
+    if (ret == WT_GUEST_VERIFY_OK) {
+        bool recorded = false;
+
+        g_wt_launch_verified_mask |= (uint32_t)1U << guest_id;
+        for (i = 0U; i < wt_guest_measurement_count(); ++i) {
+            const wt_guest_measurement_t* entry =
+                wt_guest_measurement_get(i, NULL);
+
+            if (entry != NULL && entry->guest_id == (uint32_t)guest_id) {
+                recorded = true;
+                break;
+            }
+        }
+        if (!recorded) {
+            (void)wt_guest_measurement_record(record, config->name);
+        }
+    }
+    else {
+        g_wt_launch_refused_mask |= (uint32_t)1U << guest_id;
+    }
+
+    return ret;
+}
+
 static void wt_tick_restart_backoff(void)
 {
     size_t i;
@@ -160,7 +235,17 @@ static void wt_tick_restart_backoff(void)
             runtime->remaining_delay_ticks--;
             if (runtime->remaining_delay_ticks == 0U &&
                 runtime->state == WT_GUEST_RESTARTING) {
-                wt_partition_reset_runtime(&g_scheduler.configs[i], runtime);
+                /* A relaunch is a launch: the image must still match its pin
+                 * before the domain is re-entered. */
+                if (wt_verify_guest_launch((wt_guest_id_t)i) ==
+                        WT_GUEST_VERIFY_OK) {
+                    wt_partition_reset_runtime(&g_scheduler.configs[i],
+                                               runtime);
+                }
+                else {
+                    runtime->state = WT_GUEST_FAULTED;
+                    g_wt_quarantine_events++;
+                }
             }
         }
     }
@@ -354,6 +439,7 @@ void wt_monitor_init(void)
     size_t count;
     size_t i;
     int spm_result;
+    int launch_ret;
 
     wt_platform_init();
 
@@ -390,6 +476,16 @@ void wt_monitor_init(void)
         wt_partition_reset_runtime(&g_scheduler.configs[i], &g_scheduler.runtime[i]);
         if (!wt_platform_guest_context_ready(g_scheduler.runtime[i].context)) {
             wt_platform_panic();
+        }
+        launch_ret = wt_verify_guest_launch((wt_guest_id_t)i);
+#ifdef WT_LAUNCH_DEBUG
+        if (launch_ret != WT_GUEST_VERIFY_OK) {
+            wt_platform_launch_debug(launch_ret, (uint32_t)i);
+        }
+#endif
+        if (launch_ret != WT_GUEST_VERIFY_OK) {
+            g_scheduler.runtime[i].state = WT_GUEST_FAULTED;
+            g_wt_quarantine_events++;
         }
     }
 }
