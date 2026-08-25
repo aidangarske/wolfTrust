@@ -304,9 +304,16 @@ wolfTrust on the board — the TF-M drop-in proof.
       at runtime; a good token then fails against a different measurement,
       a different lifecycle, and with one in-token measurement byte flipped
       (ES256 catches it). In `UNIT_SUITES`/CI. On-target attestneg = #102.
-    - [ ] **P5-S4 (bucket 4, Fable, the beat-TF-M proof): IAK key-isolation** —
-      a foreign owner/partition cannot invoke `wt_hsm_attest_sign` or read
-      `WT_HSM_ATTEST_KEY_ID`; IAK export is public-only (NONEXPORTABLE).
+    - [x] **P5-S4 (bucket 4, the beat-TF-M proof): IAK key-isolation — DONE.**
+      New `tests/host/attestation_iak/` (14/14, gcc/clang/ASan) provisions the
+      IAK exactly as `wt_hsm_attest_generate_key` (same server config, keygen
+      message, lockdown flags, commit id) on ramsim, then proves at the real
+      wolfHSM layers: sign works + only the 65-byte public point exports (I1);
+      raw `WH_KEY_EXPORT` refused (I2); Checked NVM read refused (I3);
+      destroy/re-provision refused, original still signs (I4); a guest client
+      identity can neither sign with nor even see the IAK — namespace
+      isolation — while the attest identity still signs (I5). TF-M keeps this
+      key in partition RAM; wolfTrust never lets it leave the vault.
     - [x] **P5-S5 (bucket 5): replay + lifecycle — DONE.** New
       `tests/host/attestation_replay/` (13/13, gcc/clang/ASan): different
       challenges → different tokens, each verifying only under its own

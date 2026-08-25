@@ -2439,3 +2439,33 @@ proves the token is bound to its challenge and its boot lifecycle:
 
 Boot-seed remains deliberately absent from the claim set (pinned by the P5-S1
 golden vector).
+
+## Phase 5 S4 — IAK key-isolation, the attestation beat-TF-M proof (2026-08-25)
+
+TF-M's Initial Attestation key lives in the Crypto partition's own RAM; a
+compromised partition can leak it. wolfTrust's IAK lives in the wolfHSM vault
+and only signatures ever come out. `tests/host/attestation_iak/` (14/14,
+gcc/clang and ASan/UBSan clean) provisions the IAK byte-for-byte as production
+`wt_hsm_attest_generate_key` does — same wolfHSM server configuration
+(attest identity `WH_CLIENT_ID_MAX`), same keygen message, same
+`SENSITIVE|NONEXPORTABLE|LOCAL|NONMODIFIABLE|NONDESTROYABLE|USAGE_SIGN`
+flags, same keystore commit — against ramsim-backed NVM, then attacks it at
+the real enforcement layers (`wh_server_keystore.c` policy + `wh_nvm.c`
+Checked face):
+
+- I1 the vault signs and the signature verifies against the ONLY exportable
+  artifact, the 65-byte public point;
+- I2 raw `WH_KEY_EXPORT` of the IAK is refused (NONEXPORTABLE);
+- I3 `wh_Nvm_ReadChecked` of the committed key object is refused, and the
+  stored metadata provably carries NONEXPORTABLE;
+- I4 `wh_Nvm_DestroyObjectsChecked` and a second provisioning over the key id
+  are both refused (NONDESTROYABLE/NONMODIFIABLE) and the original IAK still
+  signs afterward;
+- I5 with the server's authenticated client identity switched to a guest, the
+  same sign and public-export messages fail — the IAK does not exist outside
+  the attest identity's key namespace — and the attest identity still signs
+  as the positive control.
+
+The on-target counterpart (wrong-key AES decrypt + vault negatives) was
+proven in P4-S5; the attestation-specific on-target negative rides #102's
+attestneg scenario.
