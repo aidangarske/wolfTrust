@@ -19,6 +19,12 @@
 #                                       78 scheduled — upstream db skips
 #                                       c064/c065 hash suspend/resume) runs
 #                                       Non-secure against wolfPSA
+#   run_m33mu_scenario.sh devattest    dev_apis Initial Attestation (test_a001)
+#                                       runs Non-secure against SERVICE_ATTEST;
+#                                       val parses the token via the wolfCOSE
+#                                       qcbor shim
+#   run_m33mu_scenario.sh devattestqcbor  same suite parsed with the reference
+#                                       QCBOR library (fetched test-only)
 #
 # This is the single source the local make test-target harness, the box skill
 # scripts, and the CI jobs all drive, so each scenario's markers stay identical.
@@ -27,8 +33,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|restart|crossdomain|confboot|devstorage|devcrypto|vaultrecover|vaultrecoversec) ;;
-  *) echo "usage: $0 positive|restart|crossdomain|confboot|devstorage|devcrypto|vaultrecover|vaultrecoversec" >&2; exit 2 ;;
+  positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec) ;;
+  *) echo "usage: $0 positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -122,7 +128,8 @@ secure_flags=""
 if [ "$scenario" = "crossdomain" ]; then
   secure_flags="WT_FFM_NEGATIVE_PROBE=1"
 elif [ "$scenario" = "confboot" ] || [ "$scenario" = "devstorage" ] || \
-     [ "$scenario" = "devcrypto" ]; then
+     [ "$scenario" = "devcrypto" ] || [ "$scenario" = "devattest" ] || \
+     [ "$scenario" = "devattestqcbor" ]; then
   secure_flags="WT_CONFORMANCE=1"
 elif [ "$scenario" = "vaultrecover" ]; then
   secure_flags="WT_CONFORMANCE=1 WT_VAULT_FOREIGN_PROBE=1"
@@ -154,6 +161,11 @@ elif [ "$scenario" = "devstorage" ]; then
 elif [ "$scenario" = "devcrypto" ] || [ "$scenario" = "vaultrecover" ] || \
      [ "$scenario" = "vaultrecoversec" ]; then
   guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=crypto"
+elif [ "$scenario" = "devattest" ]; then
+  guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=attestation"
+elif [ "$scenario" = "devattestqcbor" ]; then
+  tests/upstream/fetch_qcbor.sh >/dev/null
+  guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=attestation WT_ATTEST_CBOR=qcbor"
 fi
 make -C tests/firmware/zephyr-stm32h5 clone
 env $guest_flags $secure_flags WT_REUSE_SECURE_BUILD=1 WT_EXPECTED_LIFECYCLE=0x1000u \
@@ -326,6 +338,25 @@ case "$scenario" in
     fi
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/devcrypto"
+    ;;
+  devattest|devattestqcbor)
+    expect "TEE client initialized" "wolfTrust TEE client initialized"
+    expect "conformance val_entry start" \
+      "wolfTrust FF-M conformance: val_entry start"
+    # test_a001 is the whole suite: get_token/get_token_size across all
+    # challenge sizes plus val's own COSE_Sign1 verify of the returned token.
+    flat="$(sed 's/freertos_guest1:.*$//' "$log" | tr -d '\r\n')"
+    passed=$(printf '%s' "$flat" | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    : "${passed:=-1}"; : "${failed:=-1}"
+    if [ "$failed" = "0" ] && [ "$passed" -eq 1 ]; then
+      check_pass "dev_apis initial_attestation: 1 passed, 0 failed"
+    else
+      check_fail "dev_apis initial_attestation suite" \
+        "passed=$passed failed=$failed (want passed=1 failed=0)"
+    fi
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
+    echo "PASS: target/$scenario"
     ;;
   vaultrecover)
     # The foreign-pool probe forces the boot-time vault recovery. In the

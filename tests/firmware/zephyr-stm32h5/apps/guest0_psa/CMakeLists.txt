@@ -662,5 +662,67 @@ if(WT_RUN_CONFORMANCE)
       WT_RUN_CONFORMANCE VAL_NSPE_BUILD NONSECURE_TEST_BUILD CRYPTO VERBOSITY=3)
     set_source_files_properties(${WT_CRYPTO_SRCS} PROPERTIES COMPILE_OPTIONS
       "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter")
+  elseif(WT_CONF_SUITE STREQUAL "attestation")
+    # dev_apis Initial Attestation (test_a001): the test body runs entirely
+    # Non-secure. get_token reaches SERVICE_ATTEST through the wolftrust-tee
+    # client; val's own COSE_Sign1 verify runs on the upstream attestation PAL
+    # against wolfPSA, with the runtime IAK public key bridged in by
+    # conformance_pal.c. The CBOR backend defaults to the wolfCOSE qcbor shim;
+    # WT_ATTEST_CBOR=qcbor swaps in the reference QCBOR sources (test-only,
+    # fetched to build/upstream/qcbor) to prove the token parses under both.
+    set(WT_ATTEST_SRCS
+      src/conformance_pal.c
+      ${WT_CONF_U}/val/common/val_log.c
+      ${WT_CONF_U}/platform/targets/common/nspe/pal_weak.c
+      ${WT_CONF_U}/platform/targets/common/nspe/initial_attestation/pal_attestation_intf.c
+      ${WT_CONF_U}/platform/targets/common/nspe/initial_attestation/pal_attestation_crypto.c
+      ${WT_CONF_U}/val/nspe/val_entry.c
+      ${WT_CONF_U}/val/nspe/val_dispatcher.c
+      ${WT_CONF_U}/val/nspe/val_framework.c
+      ${WT_CONF_U}/val/nspe/val_interfaces.c
+      ${WT_CONF_U}/val/nspe/val_peripherals.c
+      ${WT_CONF_U}/val/nspe/val_platform.c
+      ${WT_CONF_U}/val/nspe/val_crypto.c
+      ${WT_CONF_U}/val/nspe/val_storage.c
+      ${WT_CONF_U}/val/nspe/val_attestation.c
+      ${WT_CONF_U}/dev_apis/initial_attestation/test_a001/test_entry_a001.c
+      ${WT_CONF_U}/dev_apis/initial_attestation/test_a001/test_a001.c
+    )
+    set(WT_ATTEST_INCS
+      ${WT_REPO_ROOT}/include
+      ${WT_CONF_GEN}/initial_attestation/ns
+      ${WT_CONF_GEN}
+      ${WT_CONF_U}/val/common
+      ${WT_CONF_U}/val/nspe
+      ${WT_CONF_U}/val/spe
+      ${WT_CONF_U}/platform/targets/common/nspe
+      ${WT_CONF_U}/platform/targets/common/nspe/initial_attestation
+      ${WT_REPO_ROOT}/port/stm32h563/conformance
+      ${WT_CONF_U}/dev_apis/initial_attestation/test_a001
+    )
+    if(WT_ATTEST_CBOR STREQUAL "qcbor")
+      set(WT_QCBOR_DIR ${WT_REPO_ROOT}/build/upstream/qcbor)
+      list(APPEND WT_ATTEST_SRCS
+        ${WT_QCBOR_DIR}/src/UsefulBuf.c
+        ${WT_QCBOR_DIR}/src/qcbor_encode.c
+        ${WT_QCBOR_DIR}/src/qcbor_decode.c
+        ${WT_QCBOR_DIR}/src/ieee754.c)
+      list(APPEND WT_ATTEST_INCS
+        ${WT_QCBOR_DIR}/inc
+        ${WT_QCBOR_DIR}/inc/qcbor)
+    else()
+      list(APPEND WT_ATTEST_SRCS
+        ${WT_REPO_ROOT}/tests/conformance/qcbor-shim/qcbor_shim.c)
+      list(APPEND WT_ATTEST_INCS
+        ${WT_REPO_ROOT}/tests/conformance/qcbor-shim)
+    endif()
+    target_sources(app PRIVATE ${WT_ATTEST_SRCS})
+    target_include_directories(app PRIVATE ${WT_ATTEST_INCS})
+    target_compile_definitions(app PRIVATE
+      WT_RUN_CONFORMANCE VAL_NSPE_BUILD NONSECURE_TEST_BUILD
+      INITIAL_ATTESTATION PSA_ATTESTATION_PROFILE_2
+      PSA_INITIAL_ATTEST_MAX_TOKEN_SIZE=512 VERBOSITY=3)
+    set_source_files_properties(${WT_ATTEST_SRCS} PROPERTIES COMPILE_OPTIONS
+      "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter")
   endif()
 endif()

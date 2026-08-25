@@ -4,10 +4,10 @@ name: PR M33MU (label-selected)
 # Add a label to the PR:
 #   ci:<scenario>  run that one scenario on the PR branch — one of
 #                  positive restart crossdomain confboot devstorage
-#                  devcrypto vaultrecover vaultrecoversec. Add several
-#                  to run several.
+#                  devcrypto devattest devattestqcbor vaultrecover
+#                  vaultrecoversec. Add several to run several.
 #   ci:m33mu       run the full heavy workflow (wolfBoot + both guest
-#   ci:all         lifecycles + all 8 scenarios) on the PR branch.
+#   ci:all         lifecycles + all 10 scenarios) on the PR branch.
 #   (no label)     nothing runs — a normal PR is unaffected.
 # Fires only on label change. Re-add a label to re-run after a push.
 # workflow_dispatch `jobs` is the off-PR equivalent (space list, or "all"):
@@ -55,7 +55,7 @@ jobs:
           # Individually-picked scenarios become a dynamic matrix of
           # {key,name} objects (same shape/names as stm32h563-build.yml).
           # 'all'/'m33mu' are handled by the full job below, not expanded here.
-          all="positive restart crossdomain confboot devstorage devcrypto vaultrecover vaultrecoversec"
+          all="positive restart crossdomain confboot devstorage devcrypto devattest devattestqcbor vaultrecover vaultrecoversec"
           picked=""
           for s in $all; do
             case " $sel " in
@@ -69,6 +69,8 @@ jobs:
               confboot)        n="FF-M IPC conformance (85/4)" ;;
               devstorage)      n="dev_apis Storage (s001-s017)" ;;
               devcrypto)       n="dev_apis Crypto (c001-c080)" ;;
+              devattest)       n="dev_apis Initial Attestation (a001, shim)" ;;
+              devattestqcbor)  n="dev_apis Initial Attestation (a001, QCBOR)" ;;
               vaultrecover)    n="Vault recovery self-heal" ;;
               vaultrecoversec) n="Vault recovery fail-closed" ;;
             esac

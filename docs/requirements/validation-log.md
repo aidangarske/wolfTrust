@@ -2324,3 +2324,47 @@ core/port split guard 0 leaks.
 Separately noted: the positive/attestation-only HW image stopped booting on the
 board (guests not runnable) — pre-existing 128K-layout bit-rot in the positive
 HW path, not #95; the recovery scenarios ride the conformance image, which boots.
+
+## Phase 5 P5-CONF — ARM dev_apis Initial Attestation (test_a001) on M33MU (2026-08-24)
+
+The pinned (rev `e17d294`), unmodified ARM `dev_apis/initial_attestation`
+suite passes against wolfTrust on M33MU, completing the attestation half of
+the drop-in proof. Chain under test: val NSPE → upstream
+`pal_attestation_intf.c`/`pal_attestation_crypto.c` → wolftrust-tee NS client
+→ FF-M IPC `SERVICE_ATTEST` (4096) → wolfHSM-vault-signed tagged COSE_Sign1 →
+val's own QCBOR parse + Sig_structure SHA-256 + wolfPSA `psa_verify_hash`
+against the device's runtime IAK public key.
+
+Production enablers (commit `26bd175`): the token is now a tagged COSE_Sign1
+(tag 18, val's `IsTagged` gate) and the SW component carries the profile-2
+signer_id (label 5) so `mandatory_sw_components == 2`. Host evidence:
+`tests/host/attestation_token/` (26/26, gcc/clang/ASan) drives the real
+encoder through the production guest verifier; M33MU positive re-verified
+(`token_len=291`, `COSE_Sign1 verified`).
+
+Integration notes:
+- The IAK is generated per device inside the vault, so upstream's
+  `PLATFORM_OVERRIDE_ATTEST_PK` (hardcoded TF-M test key) cannot be used;
+  `conformance_pal.c` implements `tfm_initial_attest_get_public_key` fetching
+  the runtime key over `wolftrust_attestation_get_iak_public_key`.
+- The NS client now rejects a zero-size/NULL token buffer with
+  `PSA_ERROR_INVALID_ARGUMENT` (check 8) while keeping undersized-but-nonzero
+  as `PSA_ERROR_BUFFER_TOO_SMALL` (check 9), matching the suite's TF-M-shaped
+  expectations.
+- The CBOR backend is switchable: default is the wolfCOSE-backed qcbor shim
+  (`tests/conformance/qcbor-shim/`), `WT_ATTEST_CBOR=qcbor` builds the
+  reference QCBOR library (fetched test-only) — proving the wolfTrust token
+  parses identically under both.
+
+Evidence (both runs on the wolf-prec5560 container, one tree):
+
+- M33MU `PASS: target/devattest` — shim backend; val: 16/16 checks,
+  `Result=Passed`, TOTAL 1/1/0/0/0, profile 2, clean `[EXPECT BKPT]` exit.
+- M33MU `PASS: target/devattestqcbor` — reference QCBOR backend; same
+  `Result=Passed`, TOTAL PASSED 1 / FAILED 0, clean exit.
+- Host `make test-conformance` still green with the extended conf-gen
+  (initial_attestation testlist generation added).
+
+CI: scenarios `devattest` + `devattestqcbor` added to the M33MU matrix,
+`make`-driven runner, and the `ci:devattest`/`ci:devattestqcbor` PR labels.
+H5 silicon run pending (conformance image boots on the board per #94).

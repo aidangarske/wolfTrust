@@ -827,6 +827,17 @@ $(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
 		$(MANIFEST_DIR)/crypto/ns/server_tests_list_declare.inc \
 		$(MANIFEST_DIR)/crypto/ns/server_tests_list.inc \
 		1 80
+	mkdir -p $(MANIFEST_DIR)/initial_attestation/ns
+	python3 $(UPSTREAM_DIR)/tools/scripts/gen_tests_list.py initial_attestation \
+		$(UPSTREAM_DIR)/dev_apis/initial_attestation/testsuite.db 0 ALL \
+		$(MANIFEST_DIR)/initial_attestation/ns/testlist.txt \
+		$(MANIFEST_DIR)/initial_attestation/ns/test_entry_list.inc \
+		$(MANIFEST_DIR)/initial_attestation/ns/test_entry_fn_declare_list.inc \
+		$(MANIFEST_DIR)/initial_attestation/ns/client_tests_list_declare.inc \
+		$(MANIFEST_DIR)/initial_attestation/ns/client_tests_list.inc \
+		$(MANIFEST_DIR)/initial_attestation/ns/server_tests_list_declare.inc \
+		$(MANIFEST_DIR)/initial_attestation/ns/server_tests_list.inc \
+		1 1
 	touch $@
 
 $(BUILD_DIR)/conf_sec_%.o: $(UPSTREAM_DIR)/ff/partition/%.c \

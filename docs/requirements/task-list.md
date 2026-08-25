@@ -312,14 +312,16 @@ wolfTrust on the board — the TF-M drop-in proof.
         `qcbor.rev`, gitignored) — a wolfCOSE token verifies under both. Both run
         in CI: `Unit tests / qcbor_shim` (in UNIT_SUITES) + `Unit tests / CBOR
         interop (wolfCOSE and QCBOR)`. Green host + gcc + ASan/UBSan.
-      - [ ] **Target integration (remaining):** add an `attestation` suite block
-        to `guest0_psa/CMakeLists.txt` (mirror S6 crypto) compiling val_attestation
-        + `test_a001` + the two upstream attestation PALs + the shim (or fetched
-        QCBOR); author `port/stm32h563/conformance/pal_attestation_config.h` +
-        `PSA_INITIAL_ATTEST_MAX_TOKEN_SIZE` + an IAK-pubkey shim; guard the
-        `conformance_pal.c` stub under `#if !defined(INITIAL_ATTESTATION)`; add
-        the test-list gen block to `mk/secure-armv8m-stm32h563.mk`; defines
-        `INITIAL_ATTESTATION PSA_ATTESTATION_PROFILE_2 CRYPTO_VERSION_BETA3`.
+      - [x] **Target integration DONE.** `attestation` suite block in
+        `guest0_psa/CMakeLists.txt` compiles val_attestation + `test_a001` + the
+        two unmodified upstream attestation PALs against wolfPSA; new
+        `port/stm32h563/conformance/pal_attestation_config.h` (COSE constants,
+        `CRYPTO_VERSION_BETA3`; NO `PLATFORM_OVERRIDE_ATTEST_PK` — the IAK is
+        device-generated, so `conformance_pal.c` bridges
+        `tfm_initial_attest_get_public_key` to the runtime IAK); testlist gen in
+        `mk/secure-armv8m-stm32h563.mk`; NS client fix: zero/NULL token buffer →
+        `INVALID_ARGUMENT` (check 8). Scenarios `devattest`/`devattestqcbor` in
+        the runner + M33MU CI matrix + `ci:` labels.
       - [x] **Production token change DONE (`26bd175`).** `get_token`/`get_token_size`
         now emit a **tagged** COSE_Sign1 (flags `0u`; val's `IsTagged(18)` gate) and
         the SW component carries a **signer_id** (label 5, `SHA-256("wolfBoot")`),
@@ -329,7 +331,10 @@ wolfTrust on the board — the TF-M drop-in proof.
         `tests/host/attestation_token/` drives the real production encoder + the
         production guest verifier (26/26, gcc/clang/ASan) + M33MU `positive`
         (`token_len=291`, `COSE_Sign1 verified`, `verify=0 … cose=ES256`).
-      - [ ] Run `test_a001` on M33MU **both ways** (shim + real QCBOR), then H5.
+      - [x] `test_a001` on M33MU **both ways**: `PASS: target/devattest` (shim,
+        16/16 checks, TOTAL 1/0) + `PASS: target/devattestqcbor` (reference
+        QCBOR, TOTAL 1/0), one tree, profile 2 — see validation-log.
+      - [ ] Run `test_a001` on H5 silicon (conformance image boots per #94).
     - [ ] **P5-CI:** `attestneg` M33MU scenario + `ci:attestneg` label +
       workflow markers, mirroring the `vaultrecover` pattern.
 

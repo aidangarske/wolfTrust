@@ -47,6 +47,10 @@
 #include "psa/internal_trusted_storage.h"
 #include "psa/protected_storage.h"
 
+#if defined(INITIAL_ATTESTATION)
+#include <wolftrust/attestation.h>
+#endif
+
 extern int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version);
 extern int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
                                   wt_ffm_veneer_iovec_t* ns_iovec);
@@ -331,9 +335,35 @@ uint32_t pal_ps_function(int type, va_list valist)
     }
 }
 
+/* dev_apis Initial Attestation builds compile the upstream
+ * pal_attestation_intf.c/pal_attestation_crypto.c instead; the val-side
+ * verify needs the device's real IAK public key, which is generated inside
+ * the wolfHSM vault at provisioning and only reachable at runtime. */
+#if defined(INITIAL_ATTESTATION)
+int32_t tfm_initial_attest_get_public_key(uint8_t* public_key_buff,
+    size_t public_key_buf_size, size_t* public_key_len,
+    psa_ecc_family_t* elliptic_family_type)
+{
+    psa_status_t status;
+
+    if ((public_key_buff == NULL) || (public_key_len == NULL) ||
+            (elliptic_family_type == NULL)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    status = wolftrust_attestation_get_iak_public_key(public_key_buff,
+                                                      public_key_buf_size,
+                                                      public_key_len);
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
+    *elliptic_family_type = PSA_ECC_FAMILY_SECP_R1;
+    return PSA_SUCCESS;
+}
+#else
 int32_t pal_attestation_function(int type, va_list valist)
 {
     (void)type;
     (void)valist;
     return -1;
 }
+#endif

@@ -106,4 +106,10 @@
 #include "pal_crypto_config.h"
 #endif
 
+#if defined(INITIAL_ATTESTATION)
+#include "psa/crypto.h"
+#include "psa/initial_attestation.h"
+#include "pal_attestation_config.h"
+#endif
+
 #endif /* _PAL_CONFIG_H_ */

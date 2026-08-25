@@ -84,6 +84,10 @@ if [ -n "${WT_CONF_SUITE:-}" ]; then
     set -- "$@" "-DWT_CONF_SUITE=$WT_CONF_SUITE"
 fi
 
+if [ -n "${WT_ATTEST_CBOR:-}" ]; then
+    set -- "$@" "-DWT_ATTEST_CBOR=$WT_ATTEST_CBOR"
+fi
+
 "$WEST_BIN" build -p auto \
     -d "$BUILD_DIR" \
     -b "$BOARD" \

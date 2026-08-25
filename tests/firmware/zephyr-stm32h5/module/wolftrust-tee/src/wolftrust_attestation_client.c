@@ -77,7 +77,10 @@ psa_status_t psa_initial_attest_get_token(const uint8_t* authChallenge,
     int32_t status;
     int rc;
 
-    if (tokenSize == NULL) {
+    if ((tokenSize == NULL) || (token == NULL) || (tokenCapacity == 0u)) {
+        if (tokenSize != NULL) {
+            *tokenSize = 0u;
+        }
         return PSA_ERROR_INVALID_ARGUMENT;
     }
     *tokenSize = 0u;
