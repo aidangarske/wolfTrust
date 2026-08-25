@@ -24,6 +24,7 @@
 #include "wolftrust/services/hsm.h"
 
 #include "wolfssl/wolfcrypt/sha256.h"
+#include "wolfssl/wolfcrypt/hash.h"
 
 #include "wolfhsm/wh_error.h"
 
@@ -40,18 +41,23 @@
 #define WT_PSA_CLAIM_SW_COMPONENTS 2399
 #define WT_PSA_SW_MEASUREMENT_TYPE 1
 #define WT_PSA_SW_MEASUREMENT_VALUE 2
+#define WT_PSA_SW_MEASUREMENT_SIGNER_ID 5
 #define WT_PSA_SW_MEASUREMENT_DESCRIPTION 6
 #define WT_UEID_TYPE_RANDOM 0x01u
-#define WT_ATTEST_PAYLOAD_SIZE 256u
-#define WT_ATTEST_SCRATCH_SIZE 384u
+#define WT_ATTEST_PAYLOAD_SIZE 320u
+#define WT_ATTEST_SCRATCH_SIZE 448u
 
 static const uint8_t g_measurement_type[] = "sha-256";
 static const uint8_t g_measurement_description[] = "wolftrust";
 static const uint8_t g_implementation_name[] = "wolfTrust Cortex-M runtime";
+/* Identifies the wolfBoot signing authority that measured the component; the
+ * signing key itself is not carried in the handoff, so hash its name. */
+static const uint8_t g_signer_name[] = "wolfBoot";
 
 static wt_boot_handoff_t g_boot_handoff;
 static uint8_t g_ueid[33];
 static uint8_t g_implementation_id[WC_SHA256_DIGEST_SIZE];
+static uint8_t g_signer_id[WC_SHA256_DIGEST_SIZE];
 static bool g_handoff_ready;
 static bool g_attest_ready;
 
@@ -170,7 +176,7 @@ static int wt_attest_encode_payload(wt_guest_id_t guestId,
         ret = wc_CBOR_EncodeArrayStart(&cbor, 1u);
     }
     if (ret == 0) {
-        ret = wc_CBOR_EncodeMapStart(&cbor, 3u);
+        ret = wc_CBOR_EncodeMapStart(&cbor, 4u);
     }
     if (ret == 0) {
         ret = wc_CBOR_EncodeUint(&cbor, WT_PSA_SW_MEASUREMENT_TYPE);
@@ -185,6 +191,12 @@ static int wt_attest_encode_payload(wt_guest_id_t guestId,
     if (ret == 0) {
         ret = wc_CBOR_EncodeBstr(&cbor, g_boot_handoff.measurement,
                                  g_boot_handoff.measurement_size);
+    }
+    if (ret == 0) {
+        ret = wc_CBOR_EncodeUint(&cbor, WT_PSA_SW_MEASUREMENT_SIGNER_ID);
+    }
+    if (ret == 0) {
+        ret = wc_CBOR_EncodeBstr(&cbor, g_signer_id, sizeof(g_signer_id));
     }
     if (ret == 0) {
         ret = wc_CBOR_EncodeUint(&cbor,
@@ -217,6 +229,10 @@ int wt_initial_attest_init(const wt_boot_handoff_t* handoff)
     ret = wc_Sha256Hash(g_implementation_name,
         (word32)(sizeof(g_implementation_name) - 1u),
         g_implementation_id);
+    if (ret == 0) {
+        ret = wc_Sha256Hash(g_signer_name,
+            (word32)(sizeof(g_signer_name) - 1u), g_signer_id);
+    }
     if (ret == 0) {
         (void)memcpy(&g_boot_handoff, handoff, sizeof(g_boot_handoff));
         g_handoff_ready = true;
@@ -253,8 +269,7 @@ int wt_initial_attest_get_token_size(size_t challengeSize,
     if (ret == WT_ATTEST_SUCCESS) {
         (void)memset(&signer, 0, sizeof(signer));
         signer.sign = wt_attest_hsm_sign;
-        ret = wt_attest_cose_sign1_size(&signer, payloadSize,
-            WT_ATTEST_COSE_FLAG_UNTAGGED, tokenSize);
+        ret = wt_attest_cose_sign1_size(&signer, payloadSize, 0u, tokenSize);
     }
 
     wt_attest_force_zero(challenge, sizeof(challenge));
@@ -291,7 +306,7 @@ int wt_initial_attest_get_token(wt_guest_id_t guestId,
         (void)memset(&signer, 0, sizeof(signer));
         signer.sign = wt_attest_hsm_sign;
         ret = wt_attest_cose_sign1_encode(&signer, payload, payloadSize,
-            WT_ATTEST_COSE_FLAG_UNTAGGED, scratch, sizeof(scratch), token,
+            0u, scratch, sizeof(scratch), token,
             tokenCapacity, tokenSize);
         if (ret == WT_ATTEST_COSE_E_BUFFER) {
             ret = WT_ATTEST_ERROR_BUFFER_TOO_SMALL;
