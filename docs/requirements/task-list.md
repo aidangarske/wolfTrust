@@ -275,13 +275,14 @@ wolfTrust on the board — the TF-M drop-in proof.
       after self-heal; graceful no-brick fail-closed).
 
 
-- [~] **Phase 5 — Initial Attestation** — positive path **implemented and
-  hardware-verified**: `psa_initial_attestation` st=0, DICE/measured-boot
-  handoff, IAK via wolfHSM, `COSE_Sign1`/ES256 verify (challenge/identity/
-  lifecycle/measurement all ok in the positive scenario), but on M33MU/H5 only —
-  host attestation was stubbed. Remaining = the five stop-gate buckets
-  (`phases.md:116-118`) as real evidence. Beat-TF-M angle = IAK key-isolation
-  (the signing key never leaves the wolfHSM vault). Slices:
+- [x] **Phase 5 — Initial Attestation — COMPLETE (2026-08-25).** All slices
+  below have real evidence: production tagged profile-2 token; ARM `test_a001`
+  green on host, M33MU (shim + reference QCBOR), and H563 silicon (both
+  backends); deterministic claim-set golden vector; handoff/challenge/tamper
+  negatives; replay + lifecycle binding; IAK key-isolation at the wolfHSM
+  enforcement layers (beat-TF-M — the signing key never leaves the vault); and
+  the on-target `attestneg` scenario in CI. All host suites also green under
+  gcc/clang and ASan/UBSan. Slices:
     - [x] **P5-S2 (buckets 2+3 core): host COSE_Sign1 real ES256 sign→verify.**
       New `tests/host/attestation/` drives the production `wt_attest_cose_*`
       seam with a real P-256 signer, verifies via wolfCOSE against the IAK
