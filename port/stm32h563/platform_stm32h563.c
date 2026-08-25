@@ -861,24 +861,9 @@ static void wt_program_ns_mpu_regions(const wt_mpu_region_t* regions,
 
 static void wt_exception_return_ns_msp(void) __attribute__((naked, noreturn));
 
-/* WT_SP_FAULT_DEBUG tripwires: distinct BKPTs when a secure-to-NS gate is
- * about to hand NS the CPU with leaked thread state (nPRIV or SPSEL set).
- * lsls #31/#30 move the checked CONTROL bit into N so bpl skips the trap. */
-#if defined(WT_SP_FAULT_DEBUG) && (WT_SP_FAULT_DEBUG == 1)
-#define WT_TRIP_NS_EXIT(imm, lbl) \
-        "mrs r2, control                \n" \
-        "lsls r2, r2, #31               \n" \
-        "bpl " lbl "f                   \n" \
-        "bkpt " imm "                   \n" \
-        lbl ":                          \n"
-#else
-#define WT_TRIP_NS_EXIT(imm, lbl)
-#endif
-
 static void wt_exception_return_ns_msp(void)
 {
     __asm volatile(
-        WT_TRIP_NS_EXIT("0x60", "60")
         "ldr r2, =g_secure_entry_sp     \n"
         "ldr r2, [r2]                   \n"
         "mov sp, r2                     \n"
@@ -921,7 +906,6 @@ static void wt_jump_to_ns(uint32_t msp_ns __attribute__((unused)),
                           uint32_t reset_addr __attribute__((unused)))
 {
     __asm volatile(
-        WT_TRIP_NS_EXIT("0x62", "62")
         "msr msp_ns, r0     \n"
         "bics r1, r1, #1    \n"
         "movs r2, #0        \n"
@@ -1948,14 +1932,6 @@ int WolfTrust_HSM_Submit(uint16_t size)
 int WolfTrust_HSM_Submit_Impl(uint16_t size)
 {
     int rc;
-#if defined(WT_SP_FAULT_DEBUG) && (WT_SP_FAULT_DEBUG == 1)
-    uint32_t trip_ctrl;
-
-    __asm volatile("mrs %0, control" : "=r"(trip_ctrl));
-    if ((trip_ctrl & 3u) != 0u) {
-        __asm volatile("bkpt 0x63");
-    }
-#endif
 
     wt_secure_service_enter();
 

@@ -2709,6 +2709,7 @@ Evidence:
   S0 and absent from the S1/S2 validation sets. Split to task #114 (S3-R);
   not an S3 artifact.
 - CI: `spfaultneg` in the M33MU matrix ("Graceful SP fault recovery") and the
-  `ci:spfaultneg` PR label. `WT_SP_FAULT_DEBUG` tripwires (NS-exit
-  nPRIV/SPSEL BKPTs) stay in the tree, compiled out by default.
+  `ci:spfaultneg` PR label. The `WT_SP_FAULT_DEBUG` NS-exit tripwires used
+  for the hunt were removed once the root cause landed (the technique is
+  recorded above; the eb0ef27 history carries the code).
 - H563 silicon: rides the #113 board session.
