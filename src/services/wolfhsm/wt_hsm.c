@@ -638,6 +638,16 @@ void wt_hsm_set_fault_notify(wt_hsm_fault_notify_fn fn)
     g_hsm_fault_notify = (fn != NULL) ? fn : wt_hsm_fault_notify_noop;
 }
 
+void wt_hsm_release_locks(struct wt_co *co)
+{
+    /* Drop every secure-side wolfHSM lock the faulted coroutine still held so
+     * a waiter woken during recovery does not deadlock behind a dead holder.
+     * The NVM lock is the only such mutex today; add any future ones here. */
+    if (co != NULL) {
+        wt_mutex_release_if_holder(&g_nvm_lock_mutex, co);
+    }
+}
+
 int wt_hsm_signal_fault(wt_guest_id_t guest_id)
 {
     wt_hsm_guest_t *g;
@@ -651,7 +661,7 @@ int wt_hsm_signal_fault(wt_guest_id_t guest_id)
      * This is the only mutex in the secure-side wolfHSM service; if more
      * are added later, this is the place to drop them all. */
     if (g->tasklet != NULL) {
-        wt_mutex_release_if_holder(&g_nvm_lock_mutex, g->tasklet);
+        wt_hsm_release_locks(g->tasklet);
     }
 
     /* Tell the NS client. Failure here just means the transport was

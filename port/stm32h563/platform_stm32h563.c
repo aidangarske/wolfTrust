@@ -861,9 +861,24 @@ static void wt_program_ns_mpu_regions(const wt_mpu_region_t* regions,
 
 static void wt_exception_return_ns_msp(void) __attribute__((naked, noreturn));
 
+/* WT_SP_FAULT_DEBUG tripwires: distinct BKPTs when a secure-to-NS gate is
+ * about to hand NS the CPU with leaked thread state (nPRIV or SPSEL set).
+ * lsls #31/#30 move the checked CONTROL bit into N so bpl skips the trap. */
+#if defined(WT_SP_FAULT_DEBUG) && (WT_SP_FAULT_DEBUG == 1)
+#define WT_TRIP_NS_EXIT(imm, lbl) \
+        "mrs r2, control                \n" \
+        "lsls r2, r2, #31               \n" \
+        "bpl " lbl "f                   \n" \
+        "bkpt " imm "                   \n" \
+        lbl ":                          \n"
+#else
+#define WT_TRIP_NS_EXIT(imm, lbl)
+#endif
+
 static void wt_exception_return_ns_msp(void)
 {
     __asm volatile(
+        WT_TRIP_NS_EXIT("0x60", "60")
         "ldr r2, =g_secure_entry_sp     \n"
         "ldr r2, [r2]                   \n"
         "mov sp, r2                     \n"
@@ -906,6 +921,7 @@ static void wt_jump_to_ns(uint32_t msp_ns __attribute__((unused)),
                           uint32_t reset_addr __attribute__((unused)))
 {
     __asm volatile(
+        WT_TRIP_NS_EXIT("0x62", "62")
         "msr msp_ns, r0     \n"
         "bics r1, r1, #1    \n"
         "movs r2, #0        \n"
@@ -1715,6 +1731,26 @@ void Reset_Handler(void)
 __attribute__((naked)) void SecureFault_Handler(void)
 {
     __asm volatile(
+#ifdef WT_ENGINE_HSM
+        /* EXC_RETURN bit6 = secure frame, bit3 = Thread. A fault from Secure
+         * Thread with a live tasklet is a Secure Partition/tasklet fault, not
+         * a guest escalation: blaming the scheduled NS guest would restart an
+         * innocent domain and leave the SP's CPU state live. Route it to the
+         * tasklet recovery entry, which self-derives everything from its own
+         * EXC_RETURN. (The M33MU can deliver a secure MPU violation through
+         * this vector; silicon MemManage takes the direct handler.) */
+        "tst lr, #0x40                  \n"
+        "beq 1f                         \n"
+        "tst lr, #0x08                  \n"
+        "beq 1f                         \n"
+        "ldr r0, =g_wt_co_current       \n"
+        "ldr r0, [r0]                   \n"
+        "ldr r1, =g_wt_co_bootstrap     \n"
+        "cmp r0, r1                     \n"
+        "beq 1f                         \n"
+        "b wt_secure_tasklet_fault_entry \n"
+        "1:                             \n"
+#endif
         "mov r2, sp                     \n"
         "ldr r1, =g_secure_entry_sp     \n"
         "str r2, [r1]                   \n"
@@ -1795,6 +1831,15 @@ static void wt_secure_tasklet_fault_dispatch(uint32_t *frame,
 #endif
 
     g_tasklet_fault_count++;
+
+    /* Graceful recovery for a scheduled Secure Partition (WT-SYS-0008 /
+     * WT-FFM-0017): mark it dead and pend the recovery; the SPM dispatch path
+     * restarts it on the bootstrap thread under its manifest policy without
+     * resetting the world. If the coroutine is not a scheduled SP this returns
+     * an error and the guest-tasklet teardown below runs instead. */
+    if (wt_spm_sp_fault(tasklet) == WT_FFM_SUCCESS) {
+        return;
+    }
 
     wt_guest_id_t gid = wt_hsm_guest_for_tasklet(tasklet);
     if (gid < WT_MAX_GUESTS) {
@@ -1903,6 +1948,14 @@ int WolfTrust_HSM_Submit(uint16_t size)
 int WolfTrust_HSM_Submit_Impl(uint16_t size)
 {
     int rc;
+#if defined(WT_SP_FAULT_DEBUG) && (WT_SP_FAULT_DEBUG == 1)
+    uint32_t trip_ctrl;
+
+    __asm volatile("mrs %0, control" : "=r"(trip_ctrl));
+    if ((trip_ctrl & 3u) != 0u) {
+        __asm volatile("bkpt 0x63");
+    }
+#endif
 
     wt_secure_service_enter();
 

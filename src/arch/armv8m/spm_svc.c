@@ -27,12 +27,17 @@
 
 #include "wolftrust/arch/armv8m/spm_svc.h"
 
+#include "wolftrust/ffm.h"
 #include "wolftrust/ffm_domain.h"
+#include "wolftrust/monitor.h"
 #include "wolftrust/platform.h"
 #include "wolftrust/sched/coroutine.h"
+#include "wolftrust/sched/coroutine_internal.h"
 #include "wolftrust/services/crypto_service.h"
+#include "wolftrust/services/hsm.h"
 #include "wolftrust/services/storage_service.h"
 #include "wolftrust/services/vault_service.h"
+#include "wolftrust/sp_recovery.h"
 #include "wolftrust/spm_gate.h"
 
 #include "memory_map.h"
@@ -62,6 +67,16 @@ typedef struct wt_spm_sp {
     psa_signal_t wait_mask;
     uint8_t wait_kind;
     uint8_t in_use;
+    /* Graceful fault recovery (WT-SYS-0008 / WT-FFM-0017): re-arm the coroutine
+     * in place from its original entry, scrub its private stack, and evaluate
+     * the manifest restart budget on each fault. */
+    wt_spm_sp_entry_fn entry;
+    void* arg;
+    uintptr_t scrub_base;
+    uint32_t scrub_size;
+    uint32_t restart_count;
+    uint32_t first_restart_tick;
+    volatile uint8_t fault_pending;
 } wt_spm_sp_t;
 
 static wt_ffm_runtime_t* g_spm_svc_runtime;
@@ -109,6 +124,170 @@ static wt_spm_sp_t* wt_spm_slot_for_current(void)
         }
     }
     return NULL;
+}
+
+/* One-shot fault-probe latch (target/spfaultneg): the recovery path re-arms the
+ * partition with this bit set in its entry argument so the re-run skips the
+ * deliberate out-of-domain read and serves normally. Chosen above any valid
+ * partition id so the entry can still decode the id underneath it. */
+#define WT_SP_FAULT_PROBE_RESTARTED 0x40000000
+
+/* --- Graceful Secure-Partition fault recovery (WT-SYS-0008 / WT-FFM-0017) ---
+ * The neutral state machine (wt_sp_recovery_run) sequences these arch-specific
+ * cleanup steps: drop the dead partition's locks, unblock its pinned clients,
+ * scrub its stack, and restart it in place under the manifest budget — or, when
+ * the budget is spent or the service is platform-fatal, escalate. */
+typedef struct wt_spm_fault_ctx {
+    wt_spm_sp_t* slot;
+} wt_spm_fault_ctx_t;
+
+static void wt_spm_fault_release(void* ctx)
+{
+    wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
+
+#if defined(WT_ENGINE_HSM)
+    wt_hsm_release_locks(c->slot->co);
+#else
+    (void)c;
+#endif
+}
+
+static void wt_spm_fault_messages(void* ctx)
+{
+    wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
+
+    (void)wt_ffm_fail_partition_messages(g_spm_svc_runtime,
+                                         c->slot->partition_id,
+                                         PSA_ERROR_COMMUNICATION_FAILURE);
+}
+
+static void wt_spm_fault_scrub(void* ctx)
+{
+    wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
+
+    wt_platform_zero_guest_memory(c->slot->scrub_base, c->slot->scrub_size);
+}
+
+static int wt_spm_fault_restart(void* ctx)
+{
+    wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
+    wt_spm_sp_t* slot = c->slot;
+    void* arg = slot->arg;
+
+#if defined(WT_SP_FAULT_PROBE) && (WT_SP_FAULT_PROBE == 1)
+    arg = (void*)((intptr_t)slot->arg | WT_SP_FAULT_PROBE_RESTARTED);
+#endif
+    if (wt_co_reinit(slot->co, slot->entry, arg) != 0) {
+        return -1;
+    }
+    slot->wait_kind = WT_SPM_WAIT_NONE;
+    return 0;
+}
+
+static void wt_spm_fault_escalate(void* ctx, wt_restart_action_t action)
+{
+    wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
+
+    if (action == WT_RESTART_ACTION_PLATFORM) {
+        /* A platform-fatal service cannot be spared: fail the whole platform
+         * closed rather than run on without it (does not return). */
+        wt_platform_all_guests_faulted();
+    }
+    else {
+        /* Quarantine just this partition: FAULTED is terminal and the scheduler
+         * skips a non-BLOCKED slot, so unrelated partitions keep running. */
+        wt_co_mark_faulted(c->slot->co);
+    }
+}
+
+static const wt_sp_recovery_ops_t g_spm_fault_ops = {
+    wt_spm_fault_release, wt_spm_fault_messages, wt_spm_fault_scrub,
+    wt_spm_fault_restart, wt_spm_fault_escalate
+};
+
+static const wt_domain_descriptor_t* wt_spm_domain_for(int32_t partition_id)
+{
+    const wt_system_manifest_t* manifest;
+    size_t i;
+
+    if (g_spm_svc_runtime == NULL || g_spm_svc_runtime->manifest == NULL) {
+        return NULL;
+    }
+    manifest = g_spm_svc_runtime->manifest;
+    for (i = 0u; i < manifest->domain_count; i++) {
+        if (manifest->domains[i].id == (wt_domain_id_t)partition_id) {
+            return &manifest->domains[i];
+        }
+    }
+    return NULL;
+}
+
+/* Handler-mode half: identical footprint to the proven guest-tasklet fault
+ * path — mark the coroutine dead, unlink it, drop the stale PendSV target —
+ * plus one flag. The actual recovery (locks, clients, scrub, restart) runs
+ * later on the bootstrap thread via wt_spm_recover_faulted, in exactly the
+ * context that creates SPs at boot: recovery in handler mode leaked
+ * CONTROL_S.nPRIV/MPU thread state into the NS window (M33MU HardFault
+ * cascade at the next NS veneer entry). */
+int wt_spm_sp_fault(struct wt_co* faulted_co)
+{
+    wt_spm_sp_t* slot = NULL;
+    size_t i;
+
+    for (i = 0u; i < g_spm_sp_count; i++) {
+        if (g_spm_sp[i].in_use != 0u && g_spm_sp[i].co == faulted_co) {
+            slot = &g_spm_sp[i];
+            break;
+        }
+    }
+    if (slot == NULL) {
+        return WT_FFM_ERROR_STATE;  /* not a scheduled SP — caller falls back */
+    }
+
+    wt_co_mark_faulted(faulted_co);
+    g_wt_co_pendsv_target = (struct wt_co *)0;
+    slot->fault_pending = 1u;
+    return WT_FFM_SUCCESS;
+}
+
+void wt_spm_recover_faulted(void)
+{
+    const wt_domain_descriptor_t* domain;
+    wt_spm_fault_ctx_t ctx;
+    wt_spm_sp_t* slot;
+    uint32_t ticks;
+    uint32_t ctrl;
+    size_t i;
+
+    /* Defensive: the faulted partition ran with CONTROL.nPRIV=1 and the fault
+     * tail clears it from handler mode; re-assert privileged Thread state here
+     * so a delivery path that bypassed the tail can never leak nPRIV into the
+     * next NS window. Normally the bit is already clear and this never fires. */
+    __asm volatile("mrs %0, control" : "=r"(ctrl));
+    if ((ctrl & 1u) != 0u) {
+        ctrl &= ~1u;
+        __asm volatile("msr control, %0\n isb" : : "r"(ctrl));
+    }
+
+    ticks = wt_monitor_state()->monotonic_ticks;
+    for (i = 0u; i < g_spm_sp_count; i++) {
+        slot = &g_spm_sp[i];
+        if (slot->in_use == 0u || slot->fault_pending == 0u) {
+            continue;
+        }
+        slot->fault_pending = 0u;
+        domain = wt_spm_domain_for(slot->partition_id);
+        if (domain == NULL) {
+            continue;  /* stays FAULTED — quarantined by the mark */
+        }
+        ctx.slot = slot;
+        (void)wt_sp_recovery_run(&g_spm_fault_ops, &ctx,
+                                 domain->restart_policy.action,
+                                 domain->restart_policy.restart_limit,
+                                 domain->restart_policy.restart_window_ticks,
+                                 ticks, &slot->restart_count,
+                                 &slot->first_restart_tick);
+    }
 }
 
 /* Privileged SVC #1 dispatcher, tail-called from SVC_Handler with r0 = the
@@ -275,6 +454,21 @@ static void wt_spm_sp_entry(void* arg)
      * partition cannot map. Both are flash code addresses, so building the
      * struct touches only the partition's mapped stack and code. */
     wt_crypto_service_ctx_t ctx;
+#if defined(WT_SP_FAULT_PROBE) && (WT_SP_FAULT_PROBE == 1)
+    volatile uint32_t probe;
+
+    /* One-shot graceful-recovery probe (target/spfaultneg): fault exactly once
+     * with an out-of-domain read of SPM RAM. The recovery path re-arms this
+     * partition with the restarted marker set in its argument, so the re-run
+     * skips the read and serves normally — proving a faulted Secure Partition
+     * is restarted in place without resetting the platform. */
+    if (((intptr_t)arg & WT_SP_FAULT_PROBE_RESTARTED) == 0) {
+        probe = *(const volatile uint32_t*)(uintptr_t)WT_RAM_S_BASE;
+        (void)probe;
+    }
+    partition_id = (int32_t)((intptr_t)arg &
+                             ~(intptr_t)WT_SP_FAULT_PROBE_RESTARTED);
+#endif
 
     ctx.transport = wt_spm_svc_transport;
     ctx.compute = wt_crypto_sp_hash;
@@ -450,14 +644,23 @@ static int wt_spm_sched_dispatch(void* context, wt_ffm_runtime_t* runtime,
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     g_spm_conf_activity++;
 #endif
+    /* Settle any fault recovery pended by the Secure fault dispatcher before
+     * touching the target: a partition that faulted on an earlier dispatch may
+     * be restartable, in which case this wake finds it BLOCKED and healthy. */
+    wt_spm_recover_faulted();
     if (co == NULL || wt_co_state(co) == WT_CO_FAULTED) {
         return WT_FFM_ERROR_STATE;
     }
     if (wt_spm_run_co(co) != WT_FFM_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
+    /* The run above may itself have faulted the partition: recover NOW so the
+     * pinned client's message is force-completed before this dispatch returns
+     * and the restart budget is charged on the spot. */
+    wt_spm_recover_faulted();
     do {
         progressed = 0;
+        wt_spm_recover_faulted();
         for (i = 0u; i < g_spm_sp_count; i++) {
             wt_spm_sp_t* slot = &g_spm_sp[i];
 
@@ -624,6 +827,12 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
     }
     slot->partition_id = partition_id;
     slot->wait_kind = WT_SPM_WAIT_NONE;
+    slot->entry = entry;
+    slot->arg = arg;
+    slot->scrub_base = stack_region->base;
+    slot->scrub_size = stack_region->size;
+    slot->restart_count = 0u;
+    slot->first_restart_tick = 0u;
 
     /* Cache the runtime partition index so the scheduler's signal check does
      * not rescan per wake. */

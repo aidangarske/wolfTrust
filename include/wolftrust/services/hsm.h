@@ -94,6 +94,12 @@ wt_guest_id_t wt_hsm_guest_for_tasklet(const struct wt_co *tasklet);
  * call from handler mode. Returns WH_ERROR_OK on success. */
 int wt_hsm_signal_fault(wt_guest_id_t guest_id);
 
+/* Drop every secure-side wolfHSM lock held by a faulted coroutine. Used by the
+ * graceful SP fault-recovery path to release a dead partition's NVM lock
+ * without the guest-keyed teardown wt_hsm_signal_fault performs. Safe from
+ * handler mode; a NULL coroutine or a non-holder is a no-op. */
+void wt_hsm_release_locks(struct wt_co *co);
+
 /* Terminal-fault NS-client notifier. wt_hsm_signal_fault calls the installed
  * callback; the arch transport installs its concrete notifier at boot. The
  * default is a no-op so engine-less/host builds link. */

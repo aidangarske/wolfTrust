@@ -813,6 +813,64 @@ int wt_ffm_msg_complete(const wt_ffm_runtime_t* runtime, uint16_t msg_index)
            runtime->messages[msg_index].complete != 0U;
 }
 
+/* WT-FFM-0017: when a Secure Partition faults, force-complete every message it
+ * was serving so any pinned client unblocks with a defined error instead of
+ * hanging on a response that will never arrive. A message is owned by the
+ * faulted partition when its service resolves to that partition's domain id.
+ * Undelivered (queued, never dispatched) and in-flight (active) messages both
+ * complete; the connection drops to ERROR so the client cannot reuse it.
+ * Returns the number of messages failed. */
+int wt_ffm_fail_partition_messages(wt_ffm_runtime_t* runtime,
+                                   int32_t partition_id, psa_status_t status)
+{
+    wt_ffm_message_runtime_t* message;
+    wt_ffm_service_runtime_t* service;
+    wt_ffm_partition_runtime_t* partition;
+    int failed = 0;
+    size_t i;
+
+    if (runtime == NULL) {
+        return 0;
+    }
+
+    for (i = 0U; i < WT_FFM_MAX_MESSAGES; i++) {
+        message = &runtime->messages[i];
+        if (message->allocated == 0U || message->complete != 0U) {
+            continue;
+        }
+        service = &runtime->services[message->service_index];
+        partition = &runtime->partitions[service->partition_index];
+        if (partition->manifest == NULL ||
+                partition->manifest->domain_id !=
+                    (wt_domain_id_t)partition_id) {
+            continue;
+        }
+        message->reply_status = status;
+        message->active = 0U;
+        message->complete = 1U;
+        runtime->connections[message->connection_index].state =
+            WT_IPC_CONNECTION_ERROR;
+        failed++;
+    }
+
+    /* Drain the dead partition's service queues and deassert their signals:
+     * a restarted partition must wake for NEW work only, or its first
+     * psa_wait spins on messages that were already force-completed above. */
+    for (i = 0U; i < runtime->service_count; i++) {
+        service = &runtime->services[i];
+        partition = &runtime->partitions[service->partition_index];
+        if (partition->manifest == NULL ||
+                partition->manifest->domain_id !=
+                    (wt_domain_id_t)partition_id) {
+            continue;
+        }
+        service->queue_head = WT_FFM_QUEUE_NONE;
+        service->queue_tail = WT_FFM_QUEUE_NONE;
+        wt_ffm_update_service_signal(runtime, (uint16_t)i);
+    }
+    return failed;
+}
+
 int wt_ffm_dispatch_pending(wt_ffm_runtime_t* runtime, uint16_t msg_index)
 {
     if (runtime == NULL || msg_index >= WT_FFM_MAX_MESSAGES ||

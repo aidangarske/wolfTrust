@@ -84,6 +84,16 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
     psa_outvec out_vec[WT_FFM_VENEER_IOVEC_MAX];
     int32_t status;
     uint32_t i;
+#if defined(WT_SP_FAULT_DEBUG) && (WT_SP_FAULT_DEBUG == 1)
+    uint32_t trip_ctrl;
+
+    /* Tripwire: an NSC entry must arrive privileged on MSP_S; a leaked
+     * nPRIV/SPSEL from an SP or tasklet transition is the fault-cascade seed. */
+    __asm volatile("mrs %0, control" : "=r"(trip_ctrl));
+    if ((trip_ctrl & 3u) != 0u) {
+        __asm volatile("bkpt 0x61");
+    }
+#endif
 
     if (!wt_ffm_veneer_caller(&caller)) {
         return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;

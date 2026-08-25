@@ -45,6 +45,8 @@ WT_ATTEST_COSE ?= 1
 WT_FFM_NEGATIVE_PROBE ?= 0
 WT_LAUNCH_DEBUG ?= 0
 WT_ROLLBACK_PROBE ?= 0
+WT_SP_FAULT_PROBE ?= 0
+WT_SP_FAULT_DEBUG ?= 0
 WT_CONFORMANCE ?= 0
 
 # wolfHSM resumes SHA-256 operations from the portable digest and length
@@ -141,6 +143,12 @@ endif
 ifeq ($(WT_FFM_NEGATIVE_PROBE),1)
 SECURE_CFLAGS += -DWT_FFM_NEGATIVE_PROBE=1
 endif
+ifeq ($(WT_SP_FAULT_PROBE),1)
+SECURE_CFLAGS += -DWT_SP_FAULT_PROBE=1
+endif
+ifeq ($(WT_SP_FAULT_DEBUG),1)
+SECURE_CFLAGS += -DWT_SP_FAULT_DEBUG=1
+endif
 
 # Vault recovery negative test: force the foreign-pool ACCESS at first
 # provisioning so the lifecycle-gated reformat path runs. WT_VAULT_PROBE_SECURED
@@ -171,6 +179,7 @@ SECURE_SRCS := \
     $(ROOT)/src/ipc.c \
     $(ROOT)/src/restart_policy.c \
     $(ROOT)/src/rollback.c \
+    $(ROOT)/src/sp_recovery.c \
     $(ROOT)/src/spm_gate.c \
     $(ROOT)/src/manifest.c \
     $(ROOT)/src/monitor.c \

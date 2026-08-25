@@ -430,10 +430,45 @@ wolfTrust on the board — the TF-M drop-in proof.
       persistent across reset; probe forces SECURED like vaultrecoversec).
       `rollbackneg` in the CI matrix + `ci:rollbackneg`; the inline per-guest
       CI job reordered to the S1 patch-then-sign flow. Silicon rides #113.
-    - [ ] **S3 (Fable): graceful SP fault recovery + CI (#26).** Generalize the
-      HSM-tasklet cleanup to any faulted SP (restart under policy, don't reset the
-      world); wire the negative M33MU fault-recovery scenario into CI. Host + M33MU
-      negative. Collapses #26.
+    - [x] **S3 (Fable): graceful SP fault recovery + CI (#26) — DONE on M33MU.**
+      A faulted Secure Partition is now recovered without resetting the world
+      (WT-SYS-0008 / WT-FFM-0017): the fault handler only marks the coroutine
+      dead and pends recovery; the SPM dispatch path then runs the neutral
+      engine (`src/sp_recovery.c`: locks released via `wt_hsm_release_locks`,
+      pinned clients failed with a defined error via
+      `wt_ffm_fail_partition_messages` — which also drains the dead
+      partition's queues and deasserts its signals — stack scrubbed, coroutine
+      restarted in place via `wt_co_reinit` under the manifest
+      `restart_policy` budget; NEVER/PLATFORM or exhausted budget escalate).
+      Recovery deliberately runs on the bootstrap thread, never in handler
+      mode. Host: new `sp_recovery` suite (300 checks: budget decision,
+      ordered orchestration incl. failed-restart downgrade, 50x in-place
+      reinit with slot/domain identity preserved) + `ffm` fault-unblock case —
+      36-suite `unit/all` green, gcc/clang + ASan/UBSan. M33MU:
+      `PASS: target/spfaultneg` — the crypto SP faults once
+      (`WT_SP_FAULT_PROBE` out-of-domain read), the pinned client unblocks
+      with -145, the RESTARTED SP serves the later key-ops, ITS/PS/HSM/
+      attestation all green through a clean BKPT exit, no platform reset —
+      plus `PASS: target/positive`, `target/crossdomain`, `target/confboot`
+      (85/0/4) regressions. `spfaultneg` in the CI matrix + `ci:spfaultneg`.
+      Three defects found by the gate: (1) `wt_secure_fault_dispatch` blamed
+      the scheduled NS guest for Secure-Thread faults — `SecureFault_Handler`
+      now routes secure-frame Thread faults to the tasklet recovery entry
+      (also covers the M33MU delivering secure MPU faults through the
+      SecureFault vector — emulator defect #3, stale `securefault_pending`,
+      tracked with the #63 patch family); (2) force-completed messages left
+      queued kept the service signal asserted (restart spin); (3) the fault
+      path left `g_wt_co_pendsv_target` stale. Collapses #26. Silicon rides
+      #113.
+    - [ ] **S3-R: fix pre-existing `target/restart` regression (guest1 first
+      dispatch inherits guest0's NS stack bank; task #114).** A/B-proven
+      pre-existing at S2 `5cfd394` (identical failure with zero S3 changes):
+      guest1's first dispatch runs with SP at guest0's initial MSP_NS top,
+      the per-guest NS MPU rightly denies the cross-window push, guest1 dies
+      in its NS HardFault handler, and NS-Handler spin blocks all further
+      rotation (2/4 banners). `restart` was last green at S0 `0af5eef`; the
+      S1/S2 validation sets did not include it. Suspect: S1's monitor-init /
+      relaunch-verify changes around guest context init ordering.
     - [ ] **S4 (Fable, deepest): PSA Firmware Update service.** New `SERVICE_FWU`
       SP + `include/psa/update.h` (`psa_fwu_*`); stages into the wolfBoot update
       partition + trigger, gated by S1/S2 on the next boot. New SID + regen. Host

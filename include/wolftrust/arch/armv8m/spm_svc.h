@@ -24,6 +24,8 @@
 #include "wolftrust/ffm.h"
 #include "wolftrust/spm_sched.h"
 
+struct wt_co;
+
 /* SVC immediate for a Secure Partition psa_* request. 0x7F is the NS-guest
  * return path; anything else falls through to the PendSV scheduler pend. */
 #define WT_SVC_SPM_CALL 0x01
@@ -38,6 +40,18 @@ int wt_spm_sp_call(struct wt_spm_call* call);
 /* Privileged SVC #1 dispatcher. Tail-called from SVC_Handler asm with
  * r0 = the exception frame; not for direct C callers. */
 void wt_spm_svc_entry(uint32_t* frame);
+
+/* Graceful fault recovery for a scheduled Secure Partition (WT-SYS-0008 /
+ * WT-FFM-0017), split across execution modes. wt_spm_sp_fault is the
+ * handler-mode half: if the faulted coroutine is a scheduled SP it is marked
+ * dead and recovery is PENDED, returning WT_FFM_SUCCESS; WT_FFM_ERROR_STATE
+ * means not a scheduled SP and the caller falls back to its guest-tasklet
+ * path. wt_spm_recover_faulted is the bootstrap-thread half: it runs the full
+ * recovery (locks dropped, pinned clients failed, stack scrubbed, partition
+ * restarted under its manifest budget or escalated) for every pended fault.
+ * The SPM dispatch path calls it; recovery must never run in handler mode. */
+int wt_spm_sp_fault(struct wt_co* faulted_co);
+void wt_spm_recover_faulted(void);
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 /* Conformance-only hang tripwire: called from the secure SysTick; traps with

@@ -682,6 +682,63 @@ static void test_irq_route_and_assert(void)
     (void)printf("PASS: interrupt signal routing and assertion\n");
 }
 
+/* WT-FFM-0017: a client pinned on a faulted partition unblocks with a defined
+ * error instead of hanging. Enqueue a real request (never dispatched, standing
+ * in for a partition that faults mid-service), then fail the partition's
+ * messages and confirm the pinned request completes with the injected error,
+ * the connection drops to ERROR, and unrelated partitions are untouched. */
+static void test_fault_unblock(void)
+{
+    static const uint8_t request[] = { 'a', 'b', 'c' };
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_invec input = { request, sizeof(request) };
+    uint8_t response[2] = { 0U, 0U };
+    psa_outvec output = { response, sizeof(response) };
+    psa_handle_t handle;
+    uint16_t msg_index = 0U;
+
+    test_init(&runtime, &context);
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+
+    EXPECT_INT(wt_ffm_call_begin(&runtime, TEST_NS_CLIENT, handle,
+                                 PSA_IPC_CALL, &input, 1U, &output, 1U,
+                                 &msg_index), PSA_SUCCESS);
+    EXPECT_INT(wt_ffm_msg_complete(&runtime, msg_index), 0);
+    EXPECT_INT(runtime.partitions[0].asserted_signals & TEST_SERVICE_SIGNAL,
+               (int)TEST_SERVICE_SIGNAL);
+
+    /* Failing an unrelated partition leaves the pinned message alone. */
+    EXPECT_INT(wt_ffm_fail_partition_messages(&runtime, TEST_CLIENT_PARTITION,
+                                              PSA_ERROR_COMMUNICATION_FAILURE),
+               0);
+    EXPECT_INT(wt_ffm_msg_complete(&runtime, msg_index), 0);
+
+    /* Failing the serving partition completes exactly the pinned message and
+     * drains its queue: the service signal deasserts so a restarted partition
+     * wakes for new work only, never for the corpse of this request. */
+    EXPECT_INT(wt_ffm_fail_partition_messages(&runtime, TEST_PARTITION_ID,
+                                              PSA_ERROR_COMMUNICATION_FAILURE),
+               1);
+    EXPECT_INT(wt_ffm_msg_complete(&runtime, msg_index), 1);
+    EXPECT_INT(runtime.partitions[0].asserted_signals & TEST_SERVICE_SIGNAL,
+               0);
+    EXPECT_INT(wt_ffm_call_finish(&runtime, msg_index, &output, 1U),
+               PSA_ERROR_COMMUNICATION_FAILURE);
+
+    /* The connection is now unusable: an ERROR-state connection is no longer
+     * IDLE, so a fresh call is refused rather than silently reopening it. */
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U),
+               PSA_ERROR_BAD_STATE);
+
+    EXPECT_INT(wt_ffm_fail_partition_messages(NULL, TEST_PARTITION_ID,
+                                              PSA_ERROR_COMMUNICATION_FAILURE),
+               0);
+    (void)printf("PASS: WT-FFM-0017 pinned client unblock on partition fault\n");
+}
+
 int main(void)
 {
     test_arguments();
@@ -696,6 +753,7 @@ int main(void)
     test_vector_rejection();
     test_output_revalidation();
     test_bounded_resources();
+    test_fault_unblock();
     if (g_failures != 0U) {
         (void)fprintf(stderr, "FF-M checks failed: %u/%u\n",
                       g_failures, g_checks);

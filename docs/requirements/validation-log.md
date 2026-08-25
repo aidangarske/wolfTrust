@@ -2639,3 +2639,76 @@ Evidence:
   reordered to the S1 patch-then-sign flow (it would otherwise boot an
   unpatched slot and refuse every guest).
 - H563 silicon: rides the #113 board session.
+
+## P6-S3 — Graceful Secure Partition fault recovery (WT-SYS-0008 / WT-FFM-0017)
+
+A faulted Secure Partition is now recovered gracefully instead of dying
+silently or resetting the platform. The design splits recovery across
+execution modes: the Secure fault handler does only what the proven
+guest-tasklet path did — mark the coroutine dead (`wt_co_mark_faulted`),
+clear the stale PendSV target, pend the recovery — and the SPM dispatch path
+then runs the full sequence on the bootstrap thread, the same context that
+creates SPs at boot. The architecture-neutral engine (`src/sp_recovery.c`)
+sequences: release the dead partition's locks (`wt_hsm_release_locks`),
+force-complete its in-flight and queued messages with a defined error so no
+pinned client hangs (`wt_ffm_fail_partition_messages`, which also drains the
+partition's service queues and deasserts its signals), scrub its stack, and
+restart the coroutine in place (`wt_co_reinit` — same table slot, same MPU
+domain binding) under the manifest `restart_policy` budget
+(`wt_restart_policy_evaluate`). NEVER/PLATFORM actions and an exhausted
+budget escalate: the partition stays quarantined, or for a platform-fatal
+service the platform fails closed.
+
+Three defects were found and fixed by the gate on the way to green:
+
+1. `wt_secure_fault_dispatch` attributed EVERY secure escalation to the
+   currently scheduled NS guest — an SP fault would restart an innocent
+   guest. `SecureFault_Handler` now routes faults whose EXC_RETURN shows a
+   Secure Thread frame with a live tasklet to the tasklet recovery entry.
+   This also covers M33MU emulator defect #3 (a stale `securefault_pending`
+   in the emulator delivers a secure MPU DACCVIOL through the SecureFault
+   vector instead of secure MemManage — minimal repro + upstream fix tracked
+   with the #63 patch family, task #115).
+2. Force-completed messages previously stayed on the service queue with the
+   signal asserted, so a restarted partition woke instantly into a stale
+   queue and could spin unpreemptably.
+3. The fault path bypassed `wt_co_arch_leave`, leaving `g_wt_co_pendsv_target`
+   pointing at the dead coroutine.
+
+Evidence:
+
+- Host: new `sp_recovery` suite (300 checks — restart-budget decision matrix
+  incl. NEVER/PLATFORM/unlimited/NULL, ordered orchestration with
+  failed-restart downgrade-to-escalate, 50x in-place coroutine reinit
+  preserving slot identity and domain binding with zero slot leakage) and a
+  new `ffm` fault-unblock case (pinned message force-completed with the
+  injected status, unrelated partitions untouched, connection dropped to
+  ERROR, service signal deasserted). 36-suite `unit/all` green under
+  gcc/clang + ASan/UBSan; core/port split guard clean.
+- M33MU (emulator, wolf-prec5560, v1.15 container): `PASS: target/spfaultneg`
+  — the `WT_SP_FAULT_PROBE` build makes the crypto SP fault once on its first
+  dispatch (out-of-domain read, one MEMFAULT, no HardFault/SecureFault
+  cascade); the pinned NS client unblocks with `psa_connect ... handle=-145`;
+  the restarted SP then serves the vault key-ops chain
+  (`key-ops sign/verify verified` rides SERVICE_CRYPTO); ITS/PS, the wolfHSM
+  tasklet path (KAT, guest1 C_Digest), and full attestation stay green
+  through a clean BKPT exit — a graceful per-partition restart with no
+  platform reset. Regressions on the same tree: `PASS: target/positive`,
+  `PASS: target/crossdomain`, `PASS: target/confboot` (85/0/4).
+- Root-cause work that got here (recorded because the emulator dumps were the
+  decisive instrument): the first spfaultneg runs HardFaulted at the next NS
+  veneer entry with `ctrl=0x00000001`; the emulator's `M33MU_CTRL_TRACE`
+  showed no CONTROL write after PendSV set nPRIV=1 for the SP, proving the
+  MemManage tail never ran; symbolizing the halt LR placed the handling in
+  `wt_secure_fault_dispatch`, exposing the SecureFault misdelivery and the
+  guest-blame bug at once.
+- `target/restart` FAILS in this validation set, and an A/B on pristine S2
+  (`5cfd394`, zero S3 changes) fails identically — a pre-existing S1/S2-era
+  regression (guest1's first dispatch inherits guest0's NS stack bank; the
+  NS MPU rightly denies it and rotation stalls). `restart` was last green at
+  S0 and absent from the S1/S2 validation sets. Split to task #114 (S3-R);
+  not an S3 artifact.
+- CI: `spfaultneg` in the M33MU matrix ("Graceful SP fault recovery") and the
+  `ci:spfaultneg` PR label. `WT_SP_FAULT_DEBUG` tripwires (NS-exit
+  nPRIV/SPSEL BKPTs) stay in the tree, compiled out by default.
+- H563 silicon: rides the #113 board session.

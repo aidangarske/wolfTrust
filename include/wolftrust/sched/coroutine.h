@@ -139,4 +139,12 @@ bool wt_co_request_preempt(void);
  * is no preemption to fence against. */
 void wt_co_mark_faulted(wt_co_t *co);
 
+/* Restart a faulted (or blocked) coroutine in place: reclaim the same table
+ * slot with a fresh stack frame and BLOCKED state, preserving its id and its
+ * Secure Partition MPU domain binding. Returns 0 on success, -1 for a bad
+ * pointer or a coroutine with no stack. Used by the graceful SP fault-recovery
+ * path (WT-SYS-0008 / WT-FFM-0017) so a restartable partition resumes without
+ * consuming a new slot or resetting the platform. */
+int wt_co_reinit(wt_co_t *co, wt_co_entry_fn entry, void *arg);
+
 #endif

@@ -380,6 +380,42 @@ void wt_co_mark_faulted(wt_co_t *co)
     }
 }
 
+int wt_co_reinit(wt_co_t *co, wt_co_entry_fn entry, void *arg)
+{
+    if (co == (wt_co_t *)0 || entry == (wt_co_entry_fn)0) {
+        return -1;
+    }
+    if (!is_valid_co_pointer(co) || co == (wt_co_t *)&g_wt_co_bootstrap) {
+        return -1;
+    }
+    if (co->stack_base == (uint8_t *)0) {
+        return -1;
+    }
+
+    /* Reclaim the existing slot in place: a restart must not consume a new
+     * g_co_table entry (that would leak toward WT_CO_MAX every fault) and must
+     * keep the SP's MPU domain binding. Detach from the runqueue in case the
+     * faulted coroutine was still linked, re-arm the stack, and leave it
+     * BLOCKED — the scheduler runs it again when its service signal next
+     * asserts, exactly as at boot. */
+    runqueue_unlink(co);
+    if (g_wt_co_current == co) {
+        g_wt_co_current = &g_wt_co_bootstrap;
+    }
+
+    co->sp        = 0u;
+    co->entry     = entry;
+    co->arg       = arg;
+    co->state     = WT_CO_BLOCKED;
+    co->next_run  = (struct wt_co *)0;
+    co->next_wait = (struct wt_co *)0;
+    co->wake_pending = 0u;
+
+    *(volatile uint32_t *)(void *)co->stack_base = WT_CO_STACK_CANARY;
+    wt_co_arch_init_stack(co, entry, arg);
+    return 0;
+}
+
 wt_co_t *wt_co_current(void)
 {
     if (g_wt_co_current == &g_wt_co_bootstrap) {

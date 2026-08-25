@@ -10,6 +10,9 @@
 #                                       restart_limit times then leaves it FAULTED
 #   run_m33mu_scenario.sh crossdomain  a probe inside the crypto SP reads
 #                                       SPM-private RAM and the SP domain faults
+#   run_m33mu_scenario.sh spfaultneg   the crypto SP faults once; wolfTrust
+#                                       gracefully restarts it in place (no
+#                                       reset) and it serves again, guests live
 #   run_m33mu_scenario.sh confboot     conformance image (Arm server/client SPs
 #                                       scheduled, WT_CONFORMANCE=1) boots the
 #                                       full positive lifecycle green
@@ -42,8 +45,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg) ;;
-  *) echo "usage: $0 positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg" >&2; exit 2 ;;
+  positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg) ;;
+  *) echo "usage: $0 positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -136,6 +139,8 @@ cd "$repo"
 secure_flags=""
 if [ "$scenario" = "crossdomain" ]; then
   secure_flags="WT_FFM_NEGATIVE_PROBE=1"
+elif [ "$scenario" = "spfaultneg" ]; then
+  secure_flags="WT_SP_FAULT_PROBE=1"
 elif [ "$scenario" = "confboot" ] || [ "$scenario" = "devstorage" ] || \
      [ "$scenario" = "devcrypto" ] || [ "$scenario" = "devattest" ] || \
      [ "$scenario" = "devattestqcbor" ]; then
@@ -222,6 +227,12 @@ timeout_s=60
 if [ "$scenario" = "restart" ]; then
   quit_flag=""
   timeout_s=40
+elif [ "$scenario" = "spfaultneg" ]; then
+  # The crypto SP faults once on purpose; wolfTrust catches the MemManage and
+  # restarts the partition in place, so halting on the fault would defeat the
+  # recovery. The rest of the lifecycle then completes normally through the
+  # clean BKPT exit — the restarted SP serves the later crypto KAT.
+  quit_flag=""
 elif [ "$scenario" = "authneg" ]; then
   # Guest0 is refused at launch so the BKPT scenario end never fires; the run
   # ends on timeout with guest1's heartbeats as the survival evidence.
@@ -492,5 +503,32 @@ case "$scenario" in
       exit 0
     fi
     check_fail "cross-domain isolation" "expected MEMFAULT at 0x30028000, none seen"
+    ;;
+  spfaultneg)
+    # The crypto SP faulted once (out-of-domain read of SPM RAM). wolfTrust must
+    # catch the MemManage, fail the pinned client with a defined error, restart
+    # the partition in place, and complete the rest of the lifecycle with no
+    # platform reset — the restarted SP itself serves the later crypto KAT.
+    if grep -Eq '\[MEMFAULT\].*addr=0x30028000' "$log"; then
+      check_pass "crypto SP faulted once (MEMFAULT at 0x30028000)"
+    else
+      check_fail "SP fault" "expected MEMFAULT at 0x30028000, none seen"
+    fi
+    refute_re "MemManage was contained, not escalated to a HardFault" \
+      '(\[HARDFLT\]|HardFault|SecureFault)'
+    expect "pinned client unblocked with a defined error, no hang" \
+      "FF-M psa_connect(SERVICE_CRYPTO) failed rc=0 handle=-145"
+    expect "restarted crypto SP serves again (key-ops ride SERVICE_CRYPTO)" \
+      "wolfTrust key-ops sign/verify verified"
+    expect "unrelated storage partitions unaffected" \
+      "wolfTrust ITS set/get verified"
+    expect "wolfHSM tasklet path unaffected" \
+      "psa_hash_compute(SHA-256) KAT verified"
+    expect "unrelated guest booted and ran through the SP fault" \
+      "freertos_guest1: alive"
+    expect "guest1 wolfHSM services still live" \
+      "freertos_guest1: C_Digest(SHA-256) rv=0"
+    expect "full lifecycle completed after recovery" "[EXPECT BKPT] Success"
+    echo "PASS: target/spfaultneg"
     ;;
 esac
