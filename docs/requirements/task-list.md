@@ -320,12 +320,15 @@ wolfTrust on the board — the TF-M drop-in proof.
         `conformance_pal.c` stub under `#if !defined(INITIAL_ATTESTATION)`; add
         the test-list gen block to `mk/secure-armv8m-stm32h563.mk`; defines
         `INITIAL_ATTESTATION PSA_ATTESTATION_PROFILE_2 CRYPTO_VERSION_BETA3`.
-      - [ ] **Production token change (blocker for verify):** wolfTrust must emit
-        a **tagged** COSE_Sign1 (val calls `IsTagged(18)`; today `get_token` sets
-        `WT_ATTEST_COSE_FLAG_UNTAGGED`) AND add a **signer_id** (label 5) to the
-        SW component so profile-2 `mandatory_sw_components==2` — bump the map
-        `3u→4u` at `initial_attestation.c:173`. Re-verify on M33MU (confboot +
-        the guest's own attest verify) since this changes the token bytes.
+      - [x] **Production token change DONE (`26bd175`).** `get_token`/`get_token_size`
+        now emit a **tagged** COSE_Sign1 (flags `0u`; val's `IsTagged(18)` gate) and
+        the SW component carries a **signer_id** (label 5, `SHA-256("wolfBoot")`),
+        bumping the map `3u→4u` so profile-2 `mandatory_sw_components==2`. wolfCOSE
+        already tag-capable both ways (encode gated by `WOLFCOSE_SIGN1_UNTAGGED`;
+        verify auto-detects tag 18) — no wolfCOSE change. Evidence: new host suite
+        `tests/host/attestation_token/` drives the real production encoder + the
+        production guest verifier (26/26, gcc/clang/ASan) + M33MU `positive`
+        (`token_len=291`, `COSE_Sign1 verified`, `verify=0 … cose=ES256`).
       - [ ] Run `test_a001` on M33MU **both ways** (shim + real QCBOR), then H5.
     - [ ] **P5-CI:** `attestneg` M33MU scenario + `ci:attestneg` label +
       workflow markers, mirroring the `vaultrecover` pattern.
