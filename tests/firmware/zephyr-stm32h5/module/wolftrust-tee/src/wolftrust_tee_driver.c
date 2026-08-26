@@ -57,25 +57,11 @@
 
 extern int WolfTrust_HSM_Poll(uint16_t seq);
 extern int WolfTrust_HSM_Cancel(uint16_t seq);
-extern int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version);
-extern int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
-                                  wt_ffm_veneer_iovec_t* ns_iovec);
-extern void WolfTrust_FFM_Close(int32_t handle);
-extern uint32_t WolfTrust_FFM_FrameworkVersion(void);
-extern uint32_t WolfTrust_FFM_ServiceVersion(uint32_t sid);
 
-/* NS PSA FF-M client API (psa/client.h): alias the secure veneers so the
- * upstream Arm val NSPE links these directly (P3a). Connect/call/close aliases
- * arrive with psa/client.h's psa_invec/outvec types in P3a-3. */
-uint32_t psa_framework_version(void)
-{
-	return WolfTrust_FFM_FrameworkVersion();
-}
-
-uint32_t psa_version(uint32_t sid)
-{
-	return WolfTrust_FFM_ServiceVersion(sid);
-}
+/* The FF-M client API (psa_connect/call/close/framework_version/version) now
+ * lives in the OS-neutral src/client/psa_ffm_client.c; the guest no longer
+ * routes FF-M through this TEE driver (P7-S2, closes #16 for the FF-M path).
+ * This driver retains only the wolfHSM poll/cancel transport it still owns. */
 
 static int wolftrust_get_version(const struct device *dev,
 				 struct tee_version_info *info)
@@ -97,9 +83,9 @@ static int wolftrust_invoke_func(const struct device *dev,
 				 unsigned int num_param,
 				 struct tee_param *param)
 {
-	wt_ffm_veneer_iovec_t iovec;
-
 	ARG_UNUSED(dev);
+	ARG_UNUSED(num_param);
+	ARG_UNUSED(param);
 
 	if (arg == NULL) {
 		return -EINVAL;
@@ -111,39 +97,6 @@ static int wolftrust_invoke_func(const struct device *dev,
 		break;
 	case WOLFTRUST_FN_HSM_CANCEL:
 		arg->ret = (uint32_t)WolfTrust_HSM_Cancel(0u);
-		break;
-	case WOLFTRUST_FN_FFM_CONNECT:
-		if (num_param < 1) {
-			arg->ret = (uint32_t)-EINVAL;
-			return -EINVAL;
-		}
-		arg->ret = (uint32_t)WolfTrust_FFM_Connect(
-			(uint32_t)param[0].a, (uint32_t)param[0].b);
-		break;
-	case WOLFTRUST_FN_FFM_CALL:
-		/* param[0] = {handle, type, input_ptr},
-		 * param[1] = {input_len, output_ptr, output_len}. */
-		if (num_param < 2) {
-			arg->ret = (uint32_t)-EINVAL;
-			return -EINVAL;
-		}
-		memset(&iovec, 0, sizeof(iovec));
-		iovec.in[0].base = (const void *)(uintptr_t)param[0].c;
-		iovec.in[0].len = (uint32_t)param[1].a;
-		iovec.out[0].base = (void *)(uintptr_t)param[1].b;
-		iovec.out[0].len = (uint32_t)param[1].c;
-		iovec.in_count = (iovec.in[0].len != 0u) ? 1u : 0u;
-		iovec.out_count = (iovec.out[0].len != 0u) ? 1u : 0u;
-		arg->ret = (uint32_t)WolfTrust_FFM_Call(
-			(int32_t)param[0].a, (int32_t)param[0].b, &iovec);
-		break;
-	case WOLFTRUST_FN_FFM_CLOSE:
-		if (num_param < 1) {
-			arg->ret = (uint32_t)-EINVAL;
-			return -EINVAL;
-		}
-		WolfTrust_FFM_Close((int32_t)param[0].a);
-		arg->ret = 0;
 		break;
 	default:
 		arg->ret = (uint32_t)-ENOSYS;

@@ -72,13 +72,65 @@ LOG_MODULE_REGISTER(guest0_psa, LOG_LEVEL_INF);
 
 #define WT_PSA_LIFECYCLE_SECURED 0x3000u
 
-/* NS PSA FF-M client API, aliased to the secure veneers (P3a-2). */
-extern uint32_t psa_framework_version(void);
+/* NS PSA FF-M client API from the OS-neutral client core (P7-S2):
+ * psa_connect/psa_call/psa_close/psa_framework_version over the CMSE veneers,
+ * no Zephyr TEE-subsystem dependency (closes #16 for the FF-M path). */
+#include "psa/client.h"
 
 #if defined(WT_RUN_CONFORMANCE)
 /* Arm psa-arch-tests val NSPE entry (P3a-4a). */
 extern int32_t val_entry(void);
 #endif
+
+/* Route the guest's existing tee_invoke_func-shaped FF-M calls straight to the
+ * neutral psa_* client instead of through the Zephyr TEE driver. Same param
+ * layout the driver used, so every call site and marker is preserved. */
+static int wt_tee_invoke(struct tee_invoke_func_arg *arg, unsigned int num,
+			 struct tee_param *param)
+{
+	psa_invec in;
+	psa_outvec out;
+	uint32_t in_len;
+	uint32_t out_len;
+
+	if (arg == NULL) {
+		return -1;
+	}
+	switch (arg->func) {
+	case WOLFTRUST_FN_FFM_CONNECT:
+		if (num < 1u) {
+			return -1;
+		}
+		arg->ret = (uint32_t)psa_connect((uint32_t)param[0].a,
+						 (uint32_t)param[0].b);
+		break;
+	case WOLFTRUST_FN_FFM_CALL:
+		if (num < 2u) {
+			return -1;
+		}
+		in.base = (const void *)(uintptr_t)param[0].c;
+		in_len = (uint32_t)param[1].a;
+		in.len = in_len;
+		out.base = (void *)(uintptr_t)param[1].b;
+		out_len = (uint32_t)param[1].c;
+		out.len = out_len;
+		arg->ret = (uint32_t)psa_call((psa_handle_t)param[0].a,
+			(int32_t)param[0].b,
+			(in_len != 0u) ? &in : NULL, (in_len != 0u) ? 1u : 0u,
+			(out_len != 0u) ? &out : NULL, (out_len != 0u) ? 1u : 0u);
+		break;
+	case WOLFTRUST_FN_FFM_CLOSE:
+		if (num < 1u) {
+			return -1;
+		}
+		psa_close((psa_handle_t)param[0].a);
+		arg->ret = 0u;
+		break;
+	default:
+		return -1;
+	}
+	return 0;
+}
 
 /* Mirror guest0's TEE-driver smoke so the runner's existing TEE assertions
  * stay green and we don't need a second runner mode. */
@@ -145,7 +197,7 @@ static void exercise_ffm_crypto(void)
 	arg.func = WOLFTRUST_FN_FFM_CONNECT;
 	param[0].a = WT_CRYPTO_SID;
 	param[0].b = 1u;
-	rc = tee_invoke_func(tee, &arg, 1, param);
+	rc = wt_tee_invoke(&arg, 1, param);
 	handle = (int32_t)arg.ret;
 	if (rc != 0 || handle <= 0) {
 		LOG_ERR("FF-M psa_connect(SERVICE_CRYPTO) failed rc=%d "
@@ -162,7 +214,7 @@ static void exercise_ffm_crypto(void)
 	param[1].a = sizeof(input) - 1u;
 	param[1].b = (uint64_t)(uintptr_t)digest;
 	param[1].c = sizeof(digest);
-	rc = tee_invoke_func(tee, &arg, 2, param);
+	rc = wt_tee_invoke(&arg, 2, param);
 	if (rc != 0 || (int32_t)arg.ret != 0) {
 		LOG_ERR("FF-M psa_call(SERVICE_CRYPTO) failed rc=%d st=%d",
 			rc, (int32_t)arg.ret);
@@ -176,7 +228,7 @@ static void exercise_ffm_crypto(void)
 	memset(param, 0, sizeof(param));
 	arg.func = WOLFTRUST_FN_FFM_CLOSE;
 	param[0].a = (uint64_t)handle;
-	(void)tee_invoke_func(tee, &arg, 1, param);
+	(void)wt_tee_invoke(&arg, 1, param);
 }
 
 /* P4-S2: the full storage chain from a real Non-secure guest — NS ->
@@ -207,7 +259,7 @@ static void exercise_ffm_its(void)
 	arg.func = WOLFTRUST_FN_FFM_CONNECT;
 	param[0].a = WT_ITS_SID;
 	param[0].b = 1u;
-	rc = tee_invoke_func(tee, &arg, 1, param);
+	rc = wt_tee_invoke(&arg, 1, param);
 	handle = (int32_t)arg.ret;
 	if (rc != 0 || handle <= 0) {
 		LOG_ERR("FF-M psa_connect(SERVICE_ITS) failed rc=%d handle=%d",
@@ -225,7 +277,7 @@ static void exercise_ffm_its(void)
 	param[0].b = 1u; /* WT_ITS_OP_SET */
 	param[0].c = (uint64_t)(uintptr_t)setbuf;
 	param[1].a = sizeof(setbuf);
-	rc = tee_invoke_func(tee, &arg, 2, param);
+	rc = wt_tee_invoke(&arg, 2, param);
 	st = (int32_t)arg.ret;
 	if (rc != 0 || st != 0) {
 		LOG_ERR("psa_its_set via SERVICE_ITS failed rc=%d st=%d",
@@ -241,7 +293,7 @@ static void exercise_ffm_its(void)
 		param[1].a = 16u; /* header only */
 		param[1].b = (uint64_t)(uintptr_t)getbuf;
 		param[1].c = sizeof(getbuf);
-		rc = tee_invoke_func(tee, &arg, 2, param);
+		rc = wt_tee_invoke(&arg, 2, param);
 		st = (int32_t)arg.ret;
 		if (rc != 0 || st != 0) {
 			LOG_ERR("psa_its_get via SERVICE_ITS failed rc=%d "
@@ -257,7 +309,7 @@ static void exercise_ffm_its(void)
 	memset(param, 0, sizeof(param));
 	arg.func = WOLFTRUST_FN_FFM_CLOSE;
 	param[0].a = (uint64_t)handle;
-	(void)tee_invoke_func(tee, &arg, 1, param);
+	(void)wt_tee_invoke(&arg, 1, param);
 }
 
 /* P4-S3: the sealed-storage round trip. Same wire as ITS, but SERVICE_PS
@@ -286,7 +338,7 @@ static void exercise_ffm_ps(void)
 	arg.func = WOLFTRUST_FN_FFM_CONNECT;
 	param[0].a = WT_PS_SID;
 	param[0].b = 1u;
-	rc = tee_invoke_func(tee, &arg, 1, param);
+	rc = wt_tee_invoke(&arg, 1, param);
 	handle = (int32_t)arg.ret;
 	if (rc != 0 || handle <= 0) {
 		LOG_ERR("FF-M psa_connect(SERVICE_PS) failed rc=%d handle=%d",
@@ -304,7 +356,7 @@ static void exercise_ffm_ps(void)
 	param[0].b = 1u; /* WT_ITS_OP_SET */
 	param[0].c = (uint64_t)(uintptr_t)setbuf;
 	param[1].a = sizeof(setbuf);
-	rc = tee_invoke_func(tee, &arg, 2, param);
+	rc = wt_tee_invoke(&arg, 2, param);
 	st = (int32_t)arg.ret;
 	if (rc != 0 || st != 0) {
 		LOG_ERR("psa_ps_set via SERVICE_PS failed rc=%d st=%d",
@@ -320,7 +372,7 @@ static void exercise_ffm_ps(void)
 		param[1].a = 16u; /* header only */
 		param[1].b = (uint64_t)(uintptr_t)getbuf;
 		param[1].c = sizeof(getbuf);
-		rc = tee_invoke_func(tee, &arg, 2, param);
+		rc = wt_tee_invoke(&arg, 2, param);
 		st = (int32_t)arg.ret;
 		if (rc != 0 || st != 0) {
 			LOG_ERR("psa_ps_get via SERVICE_PS failed rc=%d "
@@ -336,7 +388,7 @@ static void exercise_ffm_ps(void)
 	memset(param, 0, sizeof(param));
 	arg.func = WOLFTRUST_FN_FFM_CLOSE;
 	param[0].a = (uint64_t)handle;
-	(void)tee_invoke_func(tee, &arg, 1, param);
+	(void)wt_tee_invoke(&arg, 1, param);
 }
 
 /* P4-S4: vault key-ops through SERVICE_CRYPTO. The key never exists outside
@@ -376,7 +428,7 @@ static void exercise_ffm_keys(void)
 	arg.func = WOLFTRUST_FN_FFM_CONNECT;
 	param[0].a = WT_CRYPTO_SID;
 	param[0].b = 1u;
-	rc = tee_invoke_func(tee, &arg, 1, param);
+	rc = wt_tee_invoke(&arg, 1, param);
 	handle = (int32_t)arg.ret;
 	if (rc != 0 || handle <= 0) {
 		LOG_ERR("FF-M psa_connect(SERVICE_CRYPTO keys) failed rc=%d "
@@ -398,7 +450,7 @@ static void exercise_ffm_keys(void)
 	param[0].b = 8u; /* WT_CRYPTO_OP_KEY_DESTROY */
 	param[0].c = (uint64_t)(uintptr_t)req;
 	param[1].a = 16u;
-	(void)tee_invoke_func(tee, &arg, 2, param);
+	(void)wt_tee_invoke(&arg, 2, param);
 
 	memset(&arg, 0, sizeof(arg));
 	memset(param, 0, sizeof(param));
@@ -407,7 +459,7 @@ static void exercise_ffm_keys(void)
 	param[0].b = 1u; /* WT_CRYPTO_OP_KEY_GENERATE */
 	param[0].c = (uint64_t)(uintptr_t)req;
 	param[1].a = 16u;
-	rc = tee_invoke_func(tee, &arg, 2, param);
+	rc = wt_tee_invoke(&arg, 2, param);
 	st = (int32_t)arg.ret;
 	if (rc != 0 || st != 0) {
 		LOG_ERR("key generate failed rc=%d st=%d", rc, st);
@@ -425,7 +477,7 @@ static void exercise_ffm_keys(void)
 		param[1].a = 16u;
 		param[1].b = (uint64_t)(uintptr_t)pub;
 		param[1].c = sizeof(pub);
-		rc = tee_invoke_func(tee, &arg, 2, param);
+		rc = wt_tee_invoke(&arg, 2, param);
 		st = (int32_t)arg.ret;
 		if (rc != 0 || st != 0 || pub[0] != 0x04u) {
 			LOG_ERR("export_public failed rc=%d st=%d", rc, st);
@@ -445,7 +497,7 @@ static void exercise_ffm_keys(void)
 		param[1].a = 16u + sizeof(digest);
 		param[1].b = (uint64_t)(uintptr_t)sig;
 		param[1].c = sizeof(sig);
-		rc = tee_invoke_func(tee, &arg, 2, param);
+		rc = wt_tee_invoke(&arg, 2, param);
 		st = (int32_t)arg.ret;
 		if (rc != 0 || st != 0) {
 			LOG_ERR("key sign failed rc=%d st=%d", rc, st);
@@ -463,7 +515,7 @@ static void exercise_ffm_keys(void)
 		param[0].b = 5u; /* WT_CRYPTO_OP_KEY_VERIFY */
 		param[0].c = (uint64_t)(uintptr_t)req;
 		param[1].a = 16u + sizeof(digest) + sizeof(sig);
-		rc = tee_invoke_func(tee, &arg, 2, param);
+		rc = wt_tee_invoke(&arg, 2, param);
 		st = (int32_t)arg.ret;
 		if (rc != 0 || st != 0) {
 			LOG_ERR("key verify failed rc=%d st=%d", rc, st);
@@ -480,7 +532,7 @@ static void exercise_ffm_keys(void)
 		param[0].b = 5u; /* WT_CRYPTO_OP_KEY_VERIFY */
 		param[0].c = (uint64_t)(uintptr_t)req;
 		param[1].a = 16u + sizeof(digest) + sizeof(sig);
-		rc = tee_invoke_func(tee, &arg, 2, param);
+		rc = wt_tee_invoke(&arg, 2, param);
 		st = (int32_t)arg.ret;
 		if (rc != 0 || st != -149) {
 			LOG_ERR("tampered verify not refused rc=%d st=%d",
@@ -497,7 +549,7 @@ static void exercise_ffm_keys(void)
 	memset(param, 0, sizeof(param));
 	arg.func = WOLFTRUST_FN_FFM_CLOSE;
 	param[0].a = (uint64_t)handle;
-	(void)tee_invoke_func(tee, &arg, 1, param);
+	(void)wt_tee_invoke(&arg, 1, param);
 }
 
 /* P4-S5 on-target negative (WT-FFM-0046): a wrong-key AES-GCM decrypt fails
@@ -534,7 +586,7 @@ static void exercise_ffm_key_negatives(void)
 	arg.func = WOLFTRUST_FN_FFM_CONNECT;
 	param[0].a = WT_CRYPTO_SID;
 	param[0].b = 1u;
-	rc = tee_invoke_func(tee, &arg, 1, param);
+	rc = wt_tee_invoke(&arg, 1, param);
 	handle = (int32_t)arg.ret;
 	if (rc != 0 || handle <= 0) {
 		LOG_ERR("FF-M psa_connect(SERVICE_CRYPTO negatives) failed rc=%d "
@@ -554,17 +606,17 @@ static void exercise_ffm_key_negatives(void)
 	param[0].b = 8u; /* DESTROY */
 	param[0].c = (uint64_t)(uintptr_t)req;
 	param[1].a = 16u;
-	(void)tee_invoke_func(tee, &arg, 2, param);
+	(void)wt_tee_invoke(&arg, 2, param);
 	param[0].b = 1u; /* GENERATE */
-	rc = tee_invoke_func(tee, &arg, 2, param);
+	rc = wt_tee_invoke(&arg, 2, param);
 	if (rc != 0 || (int32_t)arg.ret != 0) {
 		ok = 0;
 	}
 	memcpy(req, &uid_b, sizeof(uid_b));
 	param[0].b = 8u; /* DESTROY */
-	(void)tee_invoke_func(tee, &arg, 2, param);
+	(void)wt_tee_invoke(&arg, 2, param);
 	param[0].b = 1u; /* GENERATE */
-	rc = tee_invoke_func(tee, &arg, 2, param);
+	rc = wt_tee_invoke(&arg, 2, param);
 	if (rc != 0 || (int32_t)arg.ret != 0) {
 		ok = 0;
 	}
@@ -583,7 +635,7 @@ static void exercise_ffm_key_negatives(void)
 		param[1].a = 16u + sizeof(msg_pt);
 		param[1].b = (uint64_t)(uintptr_t)ct;
 		param[1].c = sizeof(ct);
-		rc = tee_invoke_func(tee, &arg, 2, param);
+		rc = wt_tee_invoke(&arg, 2, param);
 		st = (int32_t)arg.ret;
 		ct_len = (uint32_t)param[1].c;
 		if (rc != 0 || st != 0) {
@@ -605,7 +657,7 @@ static void exercise_ffm_key_negatives(void)
 		param[1].a = 16u + ct_len;
 		param[1].b = (uint64_t)(uintptr_t)pt;
 		param[1].c = sizeof(pt);
-		rc = tee_invoke_func(tee, &arg, 2, param);
+		rc = wt_tee_invoke(&arg, 2, param);
 		st = (int32_t)arg.ret;
 		if (rc != 0 || st != -149) {
 			LOG_ERR("wrong-key decrypt not refused rc=%d st=%d",
@@ -628,7 +680,7 @@ static void exercise_ffm_key_negatives(void)
 		param[1].a = 16u + ct_len;
 		param[1].b = (uint64_t)(uintptr_t)pt;
 		param[1].c = sizeof(pt);
-		rc = tee_invoke_func(tee, &arg, 2, param);
+		rc = wt_tee_invoke(&arg, 2, param);
 		st = (int32_t)arg.ret;
 		if (rc != 0 || st != 0 ||
 		    memcmp(pt, msg_pt, sizeof(msg_pt)) != 0) {
@@ -645,7 +697,7 @@ static void exercise_ffm_key_negatives(void)
 	memset(param, 0, sizeof(param));
 	arg.func = WOLFTRUST_FN_FFM_CLOSE;
 	param[0].a = (uint64_t)handle;
-	(void)tee_invoke_func(tee, &arg, 1, param);
+	(void)wt_tee_invoke(&arg, 1, param);
 }
 
 /* Item 9: FF-M IPC negatives on the emulator path. A real Non-secure guest
@@ -675,7 +727,7 @@ static void exercise_ffm_negatives(void)
 	arg.func = WOLFTRUST_FN_FFM_CONNECT;
 	param[0].a = WT_CRYPTO_SID;
 	param[0].b = 1u;
-	rc = tee_invoke_func(tee, &arg, 1, param);
+	rc = wt_tee_invoke(&arg, 1, param);
 	handle = (int32_t)arg.ret;
 	if (rc != 0 || handle <= 0) {
 		LOG_ERR("FF-M negative setup connect failed rc=%d handle=%d", rc,
@@ -693,7 +745,7 @@ static void exercise_ffm_negatives(void)
 	param[1].a = sizeof(input) - 1u;
 	param[1].b = (uint64_t)(uintptr_t)digest;
 	param[1].c = sizeof(digest);
-	rc = tee_invoke_func(tee, &arg, 2, param);
+	rc = wt_tee_invoke(&arg, 2, param);
 	st = (int32_t)arg.ret;
 	if (rc == 0 && st != 0) {
 		LOG_INF("wolfTrust FF-M forged-handle call rejected st=%d", st);
@@ -712,7 +764,7 @@ static void exercise_ffm_negatives(void)
 	param[1].a = 2048u; /* > WT_FFM_TRANSFER_BYTES */
 	param[1].b = (uint64_t)(uintptr_t)digest;
 	param[1].c = sizeof(digest);
-	rc = tee_invoke_func(tee, &arg, 2, param);
+	rc = wt_tee_invoke(&arg, 2, param);
 	st = (int32_t)arg.ret;
 	if (rc == 0 && st != 0) {
 		LOG_INF("wolfTrust FF-M oversized-vector call rejected st=%d", st);
@@ -724,7 +776,7 @@ static void exercise_ffm_negatives(void)
 	memset(param, 0, sizeof(param));
 	arg.func = WOLFTRUST_FN_FFM_CLOSE;
 	param[0].a = (uint64_t)handle;
-	(void)tee_invoke_func(tee, &arg, 1, param);
+	(void)wt_tee_invoke(&arg, 1, param);
 }
 
 static void exercise_psa_rng(void)
@@ -1034,7 +1086,7 @@ static int32_t wt_fwu_probe_call(const struct device *tee, int32_t handle,
 		param[1].b = (uint64_t)(uintptr_t)out;
 		param[1].c = out_len;
 	}
-	rc = tee_invoke_func(tee, &arg, 2, param);
+	rc = wt_tee_invoke(&arg, 2, param);
 	if (rc != 0) {
 		return (int32_t)0x7fffffff;
 	}
@@ -1064,7 +1116,7 @@ static void exercise_ffm_fwu(void)
 	arg.func = WOLFTRUST_FN_FFM_CONNECT;
 	param[0].a = WT_FWU_SID;
 	param[0].b = 1u;
-	rc = tee_invoke_func(tee, &arg, 1, param);
+	rc = wt_tee_invoke(&arg, 1, param);
 	handle = (int32_t)arg.ret;
 	if (rc != 0 || handle <= 0) {
 		LOG_ERR("FF-M psa_connect(SERVICE_FWU) failed rc=%d handle=%d",
@@ -1152,7 +1204,7 @@ static void exercise_ffm_fwu(void)
 	memset(param, 0, sizeof(param));
 	arg.func = WOLFTRUST_FN_FFM_CLOSE;
 	param[0].a = (uint64_t)handle;
-	(void)tee_invoke_func(tee, &arg, 1, param);
+	(void)wt_tee_invoke(&arg, 1, param);
 }
 #endif
 

@@ -62,55 +62,9 @@ extern void WolfTrust_FFM_Close(int32_t handle);
 #define WT_CONF_TRACE_PRINT(...)
 #endif
 
-psa_handle_t psa_connect(uint32_t sid, uint32_t version)
-{
-    psa_handle_t handle = (psa_handle_t)WolfTrust_FFM_Connect(sid, version);
-
-    WT_CONF_TRACE_PRINT("wtconf: connect sid=0x%x v=%u -> %d\n", sid, version,
-                        (int)handle);
-    return handle;
-}
-
-void psa_close(psa_handle_t handle)
-{
-    WT_CONF_TRACE_PRINT("wtconf: close h=%d\n", (int)handle);
-    WolfTrust_FFM_Close((int32_t)handle);
-}
-
-psa_status_t psa_call(psa_handle_t handle, int32_t type,
-                      const psa_invec* in_vec, size_t in_len,
-                      psa_outvec* out_vec, size_t out_len)
-{
-    wt_ffm_veneer_iovec_t iovec;
-    psa_status_t status;
-    size_t i;
-
-    if (in_len > WT_FFM_VENEER_IOVEC_MAX ||
-            out_len > WT_FFM_VENEER_IOVEC_MAX) {
-        return PSA_ERROR_PROGRAMMER_ERROR;
-    }
-    WT_CONF_TRACE_PRINT("wtconf: enter h=%d in=%u iv=%p out=%u ov=%p\n",
-                        (int)handle, (unsigned)in_len, (const void*)in_vec,
-                        (unsigned)out_len, (const void*)out_vec);
-    memset(&iovec, 0, sizeof(iovec));
-    for (i = 0u; i < in_len; i++) {
-        iovec.in[i].base = in_vec[i].base;
-        iovec.in[i].len = (uint32_t)in_vec[i].len;
-    }
-    for (i = 0u; i < out_len; i++) {
-        iovec.out[i].base = out_vec[i].base;
-        iovec.out[i].len = (uint32_t)out_vec[i].len;
-    }
-    iovec.in_count = (uint32_t)in_len;
-    iovec.out_count = (uint32_t)out_len;
-    status = (psa_status_t)WolfTrust_FFM_Call((int32_t)handle, type, &iovec);
-    for (i = 0u; i < out_len; i++) {
-        out_vec[i].len = iovec.out[i].len;
-    }
-    WT_CONF_TRACE_PRINT("wtconf: call h=%d in=%u out=%u -> %d\n", (int)handle,
-                        (unsigned)in_len, (unsigned)out_len, (int)status);
-    return status;
-}
+/* psa_connect/psa_call/psa_close now come from the OS-neutral client core
+ * (src/client/psa_ffm_client.c) that this build links (P7-S2); the val NSPE
+ * reaches the SPM through the same neutral client the production guest uses. */
 
 /* The val shared status region (PLATFORM_SHARED_REGION_BASE aliases this). The
  * NS framework records per-test status here; a plain BSS buffer suffices. */

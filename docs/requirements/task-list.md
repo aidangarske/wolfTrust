@@ -542,8 +542,14 @@ wolfTrust on the board — the TF-M drop-in proof.
       framework_version`) from `conformance_pal.c` + the Zephyr TEE driver into a
       portable `src/client/psa_ffm_client.c` (calls `WolfTrust_FFM_*` veneers, zero
       OS headers) + host test.
-    - [ ] **S2**: Repoint guest0 to the neutral core; retire the Zephyr TEE-driver
-      FF-M path (**closes #16**). M33MU `positive`/`confboot` regress unchanged.
+    - [x] **S2**: guest0 FF-M now routes through the neutral core, not the Zephyr
+      TEE subsystem. main.c `wt_tee_invoke` shim -> psa_connect/call/close (all 35
+      call sites); CMakeLists links psa_ffm_client.c; the TEE driver dropped its
+      duplicate psa_framework_version/version + dead FF-M cases (keeps HSM
+      poll/cancel); conformance_pal.c dropped its duplicate psa_* so the val NSPE
+      uses the neutral core too. **Closes #16.** Evidence: M33MU
+      `PASS: target/positive` (guest0 FF-M) + `PASS: target/confboot` (85/4/0, val
+      NSPE psa_call) on the box.
     - [ ] **S3 (Fable, deepest)**: Route FreeRTOS guest1 through the FF-M SPM —
       move its production crypto off the raw HSM-CMSE transport onto
       SERVICE_CRYPTO/ITS/PS via a FreeRTOS wolfPSA init. Open first: 8KB stack/RAM

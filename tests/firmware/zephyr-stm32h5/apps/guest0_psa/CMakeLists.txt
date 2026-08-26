@@ -17,11 +17,15 @@ set(WT_WOLFCOSE_DIR ${WT_REPO_ROOT}/lib/wolfCOSE)
 target_sources(app PRIVATE
   src/main.c
   src/attestation_verify.c
+  ${WT_REPO_ROOT}/src/client/psa_ffm_client.c
   ${WOLFTRUST_CMSE_IMPLIB}
   ${WT_WOLFCOSE_DIR}/src/wolfcose.c
   ${WT_WOLFCOSE_DIR}/src/wolfcose_cbor.c
 )
-target_include_directories(app PRIVATE ${WT_WOLFCOSE_DIR}/include)
+target_include_directories(app PRIVATE
+  ${WT_WOLFCOSE_DIR}/include
+  ${WT_REPO_ROOT}/include
+)
 target_compile_definitions(app PRIVATE
   WOLFCOSE_LEAN
   WOLFCOSE_NO_SIGN1_SIGN
