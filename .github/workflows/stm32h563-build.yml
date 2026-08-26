@@ -222,39 +222,44 @@ jobs:
           if [ "$emu_status" -ne 0 ] && [ "$emu_status" -ne 127 ]; then
             exit "$emu_status"
           fi
-          if grep -Eq '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)' \
-              "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"; then
+          log="$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          if grep -Eq '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)' "$log"; then
             exit 1
           fi
-          grep -Fq "wolfTrust TEE client initialized" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "wolfTrust FF-M SERVICE_CRYPTO dispatch verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "wolfTrust ITS set/get verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "wolfTrust PS sealed set/get verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "wolfTrust key-ops sign/verify verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "wolfTrust key negatives verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "wolfTrust FF-M forged-handle call rejected" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "wolfTrust FF-M oversized-vector call rejected" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "psa_initial_attestation short-buffer rejected correctly" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "psa_hash_compute(SHA-256) KAT verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "psa_cipher_encrypt(AES-CTR) st=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "psa_initial_attestation st=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "wolfTrust attestation: wolfCOSE COSE_Sign1 signed by wolfHSM" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "wolfTrust attestation: COSE_Sign1 verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "wolfTrust attestation: token measurement=$WT_EXPECTED_MEASUREMENT_HEX" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "secured lifecycle policy rejected development token" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          grep -Fq "[EXPECT BKPT] Success" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          # Both guests raw-write the same UART, so guest1 can splice into the
+          # middle of a secure/guest0 marker line. Flatten (strip guest1 text,
+          # rejoin the split line) before matching those markers; match guest1's
+          # own markers against the raw log. Mirrors run_m33mu_scenario.sh's
+          # expect_flat.
+          flat=$(sed 's/freertos_guest1:.*$//' "$log" | tr -d '\r\n')
+          need()     { printf '%s' "$flat" | grep -Fq "$1" || { echo "missing: $1" >&2; exit 1; }; }
+          need_raw() { grep -Fq "$1" "$log" || { echo "missing: $1" >&2; exit 1; }; }
+          need "wolfTrust TEE client initialized"
+          need "wolfTrust FF-M SERVICE_CRYPTO dispatch verified"
+          need "wolfTrust ITS set/get verified"
+          need "wolfTrust PS sealed set/get verified"
+          need "wolfTrust key-ops sign/verify verified"
+          need "wolfTrust key negatives verified"
+          need "wolfTrust FF-M forged-handle call rejected"
+          need "wolfTrust FF-M oversized-vector call rejected"
+          need "psa_initial_attestation short-buffer rejected correctly"
+          need "psa_hash_compute(SHA-256) KAT verified"
+          need "psa_cipher_encrypt(AES-CTR) st=0"
+          need "psa_initial_attestation st=0"
+          need "wolfTrust attestation: wolfCOSE COSE_Sign1 signed by wolfHSM"
+          need "wolfTrust attestation: COSE_Sign1 verified"
+          need "wolfTrust attestation: token measurement=$WT_EXPECTED_MEASUREMENT_HEX"
+          need "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256"
+          need "secured lifecycle policy rejected development token"
+          need "[EXPECT BKPT] Success"
           if [ "$WT_TEST_GUEST" = "zephyr" ]; then
-            grep -Fq "psa_generate_random st=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-            grep -Fq "psa_hash_compute(SHA-256) KAT verified" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-            grep -Fq "psa_cipher_encrypt(AES-CTR) st=0" "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+            need "psa_generate_random st=0"
+            need "psa_hash_compute(SHA-256) KAT verified"
+            need "psa_cipher_encrypt(AES-CTR) st=0"
           else
-            grep -Fq "freertos_guest1: wolfHSM client up; devId=0x5748534d" \
-              "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-            grep -Fq "freertos_guest1: C_Initialize rv=0" \
-              "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-            grep -Fq "freertos_guest1: C_Digest(SHA-256) rv=0" \
-              "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+            need_raw "freertos_guest1: wolfHSM client up; devId=0x5748534d"
+            need_raw "freertos_guest1: C_Initialize rv=0"
+            need_raw "freertos_guest1: C_Digest(SHA-256) rv=0"
           fi
 
   wolfboot-wolftrust-m33mu-scenarios:
