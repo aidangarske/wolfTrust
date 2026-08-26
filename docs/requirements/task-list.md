@@ -532,6 +532,30 @@ wolfTrust on the board — the TF-M drop-in proof.
 
 - [ ] **Phase 7 — OS integrations** (`phases.md:128-134`): OS-neutral NS client
   ABI + thin Zephyr/FreeRTOS integrations; same PSA/isolation tests from both.
+  Stop = both OS gates pass. **Security decision LOCKED (2026-08-26, most
+  secure): every non-secure client call goes NS -> FF-M SPM -> SERVICE_*
+  partition; the raw HSM-CMSE bypass is retired from production so the SPM is
+  the single mediated gatekeeper; FreeRTOS reaches full PSA parity.**
+    - [ ] **S0**: Phase 7 reqs (OS-neutral ABI + single-mediated-path property in
+      system.md/framework.md) + this sliced plan.
+    - [ ] **S1**: Extract the OS-neutral FF-M client core (`psa_connect/call/close/
+      framework_version`) from `conformance_pal.c` + the Zephyr TEE driver into a
+      portable `src/client/psa_ffm_client.c` (calls `WolfTrust_FFM_*` veneers, zero
+      OS headers) + host test.
+    - [ ] **S2**: Repoint guest0 to the neutral core; retire the Zephyr TEE-driver
+      FF-M path (**closes #16**). M33MU `positive`/`confboot` regress unchanged.
+    - [ ] **S3 (Fable, deepest)**: Route FreeRTOS guest1 through the FF-M SPM —
+      move its production crypto off the raw HSM-CMSE transport onto
+      SERVICE_CRYPTO/ITS/PS via a FreeRTOS wolfPSA init. Open first: 8KB stack/RAM
+      budget check (grow the window, don't keep the bypass) + SERVICE_CRYPTO
+      coverage check (expand if needed).
+    - [ ] **S4**: Both-OS PSA gate — the same PSA client suite asserted from
+      guest0 AND guest1 in one boot (M33MU scenario + `ci:` label).
+    - [ ] **S5 (Fable)**: Both-OS isolation gate — FreeRTOS FF-M negatives (forged
+      handle, oversized vector, wrong SID) + post-fault FF-M behavior.
+    - [ ] **S6**: CI wiring + retire the raw HSM-CMSE bypass (delete or
+      diagnostic-gate) so one mediated path remains; close #16; doc closure; flip
+      the Phase 7 header when both OS gates pass. H5 silicon rides Phase 8.
 
 
 - [ ] **Phase 8 — hardware and port qualification** (`phases.md:136-143`):
