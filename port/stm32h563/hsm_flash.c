@@ -24,6 +24,7 @@
 #include "memory_map.h"
 #include "stm32h563_regs.h"
 #include "wolfhsm/wh_error.h"
+#include "wolftrust/services/fwu_service.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -556,6 +557,119 @@ int wt_hsm_flash_format(void)
      * alignment and the write-lock. Region size is a whole number of sectors. */
     return wt_hsm_flash_erase(&g_hsm_flash_ctx, 0u, g_hsm_flash_ctx.size);
 }
+
+/* SERVICE_FWU staging into the wolfBoot update partition (WT-FWU-0002). The
+ * privileged FWU coroutine erases each target sector lazily, programs the
+ * candidate, and verifies every block against the memory-mapped secure flash.
+ * install() writes a wolfTrust update-request marker into the trailer sector;
+ * binding that marker to wolfBoot's swap trailer and the reboot swap ride the
+ * full boot-and-update gate (P6-S6). */
+#define WT_FWU_ARM_MAGIC 0x55465457u   /* 'WTFU' */
+
+static const wt_hsm_flash_config_t g_fwu_flash_cfg = {
+    .base = WT_FWU_UPDATE_FLASH_BASE_S,
+    .size = WT_FWU_UPDATE_FLASH_SIZE,
+    .sector_size = WT_FLASH_SECTOR_SIZE,
+    .program_unit = 16u,
+};
+static wt_hsm_flash_context_t g_fwu_flash_ctx;
+static uint32_t g_fwu_erased_sectors;
+
+static int wt_fwu_ensure_erased(uint32_t offset, uint32_t size)
+{
+    uint32_t sector_size = g_fwu_flash_cfg.sector_size;
+    uint32_t first = offset / sector_size;
+    uint32_t last = (offset + size - 1u) / sector_size;
+    uint32_t s;
+
+    for (s = first; s <= last; s++) {
+        if (s < 32u && (g_fwu_erased_sectors & (1u << s)) != 0u) {
+            continue;
+        }
+        if (wt_hsm_flash_erase(&g_fwu_flash_ctx, s * sector_size,
+                               sector_size) != WH_ERROR_OK) {
+            return -1;
+        }
+        if (s < 32u) {
+            g_fwu_erased_sectors |= (1u << s);
+        }
+    }
+    return 0;
+}
+
+static int wt_fwu_backend_begin(void *ctx)
+{
+    (void)ctx;
+    if (wt_hsm_flash_init(&g_fwu_flash_ctx, &g_fwu_flash_cfg) != WH_ERROR_OK) {
+        return -1;
+    }
+    g_fwu_erased_sectors = 0u;
+    return 0;
+}
+
+static int wt_fwu_backend_write(void *ctx, uint32_t offset,
+                                const uint8_t *data, uint32_t size)
+{
+    const uint8_t *mapped = (const uint8_t *)(g_fwu_flash_cfg.base + offset);
+
+    (void)ctx;
+    if (wt_fwu_ensure_erased(offset, size) != 0) {
+        return -1;
+    }
+    if (wt_hsm_flash_program(&g_fwu_flash_ctx, offset, size, data) !=
+            WH_ERROR_OK) {
+        return -1;
+    }
+    if (memcmp(mapped, data, size) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+static int wt_fwu_backend_arm(void *ctx, uint32_t image_size, uint32_t version)
+{
+    uint32_t trailer = g_fwu_flash_cfg.size - g_fwu_flash_cfg.sector_size;
+    const uint8_t *mapped = (const uint8_t *)(g_fwu_flash_cfg.base + trailer);
+    uint32_t record[4];
+
+    (void)ctx;
+    record[0] = WT_FWU_ARM_MAGIC;
+    record[1] = image_size;
+    record[2] = version;
+    record[3] = ~WT_FWU_ARM_MAGIC;
+    if (wt_fwu_ensure_erased(trailer, sizeof(record)) != 0) {
+        return -1;
+    }
+    if (wt_hsm_flash_program(&g_fwu_flash_ctx, trailer, sizeof(record),
+                             (const uint8_t *)record) != WH_ERROR_OK) {
+        return -1;
+    }
+    if (memcmp(mapped, record, sizeof(record)) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+static int wt_fwu_backend_disarm(void *ctx)
+{
+    uint32_t trailer = g_fwu_flash_cfg.size - g_fwu_flash_cfg.sector_size;
+
+    (void)ctx;
+    if (wt_hsm_flash_erase(&g_fwu_flash_ctx, trailer,
+                           g_fwu_flash_cfg.sector_size) != WH_ERROR_OK) {
+        return -1;
+    }
+    return 0;
+}
+
+const wt_fwu_backend_t wt_fwu_flash_backend = {
+    .begin = wt_fwu_backend_begin,
+    .write = wt_fwu_backend_write,
+    .arm = wt_fwu_backend_arm,
+    .disarm = wt_fwu_backend_disarm,
+    .capacity = WT_FWU_UPDATE_FLASH_SIZE,
+    .align = 16u,
+};
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 static const wt_hsm_flash_config_t g_conf_nvm_cfg = {

@@ -23,6 +23,7 @@
 #include "wolftrust/platform.h"
 #include "wolftrust/spm_sched.h"
 #include "wolftrust/services/crypto_service.h"
+#include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/storage_service.h"
 #include "wolftrust/services/vault_service.h"
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
@@ -164,6 +165,12 @@ int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
                                               wt_storage_service_dispatch,
                                               NULL);
         (void)vault_ret;
+#ifdef PARTITION_FWU_ID
+        vault_ret = wt_ffm_register_partition(&g_ffm_runtime,
+                                              PARTITION_FWU_ID,
+                                              wt_fwu_service_dispatch, NULL);
+        (void)vault_ret;
+#endif
     }
     if (ret == WT_FFM_SUCCESS) {
         /* Run SERVICE_CRYPTO's compute isolated on the crypto SP's own
@@ -215,6 +222,11 @@ int wt_ffm_boot_start_sched(void)
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_ps_start(&g_ffm_runtime, PARTITION_PS_ID);
     }
+#ifdef PARTITION_FWU_ID
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_fwu_start(&g_ffm_runtime, PARTITION_FWU_ID);
+    }
+#endif
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_sched_add(&g_ffm_runtime, SERVER_PARTITION_ID,

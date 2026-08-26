@@ -29,7 +29,7 @@
 #include "wolftrust/ipc.h"
 #include "wolftrust/manifest.h"
 
-#define WT_FFM_MAX_PARTITIONS     8U
+#define WT_FFM_MAX_PARTITIONS     9U
 #define WT_FFM_MAX_SERVICES       20U
 #define WT_FFM_MAX_CONNECTIONS    16U
 #define WT_FFM_MAX_MESSAGES       16U

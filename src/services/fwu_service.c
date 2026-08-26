@@ -1,0 +1,356 @@
+/* fwu_service.c
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+#include "wolftrust/services/fwu_service.h"
+
+#include <string.h>
+
+/* Largest write block copied into the SP's private buffer per WRITE message
+ * (WT-FFM-0041 copied transfers). The client streams the image in chunks no
+ * larger than this. */
+#define WT_FWU_BLOCK_MAX 1024u
+
+static int wt_fwu_component_ok(uint32_t component)
+{
+    return component == WT_FWU_COMPONENT_PRIMARY;
+}
+
+psa_status_t wt_fwu_start(wt_fwu_service_ctx_t* ctx, uint32_t component,
+                          uint32_t version)
+{
+    if (ctx == NULL || ctx->backend == NULL) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    if (!wt_fwu_component_ok(component)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    if (ctx->state != PSA_FWU_READY) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    /* Reject a rolled-back candidate before the update partition is touched. */
+    if (version < ctx->version_floor) {
+        return PSA_ERROR_NOT_PERMITTED;
+    }
+    if (ctx->backend->begin != NULL &&
+            ctx->backend->begin(ctx->backend_ctx) != 0) {
+        return PSA_ERROR_STORAGE_FAILURE;
+    }
+    ctx->state = PSA_FWU_WRITING;
+    ctx->write_high = 0u;
+    ctx->candidate_version = version;
+    ctx->armed = 0u;
+    return PSA_SUCCESS;
+}
+
+psa_status_t wt_fwu_write(wt_fwu_service_ctx_t* ctx, uint32_t component,
+                          uint32_t offset, const uint8_t* data, uint32_t size)
+{
+    uint32_t end;
+
+    if (ctx == NULL || ctx->backend == NULL) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    if (!wt_fwu_component_ok(component)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    if (ctx->state != PSA_FWU_WRITING) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    if (data == NULL || size == 0u) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    /* Reject an oversize or wrapping block before it is programmed. */
+    end = offset + size;
+    if (end < offset || end > ctx->backend->capacity) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    if (ctx->backend->align > 1u &&
+            (((offset % ctx->backend->align) != 0u) ||
+             ((size % ctx->backend->align) != 0u))) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    if (ctx->backend->write != NULL &&
+            ctx->backend->write(ctx->backend_ctx, offset, data, size) != 0) {
+        /* A partial program invalidates the candidate: never arm it. */
+        ctx->state = PSA_FWU_FAILED;
+        return PSA_ERROR_STORAGE_FAILURE;
+    }
+    if (end > ctx->write_high) {
+        ctx->write_high = end;
+    }
+    return PSA_SUCCESS;
+}
+
+psa_status_t wt_fwu_finish(wt_fwu_service_ctx_t* ctx, uint32_t component)
+{
+    if (ctx == NULL || ctx->backend == NULL) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    if (!wt_fwu_component_ok(component)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    if (ctx->state != PSA_FWU_WRITING) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    if (ctx->write_high == 0u) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    if (ctx->candidate_version < ctx->version_floor) {
+        ctx->state = PSA_FWU_FAILED;
+        return PSA_ERROR_NOT_PERMITTED;
+    }
+    ctx->state = PSA_FWU_CANDIDATE;
+    return PSA_SUCCESS;
+}
+
+psa_status_t wt_fwu_install(wt_fwu_service_ctx_t* ctx)
+{
+    if (ctx == NULL || ctx->backend == NULL) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    if (ctx->state != PSA_FWU_CANDIDATE) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    /* Final anti-rollback guard immediately before the swap is armed. */
+    if (ctx->candidate_version < ctx->version_floor) {
+        ctx->state = PSA_FWU_FAILED;
+        return PSA_ERROR_NOT_PERMITTED;
+    }
+    if (ctx->backend->arm != NULL &&
+            ctx->backend->arm(ctx->backend_ctx, ctx->write_high,
+                              ctx->candidate_version) != 0) {
+        /* Arming failed: stay a candidate, no swap pending. */
+        return PSA_ERROR_STORAGE_FAILURE;
+    }
+    ctx->state = PSA_FWU_STAGED;
+    ctx->armed = 1u;
+    return PSA_SUCCESS_REBOOT;
+}
+
+psa_status_t wt_fwu_abort(wt_fwu_service_ctx_t* ctx, uint32_t component)
+{
+    if (ctx == NULL || ctx->backend == NULL) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    if (!wt_fwu_component_ok(component)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    if (ctx->state != PSA_FWU_WRITING &&
+            ctx->state != PSA_FWU_CANDIDATE &&
+            ctx->state != PSA_FWU_STAGED &&
+            ctx->state != PSA_FWU_FAILED) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    /* If a swap was already armed, clear the trigger so the prior image runs. */
+    if (ctx->armed != 0u && ctx->backend->disarm != NULL &&
+            ctx->backend->disarm(ctx->backend_ctx) != 0) {
+        return PSA_ERROR_STORAGE_FAILURE;
+    }
+    ctx->state = PSA_FWU_READY;
+    ctx->write_high = 0u;
+    ctx->candidate_version = 0u;
+    ctx->armed = 0u;
+    return PSA_SUCCESS;
+}
+
+psa_status_t wt_fwu_query(wt_fwu_service_ctx_t* ctx, uint32_t component,
+                          psa_fwu_component_info_t* info)
+{
+    if (ctx == NULL || ctx->backend == NULL) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    if (info == NULL) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    if (!wt_fwu_component_ok(component)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    info->state = ctx->state;
+    info->version = ctx->candidate_version;
+    info->max_size = ctx->backend->capacity;
+    info->staged_size = ctx->write_high;
+    return PSA_SUCCESS;
+}
+
+/* Drain invec[0] — [wt_fwu_req_t][block] — into a bounded private buffer. */
+static int wt_fwu_read_in(wt_fwu_service_ctx_t* ctx, wt_ffm_runtime_t* runtime,
+                          int32_t partition_id, psa_handle_t msg_handle,
+                          uint8_t* buffer, size_t capacity, size_t* out_len)
+{
+    wt_spm_call_t call;
+    size_t len = 0U;
+
+    for (;;) {
+        (void)memset(&call, 0, sizeof(call));
+        call.op = WT_SPM_OP_READ;
+        call.partition_id = partition_id;
+        call.msg_handle = msg_handle;
+        call.vec_idx = 0U;
+        call.buffer = buffer + len;
+        call.num_bytes = capacity - len;
+        if (ctx->transport(runtime, &call) != WT_FFM_SUCCESS) {
+            return WT_FFM_ERROR_STATE;
+        }
+        if (call.ret_size == 0U) {
+            break;
+        }
+        len += call.ret_size;
+        if (len >= capacity) {
+            break;
+        }
+    }
+    *out_len = len;
+    return WT_FFM_SUCCESS;
+}
+
+static int wt_fwu_write_out(wt_fwu_service_ctx_t* ctx,
+                            wt_ffm_runtime_t* runtime, int32_t partition_id,
+                            psa_handle_t msg_handle, const void* data,
+                            size_t len)
+{
+    wt_spm_call_t call;
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_WRITE;
+    call.partition_id = partition_id;
+    call.msg_handle = msg_handle;
+    call.vec_idx = 0U;
+    call.buffer = (void*)(uintptr_t)data;
+    call.num_bytes = len;
+    if (ctx->transport(runtime, &call) != WT_FFM_SUCCESS ||
+            call.ret_int != WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_STATE;
+    }
+    return WT_FFM_SUCCESS;
+}
+
+static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
+                                        wt_ffm_runtime_t* runtime,
+                                        int32_t partition_id,
+                                        const psa_msg_t* msg)
+{
+    uint8_t buffer[sizeof(wt_fwu_req_t) + WT_FWU_BLOCK_MAX];
+    wt_fwu_req_t req;
+    psa_fwu_component_info_t info;
+    size_t in_len = 0U;
+    psa_status_t status;
+
+    if (msg->in_size[0] < sizeof(req)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    /* An input larger than the header plus the maximum block is malformed. */
+    if (msg->in_size[0] > sizeof(buffer)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    if (wt_fwu_read_in(ctx, runtime, partition_id, msg->handle, buffer,
+                       sizeof(buffer), &in_len) != WT_FFM_SUCCESS ||
+            in_len < sizeof(req)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    (void)memcpy(&req, buffer, sizeof(req));
+
+    switch (msg->type) {
+    case WT_FWU_OP_QUERY:
+        if (msg->out_size[0] < sizeof(info)) {
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
+        status = wt_fwu_query(ctx, req.component, &info);
+        if (status == PSA_SUCCESS &&
+                wt_fwu_write_out(ctx, runtime, partition_id, msg->handle,
+                                 &info, sizeof(info)) != WT_FFM_SUCCESS) {
+            status = PSA_ERROR_GENERIC_ERROR;
+        }
+        break;
+    case WT_FWU_OP_START:
+        status = wt_fwu_start(ctx, req.component, req.version);
+        break;
+    case WT_FWU_OP_WRITE:
+        status = wt_fwu_write(ctx, req.component, req.offset,
+                              buffer + sizeof(req),
+                              (uint32_t)(in_len - sizeof(req)));
+        break;
+    case WT_FWU_OP_FINISH:
+        status = wt_fwu_finish(ctx, req.component);
+        break;
+    case WT_FWU_OP_INSTALL:
+        status = wt_fwu_install(ctx);
+        break;
+    case WT_FWU_OP_ABORT:
+        status = wt_fwu_abort(ctx, req.component);
+        break;
+    default:
+        status = PSA_ERROR_NOT_SUPPORTED;
+        break;
+    }
+    return status;
+}
+
+int wt_fwu_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
+                            int32_t partition_id)
+{
+    wt_fwu_service_ctx_t* ctx = (wt_fwu_service_ctx_t*)context;
+    psa_signal_t asserted = 0U;
+    psa_msg_t msg;
+    psa_status_t reply_status;
+    wt_spm_call_t call;
+
+    if (ctx == NULL || ctx->transport == NULL) {
+        return WT_FFM_ERROR_STATE;
+    }
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_WAIT;
+    call.partition_id = partition_id;
+    call.signal_mask = PSA_WAIT_ANY;
+    call.timeout = PSA_BLOCK;
+    call.asserted = &asserted;
+    if (ctx->transport(runtime, &call) != WT_FFM_SUCCESS ||
+            call.ret_int != WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_STATE;
+    }
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_GET;
+    call.partition_id = partition_id;
+    call.signal = asserted;
+    call.msg = &msg;
+    if (ctx->transport(runtime, &call) != WT_FFM_SUCCESS ||
+            call.ret_status != PSA_SUCCESS) {
+        return WT_FFM_ERROR_STATE;
+    }
+
+    if (msg.type == PSA_IPC_CONNECT || msg.type == PSA_IPC_DISCONNECT) {
+        reply_status = PSA_SUCCESS;
+    } else if (msg.type >= WT_FWU_OP_QUERY && msg.type <= WT_FWU_OP_ABORT) {
+        reply_status = wt_fwu_service_call(ctx, runtime, partition_id, &msg);
+    } else {
+        reply_status = PSA_ERROR_NOT_SUPPORTED;
+    }
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_REPLY;
+    call.partition_id = partition_id;
+    call.msg_handle = msg.handle;
+    call.status = reply_status;
+    if (ctx->transport(runtime, &call) != WT_FFM_SUCCESS ||
+            call.ret_int != WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_STATE;
+    }
+    return WT_FFM_SUCCESS;
+}

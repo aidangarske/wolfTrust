@@ -278,6 +278,7 @@ jobs:
           - { key: rollbackneg,     name: "Anti-rollback downgrade refused" }
           - { key: vaultrecover,    name: "Vault recovery self-heal" }
           - { key: vaultrecoversec, name: "Vault recovery fail-closed" }
+          - { key: fwustage,        name: "PSA Firmware Update staging" }
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15

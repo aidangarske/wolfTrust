@@ -56,4 +56,9 @@ int wt_spm_its_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 /* Schedule the PS partition: the storage loop with sealing forced on. */
 int wt_spm_ps_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 
+/* Start the Firmware Update partition (WT-FWU-0001) as a scheduled PRIVILEGED
+ * coroutine: it programs the wolfBoot update partition flash to stage a
+ * candidate, so it runs privileged like the vault. */
+int wt_spm_fwu_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
+
 #endif /* WOLFTRUST_SPM_SCHED_H */

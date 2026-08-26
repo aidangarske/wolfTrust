@@ -36,7 +36,8 @@ UNIT_SUITES := domain manifest lifecycle guest_verify rollback sp_recovery \
     crypto_service attestation_service attestation attestation_token \
     attestation_golden attestation_negatives attestation_replay \
     attestation_iak ffm_domain sp_layout spm_gate flash_nvm ffm_veneer \
-    vault_service storage_service ps_service keyvault negatives qcbor_shim
+    vault_service storage_service ps_service keyvault negatives qcbor_shim \
+    fwu_service
 
 .PHONY: all test test-compilers test-sanitize test-valgrind print-suites clean
 

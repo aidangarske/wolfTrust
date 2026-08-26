@@ -45,8 +45,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg) ;;
-  *) echo "usage: $0 positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg" >&2; exit 2 ;;
+  positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage) ;;
+  *) echo "usage: $0 positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -179,6 +179,8 @@ elif [ "$scenario" = "devattestqcbor" ]; then
   guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=attestation WT_ATTEST_CBOR=qcbor"
 elif [ "$scenario" = "attestneg" ]; then
   guest_flags="WT_ATTEST_NEG_PROBE=1"
+elif [ "$scenario" = "fwustage" ]; then
+  guest_flags="WT_FWU_PROBE=1"
 fi
 make -C tests/firmware/zephyr-stm32h5 clone
 env $guest_flags $secure_flags WT_REUSE_SECURE_BUILD=1 WT_EXPECTED_LIFECYCLE=0x1000u \
@@ -530,5 +532,24 @@ case "$scenario" in
       "freertos_guest1: C_Digest(SHA-256) rv=0"
     expect "full lifecycle completed after recovery" "[EXPECT BKPT] Success"
     echo "PASS: target/spfaultneg"
+    ;;
+
+  fwustage)
+    # The isolated FWU Secure Partition stages a candidate into the real
+    # wolfBoot update partition flash and verifies each block by read-back;
+    # a clean start/write/finish/install with no platform fault proves the
+    # update service end to end on target. The wolfBoot swap of the armed
+    # image rides the full boot-and-update gate (P6-S6).
+    refute_re "no fault markers in boot log" \
+      '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+    expect "guest booted and reached the FWU probe" "guest0_psa alive"
+    expect "write before start refused on target (WT-FWU-0003)" \
+      "wolfTrust FWU write-before-start refused"
+    expect "candidate staged to the update partition and armed (WT-FWU-0002)" \
+      "wolfTrust FWU staged 64 bytes to update partition, armed, verified"
+    expect "unrelated storage partitions unaffected" \
+      "wolfTrust ITS set/get verified"
+    expect "full lifecycle completed" "[EXPECT BKPT] Success"
+    echo "PASS: target/fwustage"
     ;;
 esac

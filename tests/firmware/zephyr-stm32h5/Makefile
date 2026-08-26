@@ -27,6 +27,7 @@ WT_EXPECTED_LIFECYCLE ?= 0x3000u
 WT_ATTESTATION_DEVELOPMENT_PROFILE ?= 0
 WT_M33MU_EXPECT_BKPT ?= 0
 WT_GUEST_FAULT_PROBE ?= 0
+WT_FWU_PROBE ?= 0
 
 # Baremetal guest-b memory map — matches WT_GUEST1_FLASH_BASE / WT_GUEST1_RAM_BASE
 # in port/stm32h563/memory_map.h. Kept here as overridable variables so
@@ -127,6 +128,7 @@ build-guest0-psa: patch secure
 	WT_M33MU_EXPECT_BKPT="$(WT_M33MU_EXPECT_BKPT)" \
 	WT_GUEST_FAULT_PROBE="$(WT_GUEST_FAULT_PROBE)" \
 	WT_ATTEST_NEG_PROBE="$(WT_ATTEST_NEG_PROBE)" \
+	WT_FWU_PROBE="$(WT_FWU_PROBE)" \
 	"$(SCRIPT_DIR)/build_guest.sh" guest0_psa
 
 build-guest1: $(GUEST1_BIN)

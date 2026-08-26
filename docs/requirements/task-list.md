@@ -480,10 +480,24 @@ wolfTrust on the board — the TF-M drop-in proof.
       (4/4 banners, 3 restarts then FAULTED) + regressions
       positive/spfaultneg/confboot all green on the same tree. The
       same-window peripheral-IRQ unmask hole is tracked as #116.
-    - [ ] **S4 (Fable, deepest): PSA Firmware Update service.** New `SERVICE_FWU`
-      SP + `include/psa/update.h` (`psa_fwu_*`); stages into the wolfBoot update
-      partition + trigger, gated by S1/S2 on the next boot. New SID + regen. Host
-      FWU state machine + M33MU (stage→reboot→new image runs, old rejected).
+    - [x] **S4 (Fable, deepest): PSA Firmware Update service (WT-FWU-0001..0003).**
+      Neutral state machine `src/services/fwu_service.c` + client API
+      `include/psa/update.h` (`psa_fwu_query/start/write/finish/install/abort`),
+      driven through a backend seam so the host test uses a RAM mock and the
+      target uses real flash. New privileged `SERVICE_FWU` SP (domain 8, SID
+      4101) mirroring the vault: stages a candidate into the real wolfBoot
+      update partition (`0x0C100000`) via `hsm_flash.c` with lazy per-sector
+      erase + read-back verify, and arms an update request. Stack band carved
+      (`memory_map.h`/`secure.ld`/cap 8→9); FWU is production-only, excluded
+      from the conformance manifest by the ingester so the 85/4 layout is
+      unchanged. Evidence: host `fwu_service` 33 checks (gcc/clang/ASan, every
+      negative — bad-state/oversize/misaligned/rolled-back/storage-failure/
+      abort-restores) + M33MU `PASS: target/fwustage` (NS guest drives
+      start/write/finish/install over IPC, candidate lands in update-partition
+      flash and verifies, write-before-start refused) + `positive` + `confboot`
+      (85/4) regressions green on one tree. `fwustage` in the CI matrix +
+      `ci:fwustage`. The wolfBoot trailer-exact arm + reboot→swap→gated launch
+      ride S6.
     - [ ] **S5 (Fable): runtime verification.** Post-boot on-demand re-measurement
       of a domain → S3 fault path on mismatch. Host + M33MU negative (post-boot
       tamper caught + quarantined).

@@ -140,6 +140,20 @@
 #define WT_SP_PS_STACK_BASE      (WT_RAM_S_BASE + 0x00063000u)  /* 0x3008B000 */
 #define WT_SP_PS_STACK_SIZE      WT_SP_SECURE_STACK_SIZE
 
+/* FWU partition stack: the PSA Firmware Update SP runs as a scheduled
+ * PRIVILEGED coroutine (it programs the wolfBoot update partition flash), so
+ * this band is its manifest-declared execution stack. Sits just below the PS
+ * stack; the linker RAM window is shortened to 388 KiB to make room. MUST
+ * match the FWUSTACK region in src/services/wolfhsm/runner/secure.ld. */
+#define WT_SP_FWU_STACK_BASE     (WT_RAM_S_BASE + 0x00061000u)  /* 0x30089000 */
+#define WT_SP_FWU_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
+
+/* wolfBoot update partition (WOLFBOOT_PARTITION_UPDATE_ADDRESS): the secure
+ * flash window SERVICE_FWU stages a candidate image into (WT-FWU-0002). Secure
+ * alias, inside the writable secure-alias MPU region. */
+#define WT_FWU_UPDATE_FLASH_BASE_S 0x0C100000u
+#define WT_FWU_UPDATE_FLASH_SIZE   0x00040000u
+
 /* Per-partition pseudo-MMIO holes at the top of the CONFDATA window (P4/K4).
  * Each belongs to exactly one Arm conformance partition; the scheduler grants
  * every other SP the window WITHOUT its hole, so the L3 MMIO-isolation panic

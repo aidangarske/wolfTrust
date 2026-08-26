@@ -994,6 +994,168 @@ static void wt_guest_fault_probe(void)
 }
 #endif
 
+#if defined(WT_FWU_PROBE)
+/* P6-S4: drive SERVICE_FWU from a Non-secure guest. The privileged FWU SP
+ * stages the candidate into the real wolfBoot update partition flash and
+ * verifies each block by read-back, so a clean start/write/finish/install
+ * proves the isolated update service end to end on target. The wolfBoot swap
+ * of the armed image rides the full boot-and-update gate (P6-S6). */
+#define WT_FWU_SID        4101u
+#define WT_FWU_OP_QUERY   1u
+#define WT_FWU_OP_START   2u
+#define WT_FWU_OP_WRITE   3u
+#define WT_FWU_OP_FINISH  4u
+#define WT_FWU_OP_INSTALL 5u
+#define WT_FWU_STAGED     3u
+
+struct wt_fwu_probe_req {
+	uint32_t component;
+	uint32_t offset;
+	uint32_t size;
+	uint32_t version;
+};
+
+static int32_t wt_fwu_probe_call(const struct device *tee, int32_t handle,
+				 uint32_t op, const void *in, uint32_t in_len,
+				 void *out, uint32_t out_len)
+{
+	struct tee_invoke_func_arg arg;
+	struct tee_param param[2];
+	int rc;
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CALL;
+	param[0].a = (uint64_t)handle;
+	param[0].b = op;
+	param[0].c = (uint64_t)(uintptr_t)in;
+	param[1].a = in_len;
+	if (out != NULL) {
+		param[1].b = (uint64_t)(uintptr_t)out;
+		param[1].c = out_len;
+	}
+	rc = tee_invoke_func(tee, &arg, 2, param);
+	if (rc != 0) {
+		return (int32_t)0x7fffffff;
+	}
+	return (int32_t)arg.ret;
+}
+
+static void exercise_ffm_fwu(void)
+{
+	const struct device *tee = DEVICE_DT_GET_ANY(wolfssl_wolftrust_tee);
+	struct tee_invoke_func_arg arg;
+	struct tee_param param[2];
+	struct wt_fwu_probe_req req;
+	uint8_t writebuf[16 + 32];
+	uint32_t info[4];
+	int ok = 1;
+	int32_t handle;
+	int32_t st;
+	int rc;
+
+	if (tee == NULL || !device_is_ready(tee)) {
+		LOG_WRN("wolftrust TEE device not present/ready");
+		return;
+	}
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CONNECT;
+	param[0].a = WT_FWU_SID;
+	param[0].b = 1u;
+	rc = tee_invoke_func(tee, &arg, 1, param);
+	handle = (int32_t)arg.ret;
+	if (rc != 0 || handle <= 0) {
+		LOG_ERR("FF-M psa_connect(SERVICE_FWU) failed rc=%d handle=%d",
+			rc, handle);
+		return;
+	}
+
+	/* WT-FWU-0003: a write before start is refused on target. */
+	memset(&req, 0, sizeof(req));
+	req.size = 32u;
+	memset(writebuf, 0, sizeof(writebuf));
+	memcpy(writebuf, &req, sizeof(req));
+	st = wt_fwu_probe_call(tee, handle, WT_FWU_OP_WRITE, writebuf,
+			       sizeof(writebuf), NULL, 0u);
+	if (st == 0) {
+		LOG_ERR("wolfTrust FWU write-before-start was not refused");
+		ok = 0;
+	} else {
+		LOG_INF("wolfTrust FWU write-before-start refused");
+	}
+
+	memset(&req, 0, sizeof(req));
+	req.version = 7u;
+	st = wt_fwu_probe_call(tee, handle, WT_FWU_OP_START, &req, sizeof(req),
+			       NULL, 0u);
+	if (st != 0) {
+		LOG_ERR("wolfTrust FWU start failed st=%d", st);
+		ok = 0;
+	}
+
+	memset(&req, 0, sizeof(req));
+	req.offset = 0u;
+	req.size = 32u;
+	memcpy(writebuf, &req, sizeof(req));
+	memset(writebuf + 16, 0x11, 32u);
+	st = wt_fwu_probe_call(tee, handle, WT_FWU_OP_WRITE, writebuf,
+			       sizeof(writebuf), NULL, 0u);
+	if (st != 0) {
+		LOG_ERR("wolfTrust FWU write#0 failed st=%d", st);
+		ok = 0;
+	}
+
+	req.offset = 32u;
+	memcpy(writebuf, &req, sizeof(req));
+	memset(writebuf + 16, 0x22, 32u);
+	st = wt_fwu_probe_call(tee, handle, WT_FWU_OP_WRITE, writebuf,
+			       sizeof(writebuf), NULL, 0u);
+	if (st != 0) {
+		LOG_ERR("wolfTrust FWU write#1 failed st=%d", st);
+		ok = 0;
+	}
+
+	memset(&req, 0, sizeof(req));
+	st = wt_fwu_probe_call(tee, handle, WT_FWU_OP_FINISH, &req, sizeof(req),
+			       NULL, 0u);
+	if (st != 0) {
+		LOG_ERR("wolfTrust FWU finish failed st=%d", st);
+		ok = 0;
+	}
+
+	/* install arms the swap and asks for a reboot (PSA_SUCCESS_REBOOT = 1). */
+	memset(&req, 0, sizeof(req));
+	st = wt_fwu_probe_call(tee, handle, WT_FWU_OP_INSTALL, &req, sizeof(req),
+			       NULL, 0u);
+	if (st != 1) {
+		LOG_ERR("wolfTrust FWU install st=%d (want 1)", st);
+		ok = 0;
+	}
+
+	memset(&req, 0, sizeof(req));
+	memset(info, 0, sizeof(info));
+	st = wt_fwu_probe_call(tee, handle, WT_FWU_OP_QUERY, &req, sizeof(req),
+			       info, sizeof(info));
+	if (st != 0 || info[0] != WT_FWU_STAGED) {
+		LOG_ERR("wolfTrust FWU query st=%d state=%u", st, info[0]);
+		ok = 0;
+	}
+
+	if (ok) {
+		LOG_INF("wolfTrust FWU staged 64 bytes to update partition, "
+			"armed, verified");
+	}
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CLOSE;
+	param[0].a = (uint64_t)handle;
+	(void)tee_invoke_func(tee, &arg, 1, param);
+}
+#endif
+
 int main(void)
 {
 	int rc;
@@ -1019,6 +1181,9 @@ int main(void)
 	exercise_ffm_keys();
 	exercise_ffm_key_negatives();
 	exercise_ffm_negatives();
+#if defined(WT_FWU_PROBE)
+	exercise_ffm_fwu();
+#endif
 #if !defined(WT_RUN_CONFORMANCE)
 	/* The COSE attestation path needs a deep stack; skip it in the conformance
 	 * guest so the Arm val NSPE framework fits guest0's 32 KiB NS window. The

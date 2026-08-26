@@ -2747,3 +2747,45 @@ Evidence:
   sits in the same dispatch window (no current scenario pends guest IRQs
   across a dispatch) — tracked as task #116.
 - H563 silicon: rides the #113 board session.
+
+## Phase 6 S4 — PSA Firmware Update service (WT-FWU-0001..0003, task #110)
+
+- Neutral state machine `src/services/fwu_service.c` + client API
+  `include/psa/update.h` (`psa_fwu_query/start/write/finish/install/abort`),
+  driven through a `wt_fwu_backend_t` staging seam so the host test supplies a
+  RAM mock and the target supplies real flash. WT-FWU-0001 (isolated SP + PSA
+  surface reached only through the SPM gate), WT-FWU-0002 (staged write to the
+  wolfBoot update partition + arm), WT-FWU-0003 (malformed/oversize/rolled-back
+  refused before arming; abort restores prior state).
+- New privileged `SERVICE_FWU` SP (domain 8, SID 4101, partition 8) mirroring
+  the vault; `wt_spm_fwu_start`/`wt_spm_fwu_entry` in spm_svc.c. Target backend
+  in `hsm_flash.c` stages into the real wolfBoot update partition
+  (`WT_FWU_UPDATE_FLASH_BASE_S = 0x0C100000`, 256 KiB) with lazy per-sector
+  erase, program, and memory-mapped read-back verify; install writes a
+  wolfTrust update-request marker to the trailer sector. Stack band
+  `WT_SP_FWU_STACK_BASE = 0x30089000` carved in memory_map.h + secure.ld
+  (RAM 396K->388K, FWUSTACK region + ASSERT chain); `WT_FFM_MAX_PARTITIONS`
+  8->9.
+- FWU is production-only: the conformance ingester (`ingest_psa_arch.py`,
+  `CONFORMANCE_EXCLUDE`) drops PARTITION_FWU so `manifest-conformance.json`
+  is byte-identical to before and the Arm 85/4 layout is untouched.
+- Evidence — host: `fwu_service` suite 33 checks green under gcc/clang +
+  ASan/UBSan (every negative: bad-state, oversize, wrapping, misaligned,
+  empty, rolled-back, storage-failure, abort-restores-state) plus a real
+  NS -> SERVICE_FWU FF-M IPC round trip; 36-suite `unit/all` green;
+  `manifest_ingest` reproducibility green.
+- Evidence — M33MU (emulator, wolf-prec5560, v1.15 container):
+  `PASS: target/fwustage` — a Non-secure guest drives
+  start/write/finish/install over IPC, the candidate is staged into the real
+  update-partition flash and verified by read-back (`wolfTrust FWU staged 64
+  bytes to update partition, armed, verified`), a write before start is
+  refused on target (`wolfTrust FWU write-before-start refused`), clean BKPT
+  exit, no fault. Regressions on one tree: `PASS: target/positive`,
+  `PASS: target/confboot` (85/4).
+- CI: `fwustage` in the M33MU matrix ("PSA Firmware Update staging") and the
+  `ci:fwustage` PR label.
+- Deferred to S6 (full boot-and-update gate + silicon): the wolfBoot
+  trailer-exact arm and the reboot->swap->authenticated-launch/anti-rollback
+  of the swapped image (the emulator loads images directly and has no wolfBoot
+  swap path).
+- H563 silicon: rides the #113 board session.

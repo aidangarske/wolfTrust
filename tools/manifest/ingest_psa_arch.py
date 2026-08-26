@@ -165,8 +165,24 @@ def full_service(entry):
     }
 
 
+# Production-only Secure Partitions the Arm FF-M conformance image does not
+# exercise. SERVICE_FWU stages the wolfBoot update partition and has no place
+# in the conformance suite, so it is dropped here to keep the conformance
+# domain layout independent of production-only services.
+CONFORMANCE_EXCLUDE = {"PARTITION_FWU"}
+
+
 def emit_manifest(base_path, arm_paths, code_base, stack_base, stack_size):
     manifest = json.loads(Path(base_path).read_text(encoding="utf-8"))
+    excluded_domain_ids = {
+        part["domain_id"] for part in manifest["partitions"]
+        if part["name"] in CONFORMANCE_EXCLUDE}
+    manifest["partitions"] = [
+        part for part in manifest["partitions"]
+        if part["name"] not in CONFORMANCE_EXCLUDE]
+    manifest["domains"] = [
+        domain for domain in manifest["domains"]
+        if domain["id"] not in excluded_domain_ids]
     next_id = max(domain["id"] for domain in manifest["domains"]) + 1
 
     sid_by_name = {}

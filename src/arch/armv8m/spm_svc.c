@@ -34,6 +34,7 @@
 #include "wolftrust/sched/coroutine.h"
 #include "wolftrust/sched/coroutine_internal.h"
 #include "wolftrust/services/crypto_service.h"
+#include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/storage_service.h"
 #include "wolftrust/services/vault_service.h"
@@ -953,4 +954,33 @@ int wt_spm_ps_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
     return wt_spm_sched_add(runtime, partition_id, wt_spm_ps_entry,
                             (void*)(intptr_t)partition_id);
+}
+
+/* The Firmware Update partition (WT-FWU-0001/0002): a scheduled PRIVILEGED
+ * coroutine, like the vault, because it programs the wolfBoot update partition
+ * flash to stage a candidate. Context lives on its own stack; the port
+ * supplies the flash staging backend. */
+extern const wt_fwu_backend_t wt_fwu_flash_backend;
+
+static void wt_spm_fwu_entry(void* arg)
+{
+    int32_t partition_id = (int32_t)(intptr_t)arg;
+    wt_fwu_service_ctx_t ctx;
+
+    (void)memset(&ctx, 0, sizeof(ctx));
+    ctx.transport = wt_spm_svc_transport;
+    ctx.backend = &wt_fwu_flash_backend;
+    ctx.backend_ctx = NULL;
+    ctx.version_floor = 0u;
+    ctx.state = PSA_FWU_READY;
+
+    for (;;) {
+        (void)wt_fwu_service_dispatch(&ctx, NULL, partition_id);
+    }
+}
+
+int wt_spm_fwu_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    return wt_spm_sched_add_common(runtime, partition_id, wt_spm_fwu_entry,
+                                   (void*)(intptr_t)partition_id, 1u);
 }

@@ -27,7 +27,11 @@ MEMORY {
   /* SRAM1 has Secure and Non-secure aliases to the same physical memory.
    * The first 32 KiB are assigned to the two guests through the 0x20000000
    * Non-secure alias, so keep secure .data/.bss above that physical window. */
-  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 396K
+  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 388K
+  /* FWU partition stack: the PSA Firmware Update SP's execution stack
+   * (WT_SP_FWU_STACK_* in memory_map.h). Privileged coroutine that programs
+   * the wolfBoot update partition flash. Lowest SP band. */
+  FWUSTACK (rw): ORIGIN = 0x30089000, LENGTH = 8K
   /* PS partition stack: the sealed-storage SP's execution stack and
    * MPU-domain RW resource (WT_SP_PS_STACK_* in memory_map.h). */
   PSSTACK (rw): ORIGIN = 0x3008B000, LENGTH = 8K
@@ -140,8 +144,10 @@ SECTIONS {
     KEEP(*(.sp_stacks*))
   } > SPSTACKS
 
-  ASSERT(ORIGIN(PSSTACK) == (ORIGIN(RAM) + LENGTH(RAM)),
-         "PS stack must sit directly above the secure RAM window")
+  ASSERT(ORIGIN(FWUSTACK) == (ORIGIN(RAM) + LENGTH(RAM)),
+         "FWU stack must sit directly above the secure RAM window")
+  ASSERT(ORIGIN(PSSTACK) == (ORIGIN(FWUSTACK) + LENGTH(FWUSTACK)),
+         "PS stack must sit directly above the FWU stack")
   ASSERT(ORIGIN(ITSSTACK) == (ORIGIN(PSSTACK) + LENGTH(PSSTACK)),
          "ITS stack must sit directly above the PS stack")
   ASSERT(ORIGIN(VAULTSTACK) == (ORIGIN(ITSSTACK) + LENGTH(ITSSTACK)),
