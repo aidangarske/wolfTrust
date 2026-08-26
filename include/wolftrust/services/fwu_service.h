@@ -46,6 +46,14 @@
  * image). A request naming any other component is refused. */
 #define WT_FWU_COMPONENT_PRIMARY 0u
 
+/* wolfBoot on-flash update-trigger ABI (aidangarske/wolfBoot @ d85fa9d,
+ * NVM_FLASH_WRITEONCE, non-inverted flags): the UPDATE partition reads as
+ * 'update pending' when its trailer holds IMG_STATE_UPDATING at
+ * partition_end-5 and the little-endian trailer magic 'BOOT' at
+ * partition_end-4, so wolfBoot swaps the staged image on the next boot. */
+#define WT_WOLFBOOT_MAGIC_TRAIL        0x544F4F42u  /* 'BOOT' */
+#define WT_WOLFBOOT_IMG_STATE_UPDATING 0x70u
+
 /* Client wire header. WRITE concatenates the block after the header in one
  * input vector ([wt_fwu_req_t][block]); QUERY reads psa_fwu_component_info_t
  * from outvec[0]; the other ops send the header alone. */
@@ -101,6 +109,13 @@ psa_status_t wt_fwu_install(wt_fwu_service_ctx_t* ctx);
 psa_status_t wt_fwu_abort(wt_fwu_service_ctx_t* ctx, uint32_t component);
 psa_status_t wt_fwu_query(wt_fwu_service_ctx_t* ctx, uint32_t component,
                           psa_fwu_component_info_t* info);
+
+/* Encode wolfBoot's WRITEONCE update-pending trigger into the topmost `len`
+ * bytes of the UPDATE partition (the block maps to [size-len, size)), so
+ * wolfBoot swaps the staged image on the next boot. Neutral and host-tested;
+ * the target FWU backend programs the returned block into the trailer sector.
+ * Returns 0 on success, -1 if the buffer cannot hold the trigger. */
+int wt_fwu_wolfboot_arm_trailer(uint8_t* block, uint32_t len);
 
 /* SERVICE_FWU's dispatch loop: wait, get, service one message through the
  * state machine, reply. Architecture-neutral: the host test drives real

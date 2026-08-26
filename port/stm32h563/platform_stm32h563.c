@@ -1681,6 +1681,44 @@ static void wt_platform_remeasure_probe(void)
 }
 #endif
 
+#if defined(WT_BOOTUPDATE_PROBE)
+/* P6-S6: full boot-and-update gate. On the pre-update image (version 1) arm
+ * wolfBoot's real update trigger for the v2 candidate pre-staged in the UPDATE
+ * partition, then reboot so wolfBoot swaps it in; the swapped-in v2 (version 2)
+ * skips the arm, so the swap terminates instead of looping. The secure MPU
+ * maps flash privileged-RO, so it is dropped for the single trailer program
+ * (as in the S5 re-measure probe). */
+#include "wolftrust/services/fwu_service.h"
+extern const wt_fwu_backend_t wt_fwu_flash_backend;
+
+static void wt_platform_bootupdate_probe(uint32_t running_version)
+{
+    uint32_t mpu_ctrl;
+    int armed = -1;
+
+    if (running_version != 1u) {
+        return;
+    }
+    if (wt_fwu_flash_backend.begin != NULL &&
+            wt_fwu_flash_backend.begin(NULL) == 0 &&
+            wt_fwu_flash_backend.arm != NULL) {
+        mpu_ctrl = WT_MPU_S_CTRL;
+        WT_MPU_S_CTRL = 0u;
+        wt_dsb();
+        wt_isb();
+        armed = wt_fwu_flash_backend.arm(NULL, 0u, 2u);
+        WT_MPU_S_CTRL = mpu_ctrl;
+        wt_dsb();
+        wt_isb();
+    }
+    if (armed == 0) {
+        wt_platform_system_reset();
+    }
+    /* Arm failed: fall through to a normal boot so the miss is observable
+     * (the token's v2 measurement will be absent) instead of a reboot loop. */
+}
+#endif
+
 void Reset_Handler(void)
 {
     extern uint32_t _sidata;
@@ -1790,6 +1828,14 @@ void Reset_Handler(void)
 #endif
 #if defined(WT_REMEASURE_PROBE)
     wt_platform_remeasure_probe();
+#endif
+#if defined(WT_BOOTUPDATE_PROBE)
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+    wt_platform_bootupdate_probe((handoffRet == 0) ?
+                                 bootHandoff.image_version : 0u);
+#else
+    wt_platform_bootupdate_probe(0u);
+#endif
 #endif
     wt_monitor_start();
     wt_platform_panic();

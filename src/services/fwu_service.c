@@ -32,6 +32,24 @@ static int wt_fwu_component_ok(uint32_t component)
     return component == WT_FWU_COMPONENT_PRIMARY;
 }
 
+int wt_fwu_wolfboot_arm_trailer(uint8_t* block, uint32_t len)
+{
+    uint32_t i;
+
+    if (block == NULL || len < 5u) {
+        return -1;
+    }
+    for (i = 0u; i < len; i++) {
+        block[i] = 0xFFu;
+    }
+    block[len - 5u] = (uint8_t)WT_WOLFBOOT_IMG_STATE_UPDATING;
+    block[len - 4u] = (uint8_t)(WT_WOLFBOOT_MAGIC_TRAIL & 0xFFu);
+    block[len - 3u] = (uint8_t)((WT_WOLFBOOT_MAGIC_TRAIL >> 8) & 0xFFu);
+    block[len - 2u] = (uint8_t)((WT_WOLFBOOT_MAGIC_TRAIL >> 16) & 0xFFu);
+    block[len - 1u] = (uint8_t)((WT_WOLFBOOT_MAGIC_TRAIL >> 24) & 0xFFu);
+    return 0;
+}
+
 psa_status_t wt_fwu_start(wt_fwu_service_ctx_t* ctx, uint32_t component,
                           uint32_t version)
 {

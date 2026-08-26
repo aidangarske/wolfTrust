@@ -561,10 +561,10 @@ int wt_hsm_flash_format(void)
 /* SERVICE_FWU staging into the wolfBoot update partition (WT-FWU-0002). The
  * privileged FWU coroutine erases each target sector lazily, programs the
  * candidate, and verifies every block against the memory-mapped secure flash.
- * install() writes a wolfTrust update-request marker into the trailer sector;
- * binding that marker to wolfBoot's swap trailer and the reboot swap ride the
- * full boot-and-update gate (P6-S6). */
-#define WT_FWU_ARM_MAGIC 0x55465457u   /* 'WTFU' */
+ * install() arms wolfBoot's real WRITEONCE update trigger in the UPDATE
+ * partition trailer (wt_fwu_wolfboot_arm_trailer), so the next boot swaps the
+ * staged image; the swapped image is still gated by authenticated launch and
+ * anti-rollback at boot (P6-S6). */
 
 static const wt_hsm_flash_config_t g_fwu_flash_cfg = {
     .base = WT_FWU_UPDATE_FLASH_BASE_S,
@@ -628,23 +628,26 @@ static int wt_fwu_backend_write(void *ctx, uint32_t offset,
 
 static int wt_fwu_backend_arm(void *ctx, uint32_t image_size, uint32_t version)
 {
-    uint32_t trailer = g_fwu_flash_cfg.size - g_fwu_flash_cfg.sector_size;
-    const uint8_t *mapped = (const uint8_t *)(g_fwu_flash_cfg.base + trailer);
-    uint32_t record[4];
+    uint32_t block_off = g_fwu_flash_cfg.size - g_fwu_flash_cfg.program_unit;
+    const uint8_t *mapped = (const uint8_t *)(g_fwu_flash_cfg.base + block_off);
+    uint8_t block[16];
 
     (void)ctx;
-    record[0] = WT_FWU_ARM_MAGIC;
-    record[1] = image_size;
-    record[2] = version;
-    record[3] = ~WT_FWU_ARM_MAGIC;
-    if (wt_fwu_ensure_erased(trailer, sizeof(record)) != 0) {
+    (void)image_size;
+    (void)version;
+    /* The wolfBoot trigger lives in the topmost program unit of the partition
+     * (state + magic); the block below it stays erased. */
+    if (wt_fwu_wolfboot_arm_trailer(block, (uint32_t)sizeof(block)) != 0) {
         return -1;
     }
-    if (wt_hsm_flash_program(&g_fwu_flash_ctx, trailer, sizeof(record),
-                             (const uint8_t *)record) != WH_ERROR_OK) {
+    if (wt_fwu_ensure_erased(block_off, (uint32_t)sizeof(block)) != 0) {
         return -1;
     }
-    if (memcmp(mapped, record, sizeof(record)) != 0) {
+    if (wt_hsm_flash_program(&g_fwu_flash_ctx, block_off,
+                             (uint32_t)sizeof(block), block) != WH_ERROR_OK) {
+        return -1;
+    }
+    if (memcmp(mapped, block, sizeof(block)) != 0) {
         return -1;
     }
     return 0;

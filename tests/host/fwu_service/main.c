@@ -443,10 +443,48 @@ static void test_ipc_round_trip(void)
           "WT-FWU-0001 IPC query reports STAGED after install");
 }
 
+/* WT-FWU-0002: the wolfBoot update trigger the FWU backend arms into the
+ * UPDATE-partition trailer must be byte-exact, or wolfBoot will not detect the
+ * pending update and the swap never happens. */
+static void test_wolfboot_arm_trailer(void)
+{
+    uint8_t block[16];
+    uint32_t magic;
+    int i;
+    int flags_erased;
+
+    memset(block, 0x00, sizeof(block));
+    check(wt_fwu_wolfboot_arm_trailer(block, sizeof(block)) == 0,
+          "WT-FWU-0002 wolfBoot arm-trailer encodes");
+    /* State byte IMG_STATE_UPDATING sits at partition_end-5 (index len-5). */
+    check(block[sizeof(block) - 5u] == WT_WOLFBOOT_IMG_STATE_UPDATING,
+          "WT-FWU-0002 trailer state = IMG_STATE_UPDATING (0x70)");
+    memcpy(&magic, &block[sizeof(block) - 4u], sizeof(magic));
+    check(magic == WT_WOLFBOOT_MAGIC_TRAIL,
+          "WT-FWU-0002 trailer magic word = WOLFBOOT_MAGIC_TRAIL");
+    check(block[sizeof(block) - 4u] == 0x42u &&
+          block[sizeof(block) - 3u] == 0x4Fu &&
+          block[sizeof(block) - 2u] == 0x4Fu &&
+          block[sizeof(block) - 1u] == 0x54u,
+          "WT-FWU-0002 trailer magic is little-endian 'BOOT'");
+    flags_erased = 1;
+    for (i = 0; i < (int)sizeof(block) - 5; i++) {
+        if (block[i] != 0xFFu) {
+            flags_erased = 0;
+        }
+    }
+    check(flags_erased, "WT-FWU-0002 flag region left erased (0xFF)");
+    check(wt_fwu_wolfboot_arm_trailer(NULL, sizeof(block)) == -1,
+          "WT-FWU-0002 arm-trailer rejects NULL");
+    check(wt_fwu_wolfboot_arm_trailer(block, 4u) == -1,
+          "WT-FWU-0002 arm-trailer rejects an undersized block");
+}
+
 int main(void)
 {
     test_state_machine();
     test_ipc_round_trip();
+    test_wolfboot_arm_trailer();
 
     if (g_failures == 0) {
         (void)printf("SERVICE_FWU host suite: all checks passed\n");

@@ -370,10 +370,11 @@ wolfTrust on the board — the TF-M drop-in proof.
       **PHASE 5 COMPLETE.**
 
 
-- [ ] **Phase 6 — authenticated boot, runtime verification, and update**
-  (`phases.md:120-126`). Scoped to the normative source: authenticated/measured
-  guest launch, firmware rollback + recovery, runtime verification, and a PSA
-  Firmware Update service. **Second Cortex-M port + Cortex-A/TFA boundary moved
+- [x] **Phase 6 — authenticated boot, runtime verification, and update**
+  (`phases.md:120-126`). **COMPLETE (2026-08-26): the full emulated
+  boot-and-update gate passes (S6 `bootupdate` green).** Scoped to the normative
+  source: authenticated/measured guest launch, firmware rollback + recovery,
+  runtime verification, and a PSA Firmware Update service. **Second Cortex-M port + Cortex-A/TFA boundary moved
   to Phase 8** (decided 2026-08-25). Stop = the full emulated boot-and-update
   gate passes. Guest auth = **hash-pin + monotonic version** (re-hash each guest
   at dispatch vs a manifest-pinned digest + min-version; fail closed). Plan:
@@ -514,10 +515,19 @@ wolfTrust on the board — the TF-M drop-in proof.
       catches it and quarantines, `[BKPT] imm=0x6c`, no fault) + `positive` +
       `confboot` (85/4) green on one tree. CI matrix `remeasureneg` +
       `ci:remeasureneg`.
-    - [ ] **S6 (Fable + silicon): full boot-and-update gate.** `bootupdate` M33MU
-      scenario end to end (boot→update via FWU→reboot→new image + token + rollback
-      + recovery), CI matrix + `ci:bootupdate`, then H563 silicon. Passing this
-      closes Phase 6 (`phases.md:126` stop condition).
+    - [x] **S6 (Fable + silicon): full boot-and-update gate.** The FWU backend
+      arm now writes wolfBoot's real WRITEONCE update trigger
+      (`wt_fwu_wolfboot_arm_trailer`, host-tested byte-exact). `bootupdate`
+      scenario: one image signed v1@1 / v2@2 (version in the hashed header ->
+      distinct measurement), v2 pre-staged in the UPDATE partition, a
+      version-gated arm probe (v1 only) arms + reboots, wolfBoot swaps v2 in and
+      boots it. Evidence: host `fwu_service` +7 encoder checks (gcc/clang/ASan) +
+      M33MU `PASS: target/bootupdate` (no fault, token reports v2's measurement
+      not v1's, clean exit) + `positive` + `fwustage` + `confboot` (85/4) green on
+      one tree. CI matrix `bootupdate` + `ci:bootupdate`. H563 silicon:
+      `PASS: hardware/h5/bootupdate` — SWD read-back of the boot-partition header
+      == v2, != v1 after the armed reset (wolfBoot physically swapped on real
+      silicon). Closes Phase 6 (`phases.md:126`).
 
 
 - [ ] **Phase 7 — OS integrations** (`phases.md:128-134`): OS-neutral NS client

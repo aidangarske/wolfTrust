@@ -21,6 +21,11 @@
 #                production SPM; panic tests reboot the chain via real
 #                SYSRESETREQ and val resumes off its flash boot flag.
 #                Requires SECWM1 to cover the whole boot partition (0x00-0x4F).
+#   bootupdate   full boot-and-update swap on silicon: v1 arms wolfBoot's real
+#                update trigger for a signed v2 candidate flashed into the
+#                update partition and reboots; wolfBoot swaps v2 into the boot
+#                slot. Proof is guest-independent — the boot-partition header
+#                read back over SWD carries v2's measurement, not v1's.
 #
 # The build and flash steps run in different environments (container vs host)
 # because the box's ARM toolchain lives only in the CI container while the
@@ -37,7 +42,7 @@ set -o pipefail
 mode="${1:-all}"
 scenario="${2:-positive}"
 case "$mode" in build|flash|all) ;; *) echo "usage: $0 build|flash|all [scenario]" >&2; exit 2 ;; esac
-case "$scenario" in positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec" >&2; exit 2 ;; esac
+case "$scenario" in positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|bootupdate) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|bootupdate" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -55,7 +60,7 @@ SERIAL="${H5_SERIAL:-/dev/ttyACM0}"
 # confboot reboots the whole chain once per panic test (real SYSRESETREQ, each
 # re-running wolfBoot), so it needs a long ceiling; the capture stops early on
 # the suite report.
-case "$scenario" in restart) cap_default=32 ;; confboot) cap_default=900 ;; devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec) cap_default=600 ;; *) cap_default=25 ;; esac
+case "$scenario" in restart) cap_default=32 ;; confboot) cap_default=900 ;; devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec) cap_default=600 ;; bootupdate) cap_default=45 ;; *) cap_default=25 ;; esac
 CAP_S="${H5_CAPTURE_SECONDS:-$cap_default}"
 LOGFILE="${WT_SCENARIO_LOG:-ci-h5-hardware-$scenario.log}"
 case "$LOGFILE" in /*) ;; *) LOGFILE="$repo/$LOGFILE" ;; esac
@@ -156,6 +161,7 @@ if [ "$mode" != "flash" ]; then
   secure_flags=""; guest_flags=""
   [ "$scenario" = "crossdomain" ] && secure_flags="WT_FFM_NEGATIVE_PROBE=1"
   [ "$scenario" = "restart" ] && guest_flags="WT_GUEST_FAULT_PROBE=1"
+  [ "$scenario" = "bootupdate" ] && secure_flags="WT_BOOTUPDATE_PROBE=1"
   # WT_CONF_DIAG_TRAP=0: the emulator-only hang-probe fault would become a
   # conformance-monitor reset on silicon and can eat the suite's report window.
   [ "$scenario" = "confboot" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0"; guest_flags="WT_RUN_CONFORMANCE=1"; }
@@ -200,6 +206,15 @@ if [ "$mode" != "flash" ]; then
         "$repo/build/wolftrust.bin" \
         "$repo/wolfBoot/wolfboot_signing_private_key.der" 1
     test -s "$repo/build/wolftrust_v1_signed.bin"
+    # bootupdate: also sign the same image at version 2 (higher version + a
+    # different hashed-header measurement) as the swap candidate.
+    if [ "$scenario" = "bootupdate" ]; then
+      IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x40000 WOLFBOOT_SECTOR_SIZE=0x2000 \
+        "$repo/wolfBoot/tools/keytools/sign" --ecc256 \
+          "$repo/build/wolftrust.bin" \
+          "$repo/wolfBoot/wolfboot_signing_private_key.der" 2
+      test -s "$repo/build/wolftrust_v2_signed.bin"
+    fi
   } >> "$LOGFILE" 2>&1
 
   WT_EXPECTED_MEASUREMENT_HEX="$(python3 tests/scripts/read_wolfboot_measurement.py \
@@ -247,11 +262,17 @@ if [ "$mode" != "build" ]; then
   stage "flashing wolfTrust chain via STM32CubeProgrammer"
   # CubeProgrammer exits nonzero after -hardRst even on success; gate on the
   # verify text instead so set -e does not kill the marker checks below.
+  # bootupdate: flash the signed v2 candidate into the update partition so
+  # wolfBoot has a real image to swap once v1 arms the trigger and reboots.
+  update_d=""
+  [ "$scenario" = "bootupdate" ] && \
+    update_d="-d $repo/build/wolftrust_v2_signed.bin 0x0C100000"
   "$CLI" -c port=SWD mode=UR \
     -d "$repo/wolfBoot/wolfboot.bin" "$WOLFBOOT_ADDR" \
     -d "$repo/build/wolftrust_v1_signed.bin" "$WOLFTRUST_ADDR" \
     -d "$guest0" "$GUEST0_ADDR" \
     -d "$guest1" "$GUEST1_ADDR" \
+    $update_d \
     --verify -hardRst > "$cli_log" 2>&1 || true
   cat "$cli_log" >> "$LOGFILE" || true
   grep -aq "verified successfully" "$cli_log" || {
@@ -468,6 +489,29 @@ if [ "$mode" != "build" ]; then
         else
           check_fail "no wipe" "g_vault_reformatted=0x${reformatted:-none}, expected 0"
         fi
+      fi
+      ;;
+    bootupdate)
+      # Full boot-and-update swap on silicon. v1 armed wolfBoot's real update
+      # trigger for the v2 candidate flashed into the update partition and
+      # rebooted; wolfBoot swapped v2 into the boot slot. Guest-independent proof
+      # (robust to the positive-image guest-boot issue #96): read the boot
+      # partition header back over SWD and confirm it now carries v2's wolfBoot
+      # measurement, not v1's. A v2 guest hiccup (#96) does not undo the swap.
+      v1meas="$(python3 tests/scripts/read_wolfboot_measurement.py build/wolftrust_v1_signed.bin 2>/dev/null)"
+      v2meas="$(python3 tests/scripts/read_wolfboot_measurement.py build/wolftrust_v2_signed.bin 2>/dev/null)"
+      hdr="/tmp/h5-boot-hdr.$$.bin"
+      pyocd cmd -t "$PYOCD_TARGET" -c halt -c "savemem 0x0C060000 0x400 $hdr" >/dev/null 2>&1 || true
+      bootmeas="$(python3 tests/scripts/read_wolfboot_measurement.py "$hdr" 2>/dev/null)"
+      if [ -n "$bootmeas" ] && [ "$bootmeas" = "$v2meas" ]; then
+        check_pass "boot slot holds v2 after the swap (measurement $bootmeas)"
+      else
+        check_fail "boot-and-update swap" "boot header measurement=${bootmeas:-none}, want v2=$v2meas (v1 was $v1meas)"
+      fi
+      if [ "$bootmeas" != "$v1meas" ]; then
+        check_pass "the pre-update v1 image was swapped out of the boot slot"
+      else
+        check_fail "swap" "boot slot still holds v1 measurement $v1meas"
       fi
       ;;
   esac

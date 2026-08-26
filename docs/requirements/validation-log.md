@@ -2822,3 +2822,62 @@ Evidence:
 - CI: `remeasureneg` in the M33MU matrix ("Runtime re-measurement quarantine")
   and the `ci:remeasureneg` PR label.
 - H563 silicon: rides the #113 board session.
+
+## Phase 6 S6 — Full boot-and-update gate (phases.md:126, task #112)
+
+- The `phases.md:126` stop condition: the whole firmware lifecycle end to end —
+  boot the authenticated chain, stage and arm an update through SERVICE_FWU,
+  reboot, and confirm wolfBoot swaps the new image in, the new image runs, its
+  measurement is attested, and anti-rollback advanced. This closes Phase 6.
+- wolfBoot on-flash trigger binding (the piece S4 deferred). The FWU backend
+  `arm` now writes wolfBoot's real WRITEONCE update trigger into the UPDATE
+  partition trailer instead of an internal marker. A neutral, host-tested
+  encoder `wt_fwu_wolfboot_arm_trailer` (`src/services/fwu_service.c`) lays down
+  IMG_STATE_UPDATING (0x70) at partition_end-5 and the little-endian trailer
+  magic 'BOOT' at partition_end-4 — exactly what wolfBoot's
+  `nvm_select_fresh_sector`/`get_partition_state` read to select the sector and
+  run the swap (`aidangarske/wolfBoot` @ `d85fa9d`, NVM_FLASH_WRITEONCE,
+  non-inverted flags). The port backend (`hsm_flash.c wt_fwu_backend_arm`)
+  programs that block into the trailer sector and read-back verifies it.
+- `bootupdate` scenario. One secure image is signed twice: v1 at wolfBoot
+  version 1, v2 at version 2. Because the version is inside the hashed wolfBoot
+  header, v2 carries both a higher version AND a different measurement. v2 is
+  pre-staged into the UPDATE partition (the emulator's 5th image at 0x100000; on
+  silicon, flashed there); v1 boots with a version-gated arm probe
+  (`WT_BOOTUPDATE_PROBE`, `platform_stm32h563.c`) that — only when the running
+  image is version 1 — arms the real trigger (secure MPU dropped for the single
+  privileged-RO trailer program, as in S5) and reboots. wolfBoot then swaps v2
+  into the boot slot and boots it; the swapped-in v2 (version 2) skips the arm,
+  so the swap terminates instead of looping. The byte-level block staging path
+  is proven separately by `fwustage` (S4); this gate proves the arm -> reboot ->
+  swap -> new-image chain.
+- Anti-rollback: wolfBoot accepts the swap only because v2's version (2) is
+  strictly greater than v1's (1) with ALLOW_DOWNGRADE=0; wolfTrust's own
+  monotonic floor advances v1->v2 (`wt_rollback_advance`). The downgrade
+  refusal is covered by the dedicated `rollbackneg` scenario (S2).
+- Evidence — host: `fwu_service` suite +7 checks for the trigger encoder
+  (byte-exact state/magic, little-endian order, erased flag region, NULL and
+  undersized rejects) green under gcc/clang + ASan/UBSan; 36-suite `unit/all`
+  green.
+- Evidence — M33MU (emulator, wolf-prec5560, v1.15 container):
+  `PASS: target/bootupdate` — no fault across the update reboot; the swapped
+  image runs a clean FF-M lifecycle; the attestation token reports v2's wolfBoot
+  measurement
+  (`30399054dd2599141efa193b149fe410070c7710e139b1fc071d96dd1e8ac9d6`) and never
+  v1's; clean BKPT exit. This is the real wolfBoot swap executing under emulation
+  (SYSRESETREQ re-runs the whole chain with flash intact, K1), not a simulated
+  one. Regressions on one tree: `PASS: target/positive`, `PASS: target/fwustage`,
+  `PASS: target/confboot` (85/4).
+- CI: `bootupdate` in the M33MU matrix ("Full boot-and-update swap gate") and the
+  `ci:bootupdate` PR label.
+- Evidence — H563 silicon (real Nucleo-H563ZI, wolf-prec5560):
+  `PASS: hardware/h5/bootupdate` — guest-independent proof: after v1 armed the
+  trigger and rebooted, the boot-partition header read back over SWD carries
+  v2's measurement
+  (`dae2f4a5d63e56f280131ebfa09df91a9d9aa63bc68a1e247dc851f2e9cf1fbc`), not
+  v1's, so wolfBoot physically swapped v2 into the boot slot on real silicon.
+  (The on-silicon v2 measurement differs from the emulator's because the
+  hardware build drops the emulator-only BKPT/diag flags; the invariant tested
+  is boot-header == v2 and != v1, which holds on both.)
+- Phase 6 CLOSED: the full boot-and-update gate passes on the emulator (the
+  `phases.md:126` stop condition) and on H563 silicon.

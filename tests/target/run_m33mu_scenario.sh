@@ -37,6 +37,12 @@
 #   run_m33mu_scenario.sh rollbackneg  probe arms the NVM version floor above
 #                                       the running image and reboots: the
 #                                       downgraded boot is refused fail-closed
+#   run_m33mu_scenario.sh bootupdate   full boot-and-update gate: v1 arms
+#                                       wolfBoot's real update trigger for a
+#                                       pre-staged signed v2 candidate and
+#                                       reboots; wolfBoot swaps v2 in and boots
+#                                       it; the post-swap token reports v2's
+#                                       measurement (anti-rollback floor v1->v2)
 #
 # This is the single source the local make test-target harness, the box skill
 # scripts, and the CI jobs all drive, so each scenario's markers stay identical.
@@ -45,8 +51,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg) ;;
-  *) echo "usage: $0 positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg" >&2; exit 2 ;;
+  positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate) ;;
+  *) echo "usage: $0 positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -153,6 +159,8 @@ elif [ "$scenario" = "rollbackneg" ]; then
   secure_flags="WT_ROLLBACK_PROBE=1"
 elif [ "$scenario" = "remeasureneg" ]; then
   secure_flags="WT_REMEASURE_PROBE=1"
+elif [ "$scenario" = "bootupdate" ]; then
+  secure_flags="WT_BOOTUPDATE_PROBE=1"
 fi
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
 # Stash the pre-patch image and matching elf: the guest build below can relink
@@ -209,6 +217,23 @@ test -s "$repo/build/wolftrust_v1_signed.bin"
 WT_EXPECTED_MEASUREMENT_HEX="$(python3 tests/scripts/read_wolfboot_measurement.py \
   build/wolftrust_v1_signed.bin)"
 
+# bootupdate: sign the SAME patched image again at version 2. The version lives
+# inside the hashed wolfBoot header, so v2 carries both a higher version and a
+# different measurement — it is the candidate wolfBoot swaps into the boot slot
+# on the armed reboot, and its measurement is what the post-swap token must show.
+WT_V2_MEASUREMENT_HEX=""
+update_img=""
+if [ "$scenario" = "bootupdate" ]; then
+  IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x40000 WOLFBOOT_SECTOR_SIZE=0x2000 \
+    "$repo/wolfBoot/tools/keytools/sign" --ecc256 \
+      "$repo/build/wolftrust.bin" \
+      "$repo/wolfBoot/wolfboot_signing_private_key.der" 2
+  test -s "$repo/build/wolftrust_v2_signed.bin"
+  WT_V2_MEASUREMENT_HEX="$(python3 tests/scripts/read_wolfboot_measurement.py \
+    build/wolftrust_v2_signed.bin)"
+  update_img="$repo/build/wolftrust_v2_signed.bin:0x100000"
+fi
+
 if [ "$scenario" = "authneg" ]; then
   # Corrupt one byte of the flashed guest0 image AFTER its digest was pinned
   # and signed: launch verification must fail closed for guest0 while guest1
@@ -261,6 +286,12 @@ elif [ "$scenario" = "devcrypto" ]; then
   # per test; same non-fatal-fault policy as devstorage.
   quit_flag=""
   timeout_s=7200
+elif [ "$scenario" = "bootupdate" ]; then
+  # Two boots in one run: v1 arms the update trigger and reboots, then wolfBoot
+  # swaps in v2, which runs the full lifecycle to the clean BKPT. The
+  # SYSRESETREQ reboot is not a fault, so keep --quit-on-faults; give both
+  # boots room.
+  timeout_s=150
 fi
 
 log="$repo/ci-m33mu-$scenario.log"
@@ -269,6 +300,7 @@ set +e
   "$repo/build/wolftrust_v1_signed.bin:0x60000" \
   "$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0xA0000" \
   "$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xE0000" \
+  ${update_img:+"$update_img"} \
   --uart-stdout --expect-bkpt 0x7f $quit_flag --timeout "$timeout_s" | tee "$log"
 emu_status=${PIPESTATUS[0]}
 set -e
@@ -545,11 +577,11 @@ case "$scenario" in
     refute_re "no fault markers in boot log" \
       '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
     expect "guest booted and reached the FWU probe" "guest0_psa alive"
-    expect "write before start refused on target (WT-FWU-0003)" \
+    expect_flat "write before start refused on target (WT-FWU-0003)" \
       "wolfTrust FWU write-before-start refused"
-    expect "candidate staged to the update partition and armed (WT-FWU-0002)" \
+    expect_flat "candidate staged to the update partition and armed (WT-FWU-0002)" \
       "wolfTrust FWU staged 64 bytes to update partition, armed, verified"
-    expect "unrelated storage partitions unaffected" \
+    expect_flat "unrelated storage partitions unaffected" \
       "wolfTrust ITS set/get verified"
     expect "full lifecycle completed" "[EXPECT BKPT] Success"
     echo "PASS: target/fwustage"
@@ -566,5 +598,25 @@ case "$scenario" in
     expect "on-demand re-measure passed clean then caught a post-launch tamper" \
       "[BKPT] imm=0x6c"
     echo "PASS: target/remeasureneg"
+    ;;
+
+  bootupdate)
+    # Full boot-and-update gate (phases.md:126). v1 arms wolfBoot's real update
+    # trigger for the pre-staged signed v2 candidate and reboots; wolfBoot swaps
+    # v2 into the boot slot and boots it. Proof the SWAP happened and v2 (not
+    # v1) is running: the attestation token reports v2's wolfBoot measurement,
+    # never v1's, and the swapped image completes the full FF-M lifecycle clean
+    # with no fault. Anti-rollback advanced the version floor v1->v2 for the
+    # swap to be accepted (a downgrade is refused by the rollbackneg scenario).
+    refute_re "no fault markers across the update reboot" \
+      '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+    expect_flat "swapped image runs a clean FF-M lifecycle" \
+      "wolfTrust FF-M SERVICE_CRYPTO dispatch verified"
+    expect_flat "token measurement equals the v2 (swapped-in) image measurement" \
+      "wolfTrust attestation: token measurement=$WT_V2_MEASUREMENT_HEX"
+    refute_re "the pre-update v1 image is no longer the one attested" \
+      "token measurement=$WT_EXPECTED_MEASUREMENT_HEX"
+    expect "[EXPECT BKPT] Success clean exit after the swap" "[EXPECT BKPT] Success"
+    echo "PASS: target/bootupdate"
     ;;
 esac
