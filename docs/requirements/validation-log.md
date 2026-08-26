@@ -2713,3 +2713,37 @@ Evidence:
   for the hunt were removed once the root cause landed (the technique is
   recorded above; the eb0ef27 history carries the code).
 - H563 silicon: rides the #113 board session.
+
+## Phase 6 S3-R — target/restart regression fix (task #114)
+
+- Root cause (bisect S0 `0af5eef` green / S1 `529b95a` red, then proven from
+  the failure log): `wt_virtual_systick_restore_arriving` re-armed the
+  arriving guest's SysTick and injected owed ticks (`PENDSTSET`) from inside
+  `wt_platform_prepare_guest_return` — after `VTOR_NS` was switched to the
+  arriving guest but before the NS bank (MSP/PSP/CONTROL_NS) was restored.
+  With PRIS=0 the injected NS tick preempts the secure dispatcher inside
+  that window: it vectors through the arriving guest's table while stacking
+  on the departing guest's live MSP_NS, which the arriving guest's NS MPU
+  rightly denies — derived NS HardFault, NS-Handler spin, rotation dead at
+  2/4 banners. The decisive artifact is in the failing run's fault dump:
+  the faulting SysTick context carries `EXC_RETURN=0xFFFFFFD0` (ES=0 NS
+  exception, Mode=0 returns to Handler, S=1 secure stack) — an NS tick that
+  preempted secure HANDLER code mid-dispatch. S1 made the latent race
+  deterministic: its in-handler relaunch hash (~90KB SHA-256) guarantees the
+  descheduled guest owes ticks at every relaunch dispatch.
+- Fix (`port/stm32h563/platform_stm32h563.c` only): the arm/inject tail of
+  `wt_virtual_systick_restore_arriving` is deferred into
+  `wt_virtual_systick_arm_arriving()`, invoked from the end of both NS entry
+  paths (`wt_exception_return_ns_msp`, `wt_jump_to_ns`) once the NS bank is
+  fully restored — a tick taken there stacks on the arriving guest's own
+  stack. A disproven earlier theory (per-guest capture bounds) was reverted
+  and is not part of the fix.
+- M33MU (emulator, wolf-prec5560, v1.15 container): `PASS: target/restart`
+  — guest0 faults, restarts `restart_limit`=3 times, then FAULTED; 4/4
+  banners; guest1 unaffected. Regressions on the same tree:
+  `PASS: target/positive`, `PASS: target/spfaultneg`,
+  `PASS: target/confboot` (85/0/4).
+- Follow-up hardening: the peripheral-IRQ unmask in `wt_apply_partition`
+  sits in the same dispatch window (no current scenario pends guest IRQs
+  across a dispatch) — tracked as task #116.
+- H563 silicon: rides the #113 board session.

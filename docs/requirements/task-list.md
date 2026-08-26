@@ -460,15 +460,26 @@ wolfTrust on the board — the TF-M drop-in proof.
       queued kept the service signal asserted (restart spin); (3) the fault
       path left `g_wt_co_pendsv_target` stale. Collapses #26. Silicon rides
       #113.
-    - [ ] **S3-R: fix pre-existing `target/restart` regression (guest1 first
-      dispatch inherits guest0's NS stack bank; task #114).** A/B-proven
-      pre-existing at S2 `5cfd394` (identical failure with zero S3 changes):
-      guest1's first dispatch runs with SP at guest0's initial MSP_NS top,
-      the per-guest NS MPU rightly denies the cross-window push, guest1 dies
-      in its NS HardFault handler, and NS-Handler spin blocks all further
-      rotation (2/4 banners). `restart` was last green at S0 `0af5eef`; the
-      S1/S2 validation sets did not include it. Suspect: S1's monitor-init /
-      relaunch-verify changes around guest context init ordering.
+    - [x] **S3-R: fix pre-existing `target/restart` regression (task #114) —
+      virtual-SysTick injection inside the dispatch window.**
+      `wt_virtual_systick_restore_arriving` armed the guest SysTick and
+      pended owed ticks (`PENDSTSET`) from `wt_platform_prepare_guest_return`
+      — after the `VTOR_NS` write but before the NS bank restore. With
+      PRIS=0 the injected tick preempts the secure dispatcher right there,
+      vectoring through the ARRIVING guest's table while stacking on the
+      DEPARTING guest's live MSP_NS; the arriving guest's MPU denies the
+      cross-window push (derived NS HardFault, rotation dead at 2/4
+      banners). Proof from the failure log itself: the faulting SysTick
+      context's `EXC_RETURN=0xFFFFFFD0` (ES=0, Mode=Handler, S=1) shows an
+      NS tick that preempted secure HANDLER code. S1's in-handler relaunch
+      hash guarantees owed ticks at every relaunch dispatch — hence the
+      S0-green/S1-red bisect. Fix: the arm/inject step is deferred to
+      `wt_virtual_systick_arm_arriving()`, called from the tail of
+      `wt_exception_return_ns_msp` and `wt_jump_to_ns` once
+      MSP/PSP/CONTROL_NS are restored. Evidence: `PASS: target/restart`
+      (4/4 banners, 3 restarts then FAULTED) + regressions
+      positive/spfaultneg/confboot all green on the same tree. The
+      same-window peripheral-IRQ unmask hole is tracked as #116.
     - [ ] **S4 (Fable, deepest): PSA Firmware Update service.** New `SERVICE_FWU`
       SP + `include/psa/update.h` (`psa_fwu_*`); stages into the wolfBoot update
       partition + trigger, gated by S1/S2 on the next boot. New SID + regen. Host

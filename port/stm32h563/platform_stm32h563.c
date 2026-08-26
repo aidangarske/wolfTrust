@@ -150,6 +150,11 @@ typedef struct wt_virtual_systick {
 } wt_virtual_systick_t;
 
 static wt_virtual_systick_t g_guest_systick[WT_MAX_GUESTS];
+/* Deferred SysTick arm for the arriving guest: arming/injecting before the
+ * NS bank is restored lets the tick preempt the dispatch window and stack
+ * through the new VTOR_NS onto the departing guest's MSP_NS. */
+static volatile uint32_t g_arriving_systick_csr;
+static volatile uint32_t g_arriving_systick_inject;
 
 #ifdef WT_ENGINE_HSM
 static void wt_secure_service_enter(void);
@@ -868,7 +873,6 @@ static void wt_exception_return_ns_msp(void)
         "ldr r2, [r2]                   \n"
         "mov sp, r2                     \n"
         "ldr r0, =g_return_context      \n"
-        "ldmia r0, {r4-r11}             \n"
         "ldr r1, [r0, #" WT_ASM_STR(WT_GUEST_CONTEXT_PSP_NS_OFFSET) "] \n"
         "msr psp_ns, r1                 \n"
         "ldr r1, [r0, #" WT_ASM_STR(WT_GUEST_CONTEXT_MSP_NS_OFFSET) "] \n"
@@ -883,6 +887,11 @@ static void wt_exception_return_ns_msp(void)
         "msr msplim_ns, r1              \n"
         "ldr r1, [r0, #" WT_ASM_STR(WT_GUEST_CONTEXT_CONTROL_NS_OFFSET) "] \n"
         "msr control_ns, r1             \n"
+        /* NS bank is now consistent: arm/inject the guest's SysTick here,
+         * never earlier in the dispatch window. */
+        "bl wt_virtual_systick_arm_arriving \n"
+        "ldr r0, =g_return_context      \n"
+        "ldmia r0, {r4-r11}             \n"
         "ldr lr, [r0, #" WT_ASM_STR(WT_GUEST_CONTEXT_EXC_RETURN_OFFSET) "] \n"
         "bx lr                          \n"
     );
@@ -908,6 +917,7 @@ static void wt_jump_to_ns(uint32_t msp_ns __attribute__((unused)),
     __asm volatile(
         "msr msp_ns, r0     \n"
         "bics r1, r1, #1    \n"
+        "mov r4, r1         \n"
         "movs r2, #0        \n"
         "msr control_ns, r2 \n"
         /* See wt_exception_return_ns_msp — clear PSPLIM_NS / MSPLIM_NS
@@ -915,8 +925,9 @@ static void wt_jump_to_ns(uint32_t msp_ns __attribute__((unused)),
          * doesn't inherit a stale value from the previous guest. */
         "msr psplim_ns, r2  \n"
         "msr msplim_ns, r2  \n"
+        "bl wt_virtual_systick_arm_arriving \n"
         "isb 0xF            \n"
-        "bxns r1            \n"
+        "bxns r4            \n"
     );
 }
 
@@ -1248,20 +1259,38 @@ static void wt_virtual_systick_restore_arriving(wt_guest_id_t guest_id)
     WT_SYST_NS_CSR = 0u;
     WT_SYST_NS_RVR = systick->rvr;
     WT_SYST_NS_CVR = 0u;
+    g_arriving_systick_csr = 0u;
+    g_arriving_systick_inject = 0u;
     if (wt_virtual_systick_active(systick)) {
-        WT_SYST_NS_CSR = systick->csr & ~WT_SYST_CSR_COUNTFLAG;
+        g_arriving_systick_csr = systick->csr & ~WT_SYST_CSR_COUNTFLAG;
     }
 
     if (systick->owed_ticks > 0u && wt_virtual_systick_irq_enabled(systick)) {
         if (!systick->pending) {
-            WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSTSET;
             systick->pending = 1u;
             systick->injected_ticks++;
         }
         else {
             systick->coalesced_ticks++;
-            WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSTSET;
         }
+        g_arriving_systick_inject = 1u;
+    }
+}
+
+/* Called from the NS-entry asm once MSP/PSP/CONTROL_NS are restored, so a
+ * tick taken here stacks on the arriving guest's own stack. */
+static void wt_virtual_systick_arm_arriving(void) __attribute__((used));
+static void wt_virtual_systick_arm_arriving(void)
+{
+    uint32_t csr = g_arriving_systick_csr;
+
+    g_arriving_systick_csr = 0u;
+    if (csr != 0u) {
+        WT_SYST_NS_CSR = csr;
+    }
+    if (g_arriving_systick_inject != 0u) {
+        g_arriving_systick_inject = 0u;
+        WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSTSET;
     }
 }
 
