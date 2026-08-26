@@ -45,8 +45,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage) ;;
-  *) echo "usage: $0 positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage" >&2; exit 2 ;;
+  positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg) ;;
+  *) echo "usage: $0 positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -151,6 +151,8 @@ elif [ "$scenario" = "vaultrecoversec" ]; then
   secure_flags="WT_CONFORMANCE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1"
 elif [ "$scenario" = "rollbackneg" ]; then
   secure_flags="WT_ROLLBACK_PROBE=1"
+elif [ "$scenario" = "remeasureneg" ]; then
+  secure_flags="WT_REMEASURE_PROBE=1"
 fi
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
 # Stash the pre-patch image and matching elf: the guest build below can relink
@@ -551,5 +553,18 @@ case "$scenario" in
       "wolfTrust ITS set/get verified"
     expect "full lifecycle completed" "[EXPECT BKPT] Success"
     echo "PASS: target/fwustage"
+    ;;
+
+  remeasureneg)
+    # WT-FFM-0052: after boot init + launch verification, an on-demand
+    # re-measure of guest0 passes untampered, then a post-launch in-flash
+    # tamper of the guest window is caught and quarantines the domain. The
+    # secure probe emits bkpt 0x6c only when the untampered pass AND the
+    # tamper-quarantine both hold; the tamper write itself must not fault.
+    refute_re "no fault markers in boot log" \
+      '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+    expect "on-demand re-measure passed clean then caught a post-launch tamper" \
+      "[BKPT] imm=0x6c"
+    echo "PASS: target/remeasureneg"
     ;;
 esac

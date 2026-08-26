@@ -498,9 +498,22 @@ wolfTrust on the board — the TF-M drop-in proof.
       (85/4) regressions green on one tree. `fwustage` in the CI matrix +
       `ci:fwustage`. The wolfBoot trailer-exact arm + reboot→swap→gated launch
       ride S6.
-    - [ ] **S5 (Fable): runtime verification.** Post-boot on-demand re-measurement
-      of a domain → S3 fault path on mismatch. Host + M33MU negative (post-boot
-      tamper caught + quarantined).
+    - [x] **S5 (Fable): runtime verification (WT-FFM-0052 / WT-SYS-0013).**
+      On-demand post-boot re-measurement: neutral `wt_runtime_verify_decide` +
+      `wt_runtime_verify_should_quarantine` (guest_verify.c) reuse the S1
+      SHA-256 pin check; `wt_runtime_verify_guest` (monitor.c) does the
+      window+record lookup and, on any mismatch, drives the domain through the
+      fail-closed `wt_monitor_quarantine_guest` path — a tamper after launch is
+      caught instead of trusting the boot-time measurement. Guest-domain only
+      (SPs have no pinned-digest store — split if SP coverage is wanted).
+      Evidence: host `runtime_verify` 7 checks (gcc/clang/ASan: untampered OK,
+      tampered/rolled-back/shrunken/no-record fail closed, no-launch-policy
+      passes) + M33MU `PASS: target/remeasureneg` (a secure probe re-measures
+      guest0 clean, then tampers its flash window in place — secure MPU dropped
+      for the single privileged-RO program — and the on-demand re-measure
+      catches it and quarantines, `[BKPT] imm=0x6c`, no fault) + `positive` +
+      `confboot` (85/4) green on one tree. CI matrix `remeasureneg` +
+      `ci:remeasureneg`.
     - [ ] **S6 (Fable + silicon): full boot-and-update gate.** `bootupdate` M33MU
       scenario end to end (boot→update via FWU→reboot→new image + token + rollback
       + recovery), CI matrix + `ci:bootupdate`, then H563 silicon. Passing this

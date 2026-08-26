@@ -32,4 +32,11 @@
 int wt_conf_nvm_flash_sync(uint8_t *buf, uint32_t len, int store);
 #endif
 
+#if defined(WT_REMEASURE_PROBE)
+/* Test-only (P6-S5): corrupt the first sector at secure_base so an on-demand
+ * re-measurement of that window fails its pinned digest. The caller must drop
+ * the secure MPU around this, since flash maps privileged-RO. */
+int wt_hsm_flash_remeasure_tamper(uintptr_t secure_base);
+#endif
+
 #endif /* WOLFTRUST_STM32H563_HSM_FLASH_H */

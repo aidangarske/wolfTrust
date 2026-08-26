@@ -56,6 +56,19 @@ int wt_guest_verify_image(const void* image,
                           const wt_guest_measurement_t* record,
                           uint32_t min_version);
 
+/* WT-FFM-0052 / WT-SYS-0013 runtime re-measurement decision. On demand after
+ * boot, re-hash the domain's window against its pinned record. A guest with no
+ * launch policy has nothing pinned and passes; a launch-required guest with no
+ * window or record cannot be confirmed and fails closed. The result feeds
+ * wt_runtime_verify_should_quarantine so a mismatch drives the domain through
+ * the fault path instead of trusting the boot-time measurement. */
+int wt_runtime_verify_decide(const void* window_base, size_t window_size,
+                             const wt_guest_measurement_t* record,
+                             uint32_t min_version, int launch_required);
+
+/* True when a runtime re-measurement result must fail the domain closed. */
+int wt_runtime_verify_should_quarantine(int verify_result);
+
 /* Verified-launch measurement table consumed by Initial Attestation as the
  * per-guest software components. Only measurements that passed
  * wt_guest_verify_image may be recorded. */

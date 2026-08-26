@@ -671,6 +671,26 @@ const wt_fwu_backend_t wt_fwu_flash_backend = {
     .align = 16u,
 };
 
+#if defined(WT_REMEASURE_PROBE)
+int wt_hsm_flash_remeasure_tamper(uintptr_t secure_base)
+{
+    wt_hsm_flash_context_t ctx;
+    uint8_t block[16];
+
+    ctx.base = secure_base;
+    ctx.size = WT_FLASH_SECTOR_SIZE;
+    ctx.sector_size = WT_FLASH_SECTOR_SIZE;
+    ctx.program_unit = 16u;
+    ctx.write_locked = false;
+    if (wt_hsm_flash_erase(&ctx, 0u, WT_FLASH_SECTOR_SIZE) != WH_ERROR_OK) {
+        return -1;
+    }
+    (void)memset(block, 0x00, sizeof(block));
+    return (wt_hsm_flash_program(&ctx, 0u, sizeof(block), block) ==
+            WH_ERROR_OK) ? 0 : -1;
+}
+#endif
+
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 static const wt_hsm_flash_config_t g_conf_nvm_cfg = {
     .base = WT_CONF_NVM_FLASH_BASE_S,

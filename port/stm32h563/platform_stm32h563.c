@@ -1630,6 +1630,57 @@ void wt_platform_set_ns_irq_pending(uint32_t irq, bool asserted)
     }
 }
 
+#if defined(WT_REMEASURE_PROBE)
+/* P6-S5: prove on-demand runtime re-measurement (WT-FFM-0052) on target. After
+ * boot init and launch verification, an untampered re-measure of guest0 must
+ * pass; a post-launch in-flash tamper (the secure MPU maps flash
+ * privileged-RO, so it is dropped for the single program) must then be caught
+ * and quarantine the guest. bkpt #0x6C fires only when both are correct. */
+extern int wt_hsm_flash_remeasure_tamper(uintptr_t secure_base);
+
+static void wt_platform_remeasure_probe(void)
+{
+    const wt_guest_config_t *configs;
+    size_t cfg_count;
+    const wt_memory_window_t *window = NULL;
+    uint32_t mpu_ctrl;
+    size_t i;
+    int r1;
+    int r2;
+
+    configs = wt_partitions_config_table(&cfg_count);
+    if (configs != NULL && cfg_count > 0u) {
+        for (i = 0u; i < configs[0].memory_window_count; i++) {
+            if ((configs[0].memory_windows[i].attributes &
+                    WT_MEM_ATTR_EXEC) != 0u) {
+                window = &configs[0].memory_windows[i];
+                break;
+            }
+        }
+    }
+    if (window != NULL) {
+        r1 = wt_runtime_verify_guest(0u);
+        mpu_ctrl = WT_MPU_S_CTRL;
+        WT_MPU_S_CTRL = 0u;
+        wt_dsb();
+        wt_isb();
+        (void)wt_hsm_flash_remeasure_tamper(WT_FLASH_TO_S_ALIAS(window->base));
+        WT_MPU_S_CTRL = mpu_ctrl;
+        wt_dsb();
+        wt_isb();
+        r2 = wt_runtime_verify_guest(0u);
+        /* WT_GUEST_VERIFY_OK == 0: a pass then a fail-closed is the only
+         * correct outcome. */
+        if (r1 == 0 && r2 != 0) {
+            __asm volatile("bkpt #0x6C");
+        }
+    }
+    for (;;) {
+        __asm volatile("wfi");
+    }
+}
+#endif
+
 void Reset_Handler(void)
 {
     extern uint32_t _sidata;
@@ -1736,6 +1787,9 @@ void Reset_Handler(void)
     if (wt_ffm_boot_start_sched() != WT_FFM_SUCCESS) {
         wt_platform_panic();
     }
+#endif
+#if defined(WT_REMEASURE_PROBE)
+    wt_platform_remeasure_probe();
 #endif
     wt_monitor_start();
     wt_platform_panic();

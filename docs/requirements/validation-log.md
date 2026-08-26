@@ -2789,3 +2789,36 @@ Evidence:
   of the swapped image (the emulator loads images directly and has no wolfBoot
   swap path).
 - H563 silicon: rides the #113 board session.
+
+## Phase 6 S5 — Runtime verification (WT-FFM-0052 / WT-SYS-0013, task #111)
+
+- On-demand post-boot re-measurement. Neutral decision in `src/guest_verify.c`:
+  `wt_runtime_verify_decide(window_base, window_size, record, min_version,
+  launch_required)` reuses the S1 SHA-256 pin check (launch_required==0 has
+  nothing pinned and passes; a launch-required guest with no window/record
+  fails closed); `wt_runtime_verify_should_quarantine(result)` maps any
+  non-OK to fail-closed. Monitor wiring `wt_runtime_verify_guest` (src/monitor.c)
+  does the same window+record lookup as launch verification and, on mismatch,
+  drives the domain through `wt_monitor_quarantine_guest` — catching a tamper
+  that happens AFTER launch instead of trusting the boot-time measurement.
+  Counters `g_wt_runtime_verify_pass`/`_fail` (harness symbol reads).
+- Scope: guest-domain re-measurement. Secure Partitions have no pinned-digest
+  store (`wt_platform_guest_measurements` is guest-only), so an SP re-measure
+  would need a new expected-digest source and is not covered here.
+- Evidence — host: `runtime_verify` suite 7 checks green under gcc/clang +
+  ASan/UBSan (untampered -> OK no quarantine; tampered -> DIGEST fail-closed;
+  no-launch-policy -> OK; no-record -> ARGUMENT fail-closed; shrunken window
+  -> LAYOUT; rolled-back -> VERSION); 36-suite `unit/all` green.
+- Evidence — M33MU (emulator, wolf-prec5560, v1.15 container):
+  `PASS: target/remeasureneg` — after boot init and launch verification a
+  secure probe (`WT_REMEASURE_PROBE`, `wt_platform_remeasure_probe`)
+  re-measures guest0 clean, then tampers its flash window in place
+  (`wt_hsm_flash_remeasure_tamper`; the secure MPU maps flash privileged-RO,
+  so `WT_MPU_S_CTRL` is dropped for the single program then restored), and the
+  on-demand re-measure catches the mismatch and quarantines the guest —
+  `[BKPT] imm=0x6c` fires only when the untampered pass AND the tamper-catch
+  both hold, with no fault marker. Regressions on one tree:
+  `PASS: target/positive`, `PASS: target/confboot` (85/4).
+- CI: `remeasureneg` in the M33MU matrix ("Runtime re-measurement quarantine")
+  and the `ci:remeasureneg` PR label.
+- H563 silicon: rides the #113 board session.

@@ -46,6 +46,7 @@ WT_FFM_NEGATIVE_PROBE ?= 0
 WT_LAUNCH_DEBUG ?= 0
 WT_ROLLBACK_PROBE ?= 0
 WT_SP_FAULT_PROBE ?= 0
+WT_REMEASURE_PROBE ?= 0
 WT_CONFORMANCE ?= 0
 
 # wolfHSM resumes SHA-256 operations from the portable digest and length
@@ -144,6 +145,9 @@ SECURE_CFLAGS += -DWT_FFM_NEGATIVE_PROBE=1
 endif
 ifeq ($(WT_SP_FAULT_PROBE),1)
 SECURE_CFLAGS += -DWT_SP_FAULT_PROBE=1
+endif
+ifeq ($(WT_REMEASURE_PROBE),1)
+SECURE_CFLAGS += -DWT_REMEASURE_PROBE=1
 endif
 
 # Vault recovery negative test: force the foreign-pool ACCESS at first

@@ -82,6 +82,25 @@ int wt_guest_verify_image(const void* image,
     return ret;
 }
 
+int wt_runtime_verify_decide(const void* window_base, size_t window_size,
+                             const wt_guest_measurement_t* record,
+                             uint32_t min_version, int launch_required)
+{
+    if (launch_required == 0) {
+        return WT_GUEST_VERIFY_OK;
+    }
+    if (window_base == NULL || record == NULL || window_size == 0u) {
+        return WT_GUEST_VERIFY_ERROR_ARGUMENT;
+    }
+    return wt_guest_verify_image(window_base, window_size, record,
+                                 min_version);
+}
+
+int wt_runtime_verify_should_quarantine(int verify_result)
+{
+    return verify_result != WT_GUEST_VERIFY_OK;
+}
+
 int wt_guest_measurement_record(const wt_guest_measurement_t* record,
                                 const char* name)
 {

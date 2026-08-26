@@ -48,6 +48,9 @@ volatile uint32_t g_wt_quarantine_events;
 /* WT-FFM-0049 launch-verification outcome, one bit per guest. */
 volatile uint32_t g_wt_launch_verified_mask;
 volatile uint32_t g_wt_launch_refused_mask;
+/* WT-FFM-0052 runtime re-measurement counters (harness reads by symbol). */
+volatile uint32_t g_wt_runtime_verify_pass;
+volatile uint32_t g_wt_runtime_verify_fail;
 #ifdef WT_ENGINE_HSM
 static wt_guest_id_t g_pending_tasklet_guest;
 static bool g_pending_tasklet_guest_valid;
@@ -606,6 +609,54 @@ void wt_monitor_quarantine_guest(wt_guest_id_t guest_id)
     runtime->state = WT_GUEST_FAULTED;
     g_wt_quarantine_events++;
     g_wt_launch_refused_mask |= (uint32_t)1U << guest_id;
+}
+
+/* WT-FFM-0052 / WT-SYS-0013: on-demand post-boot re-measurement. Re-hash the
+ * guest's executable window against its manifest-pinned digest; any mismatch
+ * (or a launch-required guest that can no longer be measured) drives it through
+ * the fail-closed quarantine path instead of trusting the boot-time
+ * measurement. A guest with no launch policy has nothing pinned and passes. */
+int wt_runtime_verify_guest(wt_guest_id_t guest_id)
+{
+    const wt_guest_config_t* config = wt_guest_config(guest_id);
+    const wt_guest_measurement_t* records;
+    const wt_guest_measurement_t* record = NULL;
+    const wt_memory_window_t* window = NULL;
+    size_t record_count = 0U;
+    size_t i;
+    int ret;
+
+    if (config == NULL) {
+        return WT_GUEST_VERIFY_ERROR_ARGUMENT;
+    }
+
+    for (i = 0U; i < config->memory_window_count; ++i) {
+        if ((config->memory_windows[i].attributes & WT_MEM_ATTR_EXEC) != 0U) {
+            window = &config->memory_windows[i];
+            break;
+        }
+    }
+    records = wt_platform_guest_measurements(&record_count);
+    for (i = 0U; records != NULL && i < record_count; ++i) {
+        if (records[i].guest_id == (uint32_t)guest_id) {
+            record = &records[i];
+            break;
+        }
+    }
+
+    ret = wt_runtime_verify_decide(
+        (window != NULL) ? (const void*)window->base : NULL,
+        (window != NULL) ? (size_t)window->size : 0u,
+        record, config->launch_min_version, (int)config->launch_required);
+
+    if (wt_runtime_verify_should_quarantine(ret)) {
+        g_wt_runtime_verify_fail++;
+        wt_monitor_quarantine_guest(guest_id);
+    }
+    else {
+        g_wt_runtime_verify_pass++;
+    }
+    return ret;
 }
 
 const wt_scheduler_state_t* wt_monitor_state(void)
