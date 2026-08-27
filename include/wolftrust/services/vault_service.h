@@ -42,6 +42,10 @@
 #define WT_VAULT_OP_KEY_VERIFY        9
 #define WT_VAULT_OP_KEY_ENCRYPT      10
 #define WT_VAULT_OP_KEY_DECRYPT      11
+#define WT_VAULT_OP_RANDOM           12
+
+/* Copied-IOVEC randomness bound: RANDOM requests past this are refused. */
+#define WT_VAULT_RANDOM_MAX 256U
 
 /* PSA storage create flags understood by the vault (SRC-PSA-STORAGE). The
  * NO_* bits are client hints recorded for get_info fidelity; the vault always
@@ -150,6 +154,10 @@ typedef struct wt_vault_key_backend {
     psa_status_t (*decrypt)(int32_t owner, int32_t sub, uint64_t uid,
                             const uint8_t* input, size_t input_len,
                             uint8_t* out, size_t cap, size_t* out_len);
+    /* Fill out[0..len) from the vault domain's RNG (WT-FFM-0054): entropy
+     * is produced inside the privileged vault domain, never in a frontend
+     * partition. Appended last to preserve initializer compatibility. */
+    psa_status_t (*random)(uint8_t* out, size_t len);
 } wt_vault_key_backend_t;
 
 /* Install the backing store. NULL restores the fail-closed default, which

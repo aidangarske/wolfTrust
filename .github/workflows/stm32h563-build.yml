@@ -257,9 +257,11 @@ jobs:
             need "psa_hash_compute(SHA-256) KAT verified"
             need "psa_cipher_encrypt(AES-CTR) st=0"
           else
-            need_raw "freertos_guest1: wolfHSM client up; devId=0x5748534d"
-            need_raw "freertos_guest1: C_Initialize rv=0"
-            need_raw "freertos_guest1: C_Digest(SHA-256) rv=0"
+            need_raw "freertos_guest1: ffm sha256 ok"
+            need_raw "freertos_guest1: ffm rng ok"
+            need_raw "freertos_guest1: psa_crypto_init st=0"
+            need_raw "freertos_guest1: psa rng ok"
+            need_raw "freertos_guest1: psa hash ok"
           fi
 
   wolfboot-wolftrust-m33mu-scenarios:

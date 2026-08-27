@@ -92,6 +92,27 @@ static psa_status_t wt_hsm_kv_rng(WC_RNG** out)
     return PSA_SUCCESS;
 }
 
+/* Vault-domain randomness (WT-FFM-0054): serves SERVICE_CRYPTO's RANDOM
+ * forward so non-secure DRBG seeds come from the same vault RNG that
+ * generates key material, never from a raw NS-to-HSM transport. */
+static psa_status_t wt_hsm_kv_random(uint8_t* out, size_t len)
+{
+    WC_RNG* rng;
+    psa_status_t status;
+
+    if (out == NULL || len == 0U) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    status = wt_hsm_kv_rng(&rng);
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
+    if (wc_RNG_GenerateBlock(rng, out, (word32)len) != 0) {
+        return PSA_ERROR_GENERIC_ERROR;
+    }
+    return PSA_SUCCESS;
+}
+
 /* Store new key material at a free directory slot; refuses any existing
  * object (storage or key) at the same (owner, sub, uid) with ALREADY_EXISTS,
  * matching psa_import_key/psa_generate_key on an occupied persistent id. */
@@ -502,5 +523,6 @@ const wt_vault_key_backend_t wt_hsm_key_backend = {
     wt_hsm_kv_sign,
     wt_hsm_kv_verify,
     wt_hsm_kv_encrypt,
-    wt_hsm_kv_decrypt
+    wt_hsm_kv_decrypt,
+    wt_hsm_kv_random
 };

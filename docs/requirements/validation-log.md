@@ -2913,3 +2913,40 @@ Evidence:
   IDs contiguous with no collision; every Source trace resolves to an existing
   ID/section; acceptance-gate IDs match the S1..S6 slice tasks. Host `make test`
   unaffected.
+
+## Phase 7 S3 — FreeRTOS guest1 through the FF-M SPM (WT-FFM-0054, 2026-08-27)
+
+FreeRTOS guest1 now reaches secure crypto only through the SPM; its raw
+HSM-CMSE transport is retired. The one coverage gap was randomness: added
+`WT_CRYPTO_OP_RANDOM` to SERVICE_CRYPTO (bounded 256 B/call, forwarded over the
+cached SP-to-SP connection to `WT_VAULT_OP_RANDOM`, fail-closed without a vault
+route) and a `random` entry on the vault key backend that draws from the same
+wolfHSM `WC_RNG` that mints key material — entropy never leaves the vault domain.
+SHA-256 was already covered by SERVICE_CRYPTO (guest0's `exercise_ffm_crypto`).
+New OS-neutral helper `src/client/ffm_crypto_client.c` (`wt_ffm_crypto_random`).
+guest1 dropped wolfPKCS11 + the wolfHSM client + the raw glue for a wolfPSA
+front-end (`psa_crypto_init`/`psa_generate_random`/`psa_hash_compute`) plus the
+neutral FF-M client; the wolfCrypt DRBG seed/`wc_GenerateSeed` hooks now route to
+`wt_ffm_crypto_random`, so even entropy crosses via the SPM.
+
+Evidence:
+
+- Host `make -s -C tests/host` green. `unit/crypto_service` (+5): the RANDOM op
+  forwards through a real two-partition crypto→vault fixture whose backend is a
+  live `wc_RNG`; two draws fill and differ, over-256 and zero-length are refused,
+  and pulling the vault route (`vault_sid=0`) makes RANDOM fail closed
+  (`NOT_SUPPORTED`). `unit/psa_ffm_client` (+5): the veneer stub counts crossings
+  and a 300-byte fill is asserted to issue **exactly 2** bounded psa_calls;
+  NULL/zero-length refused before any crossing. Clean under gcc/clang + ASan/UBSan.
+- M33MU (emulator, wolf-prec5560, v1.15): `PASS: target/positive` with the five
+  new guest1 markers (`ffm sha256 ok`, `ffm rng ok`, `psa_crypto_init st=0`,
+  `psa rng ok`, `psa hash ok`); `PASS: target/spfaultneg` (the restarted crypto
+  SP serves the FreeRTOS client too); `PASS: target/authneg`.
+- Path validated, not assumed: `arm-none-eabi-nm`/`objdump` of the guest1 ELF show
+  call thunks and branches only to `WolfTrust_FFM_{Connect,Call,Close}`; no thunk
+  or instruction reaches the raw `WolfTrust_HSM_*` veneer addresses (present only
+  as dead implib address symbols). The build script fails the link if any
+  `wh_Client_*`/`wolfhsm_guest_init` symbol survives. Core/port split guard: hard
+  leaks 0.
+- CI: the positive scenario + the M33MU lifecycle job assert the five guest1
+  markers; authneg/spfaultneg updated to the mediated markers.

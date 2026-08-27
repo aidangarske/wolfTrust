@@ -46,7 +46,8 @@ _WT_SRCS := \
     $(ROOT)/src/services/vault_service.c
 
 _CLIENT_SRCS := \
-    $(ROOT)/src/client/psa_ffm_client.c
+    $(ROOT)/src/client/psa_ffm_client.c \
+    $(ROOT)/src/client/ffm_crypto_client.c
 
 _WC_SRCS := \
     $(WOLFSSL)/wolfcrypt/src/sha256.c   \

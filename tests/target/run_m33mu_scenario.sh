@@ -352,6 +352,16 @@ case "$scenario" in
       "wolfTrust attestation: token measurement=$WT_EXPECTED_MEASUREMENT_HEX"
     expect "attestation fields verify=0 lifecycle=0x1000 measurement=ok cose=ES256" \
       "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256"
+    expect "guest1 FF-M SHA-256 KAT through SERVICE_CRYPTO (P7-S3)" \
+      "freertos_guest1: ffm sha256 ok"
+    expect "guest1 vault-backed RNG through the SPM (WT-FFM-0054)" \
+      "freertos_guest1: ffm rng ok"
+    expect "guest1 wolfPSA front-end initialized" \
+      "freertos_guest1: psa_crypto_init st=0"
+    expect "guest1 psa_generate_random seeded through the FF-M RNG hook" \
+      "freertos_guest1: psa rng ok"
+    expect "guest1 psa_hash_compute KAT (PSA API parity)" \
+      "freertos_guest1: psa hash ok"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/positive"
     ;;
@@ -371,8 +381,8 @@ case "$scenario" in
       'guest0_psa alive'
     expect "guest1 (unrelated domain) still runs" \
       "freertos_guest1: heartbeat"
-    expect "guest1 wolfHSM services still live" \
-      "freertos_guest1: C_Digest(SHA-256) rv=0"
+    expect "guest1 mediated SERVICE_CRYPTO still live" \
+      "freertos_guest1: ffm sha256 ok"
     echo "PASS: target/authneg"
     ;;
   confboot)
@@ -562,8 +572,8 @@ case "$scenario" in
       "psa_hash_compute(SHA-256) KAT verified"
     expect "unrelated guest booted and ran through the SP fault" \
       "freertos_guest1: alive"
-    expect "guest1 wolfHSM services still live" \
-      "freertos_guest1: C_Digest(SHA-256) rv=0"
+    expect "restarted SERVICE_CRYPTO serves the other-OS client too" \
+      "freertos_guest1: ffm sha256 ok"
     expect "full lifecycle completed after recovery" "[EXPECT BKPT] Success"
     echo "PASS: target/spfaultneg"
     ;;

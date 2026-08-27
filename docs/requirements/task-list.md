@@ -555,11 +555,19 @@ wolfTrust on the board — the TF-M drop-in proof.
       uses the neutral core too. **Closes #16.** Evidence: M33MU
       `PASS: target/positive` (guest0 FF-M) + `PASS: target/confboot` (85/4/0, val
       NSPE psa_call) on the box.
-    - [ ] **S3 (Fable, deepest)**: Route FreeRTOS guest1 through the FF-M SPM —
-      move its production crypto off the raw HSM-CMSE transport onto
-      SERVICE_CRYPTO/ITS/PS via a FreeRTOS wolfPSA init. Open first: 8KB stack/RAM
-      budget check (grow the window, don't keep the bypass) + SERVICE_CRYPTO
-      coverage check (expand if needed).
+    - [x] **S3 (Fable, deepest)**: FreeRTOS guest1 now reaches secure crypto only
+      through the FF-M SPM. New `WT_CRYPTO_OP_RANDOM` on SERVICE_CRYPTO forwards to
+      a vault-domain RNG (`WT_VAULT_OP_RANDOM` + keyvault `random`); guest1 drops
+      wolfPKCS11/wolfHSM-client/raw glue for a wolfPSA front-end + the neutral
+      client (`wt_ffm_crypto_random`), DRBG seed crossing via the SPM. Coverage:
+      SHA-256 already covered, RNG was the one gap (added); no ITS/PS needed
+      (volatile keys). Budget: transport swap, no window grow. **WT-FFM-0054.**
+      Evidence: host `crypto_service`/`psa_ffm_client` (+10 checks, incl. a
+      boundary crossing-counter and vault-route ablation) + M33MU `PASS:
+      target/positive` (5 guest1 FF-M markers) / `spfaultneg` / `authneg`;
+      disasm proof that guest1 branches ONLY the WolfTrust_FFM_* veneers, never
+      the raw HSM veneers; build-time `nm` guard fails if any `wh_Client_*`
+      returns.
     - [ ] **S4**: Both-OS PSA gate — the same PSA client suite asserted from
       guest0 AND guest1 in one boot (M33MU scenario + `ci:` label).
     - [ ] **S5 (Fable)**: Both-OS isolation gate — FreeRTOS FF-M negatives (forged

@@ -361,6 +361,44 @@ static psa_status_t wt_crypto_service_keys(wt_crypto_service_ctx_t* ctx,
     return status;
 }
 
+/* Vault-backed randomness (WT-FFM-0054): forward to the vault's RNG over the
+ * cached SP-to-SP connection and reply with exactly out_size[0] bytes. This
+ * partition only marshals — entropy never originates in its domain. */
+static psa_status_t wt_crypto_service_random(wt_crypto_service_ctx_t* ctx,
+                                             wt_ffm_runtime_t* runtime,
+                                             int32_t partition_id,
+                                             const psa_msg_t* msg)
+{
+    uint8_t out[WT_CRYPTO_RANDOM_MAX];
+    wt_vault_req_t vreq;
+    size_t out_len = 0U;
+    size_t cap;
+    psa_status_t status;
+
+    cap = msg->out_size[0];
+    if (cap == 0U || cap > sizeof(out)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    status = wt_crypto_vault_handle(ctx, runtime, partition_id);
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
+    (void)memset(&vreq, 0, sizeof(vreq));
+    vreq.sub_owner = msg->client_id;
+    status = wt_crypto_vault_call(ctx, runtime, partition_id,
+                                  WT_VAULT_OP_RANDOM, &vreq, NULL, 0U, out,
+                                  cap, &out_len);
+    if (status == PSA_SUCCESS) {
+        if (out_len != cap ||
+                wt_crypto_write_reply(ctx->transport, runtime, partition_id,
+                                      msg->handle, out, out_len) !=
+                    WT_FFM_SUCCESS) {
+            status = PSA_ERROR_GENERIC_ERROR;
+        }
+    }
+    return status;
+}
+
 int wt_crypto_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                int32_t partition_id)
 {
@@ -408,6 +446,15 @@ int wt_crypto_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
         } else {
             reply_status = wt_crypto_service_keys(ctx, runtime, partition_id,
                                                   &msg);
+        }
+    } else if (msg.type == WT_CRYPTO_OP_RANDOM) {
+        /* Randomness rides the same vault route and fails closed without
+         * one — this partition holds no entropy source of its own. */
+        if (ctx == NULL || ctx->vault_sid == 0U) {
+            reply_status = PSA_ERROR_NOT_SUPPORTED;
+        } else {
+            reply_status = wt_crypto_service_random(ctx, runtime,
+                                                    partition_id, &msg);
         }
     } else {
         reply_status = PSA_ERROR_NOT_SUPPORTED;

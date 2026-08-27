@@ -29,6 +29,8 @@
 #include "wolftrust/ffm_boot.h"
 #include "wolftrust/spm_sched.h"
 #include "wolftrust/services/crypto_service.h"
+#include "wolftrust/services/vault_service.h"
+#include "wolftrust/ffm_crypto_client.h"
 #include "wolftrust/ffm_veneer.h"
 #include "psa/client.h"
 #include "psa_manifest/pid.h"
@@ -36,7 +38,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <wolfssl/wolfcrypt/random.h>
+
 #define TEST_CRYPTO_SID 4097U
+#define TEST_VAULT_SID  4098U
 #define TEST_NS_CLIENT  (-1)
 
 /* ---- platform + scheduler stubs the neutral boot core needs ---- */
@@ -108,6 +113,8 @@ void WolfTrust_FFM_Close(int32_t handle)
     (void)wt_ffm_close(wt_ffm_boot_runtime_mut(), TEST_NS_CLIENT, handle);
 }
 
+static int g_random_calls;
+
 int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
                            wt_ffm_veneer_iovec_t* iv)
 {
@@ -116,6 +123,9 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
     psa_status_t st;
     uint32_t i;
 
+    if (type == WT_CRYPTO_OP_RANDOM) {
+        g_random_calls++;
+    }
     memset(in, 0, sizeof(in));
     memset(out, 0, sizeof(out));
     for (i = 0u; i < iv->in_count; i++) {
@@ -145,6 +155,32 @@ uint32_t WolfTrust_FFM_ServiceVersion(uint32_t sid)
     return 1u;
 }
 
+/* ---- vault fixture for the RANDOM forward: a live host wc_RNG stands in
+ * for the wolfHSM vault RNG the production keyvault backend uses ---- */
+static WC_RNG g_test_rng;
+static int g_test_rng_ready;
+
+static psa_status_t test_vault_random(uint8_t* out, size_t len)
+{
+    if (g_test_rng_ready == 0) {
+        if (wc_InitRng(&g_test_rng) != 0) {
+            return PSA_ERROR_GENERIC_ERROR;
+        }
+        g_test_rng_ready = 1;
+    }
+    if (wc_RNG_GenerateBlock(&g_test_rng, out, (word32)len) != 0) {
+        return PSA_ERROR_GENERIC_ERROR;
+    }
+    return PSA_SUCCESS;
+}
+
+static const wt_vault_key_backend_t g_test_key_backend = {
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    test_vault_random
+};
+
+static wt_crypto_service_ctx_t g_crypto_ctx;
+
 /* ---- manifest fixture: the crypto partition as production declares it ---- */
 static const wt_service_descriptor_t g_services[] = {
     {
@@ -153,11 +189,26 @@ static const wt_service_descriptor_t g_services[] = {
     }
 };
 
+static const wt_service_descriptor_t g_vault_services[] = {
+    {
+        "SERVICE_VAULT", TEST_VAULT_SID, 1U, WT_SERVICE_VERSION_RELAXED,
+        0x10U, 0U, 0U, 1U
+    }
+};
+
+static const uint32_t g_vault_dep[] = { TEST_VAULT_SID };
+
 static const wt_partition_manifest_t g_partitions[] = {
     {
         "PARTITION_CRYPTO", PARTITION_CRYPTO_ID, WT_FFM_VERSION_1_0,
         WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
         g_services, sizeof(g_services) / sizeof(g_services[0]),
+        g_vault_dep, 1U, NULL, 0U
+    },
+    {
+        "PARTITION_VAULT", PARTITION_VAULT_ID, WT_FFM_VERSION_1_0,
+        WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
+        g_vault_services, sizeof(g_vault_services) / sizeof(g_vault_services[0]),
         NULL, 0U, NULL, 0U
     }
 };
@@ -195,14 +246,30 @@ int main(void)
         0x8e, 0x27, 0xa4, 0xb5, 0x0a, 0x49, 0x84, 0x66
     };
     uint8_t digest[32];
+    uint8_t rng_buf[300];
     psa_handle_t handle;
     psa_invec in_vec;
     psa_outvec out_vec;
     psa_status_t status;
+    size_t n;
+    int zero;
 
     check(wt_ffm_boot_init(&g_manifest) == WT_FFM_SUCCESS,
           "P7-S1 boot core initializes from the manifest");
     wt_ffm_boot_set_memcheck(test_ns_check_read, test_ns_check_write);
+
+    /* Give the crypto partition the vault route the production port supplies
+     * (spm_svc.c), so the RANDOM forward runs the real SP-to-SP path. */
+    g_crypto_ctx.transport = wt_spm_transport_direct;
+    g_crypto_ctx.compute = wt_crypto_sp_hash;
+    g_crypto_ctx.vault_sid = TEST_VAULT_SID;
+    g_crypto_ctx.vault_handle = 0;
+    check(wt_ffm_register_partition(wt_ffm_boot_runtime_mut(),
+                                    PARTITION_CRYPTO_ID,
+                                    wt_crypto_service_dispatch,
+                                    &g_crypto_ctx) == WT_FFM_SUCCESS,
+          "P7-S3 crypto partition re-registers with the vault route");
+    wt_vault_service_set_key_backend(&g_test_key_backend);
 
     check(psa_framework_version() == PSA_FRAMEWORK_VERSION,
           "P7-S1 psa_framework_version reports 0x0100 through the neutral core");
@@ -230,6 +297,29 @@ int main(void)
     status = psa_call(handle, PSA_IPC_CALL, &in_vec, 5U, &out_vec, 1U);
     check(status == PSA_ERROR_PROGRAMMER_ERROR,
           "P7-S1 psa_call rejects an over-count invec (PROGRAMMER_ERROR)");
+
+    /* P7-S3: the OS-neutral crypto-service RNG helper (WT-FFM-0054). A
+     * 300-byte fill crosses the WT_CRYPTO_RANDOM_MAX bound, proving the
+     * chunk loop issues one mediated psa_call per bounded chunk. */
+    memset(rng_buf, 0, sizeof(rng_buf));
+    g_random_calls = 0;
+    check(wt_ffm_crypto_random(TEST_CRYPTO_SID, rng_buf,
+                               sizeof(rng_buf)) == 0,
+          "P7-S3 wt_ffm_crypto_random fills 300 bytes through the SPM");
+    check(g_random_calls == 2,
+          "P7-S3 300-byte fill chunked into two bounded psa_calls");
+    zero = 1;
+    for (n = 0U; n < sizeof(rng_buf); n++) {
+        if (rng_buf[n] != 0U) {
+            zero = 0;
+        }
+    }
+    check(zero == 0, "P7-S3 vault-backed RNG output is not all zero");
+    g_random_calls = 0;
+    check(wt_ffm_crypto_random(TEST_CRYPTO_SID, NULL, 32U) == -1 &&
+              wt_ffm_crypto_random(TEST_CRYPTO_SID, rng_buf, 0U) == -1 &&
+              g_random_calls == 0,
+          "P7-S3 NULL/zero-length RNG requests refused before any call");
 
     /* Clearing the port memcheck seam fails closed. */
     wt_ffm_boot_set_memcheck(NULL, NULL);

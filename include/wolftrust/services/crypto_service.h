@@ -63,6 +63,13 @@ void wt_crypto_service_set_transport(wt_spm_transport_fn fn);
 #define WT_CRYPTO_OP_KEY_DECRYPT       7
 #define WT_CRYPTO_OP_KEY_DESTROY       8
 
+/* Vault-backed randomness (WT-FFM-0054): outvec[0] is filled with exactly
+ * out_size[0] bytes from the vault domain's RNG, forwarded over SP-to-SP
+ * IPC like the key ops — entropy never originates in this partition.
+ * Requests larger than WT_CRYPTO_RANDOM_MAX are refused. */
+#define WT_CRYPTO_OP_RANDOM            9
+#define WT_CRYPTO_RANDOM_MAX           256U
+
 /* Client wire header: one concatenated input vector carries the header
  * followed directly by the op payload ([wt_crypto_key_req_t][payload]), so
  * the single-invec TEE transport reaches every op. usage/key_type use the

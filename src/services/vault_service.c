@@ -142,6 +142,12 @@ static psa_status_t wt_vault_default_key_decrypt(int32_t owner, int32_t sub,
     return PSA_ERROR_NOT_SUPPORTED;
 }
 
+static psa_status_t wt_vault_default_key_random(uint8_t* out, size_t len)
+{
+    (void)out; (void)len;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
+
 static const wt_vault_key_backend_t g_vault_default_key_backend = {
     wt_vault_default_key_generate,
     wt_vault_default_key_import,
@@ -149,7 +155,8 @@ static const wt_vault_key_backend_t g_vault_default_key_backend = {
     wt_vault_default_key_sign,
     wt_vault_default_key_verify,
     wt_vault_default_key_encrypt,
-    wt_vault_default_key_decrypt
+    wt_vault_default_key_decrypt,
+    wt_vault_default_key_random
 };
 
 static const wt_vault_backend_t* g_vault_backend = &g_vault_default_backend;
@@ -393,6 +400,21 @@ static psa_status_t wt_vault_service_call(wt_ffm_runtime_t* runtime,
             status = PSA_ERROR_GENERIC_ERROR;
         }
         break;
+    case WT_VAULT_OP_RANDOM:
+        cap = msg->out_size[0];
+        if (cap == 0U || cap > WT_VAULT_RANDOM_MAX) {
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
+        if (g_vault_key_backend->random == NULL) {
+            return PSA_ERROR_NOT_SUPPORTED;
+        }
+        status = g_vault_key_backend->random(out, cap);
+        if (status == PSA_SUCCESS &&
+                wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
+                                   out, cap) != WT_FFM_SUCCESS) {
+            status = PSA_ERROR_GENERIC_ERROR;
+        }
+        break;
     default:
         status = PSA_ERROR_NOT_SUPPORTED;
         break;
@@ -438,7 +460,7 @@ int wt_vault_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
     } else if (msg.type == PSA_IPC_DISCONNECT) {
         reply_status = PSA_SUCCESS;
     } else if (msg.type >= WT_VAULT_OP_SET &&
-               msg.type <= WT_VAULT_OP_KEY_DECRYPT) {
+               msg.type <= WT_VAULT_OP_RANDOM) {
         reply_status = wt_vault_service_call(runtime, partition_id, &msg);
     } else {
         reply_status = PSA_ERROR_NOT_SUPPORTED;

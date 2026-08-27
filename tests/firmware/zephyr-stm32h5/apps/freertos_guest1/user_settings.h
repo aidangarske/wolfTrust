@@ -1,10 +1,9 @@
-/* wolfCrypt + wolfPKCS11 user_settings for the FreeRTOS NS guest.
+/* wolfCrypt + wolfPSA user_settings for the FreeRTOS NS guest (P7-S3).
  *
- * This single header satisfies WOLFSSL_USER_SETTINGS (wolfCrypt's
- * compile-time config trampoline) AND WOLFPKCS11_USER_SETTINGS
- * (wolfPKCS11's pkcs11.h then includes this in place of the autotools-
- * generated wolfpkcs11/options.h). Mirrors the Zephyr guest user_settings
- * but with FREERTOS heap / port hooks turned on. */
+ * Satisfies WOLFSSL_USER_SETTINGS (wolfCrypt's compile-time config
+ * trampoline) for the SPM-mediated guest: wolfPSA front-end, FF-M
+ * entropy hook, no wolfHSM/wolfPKCS11 raw transport. Mirrors the Zephyr
+ * guest user_settings but with FREERTOS heap / port hooks turned on. */
 
 #ifndef WOLFTRUST_FREERTOS_NS_USER_SETTINGS_H
 #define WOLFTRUST_FREERTOS_NS_USER_SETTINGS_H
@@ -45,12 +44,13 @@
 /* HMAC + HKDF kept on. */
 #define HAVE_HKDF
 
-/* DRBG + entropy hook. The wolfHSM client glue exports the named stub. */
+/* DRBG + entropy hook. main.c exports the FF-M hook, which draws from
+ * SERVICE_CRYPTO's vault-backed RNG through the SPM (WT-FFM-0054). */
 #define HAVE_HASHDRBG
-#define CUSTOM_RAND_GENERATE_BLOCK wolftrust_guest_rng_stub
-#ifndef WOLFTRUST_GUEST_RNG_STUB_DECLARED
-#define WOLFTRUST_GUEST_RNG_STUB_DECLARED
-int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz);
+#define CUSTOM_RAND_GENERATE_BLOCK wolftrust_guest_ffm_rng
+#ifndef WOLFTRUST_GUEST_FFM_RNG_DECLARED
+#define WOLFTRUST_GUEST_FFM_RNG_DECLARED
+int wolftrust_guest_ffm_rng(unsigned char *output, unsigned int sz);
 #endif
 
 /* Trim. */
@@ -67,37 +67,5 @@ int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz);
  * needs HAVE_ANONYMOUS_INLINE_AGGREGATES=1 explicitly because the
  * wolfCrypt auto-detect in types.h defaults it off for C99. */
 #define HAVE_ANONYMOUS_INLINE_AGGREGATES 1
-
-/* wolfPKCS11 settings — keep the demo small.
- *   _NO_STORE    : no flash-backed token storage; all keys volatile
- *   _NO_ENV      : no getenv()/setenv() calls (no libc env in NS)
- *   _WOLFHSM     : the slot devId hook this build relies on; the build
- *                  also passes -DWOLFSSL_WOLFHSM_DEVID=WH_DEV_ID so
- *                  wp11_Slot_Init() actually sets slot->devId to the
- *                  wolfHSM client's registered devId. */
-#define WOLFPKCS11_NO_STORE
-#define WOLFPKCS11_NO_ENV
-/* Skip the slot.c C_GetTokenInfo time code (no RTC / time() under -nostdlib). */
-#define WOLFPKCS11_NO_TIME
-
-/* wolfPKCS11 internal.h still references `time_t` in function decls and a
- * couple of WP11_Slot fields regardless of WOLFPKCS11_NO_TIME. With
- * -nostdlib we have no <time.h>, so provide the type ourselves. The
- * fields aren't actually used outside the WOLFPKCS11_NO_TIME-gated paths. */
-typedef long time_t;
-
-/* wolfPKCS11's WP11_PBKDF2 / WP11_PKCS12_PBKDF wrappers call wc_PBKDF2
- * and wc_PKCS12_PBKDF unconditionally, but our wolfCrypt subset omits
- * them (NO_PWDBASED / NO_PKCS12). The wrappers are dead code at runtime
- * (token-storage / PIN paths are off), but the compiler still needs
- * prototypes + the linker still needs symbols — both supplied by the
- * stubs in apps/freertos_guest1/main.c. Declare here so internal.c
- * (which is compiled before main.c) sees the prototype. */
-int wc_PBKDF2(unsigned char *output, const unsigned char *passwd, int pLen,
-              const unsigned char *salt, int sLen, int iterations, int kLen,
-              int hashType);
-int wc_PKCS12_PBKDF(unsigned char *output, const unsigned char *passwd,
-                    int pLen, const unsigned char *salt, int sLen,
-                    int iterations, int kLen, int hashType, int purpose);
 
 #endif /* WOLFTRUST_FREERTOS_NS_USER_SETTINGS_H */
