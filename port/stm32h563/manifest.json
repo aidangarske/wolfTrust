@@ -349,15 +349,15 @@
       "interrupts": []
     },
     {
-      "name": "PARTITION_CRYPTO",
+      "name": "PARTITION_HSM",
       "domain_id": 4,
       "framework_version": 256,
       "model": 0,
       "priority": 1,
       "services": [
         {
-          "name": "SERVICE_CRYPTO",
-          "sid": 4097,
+          "name": "SERVICE_HSM",
+          "sid": 4102,
           "version": 1,
           "version_policy": 0,
           "signal": 32,
@@ -366,9 +366,7 @@
           "connection_based": true
         }
       ],
-      "dependencies": [
-        4098
-      ],
+      "dependencies": [],
       "interrupts": []
     },
     {

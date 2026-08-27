@@ -23,6 +23,7 @@
 #include "wolftrust/platform.h"
 #include "wolftrust/spm_sched.h"
 #include "wolftrust/services/crypto_service.h"
+#include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/storage_service.h"
 #include "wolftrust/services/vault_service.h"
@@ -138,8 +139,11 @@ int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
 
     ret = wt_ffm_init(&g_ffm_runtime, manifest, &g_ffm_port_ops, NULL);
     if (ret == WT_FFM_SUCCESS) {
-        ret = wt_ffm_register_partition(&g_ffm_runtime, PARTITION_CRYPTO_ID,
-                                        wt_crypto_service_dispatch, NULL);
+        /* SERVICE_HSM: the single mediated door to the wolfHSM server
+         * (WT-FFM-0054). Fail-closed until the platform installs the relay
+         * submit hook. */
+        ret = wt_ffm_register_partition(&g_ffm_runtime, PARTITION_HSM_ID,
+                                        wt_hsm_relay_dispatch, NULL);
     }
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     if (ret == WT_FFM_SUCCESS) {
@@ -212,7 +216,7 @@ int wt_ffm_boot_start_sched(void)
 {
     int ret;
 
-    ret = wt_spm_sched_start(&g_ffm_runtime, PARTITION_CRYPTO_ID);
+    ret = wt_spm_sched_start(&g_ffm_runtime, PARTITION_HSM_ID);
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_vault_start(&g_ffm_runtime, PARTITION_VAULT_ID);
     }

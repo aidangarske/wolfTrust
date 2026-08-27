@@ -601,9 +601,15 @@ wolfTrust on the board — the TF-M drop-in proof.
           multi-chunk RNG, ECC keygen+sign+verify through the relay, fail-closed
           without the hook, client- and relay-side bounds) under gcc/clang +
           ASan/UBSan; split guard clean.
-        - [ ] **S6b**: manifest swap — PARTITION_CRYPTO/SERVICE_CRYPTO(4097) →
-          PARTITION_HSM/SERVICE_HSM reusing domain 4 + the freed slot; both
-          manifests + regen; host manifest suites green.
+        - [x] **S6b**: manifest swap — PARTITION_CRYPTO/SERVICE_CRYPTO(4097) →
+          PARTITION_HSM/SERVICE_HSM(4102) reusing domain 4, deps dropped (the
+          relay talks to the monitor, not the vault); both manifests; generator
+          verified (`PARTITION_HSM_ID 4`, `SERVICE_HSM_SID 4102`). Boot core now
+          registers `wt_hsm_relay_dispatch` (fail-closed until the platform
+          submit lands); secure mk + host suite Makefiles compile the relay;
+          spm/ffm_veneer/psa_ffm_client fixtures updated. Host `unit/all` +
+          conformance host-subset green. Target scenarios intentionally red
+          until the S6c/S6d arc completes.
         - [ ] **S6c**: secure relay — `wt_hsm_relay_submit` wakes the monitor's
           per-guest server tasklet over a secure relay buffer (new
           `hsm_relay_transport.c`); register PARTITION_HSM; shared MPU region;

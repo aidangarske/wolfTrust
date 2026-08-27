@@ -179,15 +179,15 @@ int main(void)
         return 1;
     }
     if (wt_ffm_service_version(&ffm_runtime, -1,
-                               SERVICE_CRYPTO_SID) != SERVICE_CRYPTO_VERSION) {
-        (void)fprintf(stderr, "SERVICE_CRYPTO not registered by SID\n");
+                               SERVICE_HSM_SID) != SERVICE_HSM_VERSION) {
+        (void)fprintf(stderr, "SERVICE_HSM not registered by SID\n");
         return 1;
     }
 
     /* WT-FFM-0011 Phase B: the crypto Secure Partition now resolves to its own
      * secure private RAM, not the Non-secure guest memory it was conflated
      * with before. */
-    if (wt_ffm_resolve_secure_domain(wt_spm_manifest(&spm), PARTITION_CRYPTO_ID,
+    if (wt_ffm_resolve_secure_domain(wt_spm_manifest(&spm), PARTITION_HSM_ID,
                                      &crypto_domain) != WT_SECURE_DOMAIN_OK) {
         (void)fprintf(stderr, "crypto Secure Partition domain not resolved\n");
         return 1;

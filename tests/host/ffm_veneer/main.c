@@ -165,6 +165,14 @@ int main(void)
     check(rt != NULL && rt == (wt_ffm_runtime_t*)wt_ffm_boot_runtime(),
           "runtime_mut exposes the boot runtime to the port veneers");
 
+    /* The boot core now seats the SERVICE_HSM relay on this partition; this
+     * fixture exercises the veneer memcheck seam against the crypto dispatch,
+     * so re-register it the way the pre-relay boot did. */
+    check(wt_ffm_register_partition(rt, PARTITION_CRYPTO_ID,
+                                    wt_crypto_service_dispatch,
+                                    NULL) == WT_FFM_SUCCESS,
+          "crypto dispatch re-registered for the veneer fixture");
+
     /* Fail-closed default: no memcheck installed, so an NS call with real
      * vectors must be rejected before any service work happens. */
     handle = wt_ffm_connect(rt, TEST_NS_CLIENT, TEST_CRYPTO_SID, 1U);

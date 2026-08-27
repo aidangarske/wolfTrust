@@ -588,7 +588,7 @@ int wt_platform_run_crypto_sp_isolated(const uint8_t* input, size_t input_len,
     if (ffm == NULL || ffm->manifest == NULL) {
         return WT_FFM_ERROR_STATE;
     }
-    if (wt_ffm_resolve_secure_domain(ffm->manifest, PARTITION_CRYPTO_ID,
+    if (wt_ffm_resolve_secure_domain(ffm->manifest, PARTITION_HSM_ID,
                                      &sp_domain) != WT_SECURE_DOMAIN_OK) {
         return WT_FFM_ERROR_STATE;
     }
