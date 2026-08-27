@@ -2992,3 +2992,38 @@ Evidence:
 - With S4, both operating-system gates now hold: the same PSA behavior and the
   same isolation rejections pass from guest0 and guest1. Ran on `claude-opus-4-8`
   (replicating proven negative patterns, not deep work).
+
+## Phase 7 S6a — Host proof of the wolfHSM-over-SPM relay (WT-FFM-0054, 2026-08-27)
+
+Opens the bypass retirement (decision locked: no gate, no mixed transport — the
+wolfHSM server becomes the single crypto backend behind one mediated door).
+S6a proves the keystone on the host before any secure-side change: a real
+wolfHSM client whose pluggable transport is one synchronous `psa_call` to a
+`SERVICE_HSM` relay reaches a real wolfHSM server through a genuine
+`psa_connect`/`psa_call` round trip on the in-process FF-M runtime.
+
+New code:
+
+- `src/services/hsm_relay_service.c` + `include/wolftrust/services/hsm_relay.h`
+  — SERVICE_HSM's architecture-neutral dispatch: one wolfHSM wire packet in
+  invec[0], handed opaquely to a pluggable platform submit hook (on target,
+  the monitor's per-guest server tasklet), response in outvec[0]. Copied-IOVEC
+  bounds at `WT_HSM_RELAY_MSG_MAX` (512 B; a packet is 376 B), fail-closed
+  `NOT_SUPPORTED` default when no submit hook is installed. The relay never
+  parses packets — wolfHSM's comm layer owns the protocol, the SPM owns caller
+  identity and bounds.
+- `src/client/hsm_psa_transport.c` + `include/wolftrust/hsm_psa_transport.h`
+  — the `whTransportClientCb` whose Send performs the whole mediated round
+  trip and stashes the response, so Recv completes on the first try: the
+  client's blocking wrappers structurally cannot spin on NOTREADY, retiring
+  the multi-chunk hang class the old shared-RAM CSR handshake produced.
+
+Evidence: `tests/host/wolfhsm_relay` 19/19 — CommInit over the SPM; 32-byte
+RNG via the blocking wrapper; 1000-byte multi-chunk RNG (>2 packets, each
+chunk one completed psa_call); ECC P-256 keygen + sign in the server keystore
+through the relay with local verify against the exported public key; relay
+fails closed with no submit hook and serves again after restore; oversized
+packet refused client-side (WH_ERROR_BADARGS) and oversized invec refused by
+the relay dispatch. Green under gcc/clang + ASan/UBSan; core/port split guard
+hard leaks 0. COMM_DATA_LEN pinned to the target's 368 so host packets are
+the same 376 bytes the platform will relay.

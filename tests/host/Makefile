@@ -32,7 +32,7 @@ endif
 
 UNIT_SUITES := domain manifest lifecycle guest_verify rollback sp_recovery \
     ipc ffm spm \
-    vnet wolfhsm_loopback \
+    vnet wolfhsm_loopback wolfhsm_relay \
     crypto_service attestation_service attestation attestation_token \
     attestation_golden attestation_negatives attestation_replay \
     attestation_iak ffm_domain sp_layout spm_gate flash_nvm ffm_veneer \

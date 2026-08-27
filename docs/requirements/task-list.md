@@ -582,9 +582,45 @@ wolfTrust on the board — the TF-M drop-in proof.
       SERVICE_CRYPTO). CI matrix + `pr-m33mu-select` (`ci:bothiso`). Ran on
       `claude-opus-4-8` — replicating proven patterns, not deep work. **WT-FFM-0055
       (isolation half).** Evidence: `PASS: target/bothiso` (8/8 checks) on the box.
-    - [ ] **S6**: CI wiring + retire the raw HSM-CMSE bypass (delete or
-      diagnostic-gate) so one mediated path remains; close #16; doc closure; flip
-      the Phase 7 header when both OS gates pass. H5 silicon rides Phase 8.
+    - [ ] **S6**: Retire the raw HSM-CMSE bypass entirely — NO gate, NO mixed
+      transport (decision LOCKED 2026-08-27, plan `/tmp/wolftrust-s6-plan-2026-08-27.md`):
+      the wolfHSM server becomes the ONE crypto backend for every algorithm,
+      reached only through a new `SERVICE_HSM` relay partition (the wolfHSM
+      client's pluggable transport swaps from direct CMSE to `psa_call`). The
+      second keystore (`wt_hsm_keyvault`) and SERVICE_CRYPTO's ad-hoc handlers
+      retire with it. Closes WT-FFM-0054; flips the Phase 7 header. H5 rides
+      Phase 8. Sub-slices:
+        - [x] **S6a**: host proof of the relay transport — real wolfHSM client
+          over `psa_call` to a real wolfHSM server through the in-process FF-M
+          runtime. New neutral `src/services/hsm_relay_service.c` (opaque-packet
+          dispatch, pluggable submit seam, fail-closed default, 512 B bound) +
+          `src/client/hsm_psa_transport.c` (the whTransportClientCb whose Send is
+          one synchronous mediated psa_call — blocking wrappers complete with NO
+          NOTREADY spin, retiring the multi-chunk hang class). Evidence:
+          `tests/host/wolfhsm_relay` 19/19 (CommInit, blocking RNG, 1000 B
+          multi-chunk RNG, ECC keygen+sign+verify through the relay, fail-closed
+          without the hook, client- and relay-side bounds) under gcc/clang +
+          ASan/UBSan; split guard clean.
+        - [ ] **S6b**: manifest swap — PARTITION_CRYPTO/SERVICE_CRYPTO(4097) →
+          PARTITION_HSM/SERVICE_HSM reusing domain 4 + the freed slot; both
+          manifests + regen; host manifest suites green.
+        - [ ] **S6c**: secure relay — `wt_hsm_relay_submit` wakes the monitor's
+          per-guest server tasklet over a secure relay buffer (new
+          `hsm_relay_transport.c`); register PARTITION_HSM; shared MPU region;
+          re-home the terminal-fault notifier onto the relay (highest risk;
+          spfaultneg/crossdomain must stay green).
+        - [ ] **S6d**: NS transport swap in both wolfhsm_client_glue copies —
+          one synchronous `psa_call(SERVICE_HSM)` per packet; `devcrypto`
+          (77, failed==0) green through the relay.
+        - [ ] **S6e**: retire the mix — delete crypto_service + wt_hsm_keyvault,
+          drop vault key/RANDOM ops (storage face stays for ITS/PS); host
+          suites replaced; WT-FFM-0046 re-asserted on the server keystore.
+        - [ ] **S6f**: both guests on the single path (guest1 gains the wolfHSM
+          client legitimately; nm guard now forbids only raw WolfTrust_HSM_*);
+          bothpsa + bothiso green.
+        - [ ] **S6g**: delete the three CMSE veneers + NS-RAM transport + guest
+          HSM window; nm absence guards on every NS image; WT-FFM-0054 met;
+          doc closure; full M33MU matrix green.
 
 
 - [ ] **Phase 8 — hardware and port qualification** (`phases.md:136-143`):
