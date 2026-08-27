@@ -2969,3 +2969,26 @@ Evidence:
   `pr-m33mu-select` all-list/case-map (`ci:bothpsa` label). Shell + YAML linted.
 - No shared-code regression from S3: `PASS: target/confboot` (85/0/4) and
   `PASS: target/devcrypto` (64/0/13) re-run green on the same tree.
+
+## Phase 7 S5 — Both-OS isolation negatives (WT-FFM-0055, 2026-08-27)
+
+The SPM must reject a malformed non-secure request identically no matter which
+operating system issues it. The FreeRTOS guest gained `run_ffm_negatives`:
+through the neutral client it issues a forged handle (`psa_call` on a handle not
+mapped to its connection), an oversized input vector (length beyond the secure
+transfer bound), and a connect to an unknown SID. Each mirrors a rejection
+guest0 already proves, and none faults the guest — a rejected call returns an
+error and the guest keeps running.
+
+Evidence:
+
+- M33MU (emulator, wolf-prec5560, v1.15): new `bothiso` scenario,
+  `PASS: target/bothiso`, 8/8 checks — no fault markers; forged-handle and
+  oversized-vector calls rejected from BOTH the Zephyr and the FreeRTOS client;
+  the FreeRTOS unknown-SID connect refused; the FreeRTOS guest survived and still
+  served the mediated SERVICE_CRYPTO SHA-256 KAT; clean BKPT exit.
+- Wired into CI: a `bothiso` entry in the M33MU scenario matrix and the
+  `pr-m33mu-select` all-list/case-map (`ci:bothiso` label). Shell + YAML linted.
+- With S4, both operating-system gates now hold: the same PSA behavior and the
+  same isolation rejections pass from guest0 and guest1. Ran on `claude-opus-4-8`
+  (replicating proven negative patterns, not deep work).

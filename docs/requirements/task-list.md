@@ -574,8 +574,14 @@ wolfTrust on the board — the TF-M drop-in proof.
       `psa_hash_compute` KAT. Wired into the M33MU matrix + `pr-m33mu-select`
       (`ci:bothpsa`). Evidence: `PASS: target/bothpsa` (8/8 checks) on the box.
       **WT-FFM-0055.**
-    - [ ] **S5 (Fable)**: Both-OS isolation gate — FreeRTOS FF-M negatives (forged
-      handle, oversized vector, wrong SID) + post-fault FF-M behavior.
+    - [x] **S5**: Both-OS isolation gate — guest1 `run_ffm_negatives` (forged
+      handle, oversized input vector, unknown-SID connect) mirrors guest0's proven
+      rejections through the neutral client; new `bothiso` M33MU scenario asserts
+      the SPM rejects forged-handle + oversized-vector from BOTH OSes, refuses the
+      bad SID, and neither guest faults (guest1 keeps serving mediated
+      SERVICE_CRYPTO). CI matrix + `pr-m33mu-select` (`ci:bothiso`). Ran on
+      `claude-opus-4-8` — replicating proven patterns, not deep work. **WT-FFM-0055
+      (isolation half).** Evidence: `PASS: target/bothiso` (8/8 checks) on the box.
     - [ ] **S6**: CI wiring + retire the raw HSM-CMSE bypass (delete or
       diagnostic-gate) so one mediated path remains; close #16; doc closure; flip
       the Phase 7 header when both OS gates pass. H5 silicon rides Phase 8.

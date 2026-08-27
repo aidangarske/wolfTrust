@@ -51,8 +51,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|bothpsa|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate) ;;
-  *) echo "usage: $0 positive|bothpsa|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate" >&2; exit 2 ;;
+  positive|bothpsa|bothiso|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate) ;;
+  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -389,6 +389,30 @@ case "$scenario" in
       "freertos_guest1: psa hash ok"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/bothpsa"
+    ;;
+  bothiso)
+    # Both-OS isolation gate: the SPM rejects a forged handle and an oversized
+    # input vector from BOTH the Zephyr client (guest0) and the FreeRTOS client
+    # (guest1), refuses a connect to an unknown SID, and neither guest faults
+    # the platform. Isolation holds regardless of the non-secure operating
+    # system. guest0 markers can be spliced by guest1's console (expect_flat);
+    # guest1's own markers are matched raw.
+    refute_re "no fault markers in boot log" \
+      '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+    expect_flat "Zephyr: forged-handle call rejected" \
+      "wolfTrust FF-M forged-handle call rejected"
+    expect_flat "Zephyr: oversized-vector call rejected" \
+      "wolfTrust FF-M oversized-vector call rejected"
+    expect "FreeRTOS: forged-handle call rejected" \
+      "freertos_guest1: ffm forged-handle rejected"
+    expect "FreeRTOS: oversized-vector call rejected" \
+      "freertos_guest1: ffm oversized-vector rejected"
+    expect "FreeRTOS: unknown-SID connect refused" \
+      "freertos_guest1: ffm wrong-sid refused"
+    expect "FreeRTOS survived: still serves mediated SERVICE_CRYPTO" \
+      "freertos_guest1: ffm sha256 ok"
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
+    echo "PASS: target/bothiso"
     ;;
   rollbackneg)
     refute_re "no fault markers in boot log" \

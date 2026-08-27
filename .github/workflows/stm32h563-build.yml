@@ -273,6 +273,7 @@ jobs:
         scenario:
           - { key: positive,        name: "Positive lifecycle" }
           - { key: bothpsa,         name: "Both-OS PSA parity (Zephyr + FreeRTOS)" }
+          - { key: bothiso,         name: "Both-OS FF-M isolation negatives" }
           - { key: restart,         name: "Guest restart recovery" }
           - { key: crossdomain,     name: "Cross-domain isolation (L3)" }
           - { key: spfaultneg,      name: "Graceful SP fault recovery" }

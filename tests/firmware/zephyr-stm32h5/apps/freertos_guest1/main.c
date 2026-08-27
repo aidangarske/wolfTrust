@@ -293,6 +293,58 @@ static void run_psa_smoke(void)
     }
 }
 
+/* FF-M isolation negatives from the FreeRTOS client: the SPM must reject a
+ * forged handle, an oversized input vector, and a connect to an unknown SID —
+ * the same rejections guest0 proves — and none of them faults this guest. */
+static void run_ffm_negatives(void)
+{
+    psa_handle_t handle;
+    psa_handle_t bad;
+    psa_invec in_vec;
+    psa_outvec out_vec;
+    psa_status_t st;
+    uint8_t digest[32];
+
+    handle = psa_connect(WT_CRYPTO_SID, 1u);
+    if (handle <= 0) {
+        uart_puts("freertos_guest1: ffm neg setup FAILED\r\n");
+        return;
+    }
+
+    /* Forged handle: not mapped to this caller's connection. */
+    in_vec.base = k_hash_input;
+    in_vec.len = sizeof(k_hash_input) - 1u;
+    out_vec.base = digest;
+    out_vec.len = sizeof(digest);
+    st = psa_call((psa_handle_t)(handle + 0x1000), 0, &in_vec, 1u,
+                  &out_vec, 1u);
+    uart_puts(st != PSA_SUCCESS ?
+              "freertos_guest1: ffm forged-handle rejected\r\n" :
+              "freertos_guest1: ffm forged-handle NOT rejected\r\n");
+
+    /* Oversized input vector: a length beyond the secure transfer bound is
+     * refused on validation, before any copy. */
+    in_vec.base = k_hash_input;
+    in_vec.len = 2048u;
+    out_vec.base = digest;
+    out_vec.len = sizeof(digest);
+    st = psa_call(handle, 0, &in_vec, 1u, &out_vec, 1u);
+    uart_puts(st != PSA_SUCCESS ?
+              "freertos_guest1: ffm oversized-vector rejected\r\n" :
+              "freertos_guest1: ffm oversized-vector NOT rejected\r\n");
+
+    psa_close(handle);
+
+    /* Connect to an unknown SID: refused, no handle handed back. */
+    bad = psa_connect(0x4200u, 1u);
+    if (bad <= 0) {
+        uart_puts("freertos_guest1: ffm wrong-sid refused\r\n");
+    } else {
+        uart_puts("freertos_guest1: ffm wrong-sid NOT refused\r\n");
+        psa_close(bad);
+    }
+}
+
 static void crypto_task(void *arg)
 {
     uint32_t count = 0u;
@@ -302,6 +354,7 @@ static void crypto_task(void *arg)
     run_ffm_sha256_kat();
     run_ffm_rng();
     run_psa_smoke();
+    run_ffm_negatives();
 
     for (;;) {
         busy_delay(WT_FREERTOS_HEARTBEAT_SPIN);
