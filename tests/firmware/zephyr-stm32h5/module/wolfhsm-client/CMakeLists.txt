@@ -36,6 +36,7 @@ if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
     ${WT_WOLFHSM_DIR}
     ${WT_WOLFSSL_DIR}
     ${WT_GENERATED_DIR}
+    ${WT_REPO_ROOT}/include
   )
 
   # Make WOLFSSL_USER_SETTINGS / WOLFHSM_CFG visible to every TU that
@@ -110,10 +111,15 @@ if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c
   )
 
-  # Local glue + Zephyr init.
+  # Local glue + Zephyr init, plus the OS-neutral FF-M client core and the
+  # SPM-mediated wolfHSM transport (WT-FFM-0054). The module owns
+  # psa_ffm_client.c so every client-enabled app links psa_connect/psa_call
+  # without carrying its own copy.
   zephyr_library_sources(
     ${WT_MODULE_DIR}/src/wolfhsm_client_glue.c
     ${WT_MODULE_DIR}/src/wolfhsm_zephyr_init.c
+    ${WT_REPO_ROOT}/src/client/psa_ffm_client.c
+    ${WT_REPO_ROOT}/src/client/hsm_psa_transport.c
   )
 
   # Tone down third-party warnings; wolftrust-owned code stays strict.

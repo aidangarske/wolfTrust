@@ -627,9 +627,20 @@ wolfTrust on the board — the TF-M drop-in proof.
           guard clean; box cross-build links for production,
           `WT_SP_FAULT_PROBE=1`, and `WT_CONFORMANCE=1` (scenario layout).
           Target proof (devcrypto through the relay) lands at S6d.
-        - [ ] **S6d**: NS transport swap in both wolfhsm_client_glue copies —
-          one synchronous `psa_call(SERVICE_HSM)` per packet; `devcrypto`
-          (77, failed==0) green through the relay.
+        - [x] **S6d**: NS transport swap in both wolfhsm_client_glue copies —
+          one synchronous `psa_call(SERVICE_HSM 4102)` per packet over
+          `wt_hsm_psa_transport_cb`; the CSR window and the raw veneer calls
+          are gone from both glues. The wolfhsm-client Zephyr module now owns
+          `psa_ffm_client.c` + `hsm_psa_transport.c` (guest0 links too;
+          guest0_psa dropped its duplicate), and the baremetal harness
+          compiles both under a new src/client rule. Evidence (M33MU box):
+          `devcrypto` PASS first try — 77 scheduled / 64 passed / 13 skipped
+          / 0 failed / 0 SIM ERROR through the relay; `confboot` ACS clean —
+          85 passed / 0 failed / 4 skipped / 0 SIM ERROR. confboot's
+          post-suite check list still fails on the guests' SERVICE_CRYPTO
+          (4097) demo probes (handle=-130) — the known mid-arc redness S6f
+          retires; a post-suite scheduler diag-trap rides that same failed
+          probe epilogue and should disappear with it (verify at S6f).
         - [ ] **S6e**: retire the mix — delete crypto_service + wt_hsm_keyvault,
           drop vault key/RANDOM ops (storage face stays for ITS/PS); host
           suites replaced; WT-FFM-0046 re-asserted on the server keystore.

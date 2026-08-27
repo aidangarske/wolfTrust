@@ -305,8 +305,13 @@ WOLFCRYPT_GUEST_SRCS += \
 endif
 endif
 
-# Wave 5: guest glue — include only when present
+# Wave 5: guest glue — include only when present. The glue's transport is the
+# SPM-mediated PSA path, so the neutral FF-M client core and the wolfHSM psa
+# transport ride along (WT-FFM-0054).
 WOLFHSM_GUEST_SRCS += $(wildcard nonsecure/wolfhsm_client_glue.c)
+WOLFHSM_GUEST_SRCS += \
+    $(ROOT)/src/client/psa_ffm_client.c \
+    $(ROOT)/src/client/hsm_psa_transport.c
 
 # Guest-side libc stubs (memcpy/memset already inlined by gcc for guest.c,
 # but wolfCrypt sources need the full set).
@@ -452,6 +457,11 @@ $(HSM_GUEST1_MAIN_OBJ): nonsecure/guest.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(WOL
 # Wave 5: wolfhsm_client_glue.c lives in nonsecure/ but is listed under
 # WOLFHSM_GUEST_SRCS so it gets the wh_guest_ prefix and the guest lib flags.
 $(BUILD_DIR)/wh_guest_wolfhsm_client_glue.o: nonsecure/wolfhsm_client_glue.c $(WOLFHSM_CFG_H) $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(GUEST_LIB_CFLAGS) -c -o $@ $<
+
+# Neutral FF-M client core + SPM-mediated wolfHSM transport, same prefix and
+# guest lib flags as the glue that consumes them.
+$(BUILD_DIR)/wh_guest_%.o: $(ROOT)/src/client/%.c $(WOLFHSM_CFG_H) $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(GUEST_LIB_CFLAGS) -c -o $@ $<
 
 endif  # WT_ENGINE_HSM=1
