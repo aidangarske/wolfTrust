@@ -568,8 +568,12 @@ wolfTrust on the board — the TF-M drop-in proof.
       disasm proof that guest1 branches ONLY the WolfTrust_FFM_* veneers, never
       the raw HSM veneers; build-time `nm` guard fails if any `wh_Client_*`
       returns.
-    - [ ] **S4**: Both-OS PSA gate — the same PSA client suite asserted from
-      guest0 AND guest1 in one boot (M33MU scenario + `ci:` label).
+    - [x] **S4**: Both-OS PSA gate — new `bothpsa` M33MU scenario asserts the
+      SAME three operations from guest0 (Zephyr) AND guest1 (FreeRTOS) in one
+      boot: mediated SERVICE_CRYPTO SHA-256 KAT, `psa_generate_random`, and
+      `psa_hash_compute` KAT. Wired into the M33MU matrix + `pr-m33mu-select`
+      (`ci:bothpsa`). Evidence: `PASS: target/bothpsa` (8/8 checks) on the box.
+      **WT-FFM-0055.**
     - [ ] **S5 (Fable)**: Both-OS isolation gate — FreeRTOS FF-M negatives (forged
       handle, oversized vector, wrong SID) + post-fault FF-M behavior.
     - [ ] **S6**: CI wiring + retire the raw HSM-CMSE bypass (delete or

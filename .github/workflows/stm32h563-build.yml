@@ -272,6 +272,7 @@ jobs:
       matrix:
         scenario:
           - { key: positive,        name: "Positive lifecycle" }
+          - { key: bothpsa,         name: "Both-OS PSA parity (Zephyr + FreeRTOS)" }
           - { key: restart,         name: "Guest restart recovery" }
           - { key: crossdomain,     name: "Cross-domain isolation (L3)" }
           - { key: spfaultneg,      name: "Graceful SP fault recovery" }

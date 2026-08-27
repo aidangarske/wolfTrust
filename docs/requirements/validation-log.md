@@ -2950,3 +2950,22 @@ Evidence:
   leaks 0.
 - CI: the positive scenario + the M33MU lifecycle job assert the five guest1
   markers; authneg/spfaultneg updated to the mediated markers.
+
+## Phase 7 S4 — Both-OS PSA parity gate (WT-FFM-0055, 2026-08-27)
+
+A dedicated `bothpsa` M33MU scenario proves the same PSA client behavior from
+both operating systems in one boot: the Zephyr guest (guest0) and the FreeRTOS
+guest (guest1) each pass the mediated SERVICE_CRYPTO SHA-256 KAT, PSA
+`psa_generate_random`, and PSA `psa_hash_compute` SHA-256 KAT. Both guests reach
+the same Secure Partition with the same input and get the same digest, so the
+client behavior is operating-system-neutral, not merely present on each side.
+
+Evidence:
+
+- M33MU (emulator, wolf-prec5560, v1.15): `PASS: target/bothpsa`, 8/8 checks —
+  no fault markers, and each of the three operations verified from guest0 and
+  from guest1 in the same boot, through the clean BKPT exit.
+- Wired into CI: a `bothpsa` entry in the M33MU scenario matrix and the
+  `pr-m33mu-select` all-list/case-map (`ci:bothpsa` label). Shell + YAML linted.
+- No shared-code regression from S3: `PASS: target/confboot` (85/0/4) and
+  `PASS: target/devcrypto` (64/0/13) re-run green on the same tree.

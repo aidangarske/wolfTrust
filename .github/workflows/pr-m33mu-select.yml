@@ -3,10 +3,10 @@ name: PR M33MU (label-selected)
 # Pull heavy M33MU coverage onto a PR on demand, without editing code.
 # Add a label to the PR:
 #   ci:<scenario>  run that one scenario on the PR branch — one of
-#                  positive restart crossdomain spfaultneg confboot devstorage
-#                  devcrypto devattest devattestqcbor attestneg authneg
-#                  rollbackneg vaultrecover vaultrecoversec fwustage. Add
-#                  several to run several.
+#                  positive bothpsa restart crossdomain spfaultneg confboot
+#                  devstorage devcrypto devattest devattestqcbor attestneg
+#                  authneg rollbackneg vaultrecover vaultrecoversec fwustage.
+#                  Add several to run several.
 #   ci:m33mu       run the full heavy workflow (wolfBoot + both guest
 #   ci:all         lifecycles + all 15 scenarios) on the PR branch.
 #   (no label)     nothing runs — a normal PR is unaffected.
@@ -56,7 +56,7 @@ jobs:
           # Individually-picked scenarios become a dynamic matrix of
           # {key,name} objects (same shape/names as stm32h563-build.yml).
           # 'all'/'m33mu' are handled by the full job below, not expanded here.
-          all="positive restart crossdomain spfaultneg confboot devstorage devcrypto devattest devattestqcbor attestneg authneg rollbackneg vaultrecover vaultrecoversec fwustage remeasureneg bootupdate"
+          all="positive bothpsa restart crossdomain spfaultneg confboot devstorage devcrypto devattest devattestqcbor attestneg authneg rollbackneg vaultrecover vaultrecoversec fwustage remeasureneg bootupdate"
           picked=""
           for s in $all; do
             case " $sel " in
@@ -65,6 +65,7 @@ jobs:
             esac
             case "$s" in
               positive)        n="Positive lifecycle" ;;
+              bothpsa)         n="Both-OS PSA parity (Zephyr + FreeRTOS)" ;;
               restart)         n="Guest restart recovery" ;;
               crossdomain)     n="Cross-domain isolation (L3)" ;;
               spfaultneg)      n="Graceful SP fault recovery" ;;

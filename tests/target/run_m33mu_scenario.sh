@@ -51,8 +51,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate) ;;
-  *) echo "usage: $0 positive|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate" >&2; exit 2 ;;
+  positive|bothpsa|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate) ;;
+  *) echo "usage: $0 positive|bothpsa|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -364,6 +364,31 @@ case "$scenario" in
       "freertos_guest1: psa hash ok"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/positive"
+    ;;
+  bothpsa)
+    # Both-OS PSA parity gate: the SAME PSA client behavior from BOTH the
+    # Zephyr guest (guest0) and the FreeRTOS guest (guest1) in one boot. Three
+    # operations must pass identically from each OS: the mediated SERVICE_CRYPTO
+    # SHA-256 KAT (both reach the same Secure Partition with the same input and
+    # get the KAT digest), PSA RNG, and the PSA Crypto API SHA-256 KAT. guest0
+    # markers can be spliced by guest1's console (expect_flat); guest1's own
+    # markers are matched raw.
+    refute_re "no fault markers in boot log" \
+      '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+    expect_flat "Zephyr: mediated SERVICE_CRYPTO SHA-256 KAT" \
+      "wolfTrust FF-M SERVICE_CRYPTO dispatch verified"
+    expect "FreeRTOS: mediated SERVICE_CRYPTO SHA-256 KAT" \
+      "freertos_guest1: ffm sha256 ok"
+    expect_flat "Zephyr: PSA psa_generate_random" \
+      "psa_generate_random st=0"
+    expect "FreeRTOS: PSA psa_generate_random" \
+      "freertos_guest1: psa rng ok"
+    expect_flat "Zephyr: PSA psa_hash_compute(SHA-256) KAT" \
+      "psa_hash_compute(SHA-256) KAT verified"
+    expect "FreeRTOS: PSA psa_hash_compute(SHA-256) KAT" \
+      "freertos_guest1: psa hash ok"
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
+    echo "PASS: target/bothpsa"
     ;;
   rollbackneg)
     refute_re "no fault markers in boot log" \
