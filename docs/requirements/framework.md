@@ -141,3 +141,27 @@ update through the gated wolfBoot path, `WT-FFM-0049` through `WT-FFM-0052` and
 `WT-FWU-0001` through `WT-FWU-0003` have passing host and Cortex-M33 tests, and
 the full emulated boot-and-update gate passes on M33MU with H563 silicon
 agreement.
+
+## Phase 7 operating-system integration requirements
+
+wolfTrust exposes one operating-system-neutral non-secure client ABI and
+mediates every non-secure request through the SPM. Zephyr and FreeRTOS are
+non-secure clients of the same client core; no non-secure code reaches a secure
+service except through an SPM-dispatched Secure Partition, and the same PSA and
+isolation behavior holds from either operating system.
+
+| ID | Behavior | Failure | Source | Tests | Commit |
+| --- | --- | --- | --- | --- | --- |
+| WT-FFM-0053 | The non-secure client core provides framework-version, service-version, connect, call, and close with no operating-system headers and links identically for Zephyr, FreeRTOS, and bare-metal non-secure clients; per-operating-system code is limited to initialization and bring-up. | An operating-system-specific client divergence, or a core dependency on operating-system or architecture headers, fails the core-port split guard and the host suite. | SRC-FFM 4.4; SRC-FFM-EXT 2.1; WT-FFM-0020, WT-PORT-0006 | OS-neutral client host suite | cb87ae5 |
+| WT-FFM-0054 | Every non-secure client request reaches a secure service only through the SPM, which dispatches it to a Secure Partition; the direct non-secure-to-wolfHSM transport is retired from production so the SPM is the sole mediated gatekeeper. | A non-secure client that invokes secure crypto or storage outside the SPM is rejected or absent from the production image. | SRC-FFM 3.3.1, 3.3.3; WT-FFM-0047, WT-FFM-0016; WT-SYS-0014 | Single-mediated-path and bypass-absence tests | |
+| WT-FFM-0055 | The same PSA client behavior and the same isolation negatives pass from both a Zephyr and a FreeRTOS non-secure client in one boot. | A behavior that passes from one operating system and fails from the other fails the phase gate. | WT-PORT-0006; WT-SYS-0014 | Both-OS PSA and isolation M33MU scenarios | |
+
+## Phase 7 acceptance gate
+
+Phase 7 is complete only when the non-secure client core is
+operating-system-neutral with passing host and Cortex-M33 evidence
+(`WT-FFM-0053`), every non-secure client request is mediated by the SPM with the
+raw non-secure-to-wolfHSM bypass retired from the production image
+(`WT-FFM-0054`), and the same PSA client and isolation suites pass from both the
+Zephyr and FreeRTOS non-secure clients, positive and negative (`WT-FFM-0055`).
+Stop after both operating-system gates pass.

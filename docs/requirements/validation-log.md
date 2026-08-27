@@ -2881,3 +2881,35 @@ Evidence:
   is boot-header == v2 and != v1, which holds on both.)
 - Phase 6 CLOSED: the full boot-and-update gate passes on the emulator (the
   `phases.md:126` stop condition) and on H563 silicon.
+
+## Phase 7 S0 — OS-integration requirements seated (2026-08-27)
+
+Opened Phase 7 by seating its requirements so the already-landed client work has
+a written requirement to trace back to. Docs-only slice: no code, no cross-build,
+no M33MU, no hardware.
+
+Requirements: `WT-SYS-0014` (one OS-neutral non-secure client ABI, SPM the single
+mediated path to every secure service) in system.md; a Phase 7 block in
+framework.md — `WT-FFM-0053` (OS-neutral client core, no OS headers, same link
+under Zephyr/FreeRTOS/bare-metal), `WT-FFM-0054` (single mediated path; raw
+non-secure-to-wolfHSM CMSE bypass retired from production), `WT-FFM-0055` (same
+PSA + isolation suites pass from both a Zephyr and a FreeRTOS client) — plus the
+Phase 7 acceptance gate. Up-trace lives in the Source column
+(`SRC-FFM 4.4/3.3.x`, `WT-FFM-0016/0020/0047`, `WT-PORT-0006`, `WT-SYS-0014`).
+
+Evidence:
+
+- `WT-FFM-0053` is marked met: the OS-neutral core `src/client/psa_ffm_client.c`
+  landed in P7-S1 (`cb87ae5`) with the `tests/host/psa_ffm_client` suite (8 checks
+  green under gcc/clang/ASan) and passes the core/port split guard (the
+  `WolfTrust_FFM_*` veneers are extern port-provided, defined in
+  `src/arch/armv8m/ffm_nsc.c`); P7-S2 (`8c9a675`) repointed guest0 and the val
+  NSPE onto it, M33MU `PASS: target/positive` + `PASS: target/confboot` (85/4).
+- `WT-FFM-0054` and `WT-FFM-0055` stay OPEN (empty Commit): the raw HSM-CMSE
+  bypass is still live for the FreeRTOS guest1 and guest0's wolfPSA crypto
+  front-end. They close in S3 (guest1 onto the SPM), S4/S5 (both-OS gates), and
+  S6 (retire the bypass from the production image).
+- Docs verification: table columns align (system.md 7-col, framework.md 6-col);
+  IDs contiguous with no collision; every Source trace resolves to an existing
+  ID/section; acceptance-gate IDs match the S1..S6 slice tasks. Host `make test`
+  unaffected.

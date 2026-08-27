@@ -536,12 +536,17 @@ wolfTrust on the board — the TF-M drop-in proof.
   secure): every non-secure client call goes NS -> FF-M SPM -> SERVICE_*
   partition; the raw HSM-CMSE bypass is retired from production so the SPM is
   the single mediated gatekeeper; FreeRTOS reaches full PSA parity.**
-    - [ ] **S0**: Phase 7 reqs (OS-neutral ABI + single-mediated-path property in
-      system.md/framework.md) + this sliced plan.
-    - [ ] **S1**: Extract the OS-neutral FF-M client core (`psa_connect/call/close/
-      framework_version`) from `conformance_pal.c` + the Zephyr TEE driver into a
-      portable `src/client/psa_ffm_client.c` (calls `WolfTrust_FFM_*` veneers, zero
-      OS headers) + host test.
+    - [x] **S0**: Phase 7 reqs seated — `WT-SYS-0014` (one OS-neutral NS client
+      ABI, SPM the single mediated path) in system.md; `WT-FFM-0053` (OS-neutral
+      client core, met by S1/S2, `cb87ae5`), `WT-FFM-0054` (single mediated path,
+      open S3/S6), `WT-FFM-0055` (both-OS parity, open S4/S5) + the Phase 7
+      acceptance gate in framework.md. Docs-only, no runtime gate; sliced S1–S6
+      plan below.
+    - [x] **S1**: Extracted the OS-neutral FF-M client core (`psa_connect/call/
+      close/framework_version/version`) into portable `src/client/psa_ffm_client.c`
+      (calls `WolfTrust_FFM_*` veneers, zero OS headers) + `tests/host/psa_ffm_client`
+      (8 checks, gcc/clang/ASan); core/port split guard clean. `WT-FFM-0053`.
+      Evidence: `cb87ae5` (pushed both remotes, CI green).
     - [x] **S2**: guest0 FF-M now routes through the neutral core, not the Zephyr
       TEE subsystem. main.c `wt_tee_invoke` shim -> psa_connect/call/close (all 35
       call sites); CMakeLists links psa_ffm_client.c; the TEE driver dropped its
