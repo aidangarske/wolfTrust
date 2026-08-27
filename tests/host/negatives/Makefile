@@ -43,10 +43,8 @@ _WT_SRCS := \
     $(ROOT)/src/ffm_domain.c \
     $(ROOT)/src/ipc.c \
     $(ROOT)/src/spm_gate.c \
-    $(ROOT)/src/services/crypto_service.c \
     $(ROOT)/src/services/vault_service.c \
     $(ROOT)/src/services/wolfhsm/wt_hsm_vault.c \
-    $(ROOT)/src/services/wolfhsm/wt_hsm_keyvault.c \
     $(ROOT)/src/services/wolfhsm/wt_hsm_seal.c \
     $(ROOT)/src/services/storage_service.c
 

@@ -20,8 +20,8 @@
  */
 
 /*
- * Minimal wolfSSL/wolfCrypt configuration for the keyvault host test.
- * ECC P-256 + AES-256-GCM, SHA-256, HashDRBG, no TLS, no RSA, no DH.
+ * Minimal wolfSSL/wolfCrypt configuration for the wolfHSM host loopback test.
+ * ECC P-256 only, SHA-256, HashDRBG, no TLS, no RSA, no DH, no AES.
  */
 
 #ifndef USER_SETTINGS_H
@@ -92,7 +92,7 @@
 #define NO_RSA
 #define NO_DH
 #define NO_DSA
-#define HAVE_AESGCM
+#define NO_AES
 #define NO_DES3
 #define NO_RC4
 #define NO_MD4

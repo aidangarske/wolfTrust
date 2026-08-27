@@ -154,11 +154,13 @@ typedef struct wt_vault_key_backend {
     psa_status_t (*decrypt)(int32_t owner, int32_t sub, uint64_t uid,
                             const uint8_t* input, size_t input_len,
                             uint8_t* out, size_t cap, size_t* out_len);
-    /* Fill out[0..len) from the vault domain's RNG (WT-FFM-0054): entropy
-     * is produced inside the privileged vault domain, never in a frontend
-     * partition. Appended last to preserve initializer compatibility. */
-    psa_status_t (*random)(uint8_t* out, size_t len);
 } wt_vault_key_backend_t;
+
+/* Vault-domain randomness (WT-FFM-0054): fill out[0..len) from an RNG owned
+ * by the privileged vault domain, never a frontend partition. This is entropy
+ * plumbing, kept separate from the key backend so retiring the key backend
+ * does not disturb the RANDOM face. */
+typedef psa_status_t (*wt_vault_rng_fn)(uint8_t* out, size_t len);
 
 /* Install the backing store. NULL restores the fail-closed default, which
  * refuses every request with PSA_ERROR_NOT_SUPPORTED. */
@@ -167,6 +169,10 @@ void wt_vault_service_set_backend(const wt_vault_backend_t* backend);
 /* Install the key-operation backend. NULL restores the fail-closed default
  * (every key op refused with PSA_ERROR_NOT_SUPPORTED). */
 void wt_vault_service_set_key_backend(const wt_vault_key_backend_t* backend);
+
+/* Install the vault RNG for the RANDOM face. NULL restores the fail-closed
+ * default (RANDOM refused with PSA_ERROR_NOT_SUPPORTED). */
+void wt_vault_service_set_rng(wt_vault_rng_fn fn);
 
 /* Transport seam, mirroring crypto_service: direct gate calls on the host,
  * the SVC transport when scheduled on target. NULL restores the default. */

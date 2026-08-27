@@ -96,11 +96,6 @@ static psa_status_t test_vault_random(uint8_t* out, size_t len)
     return PSA_SUCCESS;
 }
 
-static const wt_vault_key_backend_t g_test_key_backend = {
-    NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-    test_vault_random
-};
-
 /* One dispatch router serves both partitions; the crypto SP gets a context
  * carrying the vault route, exactly as the production port supplies it. */
 static wt_crypto_service_ctx_t g_crypto_ctx;
@@ -199,7 +194,7 @@ int main(void)
     g_crypto_ctx.compute = wt_crypto_sp_hash;
     g_crypto_ctx.vault_sid = TEST_VAULT_SID;
     g_crypto_ctx.vault_handle = 0;
-    wt_vault_service_set_key_backend(&g_test_key_backend);
+    wt_vault_service_set_rng(test_vault_random);
 
     handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_CRYPTO_SID, 1U);
     if (!PSA_HANDLE_IS_VALID(handle)) {

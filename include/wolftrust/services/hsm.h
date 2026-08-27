@@ -191,12 +191,10 @@ void wt_hsm_vault_make_label(uint8_t* label, int32_t owner, int32_t sub,
                              uint64_t uid, uint32_t flags);
 uint32_t wt_hsm_vault_flags_of(const uint8_t* label);
 
-/* wolfCrypt key-op backend (WT-FFM-0046): ECC P-256 and AES-256-GCM compute
- * inside the privileged vault domain; key material stored NONEXPORTABLE in
- * the vault NVM window and never exposed by any wire op. Only linked into
- * builds that carry wolfCrypt. */
-int wt_hsm_keyvault_init(struct whNvmContext_t* nvm);
-struct wt_vault_key_backend;
-extern const struct wt_vault_key_backend wt_hsm_key_backend;
+/* Vault-domain RNG (WT-FFM-0054): entropy for SERVICE_VAULT's RANDOM face,
+ * produced by a wolfCrypt DRBG owned by the privileged vault domain. Installed
+ * via wt_vault_service_set_rng at boot. Only linked into builds that carry
+ * wolfCrypt. */
+psa_status_t wt_hsm_vault_random(uint8_t* out, size_t len);
 
 #endif /* WOLFTRUST_SERVICES_HSM_H */

@@ -142,12 +142,6 @@ static psa_status_t wt_vault_default_key_decrypt(int32_t owner, int32_t sub,
     return PSA_ERROR_NOT_SUPPORTED;
 }
 
-static psa_status_t wt_vault_default_key_random(uint8_t* out, size_t len)
-{
-    (void)out; (void)len;
-    return PSA_ERROR_NOT_SUPPORTED;
-}
-
 static const wt_vault_key_backend_t g_vault_default_key_backend = {
     wt_vault_default_key_generate,
     wt_vault_default_key_import,
@@ -155,13 +149,19 @@ static const wt_vault_key_backend_t g_vault_default_key_backend = {
     wt_vault_default_key_sign,
     wt_vault_default_key_verify,
     wt_vault_default_key_encrypt,
-    wt_vault_default_key_decrypt,
-    wt_vault_default_key_random
+    wt_vault_default_key_decrypt
 };
+
+static psa_status_t wt_vault_default_rng(uint8_t* out, size_t len)
+{
+    (void)out; (void)len;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
 
 static const wt_vault_backend_t* g_vault_backend = &g_vault_default_backend;
 static const wt_vault_key_backend_t* g_vault_key_backend =
     &g_vault_default_key_backend;
+static wt_vault_rng_fn g_vault_rng = wt_vault_default_rng;
 static wt_spm_transport_fn g_vault_transport = wt_spm_transport_direct;
 
 void wt_vault_service_set_backend(const wt_vault_backend_t* backend)
@@ -173,6 +173,11 @@ void wt_vault_service_set_key_backend(const wt_vault_key_backend_t* backend)
 {
     g_vault_key_backend = (backend != NULL) ? backend :
                           &g_vault_default_key_backend;
+}
+
+void wt_vault_service_set_rng(wt_vault_rng_fn fn)
+{
+    g_vault_rng = (fn != NULL) ? fn : wt_vault_default_rng;
 }
 
 void wt_vault_service_set_transport(wt_spm_transport_fn fn)
@@ -405,10 +410,7 @@ static psa_status_t wt_vault_service_call(wt_ffm_runtime_t* runtime,
         if (cap == 0U || cap > WT_VAULT_RANDOM_MAX) {
             return PSA_ERROR_INVALID_ARGUMENT;
         }
-        if (g_vault_key_backend->random == NULL) {
-            return PSA_ERROR_NOT_SUPPORTED;
-        }
-        status = g_vault_key_backend->random(out, cap);
+        status = g_vault_rng(out, cap);
         if (status == PSA_SUCCESS &&
                 wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
                                    out, cap) != WT_FFM_SUCCESS) {

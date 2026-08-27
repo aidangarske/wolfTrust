@@ -180,11 +180,6 @@ static psa_status_t test_vault_random(uint8_t* out, size_t len)
     return PSA_SUCCESS;
 }
 
-static const wt_vault_key_backend_t g_test_key_backend = {
-    NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-    test_vault_random
-};
-
 static wt_crypto_service_ctx_t g_crypto_ctx;
 
 /* ---- manifest fixture: the crypto partition as production declares it ---- */
@@ -275,7 +270,7 @@ int main(void)
                                     wt_crypto_service_dispatch,
                                     &g_crypto_ctx) == WT_FFM_SUCCESS,
           "P7-S3 crypto partition re-registers with the vault route");
-    wt_vault_service_set_key_backend(&g_test_key_backend);
+    wt_vault_service_set_rng(test_vault_random);
 
     check(psa_framework_version() == PSA_FRAMEWORK_VERSION,
           "P7-S1 psa_framework_version reports 0x0100 through the neutral core");

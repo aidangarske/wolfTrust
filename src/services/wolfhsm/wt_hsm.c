@@ -345,9 +345,10 @@ static int wt_hsm_bind_store(void)
         if (wt_hsm_seal_init(&g_nvm_ctx) == 0) {
             wt_hsm_vault_set_sealer(&wt_hsm_sealer);
         }
-        if (wt_hsm_keyvault_init(&g_nvm_ctx) == 0) {
-            wt_vault_service_set_key_backend(&wt_hsm_key_backend);
-        }
+        /* Keys live in the wolfHSM server keystore, reached through the
+         * SERVICE_HSM relay (WT-FFM-0054) — the vault has no key backend, so
+         * its key ops stay fail-closed. Only the RANDOM face is served. */
+        wt_vault_service_set_rng(wt_hsm_vault_random);
     }
 
     return 0;
@@ -368,6 +369,30 @@ static int wt_hsm_vault_format(void)
         g_vault_reformatted = 1;
     }
     return rc;
+}
+
+/* Vault-domain RNG (WT-FFM-0054): a wolfCrypt DRBG owned by the privileged
+ * vault domain, installed on SERVICE_VAULT's RANDOM face at boot. Kept
+ * separate from the wolfHSM server keystore — the single crypto backend for
+ * keys — because this is entropy plumbing, not key storage. */
+static WC_RNG g_vault_rng;
+static int g_vault_rng_ready;
+
+psa_status_t wt_hsm_vault_random(uint8_t* out, size_t len)
+{
+    if (out == NULL || len == 0U) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    if (g_vault_rng_ready == 0) {
+        if (wc_InitRng_ex(&g_vault_rng, NULL, INVALID_DEVID) != 0) {
+            return PSA_ERROR_GENERIC_ERROR;
+        }
+        g_vault_rng_ready = 1;
+    }
+    if (wc_RNG_GenerateBlock(&g_vault_rng, out, (word32)len) != 0) {
+        return PSA_ERROR_GENERIC_ERROR;
+    }
+    return PSA_SUCCESS;
 }
 
 int wt_hsm_init(void)

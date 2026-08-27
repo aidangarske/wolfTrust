@@ -641,9 +641,23 @@ wolfTrust on the board — the TF-M drop-in proof.
           (4097) demo probes (handle=-130) — the known mid-arc redness S6f
           retires; a post-suite scheduler diag-trap rides that same failed
           probe epilogue and should disappear with it (verify at S6f).
-        - [ ] **S6e**: retire the mix — delete crypto_service + wt_hsm_keyvault,
-          drop vault key/RANDOM ops (storage face stays for ITS/PS); host
-          suites replaced; WT-FFM-0046 re-asserted on the server keystore.
+        - [x] **S6e**: retire the second keystore. `wt_hsm_keyvault.c` deleted;
+          the vault no longer registers a key backend, so its key ops stay
+          fail-closed (keys live only in the wolfHSM server keystore now). The
+          vault RANDOM face split onto its own `wt_vault_service_set_rng` seam
+          (RNG relocated to `wt_hsm_vault_random` in wt_hsm.c) — that op plus
+          crypto_service + ffm_crypto_client are guest-RNG-coupled and retire
+          with the guest repoint at S6f. Host suites: `keyvault` deleted;
+          `negatives` reduced to the vault storage-face negatives (WT-FFM-0044
+          owner isolation + WT-FFM-0048 sealing + flag forgery); new
+          `tests/host/keystore_isolation` re-asserts WT-FFM-0046 on the server
+          keystore — two servers on shared NVM at distinct stamped client_ids
+          prove cross-client key isolation (request path + direct NVM
+          namespace) and NONEXPORTABLE, modelled on the on-target IAK
+          provisioning. Evidence: host `unit/all` green (incl. keystore_isolation
+          under gcc/clang/ASan), split guard clean, box cross-build links for
+          production + `WT_SP_FAULT_PROBE=1` + `WT_CONFORMANCE=1`. crypto_service.c
+          kept (dead SHA/RANDOM face) until S6f.
         - [ ] **S6f**: both guests on the single path (guest1 gains the wolfHSM
           client legitimately; nm guard now forbids only raw WolfTrust_HSM_*);
           bothpsa + bothiso green.

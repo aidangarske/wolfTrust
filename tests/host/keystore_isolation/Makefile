@@ -28,36 +28,42 @@ BUILD_DIR ?= build
 CFLAGS := \
     -DWOLFSSL_USER_SETTINGS \
     -UHAVE_CONFIG_H \
-    -DWOLFHSM_CFG_NO_CRYPTO \
     -DWOLFHSM_CFG_NO_SYS_TIME \
+    -DWOLFHSM_CFG_ENABLE_SERVER \
+    -DWOLFHSM_CFG_COMM_DATA_LEN=368 \
     -I. \
     -I$(ROOT)/include \
     -I$(WOLFHSM) \
     -I$(WOLFSSL) \
-    -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
-    -Wno-unused-function -Wno-unused-parameter
+    -O0 -g -Wall -Wno-unused-function -Wno-unused-parameter
 CFLAGS += $(EXTRA_CFLAGS)
 
-_WT_SRCS := \
-    $(ROOT)/src/ffm.c \
-    $(ROOT)/src/ffm_domain.c \
-    $(ROOT)/src/ipc.c \
-    $(ROOT)/src/spm_gate.c \
-    $(ROOT)/src/services/crypto_service.c \
-    $(ROOT)/src/services/vault_service.c \
-    $(ROOT)/src/services/wolfhsm/wt_hsm_vault.c \
-    $(ROOT)/src/services/wolfhsm/wt_hsm_keyvault.c
-
 _WH_SRCS := \
-    $(WOLFHSM)/src/wh_nvm.c \
-    $(WOLFHSM)/src/wh_nvm_flash.c \
-    $(WOLFHSM)/src/wh_flash_ramsim.c \
-    $(WOLFHSM)/src/wh_flash_unit.c \
-    $(WOLFHSM)/src/wh_utils.c
+    $(WOLFHSM)/src/wh_comm.c            \
+    $(WOLFHSM)/src/wh_message_comm.c    \
+    $(WOLFHSM)/src/wh_message_crypto.c  \
+    $(WOLFHSM)/src/wh_message_keystore.c \
+    $(WOLFHSM)/src/wh_message_nvm.c     \
+    $(WOLFHSM)/src/wh_message_customcb.c \
+    $(WOLFHSM)/src/wh_message_counter.c  \
+    $(WOLFHSM)/src/wh_server.c          \
+    $(WOLFHSM)/src/wh_server_crypto.c   \
+    $(WOLFHSM)/src/wh_server_keystore.c \
+    $(WOLFHSM)/src/wh_server_nvm.c      \
+    $(WOLFHSM)/src/wh_server_customcb.c \
+    $(WOLFHSM)/src/wh_server_counter.c  \
+    $(WOLFHSM)/src/wh_nvm.c             \
+    $(WOLFHSM)/src/wh_nvm_flash.c       \
+    $(WOLFHSM)/src/wh_flash_ramsim.c    \
+    $(WOLFHSM)/src/wh_flash_unit.c      \
+    $(WOLFHSM)/src/wh_lock.c            \
+    $(WOLFHSM)/src/wh_utils.c           \
+    $(WOLFHSM)/src/wh_crypto.c          \
+    $(WOLFHSM)/src/wh_keyid.c           \
+    $(WOLFHSM)/src/wh_log.c
 
 _WC_SRCS := \
     $(WOLFSSL)/wolfcrypt/src/ecc.c      \
-    $(WOLFSSL)/wolfcrypt/src/aes.c      \
     $(WOLFSSL)/wolfcrypt/src/sha256.c   \
     $(WOLFSSL)/wolfcrypt/src/random.c   \
     $(WOLFSSL)/wolfcrypt/src/tfm.c      \
@@ -74,29 +80,15 @@ _WC_SRCS := \
 
 _TEST_SRCS := main.c
 
-_WT_OBJS   := $(patsubst %.c,wt_%.o,$(notdir $(_WT_SRCS)))
 _WH_OBJS   := $(patsubst %.c,wh_%.o,$(notdir $(_WH_SRCS)))
 _WC_OBJS   := $(patsubst %.c,wc_%.o,$(notdir $(_WC_SRCS)))
 _TEST_OBJS := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
 
-ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WT_OBJS) $(_WH_OBJS) $(_WC_OBJS) $(_TEST_OBJS))
-TEST_BIN := $(BUILD_DIR)/test_keyvault
-
-.PHONY: all run compilers sanitize valgrind clean
-
-all: $(TEST_BIN)
+ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WH_OBJS) $(_WC_OBJS) $(_TEST_OBJS))
+TEST_BIN := $(BUILD_DIR)/test_keystore_isolation
 
 $(BUILD_DIR):
 	mkdir -p $@
-
-$(BUILD_DIR)/wt_%.o: $(ROOT)/src/%.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-$(BUILD_DIR)/wt_%.o: $(ROOT)/src/services/%.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-$(BUILD_DIR)/wt_%.o: $(ROOT)/src/services/wolfhsm/%.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wh_%.o: $(WOLFHSM)/src/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -107,8 +99,12 @@ $(BUILD_DIR)/wc_%.o: $(WOLFSSL)/wolfcrypt/src/%.c | $(BUILD_DIR)
 $(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+.PHONY: all run compilers sanitize valgrind clean
+
+all: $(TEST_BIN)
+
 $(TEST_BIN): $(ALL_OBJS) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(EXTRA_LDFLAGS) -o $@ $(ALL_OBJS)
+	$(CC) $(CFLAGS) $(EXTRA_LDFLAGS) -o $@ $(ALL_OBJS) -lm
 
 run: $(TEST_BIN)
 	$(TEST_BIN)
@@ -123,8 +119,9 @@ sanitize:
 		EXTRA_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
 		EXTRA_LDFLAGS="-fsanitize=address,undefined"
 
-valgrind: $(TEST_BIN)
-	valgrind --error-exitcode=1 --leak-check=full $(TEST_BIN)
+valgrind: clean $(TEST_BIN)
+	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+		$(TEST_BIN)
 
 clean:
 	rm -rf $(BUILD_DIR)
