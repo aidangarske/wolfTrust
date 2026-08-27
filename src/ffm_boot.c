@@ -216,7 +216,7 @@ int wt_ffm_boot_start_sched(void)
 {
     int ret;
 
-    ret = wt_spm_sched_start(&g_ffm_runtime, PARTITION_HSM_ID);
+    ret = wt_spm_hsm_start(&g_ffm_runtime, PARTITION_HSM_ID);
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_vault_start(&g_ffm_runtime, PARTITION_VAULT_ID);
     }

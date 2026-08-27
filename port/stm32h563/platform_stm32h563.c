@@ -1786,18 +1786,15 @@ void Reset_Handler(void)
 #else
     (void)wt_hsm_rollback_enforce(0u);
 #endif
+    /* WT-FFM-0054: every guest server binds the secure relay capture
+     * transport — packets arrive only through SERVICE_HSM's mediated
+     * psa_call path, never a shared NS-RAM window. */
     for (wt_guest_id_t gid = 0u; gid < WT_MAX_GUESTS; gid++) {
         const wt_guest_config_t *configs;
         size_t cfg_count;
-        wt_cmse_transport_cfg_t tx_cfg;
-        wt_cmse_transport_ctx_t *tx_ctx;
         configs = wt_partitions_config_table(&cfg_count);
         if (configs == NULL || gid >= cfg_count) break;
-        if (configs[gid].port.hsm_transport.size == 0u) continue;
-        wt_cmse_transport_cfg_for(gid, &tx_cfg);
-        tx_ctx = wt_cmse_transport_ctx_for(gid);
-        if (tx_ctx == NULL) continue;
-        if (wt_hsm_guest_init(gid, &wt_cmse_transport_cb, tx_ctx, &tx_cfg) != 0) {
+        if (wt_hsm_guest_init_relay(gid) != 0) {
             wt_platform_panic();
         }
     }

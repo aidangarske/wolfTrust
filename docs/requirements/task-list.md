@@ -610,11 +610,23 @@ wolfTrust on the board — the TF-M drop-in proof.
           spm/ffm_veneer/psa_ffm_client fixtures updated. Host `unit/all` +
           conformance host-subset green. Target scenarios intentionally red
           until the S6c/S6d arc completes.
-        - [ ] **S6c**: secure relay — `wt_hsm_relay_submit` wakes the monitor's
-          per-guest server tasklet over a secure relay buffer (new
-          `hsm_relay_transport.c`); register PARTITION_HSM; shared MPU region;
-          re-home the terminal-fault notifier onto the relay (highest risk;
-          spfaultneg/crossdomain must stay green).
+        - [x] **S6c**: secure relay — `wt_hsm_relay_submit` in `wt_hsm.c` maps
+          the SPM-stamped caller to its guest server and pumps
+          `wh_Server_HandleRequestMessage` inline over a per-guest secure
+          capture buffer in monitor RAM (no tasklet wake, no NS-RAM CSR);
+          every guest server rebinds from `wt_cmse_transport_cb` to the
+          capture transport (`wt_hsm_guest_init_relay`); PARTITION_HSM runs
+          as a scheduled PRIVILEGED coroutine (`wt_spm_hsm_start`, vault
+          model) whose loop is `wt_hsm_relay_dispatch` over the SVC
+          transport. Fault re-home: a relay fault lands in the existing
+          graceful SP recovery (pinned client fails with -145); the probe is
+          now an undefined instruction (privileged code cannot
+          MemManage-fault on an out-of-domain read), and the old CMSE
+          fault-notify goes unused on the relay path. Boot attest tasklets
+          kept for IAK provisioning. Evidence: host `unit/all` green, split
+          guard clean; box cross-build links for production,
+          `WT_SP_FAULT_PROBE=1`, and `WT_CONFORMANCE=1` (scenario layout).
+          Target proof (devcrypto through the relay) lands at S6d.
         - [ ] **S6d**: NS transport swap in both wolfhsm_client_glue copies —
           one synchronous `psa_call(SERVICE_HSM)` per packet; `devcrypto`
           (77, failed==0) green through the relay.

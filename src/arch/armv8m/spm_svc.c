@@ -36,6 +36,7 @@
 #include "wolftrust/services/crypto_service.h"
 #include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/hsm.h"
+#include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/services/storage_service.h"
 #include "wolftrust/services/vault_service.h"
 #include "wolftrust/sp_recovery.h"
@@ -878,6 +879,40 @@ int wt_spm_sched_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
     return wt_spm_sched_add(runtime, partition_id, wt_spm_sp_entry,
                             (void*)(intptr_t)partition_id);
+}
+
+/* SERVICE_HSM's relay loop: privileged like the vault, because the submit
+ * pump reaches the monitor's wolfHSM server state and may block on the
+ * shared NVM mutex — neither is possible from a narrowed thread domain. */
+static void wt_spm_hsm_entry(void* arg)
+{
+    int32_t partition_id = (int32_t)(intptr_t)arg;
+#if defined(WT_SP_FAULT_PROBE) && (WT_SP_FAULT_PROBE == 1)
+    /* One-shot graceful-recovery probe (target/spfaultneg): the relay runs
+     * privileged, so an out-of-domain read cannot MemManage-fault; an
+     * undefined instruction raises the same recoverable Secure-Thread
+     * UsageFault instead. The recovery re-arms this partition with the
+     * restarted marker set, so the re-run skips the probe and serves. */
+    if (((intptr_t)arg & WT_SP_FAULT_PROBE_RESTARTED) == 0) {
+        __asm volatile("udf #0");
+    }
+    partition_id = (int32_t)((intptr_t)arg &
+                             ~(intptr_t)WT_SP_FAULT_PROBE_RESTARTED);
+#endif
+
+    for (;;) {
+        (void)wt_hsm_relay_dispatch(NULL, NULL, partition_id);
+    }
+}
+
+int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    wt_hsm_relay_set_transport(wt_spm_svc_transport);
+#if defined(WT_ENGINE_HSM)
+    wt_hsm_relay_set_submit(wt_hsm_relay_submit, NULL);
+#endif
+    return wt_spm_sched_add_common(runtime, partition_id, wt_spm_hsm_entry,
+                                   (void*)(intptr_t)partition_id, 1u);
 }
 
 /* The vault partition's service loop: privileged, so reading the service's

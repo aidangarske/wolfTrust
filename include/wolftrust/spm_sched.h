@@ -43,6 +43,12 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
  * built-in SP, scheduled via wt_spm_sched_add with the crypto service loop. */
 int wt_spm_sched_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 
+/* Start the SERVICE_HSM relay partition (WT-FFM-0054) as a scheduled
+ * PRIVILEGED coroutine: its loop hands each mediated wolfHSM packet to the
+ * monitor's inline server pump, which reads secure state and may block on
+ * the shared NVM mutex — the same privilege rationale as the vault. */
+int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
+
 /* Start the vault partition (WT-FFM-0047) as a scheduled PRIVILEGED coroutine:
  * same slot machinery and SVC gate, but wt_co_set_domain is never called, so
  * the loop may reach the wolfHSM NVM state and block on its mutex. Clients

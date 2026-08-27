@@ -66,6 +66,21 @@ int wt_hsm_guest_init(wt_guest_id_t guest_id,
                       void *transport_ctx,
                       const void *transport_cfg);
 
+/* Bind a guest's wolfHSM server to the secure relay capture transport
+ * (WT-FFM-0054): the request/response buffers live in monitor RAM, filled by
+ * wt_hsm_relay_submit from SERVICE_HSM's mediated psa_call path — no NS-RAM
+ * window and no CSR handshake. Same call rules as wt_hsm_guest_init. */
+int wt_hsm_guest_init_relay(wt_guest_id_t guest_id);
+
+/* SERVICE_HSM's platform submit hook (matches wt_hsm_relay_submit_fn): map
+ * the SPM-stamped caller to its guest server, pump one relayed wolfHSM
+ * packet through wh_Server_HandleRequestMessage in monitor RAM, and return
+ * the response packet. May block on the shared NVM mutex, so it must run
+ * from a scheduled coroutine, never the bootstrap context. */
+int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
+                        const uint8_t* req, size_t req_len,
+                        uint8_t* resp, size_t resp_cap, size_t* resp_len);
+
 /* Returns true if guest_id has been successfully initialised. Used
  * by the NSC veneers to reject HSM calls from guests that don't
  * have HSM provisioned. */

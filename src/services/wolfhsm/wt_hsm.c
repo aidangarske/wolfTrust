@@ -67,6 +67,7 @@
 #include "wolftrust/sched/tasklet.h"
 #include "wolftrust/sync/mutex.h"
 #include "wolftrust/services/hsm.h"
+#include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/services/vault_service.h"
 
 #include "wolftrust/port_nvm.h"
@@ -534,6 +535,153 @@ int wt_hsm_guest_init(wt_guest_id_t guest_id,
      * ---------------------------------------------------------------- */
     g->ready = true;
     return 0;
+}
+
+/* =========================================================================
+ * SERVICE_HSM relay transport (WT-FFM-0054).
+ *
+ * The mediated path replaces the per-guest NS-RAM CSR window: the relay
+ * partition hands one validated wolfHSM packet to wt_hsm_relay_submit, which
+ * stashes it in the guest's capture buffer in monitor RAM, pumps that guest's
+ * server to completion, and returns the captured response. The server's
+ * transport callbacks below only ever touch secure memory.
+ * ====================================================================== */
+_Static_assert(sizeof(whCommHeader) + WOLFHSM_CFG_COMM_DATA_LEN <=
+                   WT_HSM_RELAY_MSG_MAX,
+               "wolfHSM packet exceeds the relay capture buffer");
+
+typedef struct wt_hsm_relay_buf {
+    uint8_t  req[WT_HSM_RELAY_MSG_MAX];
+    uint8_t  resp[WT_HSM_RELAY_MSG_MAX];
+    uint16_t req_len;
+    uint16_t resp_len;
+    uint8_t  req_pending;
+    uint8_t  resp_ready;
+} wt_hsm_relay_buf_t;
+
+static wt_hsm_relay_buf_t g_relay_bufs[WT_MAX_GUESTS];
+
+static int wt_hsm_relay_srv_init(void* context, const void* config,
+                                 whCommSetConnectedCb connectcb,
+                                 void* connectcb_arg)
+{
+    (void)config;
+    if (context == NULL) {
+        return WH_ERROR_BADARGS;
+    }
+    if (connectcb != NULL) {
+        connectcb(connectcb_arg, WH_COMM_CONNECTED);
+    }
+    return WH_ERROR_OK;
+}
+
+static int wt_hsm_relay_srv_recv(void* context, uint16_t* out_size,
+                                 void* data)
+{
+    wt_hsm_relay_buf_t* buf = (wt_hsm_relay_buf_t*)context;
+
+    if (buf == NULL || out_size == NULL || data == NULL) {
+        return WH_ERROR_BADARGS;
+    }
+    if (buf->req_pending == 0u) {
+        return WH_ERROR_NOTREADY;
+    }
+    (void)memcpy(data, buf->req, buf->req_len);
+    *out_size = buf->req_len;
+    buf->req_pending = 0u;
+    return WH_ERROR_OK;
+}
+
+static int wt_hsm_relay_srv_send(void* context, uint16_t size,
+                                 const void* data)
+{
+    wt_hsm_relay_buf_t* buf = (wt_hsm_relay_buf_t*)context;
+
+    if (buf == NULL || data == NULL) {
+        return WH_ERROR_BADARGS;
+    }
+    if (size > sizeof(buf->resp)) {
+        return WH_ERROR_BADARGS;
+    }
+    (void)memcpy(buf->resp, data, size);
+    buf->resp_len = size;
+    buf->resp_ready = 1u;
+    return WH_ERROR_OK;
+}
+
+static int wt_hsm_relay_srv_cleanup(void* context)
+{
+    (void)context;
+    return WH_ERROR_OK;
+}
+
+static const whTransportServerCb g_relay_transport_cb = {
+    .Init    = wt_hsm_relay_srv_init,
+    .Recv    = wt_hsm_relay_srv_recv,
+    .Send    = wt_hsm_relay_srv_send,
+    .Cleanup = wt_hsm_relay_srv_cleanup
+};
+
+int wt_hsm_guest_init_relay(wt_guest_id_t guest_id)
+{
+    if (guest_id >= WT_MAX_GUESTS) {
+        return WH_ERROR_BADARGS;
+    }
+    return wt_hsm_guest_init(guest_id, &g_relay_transport_cb,
+                             &g_relay_bufs[guest_id], NULL);
+}
+
+int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
+                        const uint8_t* req, size_t req_len,
+                        uint8_t* resp, size_t resp_cap, size_t* resp_len)
+{
+    wt_hsm_guest_t* g;
+    wt_hsm_relay_buf_t* buf;
+    wt_guest_id_t gid;
+    int guard = 1000;
+    int rc = WH_ERROR_OK;
+
+    (void)submit_ctx;
+    if (req == NULL || resp == NULL || resp_len == NULL || client_id >= 0) {
+        return WH_ERROR_BADARGS;
+    }
+    /* The SPM stamps NS callers as -(guest + 1); the mapping mirrors
+     * wt_ffm_boot_caller_guest. */
+    gid = (wt_guest_id_t)(-client_id - 1);
+    if (gid >= WT_MAX_GUESTS) {
+        return WH_ERROR_BADARGS;
+    }
+    g = &g_guests[gid];
+    buf = &g_relay_bufs[gid];
+    if (!g->ready || g->transport_ctx != buf) {
+        return WH_ERROR_NOTREADY;
+    }
+    if (req_len == 0u || req_len > sizeof(buf->req) ||
+            req_len > sizeof(whCommHeader) + WOLFHSM_CFG_COMM_DATA_LEN) {
+        return WH_ERROR_BADARGS;
+    }
+
+    (void)memcpy(buf->req, req, req_len);
+    buf->req_len = (uint16_t)req_len;
+    buf->resp_ready = 0u;
+    buf->req_pending = 1u;
+
+    while (buf->resp_ready == 0u && guard-- > 0) {
+        rc = wh_Server_HandleRequestMessage(&g->server);
+        if (rc != WH_ERROR_OK && rc != WH_ERROR_NOTREADY) {
+            break;
+        }
+    }
+    if (buf->resp_ready == 0u) {
+        buf->req_pending = 0u;
+        return (rc != WH_ERROR_OK) ? rc : WH_ERROR_ABORTED;
+    }
+    if (buf->resp_len > resp_cap) {
+        return WH_ERROR_ABORTED;
+    }
+    (void)memcpy(resp, buf->resp, buf->resp_len);
+    *resp_len = buf->resp_len;
+    return WH_ERROR_OK;
 }
 
 /* =========================================================================
