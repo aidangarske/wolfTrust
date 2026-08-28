@@ -82,12 +82,32 @@ whClientContext *wolfhsm_guest_client(void)
     return &g_client_ctx;
 }
 
+/* Boot can race a Secure Partition restart window (the SPM refuses connects
+ * while the relay recovers), so one failed init must not be terminal —
+ * heal on demand by retrying the connect on the next crypto request. */
+static int wolfhsm_guest_ensure_ready(void)
+{
+    if (g_client_ready != 0) {
+        return WH_ERROR_OK;
+    }
+    return wolfhsm_guest_init();
+}
+
+int wolfhsm_guest_cryptocb(int devId, wc_CryptoInfo *info, void *ctx)
+{
+    (void)ctx;
+    if (wolfhsm_guest_ensure_ready() != WH_ERROR_OK) {
+        return CRYPTOCB_UNAVAILABLE;
+    }
+    return wh_Client_CryptoCb(devId, info, &g_client_ctx);
+}
+
 int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz)
 {
     if (output == NULL && sz != 0u) {
         return WH_ERROR_BADARGS;
     }
-    if (g_client_ready == 0) {
+    if (wolfhsm_guest_ensure_ready() != WH_ERROR_OK) {
         return -1;
     }
     return wh_Client_RngGenerate(&g_client_ctx, output, sz);

@@ -39,10 +39,6 @@ typedef void (*wt_spm_sp_entry_fn)(void* arg);
 int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
                      wt_spm_sp_entry_fn entry, void* arg);
 
-/* Start the crypto Secure Partition as a scheduled coroutine (P1t): the single
- * built-in SP, scheduled via wt_spm_sched_add with the crypto service loop. */
-int wt_spm_sched_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
-
 /* Start the SERVICE_HSM relay partition (WT-FFM-0054) as a scheduled
  * PRIVILEGED coroutine: its loop hands each mediated wolfHSM packet to the
  * monitor's inline server pump, which reads secure state and may block on

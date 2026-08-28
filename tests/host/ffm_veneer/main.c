@@ -27,13 +27,15 @@
 
 #include "wolftrust/ffm_boot.h"
 #include "wolftrust/spm_sched.h"
-#include "wolftrust/services/crypto_service.h"
+#include "wolftrust/services/hsm_relay.h"
 #include "psa_manifest/pid.h"
 
 #include <stdio.h>
 #include <string.h>
 
-#define TEST_CRYPTO_SID 4097U
+#include <wolfssl/wolfcrypt/sha256.h>
+
+#define TEST_HSM_SID    4102U
 #define TEST_NS_CLIENT  (-1)
 
 static int g_panics;
@@ -41,16 +43,10 @@ static int g_reads_seen;
 static int g_writes_seen;
 static wt_guest_id_t g_last_guest;
 
-/* ---- platform stubs for the two symbols the neutral boot core needs ---- */
+/* ---- platform stub for the symbol the neutral boot core needs ---- */
 void wt_platform_panic(void)
 {
     g_panics++;
-}
-
-int wt_platform_run_crypto_sp_isolated(const uint8_t* input, size_t input_len,
-                                       uint8_t* digest, size_t digest_len)
-{
-    return wt_crypto_sp_hash(input, input_len, digest, digest_len);
 }
 
 /* Scheduler stubs: wt_ffm_boot_start_sched is not exercised here. */
@@ -58,12 +54,6 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
                      wt_spm_sp_entry_fn entry, void* arg)
 {
     (void)runtime; (void)partition_id; (void)entry; (void)arg;
-    return WT_FFM_SUCCESS;
-}
-
-int wt_spm_sched_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
-{
-    (void)runtime; (void)partition_id;
     return WT_FFM_SUCCESS;
 }
 
@@ -108,17 +98,46 @@ static int test_ns_check_write(wt_guest_id_t guest_id, void* address,
     return size == 0U || address != NULL;
 }
 
-/* ---- manifest fixture: the crypto partition as production declares it ---- */
+/* ---- SHA-256 submit hook: hashing the relayed request packet keeps the
+ * KAT round trip byte-exact without a wolfHSM server in this fixture ---- */
+static int test_sha_submit(void* submit_ctx, int32_t client_id,
+                           const uint8_t* req, size_t req_len,
+                           uint8_t* resp, size_t resp_cap, size_t* resp_len)
+{
+    wc_Sha256 sha;
+    int rc;
+
+    (void)submit_ctx;
+    (void)client_id;
+    if (resp_cap < WC_SHA256_DIGEST_SIZE) {
+        return -1;
+    }
+    rc = wc_InitSha256(&sha);
+    if (rc == 0) {
+        rc = wc_Sha256Update(&sha, req, (word32)req_len);
+    }
+    if (rc == 0) {
+        rc = wc_Sha256Final(&sha, resp);
+    }
+    wc_Sha256Free(&sha);
+    if (rc != 0) {
+        return -1;
+    }
+    *resp_len = WC_SHA256_DIGEST_SIZE;
+    return 0;
+}
+
+/* ---- manifest fixture: the relay partition as production declares it ---- */
 static const wt_service_descriptor_t g_services[] = {
     {
-        "SERVICE_CRYPTO", TEST_CRYPTO_SID, 1U, WT_SERVICE_VERSION_RELAXED,
+        "SERVICE_HSM", TEST_HSM_SID, 1U, WT_SERVICE_VERSION_RELAXED,
         0x10U, 0U, 1U, 1U
     }
 };
 
 static const wt_partition_manifest_t g_partitions[] = {
     {
-        "PARTITION_CRYPTO", PARTITION_CRYPTO_ID, WT_FFM_VERSION_1_0,
+        "PARTITION_HSM", PARTITION_HSM_ID, WT_FFM_VERSION_1_0,
         WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
         g_services, sizeof(g_services) / sizeof(g_services[0]),
         NULL, 0U, NULL, 0U
@@ -171,18 +190,14 @@ int main(void)
     check(rt != NULL && rt == (wt_ffm_runtime_t*)wt_ffm_boot_runtime(),
           "runtime_mut exposes the boot runtime to the port veneers");
 
-    /* The boot core now seats the SERVICE_HSM relay on this partition; this
-     * fixture exercises the veneer memcheck seam against the crypto dispatch,
-     * so re-register it the way the pre-relay boot did. */
-    check(wt_ffm_register_partition(rt, PARTITION_CRYPTO_ID,
-                                    wt_crypto_service_dispatch,
-                                    NULL) == WT_FFM_SUCCESS,
-          "crypto dispatch re-registered for the veneer fixture");
+    /* The boot core seats the SERVICE_HSM relay on this partition; the
+     * SHA submit hook completes the fixture's round trip. */
+    wt_hsm_relay_set_submit(test_sha_submit, NULL);
 
     /* Fail-closed default: no memcheck installed, so an NS call with real
      * vectors must be rejected before any service work happens. */
-    handle = wt_ffm_connect(rt, TEST_NS_CLIENT, TEST_CRYPTO_SID, 1U);
-    check(handle > 0, "NS client connects to SERVICE_CRYPTO");
+    handle = wt_ffm_connect(rt, TEST_NS_CLIENT, TEST_HSM_SID, 1U);
+    check(handle > 0, "NS client connects to SERVICE_HSM");
 
     in_vec.base = input;
     in_vec.len = sizeof(input) - 1U;
@@ -198,7 +213,7 @@ int main(void)
      * trip: connect, call, digest KAT, caller resolved to guest 0. */
     wt_ffm_boot_set_memcheck(test_ns_check_read, test_ns_check_write);
     (void)wt_ffm_close(rt, TEST_NS_CLIENT, handle);
-    handle = wt_ffm_connect(rt, TEST_NS_CLIENT, TEST_CRYPTO_SID, 1U);
+    handle = wt_ffm_connect(rt, TEST_NS_CLIENT, TEST_HSM_SID, 1U);
     check(handle > 0, "NS client reconnects after memcheck install");
 
     memset(digest, 0, sizeof(digest));
@@ -209,7 +224,7 @@ int main(void)
     check(status == PSA_SUCCESS,
           "WT-FFM-0012 NS call succeeds through the installed memcheck");
     check(memcmp(digest, expected, sizeof(expected)) == 0,
-          "SERVICE_CRYPTO SHA-256 KAT digest matches");
+          "mediated SHA-256 KAT digest matches");
     check(g_reads_seen > 0 && g_writes_seen > 0,
           "installed read+write checks actually gated the vectors");
     check(g_last_guest == (wt_guest_id_t)0,
@@ -218,7 +233,7 @@ int main(void)
 
     /* Clearing the seam restores fail-closed. */
     wt_ffm_boot_set_memcheck(NULL, NULL);
-    handle = wt_ffm_connect(rt, TEST_NS_CLIENT, TEST_CRYPTO_SID, 1U);
+    handle = wt_ffm_connect(rt, TEST_NS_CLIENT, TEST_HSM_SID, 1U);
     status = wt_ffm_call(rt, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                          &in_vec, 1U, &out_vec, 1U);
     check(status != PSA_SUCCESS,

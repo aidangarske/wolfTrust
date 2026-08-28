@@ -600,28 +600,30 @@ case "$scenario" in
     check_fail "cross-domain isolation" "expected MEMFAULT at 0x30028000, none seen"
     ;;
   spfaultneg)
-    # The crypto SP faulted once (out-of-domain read of SPM RAM). wolfTrust must
-    # catch the MemManage, fail the pinned client with a defined error, restart
-    # the partition in place, and complete the rest of the lifecycle with no
-    # platform reset — the restarted SP itself serves the later crypto KAT.
-    if grep -Eq '\[MEMFAULT\].*addr=0x30028000' "$log"; then
-      check_pass "crypto SP faulted once (MEMFAULT at 0x30028000)"
+    # The SERVICE_HSM relay SP faults once on its first entry (udf #0 — the
+    # relay runs privileged, so an undefined instruction stands in for the
+    # MPU read the unprivileged probe used). wolfTrust must catch the
+    # Secure-Thread UsageFault, restart the partition in place, and the
+    # RESTARTED relay must then serve every mediated crypto request from both
+    # OS clients with no platform reset. (The pinned-client defined-error
+    # unblock is host-proven in tests/host/sp_recovery — the entry probe
+    # faults before any client connects.)
+    if grep -Eq '\[USGFLT\].*CFSR=0x00010000' "$log"; then
+      check_pass "relay SP faulted once (Secure-Thread UNDEFINSTR UsageFault)"
     else
-      check_fail "SP fault" "expected MEMFAULT at 0x30028000, none seen"
+      check_fail "SP fault" "expected UNDEFINSTR UsageFault, none seen"
     fi
-    refute_re "MemManage was contained, not escalated to a HardFault" \
+    refute_re "fault was contained, not escalated" \
       '(\[HARDFLT\]|HardFault|SecureFault)'
-    expect "pinned client unblocked with a defined error, no hang" \
-      "FF-M psa_connect(SERVICE_CRYPTO) failed rc=0 handle=-145"
-    expect "restarted crypto SP serves again (key-ops ride SERVICE_CRYPTO)" \
+    expect "restarted relay serves mediated key-ops" \
       "wolfTrust key-ops sign/verify verified"
     expect "unrelated storage partitions unaffected" \
       "wolfTrust ITS set/get verified"
-    expect "wolfHSM tasklet path unaffected" \
+    expect "restarted relay serves the mediated SHA KAT" \
       "psa_hash_compute(SHA-256) KAT verified"
     expect "unrelated guest booted and ran through the SP fault" \
       "freertos_guest1: alive"
-    expect "restarted SERVICE_CRYPTO serves the other-OS client too" \
+    expect "restarted relay serves the other-OS client too" \
       "freertos_guest1: ffm sha256 ok"
     expect "full lifecycle completed after recovery" "[EXPECT BKPT] Success"
     echo "PASS: target/spfaultneg"

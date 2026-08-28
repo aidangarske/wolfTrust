@@ -97,3 +97,11 @@ fi
     -b "$BOARD" \
     "$APP_DIR" \
     -- "$@"
+
+# Mediated-path proof (WT-FFM-0054): the retired raw HSM bypass veneers must
+# not appear in any NS guest image.
+if arm-none-eabi-nm "$BUILD_DIR/zephyr/zephyr.elf" 2>/dev/null | \
+        grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)'; then
+    echo "FAIL: raw WolfTrust_HSM_* bypass veneers linked into $APP_NAME" >&2
+    exit 1
+fi

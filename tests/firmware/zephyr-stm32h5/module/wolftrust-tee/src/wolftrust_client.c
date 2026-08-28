@@ -30,15 +30,17 @@
 #define WH_ERROR_NOTREADY -2001
 #define WH_ERROR_ABORTED -2002
 
-extern int WolfTrust_HSM_Cancel(uint16_t seq);
-extern int WolfTrust_HSM_Poll(uint16_t seq);
+/* Liveness rides the mediated FF-M gateway (WT-FFM-0054): one veneer call
+ * proving the SPM answers. The raw WolfTrust_HSM_* transport is retired. */
+extern uint32_t WolfTrust_FFM_FrameworkVersion(void);
 
 static const char *g_tag;
 
 int wt_zephyr_client_init(const char *tag)
 {
     g_tag = tag;
-    return WolfTrust_HSM_Cancel(0u);
+    return (WolfTrust_FFM_FrameworkVersion() == 0x0100u) ? WH_ERROR_OK
+                                                         : WH_ERROR_ABORTED;
 }
 
 int wt_zephyr_client_ping(void)
@@ -47,7 +49,8 @@ int wt_zephyr_client_ping(void)
         return WH_ERROR_BADARGS;
     }
 
-    return WolfTrust_HSM_Poll(0u);
+    return (WolfTrust_FFM_FrameworkVersion() == 0x0100u) ? WH_ERROR_OK
+                                                         : WH_ERROR_NOTREADY;
 }
 
 const char *wt_zephyr_client_status_string(int rc)

@@ -122,7 +122,9 @@ int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz)
     if (output == NULL && sz != 0u) {
         return WH_ERROR_BADARGS;
     }
-    if (g_client_ready == 0) {
+    /* Boot can race a Secure Partition restart window; one failed init must
+     * not be terminal — retry the connect on demand. */
+    if (g_client_ready == 0 && wolfhsm_guest_init() != WH_ERROR_OK) {
         return -1;
     }
 

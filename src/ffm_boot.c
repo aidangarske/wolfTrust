@@ -22,7 +22,6 @@
 
 #include "wolftrust/platform.h"
 #include "wolftrust/spm_sched.h"
-#include "wolftrust/services/crypto_service.h"
 #include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/storage_service.h"
@@ -175,13 +174,6 @@ int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
                                               wt_fwu_service_dispatch, NULL);
         (void)vault_ret;
 #endif
-    }
-    if (ret == WT_FFM_SUCCESS) {
-        /* Run SERVICE_CRYPTO's compute isolated on the crypto SP's own
-         * secure stack under a narrowed MPU domain (WT-FFM-0011). The
-         * scheduled path (wt_ffm_boot_start_sched) supersedes this once
-         * the coroutine scheduler is up. */
-        wt_crypto_service_set_compute(wt_platform_run_crypto_sp_isolated);
     }
     return ret;
 }

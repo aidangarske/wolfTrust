@@ -55,10 +55,9 @@
 /*---------------------------------------------------------------------------
  * Communication buffer
  *
- * Each CMSE slot is WT_HSM_BUF_SIZE/2 = 384 B: 8 B whTransportMemCsr + 8 B
- * whCommHeader + 368 B payload. COMM_DATA_LEN is that payload budget; the
- * whCommHeader rides in front of it in the same slot, so the transport must
- * carry sizeof(whCommHeader) + COMM_DATA_LEN. cmse_transport.c asserts this.
+ * COMM_DATA_LEN is the wire payload budget; the 8 B whCommHeader rides in
+ * front of it, so one packet is 376 B — inside the relay's
+ * WT_HSM_RELAY_MSG_MAX (512 B) copied-IOVEC bound (hsm_relay.h).
  *---------------------------------------------------------------------------*/
 #define WOLFHSM_CFG_COMM_DATA_LEN 368
 

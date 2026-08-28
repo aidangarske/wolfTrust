@@ -181,15 +181,17 @@ ${GUEST_CC} ${CFLAGS} ${LDFLAGS} \
     "${SECURE_CMSE_IMPLIB}" \
     -lgcc
 
-# Mediated-path proof (WT-FFM-0054): the wolfHSM client is now legitimately
-# present, and it must reach the secure side through the SPM-mediated
-# psa_call transport. Assert that transport is linked. (The raw WolfTrust_HSM_*
-# veneers are still bundled in the shared CMSE import library blob, so a strict
-# absence check only becomes clean once S6g deletes them from the secure image;
-# guest1's glue calls only wt_hsm_psa_transport_cb, never the veneers.)
+# Mediated-path proof (WT-FFM-0054): the wolfHSM client must reach the secure
+# side ONLY through the SPM-mediated psa_call transport — assert the transport
+# is linked and the retired raw bypass veneers are absent.
 if ! arm-none-eabi-nm "${BUILD_DIR}/freertos_guest1.elf" | \
         grep -q "wt_hsm_psa_transport_cb"; then
     echo "guest1 is not wired to the SPM-mediated wolfHSM transport" >&2
+    exit 1
+fi
+if arm-none-eabi-nm "${BUILD_DIR}/freertos_guest1.elf" | \
+        grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)'; then
+    echo "FAIL: raw WolfTrust_HSM_* bypass veneers linked into guest1" >&2
     exit 1
 fi
 

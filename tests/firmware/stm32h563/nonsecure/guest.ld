@@ -34,16 +34,11 @@ SECTIONS {
     *(.shared*)
   } > RAM
 
-  /* wolfHSM CMSE transport buffer: 768 B at GUEST_RAM_ORIGIN + 0x100.
-   * NOLOAD — the secure side initialises this region via cmse_check_address_range.
-   * Matches WT_HSM_BUF_OFFSET / WT_HSM_BUF_SIZE in the STM32H563 port map. */
-  .hsm_transport (ORIGIN(RAM) + 0x100) (NOLOAD) : {
-    _hsm_transport_base = .;
+  /* 768 B kept reserved at GUEST_RAM_ORIGIN + 0x100 (the retired CMSE
+   * transport window) so the guest RAM layout is unchanged. */
+  .reserved (ORIGIN(RAM) + 0x100) (NOLOAD) : {
     . += 0x300;
-    _hsm_transport_end = .;
   } > RAM
-
-  _hsm_transport_size = _hsm_transport_end - _hsm_transport_base;
 
   .vectors GUEST_FLASH_ORIGIN : {
     KEEP(*(.vectors))

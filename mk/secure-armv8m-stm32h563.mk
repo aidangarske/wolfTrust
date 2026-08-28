@@ -253,12 +253,10 @@ WT_SECURE_EXTRA_SRCS := \
     $(wildcard $(WOLFHSM_RUNNER_DIR)/libc_stubs.c) \
     $(wildcard $(ROOT)/src/services/wolfhsm/*.c) \
     $(ROOT)/src/services/boot_handoff.c \
-    $(ROOT)/src/services/crypto_service.c \
     $(ROOT)/src/services/hsm_relay_service.c \
     $(ROOT)/src/services/storage_service.c \
     $(ROOT)/src/services/fwu_service.c \
-    $(ROOT)/src/services/vault_service.c \
-    $(wildcard $(ROOT)/src/arch/armv8m/cmse_transport.c)
+    $(ROOT)/src/services/vault_service.c
 
 ifeq ($(WT_ATTEST_COSE),1)
 WT_SECURE_EXTRA_SRCS += \
@@ -1371,6 +1369,11 @@ $(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) $(WOLFHSM_RUNNER_DIR)/
 		-Wl,--cmse-implib \
 		-Wl,--out-implib=$(SECURE_CMSE_IMPLIB) \
 		-o $(SECURE_ELF) $(ALL_SECURE_OBJS) -lgcc
+	@if $(TOOLPREFIX)nm $(SECURE_ELF) | \
+			grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)'; then \
+		echo "FAIL: raw WolfTrust_HSM_* bypass veneers in the secure image (WT-FFM-0054)" >&2; \
+		exit 1; \
+	fi
 
 $(SECURE_BIN): $(SECURE_ELF)
 	$(OBJCOPY) -O binary $< $@

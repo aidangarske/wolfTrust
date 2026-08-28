@@ -27,7 +27,7 @@
  *   - Per-guest whServerContext instances driven by per-guest tasklets.
  *
  * What this file does NOT own:
- *   - Transport implementation (Wave 4, cmse_transport.c).
+ *   - The NS-side transport (src/client/hsm_psa_transport.c over SERVICE_HSM).
  *   - Lock callback implementations (Wave 3B, wt_hsm_lock.c).
  *
  * Heap strategy:
@@ -819,6 +819,37 @@ void wt_hsm_release_locks(struct wt_co *co)
     if (co != NULL) {
         wt_mutex_release_if_holder(&g_nvm_lock_mutex, co);
     }
+}
+
+int wt_hsm_relay_reinit_servers(void)
+{
+    int             rc = WH_ERROR_OK;
+    wt_hsm_guest_t *g;
+    wt_guest_id_t   gid;
+
+    for (gid = 0; gid < WT_MAX_GUESTS; gid++) {
+        g = &g_guests[gid];
+        if (!g->ready) {
+            continue;
+        }
+        /* A relay fault can tear a server mid-request; rebuild the server
+         * and its DRBG in place rather than trust torn state. The configs
+         * and tasklet stored in g persist — only the live contexts reset. */
+        (void)wh_Server_Cleanup(&g->server);
+        (void)wc_FreeRng(g->crypto.rng);
+        rc = wc_InitRng_ex(g->crypto.rng, NULL, INVALID_DEVID);
+        if (rc == 0) {
+            rc = wh_Server_Init(&g->server, &g->server_cfg);
+        }
+        if (rc == 0) {
+            rc = wh_Server_SetConnected(&g->server, WH_COMM_CONNECTED);
+        }
+        if (rc != 0) {
+            g->ready = false;
+            break;
+        }
+    }
+    return rc;
 }
 
 int wt_hsm_signal_fault(wt_guest_id_t guest_id)

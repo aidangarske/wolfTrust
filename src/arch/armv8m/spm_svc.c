@@ -19,11 +19,11 @@
  */
 
 /* P1t (WT-FFM-0014/0011): run a Secure Partition as an unprivileged scheduled
- * coroutine. The partition's service loop is the same architecture-neutral
- * code the host tests prove (src/services/crypto_service.c); only the
- * transport differs — every wt_spm_call_t traps here via SVC so the gate,
- * pointer validation, and any blocking run privileged on the SPM side while
- * the partition thread stays unprivileged inside its manifest MPU domain. */
+ * coroutine. Each partition's service loop is the same architecture-neutral
+ * code the host tests prove (src/services/); only the transport differs —
+ * every wt_spm_call_t traps here via SVC so the gate, pointer validation, and
+ * any blocking run privileged on the SPM side while the partition thread
+ * stays unprivileged inside its manifest MPU domain. */
 
 #include "wolftrust/arch/armv8m/spm_svc.h"
 
@@ -33,7 +33,6 @@
 #include "wolftrust/platform.h"
 #include "wolftrust/sched/coroutine.h"
 #include "wolftrust/sched/coroutine_internal.h"
-#include "wolftrust/services/crypto_service.h"
 #include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/hsm_relay.h"
@@ -143,12 +142,19 @@ typedef struct wt_spm_fault_ctx {
     wt_spm_sp_t* slot;
 } wt_spm_fault_ctx_t;
 
+static int32_t g_spm_hsm_partition_id = -1;
+
 static void wt_spm_fault_release(void* ctx)
 {
     wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
 
 #if defined(WT_ENGINE_HSM)
     wt_hsm_release_locks(c->slot->co);
+    if (c->slot->partition_id == g_spm_hsm_partition_id) {
+        /* The fault may have torn a per-guest server mid-request; rebuild
+         * them all. Fails closed — a guest whose re-init fails stays down. */
+        (void)wt_hsm_relay_reinit_servers();
+    }
 #else
     (void)c;
 #endif
@@ -442,52 +448,6 @@ static int wt_spm_svc_transport(wt_ffm_runtime_t* runtime, wt_spm_call_t* call)
 int wt_spm_sp_call(struct wt_spm_call* call)
 {
     return wt_spm_svc_transport(NULL, call);
-}
-
-/* The scheduled Secure Partition thread: the production service loop,
- * unprivileged on its own stack, one message per iteration. The runtime
- * pointer is never dereferenced on this side — every request crosses the
- * SVC transport. */
-static void wt_spm_sp_entry(void* arg)
-{
-    int32_t partition_id = (int32_t)(intptr_t)arg;
-    /* Transport + compute live on the SP's own stack: the service loop must
-     * not read the file-scope globals, which sit in SPM RAM the unprivileged
-     * partition cannot map. Both are flash code addresses, so building the
-     * struct touches only the partition's mapped stack and code. */
-    wt_crypto_service_ctx_t ctx;
-#if defined(WT_SP_FAULT_PROBE) && (WT_SP_FAULT_PROBE == 1)
-    volatile uint32_t probe;
-
-    /* One-shot graceful-recovery probe (target/spfaultneg): fault exactly once
-     * with an out-of-domain read of SPM RAM. The recovery path re-arms this
-     * partition with the restarted marker set in its argument, so the re-run
-     * skips the read and serves normally — proving a faulted Secure Partition
-     * is restarted in place without resetting the platform. */
-    if (((intptr_t)arg & WT_SP_FAULT_PROBE_RESTARTED) == 0) {
-        probe = *(const volatile uint32_t*)(uintptr_t)WT_RAM_S_BASE;
-        (void)probe;
-    }
-    partition_id = (int32_t)((intptr_t)arg &
-                             ~(intptr_t)WT_SP_FAULT_PROBE_RESTARTED);
-#endif
-
-    ctx.transport = wt_spm_svc_transport;
-    ctx.compute = wt_crypto_sp_hash;
-    ctx.vault_sid = SERVICE_VAULT_SID;
-    ctx.vault_handle = 0;
-
-    for (;;) {
-#if defined(WT_FFM_NEGATIVE_PROBE) && (WT_FFM_NEGATIVE_PROBE == 1)
-        /* Negative isolation proof (WT-FFM-0011): an unprivileged read of
-         * SPM-private RAM from inside the SP domain must MemManage-fault.
-         * Never built into production images. */
-        volatile uint32_t probe;
-        probe = *(const volatile uint32_t*)(uintptr_t)WT_RAM_S_BASE;
-        (void)probe;
-#endif
-        (void)wt_crypto_service_dispatch(&ctx, NULL, partition_id);
-    }
 }
 
 /* True when a suspended partition's wake condition holds: its awaited signal
@@ -875,12 +835,6 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
     return wt_spm_sched_add_common(runtime, partition_id, entry, arg, 0u);
 }
 
-int wt_spm_sched_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
-{
-    return wt_spm_sched_add(runtime, partition_id, wt_spm_sp_entry,
-                            (void*)(intptr_t)partition_id);
-}
-
 /* SERVICE_HSM's relay loop: privileged like the vault, because the submit
  * pump reaches the monitor's wolfHSM server state and may block on the
  * shared NVM mutex — neither is possible from a narrowed thread domain. */
@@ -911,6 +865,7 @@ int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 #if defined(WT_ENGINE_HSM)
     wt_hsm_relay_set_submit(wt_hsm_relay_submit, NULL);
 #endif
+    g_spm_hsm_partition_id = partition_id;
     return wt_spm_sched_add_common(runtime, partition_id, wt_spm_hsm_entry,
                                    (void*)(intptr_t)partition_id, 1u);
 }
@@ -951,6 +906,14 @@ static void wt_spm_its_entry(void* arg)
     ctx.caps = 0U;
 
     for (;;) {
+#if defined(WT_FFM_NEGATIVE_PROBE) && (WT_FFM_NEGATIVE_PROBE == 1)
+        /* Negative isolation proof (WT-FFM-0011): an unprivileged read of
+         * SPM-private RAM from inside the SP domain must MemManage-fault.
+         * Never built into production images. */
+        volatile uint32_t probe;
+        probe = *(const volatile uint32_t*)(uintptr_t)WT_RAM_S_BASE;
+        (void)probe;
+#endif
         (void)wt_storage_service_dispatch(&ctx, NULL, partition_id);
     }
 }

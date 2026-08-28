@@ -136,11 +136,7 @@ static wt_guest_config_t g_partition_configs[] = {
             .required_capabilities = WT_PORT_CAPABILITY_ALL,
             .provided_capabilities = WT_PORT_CAPABILITY_ALL,
             .vector_read_address =
-                WT_FLASH_TO_S_ALIAS(WT_GUEST0_FLASH_BASE),
-            .hsm_transport = {
-                .base = WT_GUEST0_HSM_BUF_BASE,
-                .size = WT_HSM_BUF_SIZE
-            }
+                WT_FLASH_TO_S_ALIAS(WT_GUEST0_FLASH_BASE)
         }
     },
 #if WT_MAX_GUESTS > 1
@@ -183,11 +179,7 @@ static wt_guest_config_t g_partition_configs[] = {
             .required_capabilities = WT_PORT_CAPABILITY_ALL,
             .provided_capabilities = WT_PORT_CAPABILITY_ALL,
             .vector_read_address =
-                WT_FLASH_TO_S_ALIAS(WT_GUEST1_FLASH_BASE),
-            .hsm_transport = {
-                .base = WT_GUEST1_HSM_BUF_BASE,
-                .size = WT_HSM_BUF_SIZE
-            }
+                WT_FLASH_TO_S_ALIAS(WT_GUEST1_FLASH_BASE)
         }
     }
 #endif
@@ -297,31 +289,11 @@ static const wt_domain_descriptor_t* wt_partition_manifest_domain(
     return NULL;
 }
 
-static bool wt_port_window_in_resource(
-    const wt_hsm_transport_window_t* window,
-    const wt_memory_resource_t* resource)
-{
-    uintptr_t window_end;
-    uintptr_t resource_end;
-
-    if (window->size == 0U || resource->size == 0U ||
-            window->base > UINTPTR_MAX - window->size ||
-            resource->base > UINTPTR_MAX - resource->size) {
-        return false;
-    }
-
-    window_end = window->base + window->size;
-    resource_end = resource->base + resource->size;
-    return window->base >= resource->base && window_end <= resource_end;
-}
-
 int wt_partition_validate_port_binding(
     const wt_guest_config_t* config,
     const wt_domain_descriptor_t* domain)
 {
     const wt_guest_port_binding_t* port;
-    size_t i;
-    bool transport_authorized = false;
 
     if (config == NULL || domain == NULL ||
             (domain->memory_resource_count != 0U &&
@@ -344,31 +316,6 @@ int wt_partition_validate_port_binding(
              (port->vector_read_address & (sizeof(uint32_t) - 1U)) != 0U ||
              port->vector_read_address == config->vector_table)) {
         return WT_PORT_ERROR_VECTOR_ALIAS;
-    }
-
-    if ((port->required_capabilities &
-            WT_PORT_CAPABILITY_HSM_TRANSPORT) == 0U) {
-        return WT_PORT_VALID;
-    }
-
-    for (i = 0U; i < domain->memory_resource_count; ++i) {
-        const wt_memory_resource_t* resource =
-            &domain->memory_resources[i];
-
-        if ((resource->attributes &
-                (WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE)) !=
-                    (WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE) ||
-                (resource->attributes & WT_MEM_ATTR_EXEC) != 0U) {
-            continue;
-        }
-        if (wt_port_window_in_resource(&port->hsm_transport, resource)) {
-            transport_authorized = true;
-            break;
-        }
-    }
-
-    if (!transport_authorized) {
-        return WT_PORT_ERROR_HSM_TRANSPORT;
     }
 
     return WT_PORT_VALID;

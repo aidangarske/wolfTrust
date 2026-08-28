@@ -3061,3 +3061,84 @@ oversized-vector, unknown-SID connect refused) green from Zephyr and FreeRTOS. N
 fault markers. WT-FFM-0054's "no non-secure path outside the SPM" is met for the
 non-secure side; the secure-image retirement (delete the CMSE veneers +
 `crypto_service.c`/`ffm_crypto_client.c`, strict nm absence guards) is S6g.
+
+## Phase 7 S6g — Bypass deleted from the secure image (WT-FFM-0054 met, 2026-08-28)
+
+Closes the single-mediated-path milestone: the raw non-secure-to-wolfHSM
+transport no longer exists anywhere — not as veneers, not as a transport
+implementation, not as a port-contract capability. The SPM is the sole
+gatekeeper by construction, and build guards keep it that way.
+
+Deleted:
+
+- The `WolfTrust_HSM_Submit/Poll/Cancel` CMSE veneers and their prechecks
+  (`port/stm32h563/platform_stm32h563.c`) — the secure image and its CMSE
+  import library no longer export any raw HSM entry point.
+- `src/arch/armv8m/cmse_transport.c` + header — the shared-RAM CSR transport.
+- `src/services/crypto_service.c` + header and `src/client/ffm_crypto_client.c`
+  + header — the retired SERVICE_CRYPTO op-protocol face and its NS helper.
+- The crypto-SP isolated-compute block (work struct, MSP-switch trampoline,
+  `wt_platform_run_crypto_sp_isolated`) and the descheduled
+  `wt_spm_sp_entry`/`wt_spm_sched_start` service loop.
+- The monitor's veneer-only HSM wake hooks (`wt_monitor_hsm_request_pending`/
+  `_response_ready`).
+- The port-contract bypass affordance: `WT_PORT_CAPABILITY_HSM_TRANSPORT`, the
+  `wt_hsm_transport_window_t` descriptor and per-guest bindings, the window
+  validation in `wt_partition_validate_port_binding`, and the `memory_map.h`
+  NS-RAM window macros. A port can no longer even declare a direct NS-to-HSM
+  window.
+
+Repaired two latently-red scenarios the full matrix surfaced:
+
+- crossdomain: both `WT_FFM_NEGATIVE_PROBE` sites lived in the descheduled
+  crypto-SP path — dead code since the manifest swap. The probe now lives in
+  the live unprivileged ITS partition loop, restoring a genuine out-of-domain
+  MEMFAULT.
+- spfaultneg: the runner still asserted the pre-relay probe signature
+  (MEMFAULT at SPM RAM) and the retired guest connect-failure marker, but the
+  probe has been `udf #0` in the privileged relay entry since the relay
+  landed (link-only validation then). The assertions now match the relay:
+  Secure-Thread UNDEFINSTR caught, no HardFault/SecureFault escalation, and
+  the RESTARTED relay serves every mediated request from both OS clients.
+  The pinned-client defined-error unblock stays host-proven in
+  `tests/host/sp_recovery`.
+
+Found and fixed a REAL resilience defect the repaired scenario immediately
+exposed: the relay's fault window can overlap a guest's boot, and the NS
+wolfHSM client glue treated one failed init as terminal. The probe faults the
+relay at its first scheduling; guest0's client SYS_INIT then races the
+recovery window, its `wh_Client_Init` connect to SERVICE_HSM is refused by
+the faulted partition, and the glue latched `g_client_ready = 0` forever — so
+every later mediated crypto op on guest0 failed (surfacing as -132) while
+guest1, booting after recovery, was fine. Diagnosis chain: A/B (same probe
+build, udf disabled → fully green) proved the aftermath; a guest-side probe
+returned the glue's fail-closed rc, pinning the latch (a rebuilt healthy
+server had already ruled the secure side out). Fix (client-side, where FF-M
+puts it — partitions may restart, clients must reconnect): the glue heals on
+demand — `wolfhsm_guest_ensure_ready` retries the init on the next crypto
+request, the registered crypto callback is the healing wrapper
+`wolfhsm_guest_cryptocb`, boot init failure downgrades to a warning, and the
+bare-metal glue's RNG stub retries the same way. Defense kept on the secure
+side: `wt_hsm_relay_reinit_servers` rebuilds each ready per-guest server
+(cleanup + fresh DRBG + re-init, tasklets and configs preserved) from the
+recovery release stage, so a genuinely torn mid-request server is never
+trusted; a guest whose rebuild fails stays down (fail closed).
+
+Ported: the wolftrust-tee Zephyr module's init/ping/invoke liveness probes now
+ride the mediated `WolfTrust_FFM_FrameworkVersion` veneer; every scenario
+marker ("wolfTrust TEE client initialized", impl-id, framework version) is
+unchanged.
+
+Guards (fail the build, not just a scenario): `nm` must show no
+`WolfTrust_HSM_(Submit|Poll|Cancel)` in the secure ELF (mk link rule), in
+guest0 (`build_guest.sh`), or in guest1 (`build_freertos_guest.sh`, which also
+asserts the mediated `wt_hsm_psa_transport_cb` is present).
+
+Host evidence: `crypto_service` suite deleted; `psa_ffm_client` and
+`ffm_veneer` re-fixtured onto the production `wt_hsm_relay_dispatch` with a
+SHA-256 submit hook (same KAT digest, now through the relay); `make test`
+`unit/all` green; core/port split guard hard leaks 0.
+
+Target evidence (M33MU box, one tree): positive, bothpsa, bothiso, restart,
+crossdomain, spfaultneg, confboot, devstorage, devcrypto, devattest, attestneg,
+authneg, rollbackneg, fwustage, remeasureneg, bootupdate all PASS.

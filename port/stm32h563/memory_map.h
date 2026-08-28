@@ -168,21 +168,4 @@
 
 #define WT_SHARED_STATUS_ADDR    0x20000000u
 
-/* Per-guest CMSE shared transport buffer for wolfHSM. Sits inside each
- * guest's NS RAM window at offset 0x100 (the first 256 bytes are
- * reserved for the existing shared-status mailbox). The secure side
- * validates every access via cmse_check_address_range.
- *
- * Buffer layout (768 bytes total):
- *   [0x000 .. 0x17F]  request slot  — whTransportMemCsr (8 B) + payload
- *   [0x180 .. 0x2FF]  response slot — whTransportMemCsr (8 B) + payload
- * Each 384 B slot carries an 8 B whCommHeader in front of the payload, so
- * WOLFHSM_CFG_COMM_DATA_LEN is bounded to 384 - 8 - 8 = 368 B (a 352 B
- * psa_generate_random fits one round-trip inside guest-a's ceded 1 KiB).
- * Exact layout in src/arch/armv8m/cmse_transport.c */
-#define WT_HSM_BUF_OFFSET        0x00000100u
-#define WT_HSM_BUF_SIZE          0x00000300u  /* 768 B = req + resp slots */
-#define WT_GUEST0_HSM_BUF_BASE   (WT_GUEST0_RAM_BASE + WT_HSM_BUF_OFFSET)
-#define WT_GUEST1_HSM_BUF_BASE   (WT_GUEST1_RAM_BASE + WT_HSM_BUF_OFFSET)
-
 #endif

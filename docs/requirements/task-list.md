@@ -678,9 +678,45 @@ wolfTrust on the board — the TF-M drop-in proof.
           `crypto_service.c` + `ffm_crypto_client.c` stay (unscheduled dead code);
           removing them needs descheduling SERVICE_CRYPTO from the secure image and
           folds into S6g.
-        - [ ] **S6g**: delete the three CMSE veneers + NS-RAM transport + guest
-          HSM window; nm absence guards on every NS image; WT-FFM-0054 met;
-          doc closure; full M33MU matrix green.
+        - [x] **S6g**: bypass deleted from the secure image. The three
+          `WolfTrust_HSM_Submit/Poll/Cancel` CMSE veneers + prechecks are gone
+          from the platform; `cmse_transport.c/h`, `crypto_service.c/h`, and
+          `ffm_crypto_client.c/h` deleted; the dead crypto-SP isolated-compute
+          block (work struct, MSP-switch trampoline, `run_crypto_sp_isolated`)
+          and the unscheduled `wt_spm_sp_entry`/`wt_spm_sched_start` loop
+          removed; monitor's veneer-only HSM wake hooks removed. The port
+          contract can no longer express the bypass: `WT_PORT_CAPABILITY_HSM_TRANSPORT`,
+          the `hsm_transport` window type/field, its validation, and the
+          `memory_map.h` NS-RAM window macros are all deleted (spm host test
+          updated). Two latent scenario breaks found+fixed: crossdomain's
+          `WT_FFM_NEGATIVE_PROBE` lived only in the descheduled crypto-SP path
+          (dead since the manifest swap) — re-homed into the live unprivileged
+          ITS partition loop; spfaultneg's assertions still expected the
+          pre-relay MEMFAULT signature + the retired guest connect-failure
+          marker — updated to the relay's UNDEFINSTR UsageFault + restarted-
+          relay service markers (client-unblock stays host-proven in
+          sp_recovery). The repaired scenario then caught a REAL resilience
+          defect: the relay's fault window can overlap a guest's boot, and the
+          NS wolfHSM client glue latched one failed init as terminal — guest0's
+          connect raced the recovery window and every later mediated op failed
+          (A/B: same build, probe disabled, fully green). Fixed client-side
+          (FF-M lets partitions restart; clients must reconnect): the glue
+          heals on demand (`wolfhsm_guest_ensure_ready` + healing cryptocb
+          wrapper, boot init failure downgraded to a warning, baremetal RNG
+          stub retries too); defense kept secure-side:
+          `wt_hsm_relay_reinit_servers` rebuilds each per-guest server on relay
+          recovery (fail closed). NS side: the wolftrust-tee
+          module's init/ping/
+          invoke liveness probes ride `WolfTrust_FFM_FrameworkVersion` (markers
+          preserved). Guards: nm absence of `WolfTrust_HSM_*` enforced on the
+          secure ELF (mk link rule), guest0 (build_guest.sh), and guest1
+          (build_freertos_guest.sh, which also keeps the positive
+          `wt_hsm_psa_transport_cb` assert). Host suites: `crypto_service`
+          suite deleted; `psa_ffm_client` + `ffm_veneer` re-fixtured onto the
+          production `wt_hsm_relay_dispatch` with a SHA-256 submit hook (same
+          KAT digest). WT-FFM-0054 marked met (`17e7187` + this slice).
+          Evidence: host `unit/all` green, split guard hard leaks 0, box
+          M33MU matrix green (see validation-log).
 
 
 - [ ] **Phase 8 — hardware and port qualification** (`phases.md:136-143`):

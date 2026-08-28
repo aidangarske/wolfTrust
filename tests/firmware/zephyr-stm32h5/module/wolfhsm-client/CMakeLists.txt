@@ -11,7 +11,6 @@
 #                                                 secure-side import library
 #                                                 with the CMSE veneer syms;
 #                                                 passed by build_guest.sh)
-#   - DT node `wolftrust_hsm_transport`          (board /ns variant)
 
 if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
 

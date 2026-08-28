@@ -541,33 +541,6 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
     wt_schedule_next_guest();
 }
 
-#ifdef WT_ENGINE_HSM
-void wt_monitor_hsm_request_pending(wt_guest_id_t guest_id)
-{
-    wt_guest_runtime_t* runtime = wt_guest_runtime(guest_id);
-
-    if (runtime == NULL ||
-        runtime->state == WT_GUEST_FAULTED ||
-        runtime->state == WT_GUEST_RESTARTING) {
-        return;
-    }
-
-    runtime->state = WT_GUEST_WAITING_HSM;
-}
-
-void wt_monitor_hsm_response_ready(wt_guest_id_t guest_id)
-{
-    wt_guest_runtime_t* runtime = wt_guest_runtime(guest_id);
-
-    if (runtime == NULL) {
-        return;
-    }
-    if (runtime->state == WT_GUEST_WAITING_HSM) {
-        runtime->state = WT_GUEST_READY;
-    }
-}
-#endif
-
 void wt_monitor_on_guest_fault(const wt_trap_frame_t* frame,
                                wt_fault_reason_t reason)
 {

@@ -26,26 +26,13 @@
 #include "wolftrust/types.h"
 
 #define WT_PORT_CAPABILITY_VECTOR_READ_ALIAS (1U << 0)
-#define WT_PORT_CAPABILITY_HSM_TRANSPORT      (1U << 1)
 #define WT_PORT_CAPABILITY_ALL \
-    (WT_PORT_CAPABILITY_VECTOR_READ_ALIAS | \
-     WT_PORT_CAPABILITY_HSM_TRANSPORT)
-
-/* Per-guest CMSE shared-buffer descriptor for the wolfHSM transport.
- * The buffer lives in the guest's NS RAM. The secure side validates
- * every byte access against this descriptor + cmse_check_address_range.
- * Both base and size are required; size==0 means this guest does not
- * have an HSM transport configured. */
-typedef struct wt_hsm_transport_window {
-    uintptr_t base;
-    size_t    size;
-} wt_hsm_transport_window_t;
+    (WT_PORT_CAPABILITY_VECTOR_READ_ALIAS)
 
 typedef struct wt_guest_port_binding {
     uint32_t required_capabilities;
     uint32_t provided_capabilities;
     uintptr_t vector_read_address;
-    wt_hsm_transport_window_t hsm_transport;
 } wt_guest_port_binding_t;
 
 typedef struct wt_guest_config {
@@ -84,8 +71,7 @@ typedef enum wt_port_validation_result {
     WT_PORT_VALID = 0,
     WT_PORT_ERROR_ARGUMENT = -500,
     WT_PORT_ERROR_CAPABILITY = -501,
-    WT_PORT_ERROR_VECTOR_ALIAS = -502,
-    WT_PORT_ERROR_HSM_TRANSPORT = -503
+    WT_PORT_ERROR_VECTOR_ALIAS = -502
 } wt_port_validation_result_t;
 
 const wt_guest_config_t* wt_partitions_config_table(size_t* count);

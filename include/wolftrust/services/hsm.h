@@ -115,6 +115,11 @@ int wt_hsm_signal_fault(wt_guest_id_t guest_id);
  * handler mode; a NULL coroutine or a non-holder is a no-op. */
 void wt_hsm_release_locks(struct wt_co *co);
 
+/* Rebuild every ready per-guest server after a relay-partition fault: a
+ * request may have been torn mid-flight, leaving the server DRBG or handler
+ * state unusable. Fails closed — a guest whose re-init fails stays down. */
+int wt_hsm_relay_reinit_servers(void);
+
 /* Terminal-fault NS-client notifier. wt_hsm_signal_fault calls the installed
  * callback; the arch transport installs its concrete notifier at boot. The
  * default is a no-op so engine-less/host builds link. */

@@ -134,7 +134,7 @@ int main(void)
 
     invalid_config = configs[0];
     invalid_config.port.provided_capabilities &=
-        ~WT_PORT_CAPABILITY_HSM_TRANSPORT;
+        ~WT_PORT_CAPABILITY_VECTOR_READ_ALIAS;
     if (wt_partition_validate_port_binding(&invalid_config, guest_domain) !=
             WT_PORT_ERROR_CAPABILITY) {
         (void)fprintf(stderr, "missing port capability was accepted\n");
@@ -146,24 +146,6 @@ int main(void)
     if (wt_partition_validate_port_binding(&invalid_config, guest_domain) !=
             WT_PORT_ERROR_VECTOR_ALIAS) {
         (void)fprintf(stderr, "direct vector address was accepted as alias\n");
-        return 1;
-    }
-
-    invalid_config = configs[0];
-    invalid_config.port.hsm_transport.base = UINTPTR_MAX - 1U;
-    invalid_config.port.hsm_transport.size = 4U;
-    if (wt_partition_validate_port_binding(&invalid_config, guest_domain) !=
-            WT_PORT_ERROR_HSM_TRANSPORT) {
-        (void)fprintf(stderr, "overflowing HSM transport was accepted\n");
-        return 1;
-    }
-
-    invalid_config = configs[0];
-    invalid_config.port.hsm_transport.base = invalid_config.vector_table;
-    invalid_config.port.hsm_transport.size = 4U;
-    if (wt_partition_validate_port_binding(&invalid_config, guest_domain) !=
-            WT_PORT_ERROR_HSM_TRANSPORT) {
-        (void)fprintf(stderr, "executable HSM transport was accepted\n");
         return 1;
     }
 

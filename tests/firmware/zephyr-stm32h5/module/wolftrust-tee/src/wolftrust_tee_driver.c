@@ -22,9 +22,9 @@
  * Zephyr `tee` subsystem calls into CMSE veneer calls into the
  * wolfTrust secure side.
  *
- * Only get_version is implemented for now; invoke_func is wired to
- * the wolfHSM poll/cancel veneers that the wolfTrust secure side
- * already exposes.
+ * Only get_version is implemented for now; invoke_func's poll/cancel
+ * probes ride the mediated FF-M gateway veneer (WT-FFM-0054) — the raw
+ * WolfTrust_HSM_* transport is retired.
  */
 
 #include <errno.h>
@@ -55,13 +55,17 @@
 #define WOLFTRUST_FN_FFM_CALL    4u
 #define WOLFTRUST_FN_FFM_CLOSE   5u
 
-extern int WolfTrust_HSM_Poll(uint16_t seq);
-extern int WolfTrust_HSM_Cancel(uint16_t seq);
+extern uint32_t WolfTrust_FFM_FrameworkVersion(void);
 
 /* The FF-M client API (psa_connect/call/close/framework_version/version) now
  * lives in the OS-neutral src/client/psa_ffm_client.c; the guest no longer
  * routes FF-M through this TEE driver (P7-S2, closes #16 for the FF-M path).
- * This driver retains only the wolfHSM poll/cancel transport it still owns. */
+ * The poll/cancel function ids remain as SPM liveness probes. */
+
+static int wolftrust_spm_alive(void)
+{
+	return WolfTrust_FFM_FrameworkVersion() == 0x0100u ? 0 : -EIO;
+}
 
 static int wolftrust_get_version(const struct device *dev,
 				 struct tee_version_info *info)
@@ -93,10 +97,8 @@ static int wolftrust_invoke_func(const struct device *dev,
 
 	switch (arg->func) {
 	case WOLFTRUST_FN_HSM_POLL:
-		arg->ret = (uint32_t)WolfTrust_HSM_Poll(0u);
-		break;
 	case WOLFTRUST_FN_HSM_CANCEL:
-		arg->ret = (uint32_t)WolfTrust_HSM_Cancel(0u);
+		arg->ret = (uint32_t)wolftrust_spm_alive();
 		break;
 	default:
 		arg->ret = (uint32_t)-ENOSYS;
@@ -114,9 +116,7 @@ static const struct tee_driver_api wolftrust_tee_api = {
 static int wolftrust_tee_init(const struct device *dev)
 {
 	ARG_UNUSED(dev);
-	/* Probe the secure side. Cancel(0) is a soft no-op that returns
-	 * WH_ERROR_OK; any other value means the veneer is unreachable. */
-	return WolfTrust_HSM_Cancel(0u) == 0 ? 0 : -EIO;
+	return wolftrust_spm_alive();
 }
 
 #define WOLFTRUST_TEE_INST(inst)                                              \
