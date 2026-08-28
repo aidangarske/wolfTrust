@@ -183,15 +183,18 @@ ${GUEST_CC} ${CFLAGS} ${LDFLAGS} \
 
 # Mediated-path proof (WT-FFM-0054): the wolfHSM client must reach the secure
 # side ONLY through the SPM-mediated psa_call transport — assert the transport
-# is linked and the retired raw bypass veneers are absent.
-if ! arm-none-eabi-nm "${BUILD_DIR}/freertos_guest1.elf" | \
-        grep -q "wt_hsm_psa_transport_cb"; then
+# is linked and the retired direct veneers are absent.
+NM_OUT=$(arm-none-eabi-nm "${BUILD_DIR}/freertos_guest1.elf") || {
+    echo "FAIL: nm on the guest1 image failed" >&2
+    exit 1
+}
+if ! printf '%s\n' "${NM_OUT}" | grep -q "wt_hsm_psa_transport_cb"; then
     echo "guest1 is not wired to the SPM-mediated wolfHSM transport" >&2
     exit 1
 fi
-if arm-none-eabi-nm "${BUILD_DIR}/freertos_guest1.elf" | \
-        grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)'; then
-    echo "FAIL: raw WolfTrust_HSM_* bypass veneers linked into guest1" >&2
+if printf '%s\n' "${NM_OUT}" | \
+        grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)|WolfTrust_Attest_'; then
+    echo "FAIL: retired direct veneers linked into guest1" >&2
     exit 1
 fi
 

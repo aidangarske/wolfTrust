@@ -23,12 +23,18 @@
 
 #include "wolftrust/ffm.h"
 
+/* psa_call types SERVICE_ATTEST accepts. PSA_IPC_CALL (0) carries the
+ * caller's challenge in the input vector and returns the Initial Attestation
+ * token in the output vector; the query types below replace the retired
+ * direct WolfTrust_Attest_* veneers so every attestation request is
+ * SPM-mediated (WT-SYS-0014). */
+#define WT_ATTEST_OP_TOKEN_SIZE 1
+#define WT_ATTEST_OP_PUBLIC_KEY 2
+
 /* SERVICE_ATTEST's dispatch loop: wait, get, service one message, reply.
  * Architecture-neutral (no Armv8-M/CMSE dependency) so it is host-testable
- * through a real wt_ffm_connect/wt_ffm_call round trip. A PSA_IPC_CALL carries
- * the caller's challenge in the input vector and returns the Initial
- * Attestation token in the output vector; the token itself is produced by the
- * existing wt_initial_attest_get_token backend. */
+ * through a real wt_ffm_connect/wt_ffm_call round trip. The token itself is
+ * produced by the existing wt_initial_attest_get_token backend. */
 int wt_attestation_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                     int32_t partition_id);
 

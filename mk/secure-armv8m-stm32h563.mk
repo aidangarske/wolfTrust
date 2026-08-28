@@ -73,6 +73,14 @@ WT_GUEST1_FLASH_SIZE ?= 0x00020000
 # this switch only gates linking the dataplane and NSC veneers into
 # the secure image.
 CONFIG_VNET ?= n
+
+# Whitelist of non-secure-callable veneers the linked secure image may
+# export: only the mediated FF-M gateway. The dedicated vnet firmware opts
+# its own veneers in and sits outside the FF-M mediation boundary.
+NSC_ALLOWED := __acle_se_WolfTrust_FFM_
+ifeq ($(CONFIG_VNET),y)
+NSC_ALLOWED := $(NSC_ALLOWED)|__acle_se_WolfTrust_VNet_
+endif
 WT_VNET_POOL_SLOTS ?= 8
 WT_VNET_FRAME_MAX ?= 1536
 WT_VNET_RX_QUEUE_DEPTH ?= 8
@@ -1369,9 +1377,11 @@ $(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) $(WOLFHSM_RUNNER_DIR)/
 		-Wl,--cmse-implib \
 		-Wl,--out-implib=$(SECURE_CMSE_IMPLIB) \
 		-o $(SECURE_ELF) $(ALL_SECURE_OBJS) -lgcc
-	@if $(TOOLPREFIX)nm $(SECURE_ELF) | \
-			grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)'; then \
-		echo "FAIL: raw WolfTrust_HSM_* bypass veneers in the secure image (WT-FFM-0054)" >&2; \
+	@$(TOOLPREFIX)nm $(SECURE_ELF) > $(BUILD_DIR)/nsc-syms.txt || \
+		{ echo "FAIL: nm on the secure image failed" >&2; exit 1; }
+	@if grep ' __acle_se_' $(BUILD_DIR)/nsc-syms.txt | \
+			grep -vE '$(NSC_ALLOWED)'; then \
+		echo "FAIL: non-secure-callable veneer outside the FF-M gateway (WT-FFM-0054)" >&2; \
 		exit 1; \
 	fi
 

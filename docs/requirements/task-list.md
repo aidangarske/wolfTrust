@@ -678,6 +678,22 @@ wolfTrust on the board — the TF-M drop-in proof.
           `crypto_service.c` + `ffm_crypto_client.c` stay (unscheduled dead code);
           removing them needs descheduling SERVICE_CRYPTO from the secure image and
           folds into S6g.
+        - [x] **Audit follow-ups** (adversarial audit of the closed milestone
+          found one live same-shape sibling): the three direct attestation
+          veneers (`WolfTrust_Attest_GetTokenSize/GetToken/GetPublicKey`) are
+          deleted — `GetToken` (IAK-signing) had no in-tree caller; the size
+          and public-key queries now ride `psa_call` to SERVICE_ATTEST as new
+          call types (`WT_ATTEST_OP_TOKEN_SIZE`/`WT_ATTEST_OP_PUBLIC_KEY`,
+          host-proven in tests/host/attestation_service with exact PSA status
+          mapping). The secure-image guard is now a WHITELIST — any
+          non-secure-callable veneer outside `WolfTrust_FFM_*` fails the link
+          (the dedicated vnet firmware opts `WolfTrust_VNet_*` in via
+          CONFIG_VNET=y and sits outside the FF-M mediation boundary); all
+          guards fail closed on nm errors and guest0 gained the positive
+          transport assert. The "SERVICE_CRYPTO dispatch verified" marker is
+          renamed "mediated crypto dispatch verified" in lockstep across the
+          guest, the M33MU runner, the CI yml, and the H5 runner (KAT input
+          bytes unchanged).
         - [x] **S6g**: bypass deleted from the secure image. The three
           `WolfTrust_HSM_Submit/Poll/Cancel` CMSE veneers + prechecks are gone
           from the platform; `cmse_transport.c/h`, `crypto_service.c/h`, and

@@ -3142,3 +3142,40 @@ SHA-256 submit hook (same KAT digest, now through the relay); `make test`
 Target evidence (M33MU box, one tree): positive, bothpsa, bothiso, restart,
 crossdomain, spfaultneg, confboot, devstorage, devcrypto, devattest, attestneg,
 authneg, rollbackneg, fwustage, remeasureneg, bootupdate all PASS.
+
+## Phase 7 audit — attestation veneers retired, veneer whitelist (WT-SYS-0014, 2026-08-28)
+
+An adversarial audit of the closed single-mediated-path milestone confirmed
+the wolfHSM bypass gone tree-wide, then found one live sibling of the same
+shape: three direct attestation CMSE veneers
+(`WolfTrust_Attest_GetTokenSize/GetToken/GetPublicKey`) calling secure
+attestation code outside the SPM in the default image — `GetToken` (the
+IAK-signing, token-minting entry) with no in-tree caller at all.
+
+Fixed:
+
+- The three veneers and their impls are deleted from the platform. The size
+  and public-key queries ride `psa_call` to SERVICE_ATTEST as new call types
+  (`WT_ATTEST_OP_TOKEN_SIZE`, `WT_ATTEST_OP_PUBLIC_KEY`,
+  `attestation_service.c`) with the exact PSA status mapping the retired
+  client produced (ARM test_a001 semantics preserved); the Zephyr client's
+  every attestation request is now psa_connect/psa_call. The token path
+  already rode FF-M and is unchanged.
+- The secure-image guard is now a WHITELIST: any `__acle_se_` veneer symbol
+  outside `WolfTrust_FFM_*` fails the link — a renamed reintroduction of any
+  direct door is caught categorically. The dedicated vnet firmware opts
+  `WolfTrust_VNet_*` in via CONFIG_VNET=y; that image sits outside the FF-M
+  mediation boundary by design and the production stm32h563 image can never
+  contain its veneers.
+- All three nm guards fail closed on nm errors; guest0 gained the positive
+  `wt_hsm_psa_transport_cb` assert; both guest guards also refuse
+  `WolfTrust_Attest_*`.
+- The "SERVICE_CRYPTO dispatch verified" marker is renamed
+  "mediated crypto dispatch verified" in lockstep (guest, M33MU runner, CI
+  yml, H5 runner); KAT input bytes unchanged.
+
+Evidence: `tests/host/attestation_service` extended — mediated token-size
+query (exact size + bad-size refused with PSA_ERROR_INVALID_ARGUMENT through
+real FF-M dispatch) and mediated IAK public-key query (65-byte uncompressed
+point, 0x04 prefix) — plus host `unit/all`, split guard, and the M33MU
+positive/devattest/attestneg/bothpsa/confboot scenarios on one tree.

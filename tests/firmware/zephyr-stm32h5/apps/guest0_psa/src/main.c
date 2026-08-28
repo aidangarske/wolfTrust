@@ -192,7 +192,7 @@ static void exercise_ffm_crypto(void)
 			(int)st, (unsigned)digest_len);
 		return;
 	}
-	LOG_INF("wolfTrust FF-M SERVICE_CRYPTO dispatch verified");
+	LOG_INF("wolfTrust FF-M mediated crypto dispatch verified");
 }
 
 /* P4-S2: the full storage chain from a real Non-secure guest — NS ->

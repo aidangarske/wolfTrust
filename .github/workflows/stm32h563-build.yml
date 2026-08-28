@@ -235,7 +235,7 @@ jobs:
           need()     { printf '%s' "$flat" | grep -Fq "$1" || { echo "missing: $1" >&2; exit 1; }; }
           need_raw() { grep -Fq "$1" "$log" || { echo "missing: $1" >&2; exit 1; }; }
           need "wolfTrust TEE client initialized"
-          need "wolfTrust FF-M SERVICE_CRYPTO dispatch verified"
+          need "wolfTrust FF-M mediated crypto dispatch verified"
           need "wolfTrust ITS set/get verified"
           need "wolfTrust PS sealed set/get verified"
           need "wolfTrust key-ops sign/verify verified"

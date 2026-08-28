@@ -339,8 +339,8 @@ if [ "$mode" != "build" ]; then
       expect "TEE client initialized" "wolfTrust TEE client initialized"
       expect "FF-M psa_framework_version=0x0100" \
         "wolfTrust FF-M psa_framework_version=0x0100"
-      expect "SERVICE_CRYPTO dispatch verified" \
-        "wolfTrust FF-M SERVICE_CRYPTO dispatch verified"
+      expect "mediated crypto dispatch verified" \
+        "wolfTrust FF-M mediated crypto dispatch verified"
       expect "ITS set/get verified" \
         "wolfTrust ITS set/get verified"
       expect "PS sealed set/get verified" \

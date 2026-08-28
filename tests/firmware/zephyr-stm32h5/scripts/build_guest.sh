@@ -98,10 +98,18 @@ fi
     "$APP_DIR" \
     -- "$@"
 
-# Mediated-path proof (WT-FFM-0054): the retired raw HSM bypass veneers must
-# not appear in any NS guest image.
-if arm-none-eabi-nm "$BUILD_DIR/zephyr/zephyr.elf" 2>/dev/null | \
-        grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)'; then
-    echo "FAIL: raw WolfTrust_HSM_* bypass veneers linked into $APP_NAME" >&2
+# Mediated-path proof (WT-FFM-0054): no retired direct veneer may appear in
+# any NS guest image, and the SPM-mediated wolfHSM transport must be linked.
+NM_OUT=$(arm-none-eabi-nm "$BUILD_DIR/zephyr/zephyr.elf") || {
+    echo "FAIL: nm on the $APP_NAME image failed" >&2
+    exit 1
+}
+if printf '%s\n' "$NM_OUT" | \
+        grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)|WolfTrust_Attest_'; then
+    echo "FAIL: retired direct veneers linked into $APP_NAME" >&2
+    exit 1
+fi
+if ! printf '%s\n' "$NM_OUT" | grep -q 'wt_hsm_psa_transport_cb'; then
+    echo "FAIL: $APP_NAME is not wired to the SPM-mediated wolfHSM transport" >&2
     exit 1
 fi

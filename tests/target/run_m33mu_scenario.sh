@@ -329,8 +329,8 @@ case "$scenario" in
     expect "TEE client initialized" "wolfTrust TEE client initialized"
     expect "FF-M psa_framework_version=0x0100" \
       "wolfTrust FF-M psa_framework_version=0x0100"
-    expect "SERVICE_CRYPTO dispatch verified" \
-      "wolfTrust FF-M SERVICE_CRYPTO dispatch verified"
+    expect "mediated crypto dispatch verified" \
+      "wolfTrust FF-M mediated crypto dispatch verified"
     expect "ITS set/get verified" \
       "wolfTrust ITS set/get verified"
     expect "PS sealed set/get verified" \
@@ -376,7 +376,7 @@ case "$scenario" in
     refute_re "no fault markers in boot log" \
       '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
     expect_flat "Zephyr: mediated SERVICE_CRYPTO SHA-256 KAT" \
-      "wolfTrust FF-M SERVICE_CRYPTO dispatch verified"
+      "wolfTrust FF-M mediated crypto dispatch verified"
     expect "FreeRTOS: mediated SERVICE_CRYPTO SHA-256 KAT" \
       "freertos_guest1: ffm sha256 ok"
     expect_flat "Zephyr: PSA psa_generate_random" \
@@ -444,8 +444,8 @@ case "$scenario" in
     expect "TEE client initialized" "wolfTrust TEE client initialized"
     expect "FF-M psa_framework_version=0x0100" \
       "wolfTrust FF-M psa_framework_version=0x0100"
-    expect "SERVICE_CRYPTO dispatch verified" \
-      "wolfTrust FF-M SERVICE_CRYPTO dispatch verified"
+    expect "mediated crypto dispatch verified" \
+      "wolfTrust FF-M mediated crypto dispatch verified"
     expect "conformance val_entry start" \
       "wolfTrust FF-M conformance: val_entry start"
     # Panic tests reboot the chain mid-suite and val resumes off its
@@ -672,7 +672,7 @@ case "$scenario" in
     refute_re "no fault markers across the update reboot" \
       '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
     expect_flat "swapped image runs a clean FF-M lifecycle" \
-      "wolfTrust FF-M SERVICE_CRYPTO dispatch verified"
+      "wolfTrust FF-M mediated crypto dispatch verified"
     expect_flat "token measurement equals the v2 (swapped-in) image measurement" \
       "wolfTrust attestation: token measurement=$WT_V2_MEASUREMENT_HEX"
     refute_re "the pre-update v1 image is no longer the one attested" \

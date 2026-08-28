@@ -65,6 +65,91 @@ static int wt_attestation_service_token(wt_ffm_runtime_t* runtime,
     return WT_FFM_SUCCESS;
 }
 
+static psa_status_t wt_attestation_map_status(int ret)
+{
+    psa_status_t st;
+
+    switch (ret) {
+        case WT_ATTEST_SUCCESS:
+            st = PSA_SUCCESS;
+            break;
+        case WT_ATTEST_ERROR_INVALID_ARGUMENT:
+            st = PSA_ERROR_INVALID_ARGUMENT;
+            break;
+        case WT_ATTEST_ERROR_BUFFER_TOO_SMALL:
+            st = PSA_ERROR_BUFFER_TOO_SMALL;
+            break;
+        case WT_ATTEST_ERROR_NOT_READY:
+            st = PSA_ERROR_BAD_STATE;
+            break;
+        default:
+            st = PSA_ERROR_GENERIC_ERROR;
+            break;
+    }
+    return st;
+}
+
+/* Token-size query (WT_ATTEST_OP_TOKEN_SIZE): a 32-bit challenge size in,
+ * the exact token size out. Carries the same PSA status mapping the retired
+ * direct veneer's client produced, so ARM's test_a001 semantics hold. */
+static psa_status_t wt_attestation_service_token_size(
+    wt_ffm_runtime_t* runtime, int32_t partition_id, const psa_msg_t* msg)
+{
+    uint32_t challenge_size = 0U;
+    uint32_t token_size_out;
+    size_t token_size = 0U;
+    size_t got;
+    int ret;
+
+    if (msg->in_size[0] != sizeof(challenge_size) ||
+            msg->out_size[0] < sizeof(token_size_out)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    got = wt_ffm_read(runtime, partition_id, msg->handle, 0U,
+                      &challenge_size, sizeof(challenge_size));
+    if (got != sizeof(challenge_size)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    ret = wt_initial_attest_get_token_size((size_t)challenge_size,
+                                           &token_size);
+    if (ret != WT_ATTEST_SUCCESS) {
+        return wt_attestation_map_status(ret);
+    }
+    token_size_out = (uint32_t)token_size;
+    if (wt_ffm_write(runtime, partition_id, msg->handle, 0U,
+                     &token_size_out,
+                     sizeof(token_size_out)) != WT_FFM_SUCCESS) {
+        return PSA_ERROR_GENERIC_ERROR;
+    }
+    return PSA_SUCCESS;
+}
+
+/* IAK public-key query (WT_ATTEST_OP_PUBLIC_KEY): the uncompressed P-256
+ * public point out. Public data only — the private IAK never leaves the
+ * secure side. */
+static psa_status_t wt_attestation_service_public_key(
+    wt_ffm_runtime_t* runtime, int32_t partition_id, const psa_msg_t* msg)
+{
+    uint8_t public_key[WT_ATTEST_IAK_PUBLIC_KEY_SIZE];
+    size_t public_key_len = 0U;
+    int ret;
+
+    ret = wt_initial_attest_get_iak_public_key(public_key,
+                                               sizeof(public_key),
+                                               &public_key_len);
+    if (ret != WT_ATTEST_SUCCESS) {
+        return wt_attestation_map_status(ret);
+    }
+    if (msg->out_size[0] < public_key_len) {
+        return PSA_ERROR_BUFFER_TOO_SMALL;
+    }
+    if (wt_ffm_write(runtime, partition_id, msg->handle, 0U, public_key,
+                     public_key_len) != WT_FFM_SUCCESS) {
+        return PSA_ERROR_GENERIC_ERROR;
+    }
+    return PSA_SUCCESS;
+}
+
 int wt_attestation_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                     int32_t partition_id)
 {
@@ -87,6 +172,12 @@ int wt_attestation_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
         reply_status = wt_attestation_service_token(runtime, partition_id,
                            &msg) == WT_FFM_SUCCESS ?
                        PSA_SUCCESS : PSA_ERROR_GENERIC_ERROR;
+    } else if (msg.type == WT_ATTEST_OP_TOKEN_SIZE) {
+        reply_status = wt_attestation_service_token_size(runtime,
+                           partition_id, &msg);
+    } else if (msg.type == WT_ATTEST_OP_PUBLIC_KEY) {
+        reply_status = wt_attestation_service_public_key(runtime,
+                           partition_id, &msg);
     } else {
         reply_status = PSA_ERROR_NOT_SUPPORTED;
     }

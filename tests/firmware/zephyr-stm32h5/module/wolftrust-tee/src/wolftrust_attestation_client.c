@@ -24,47 +24,49 @@
 #include <wolftrust/attestation.h>
 #include <wolftrust/ffm_veneer.h>
 
-#define WT_ATTEST_ERROR_INVALID_ARGUMENT -3300
-#define WT_ATTEST_ERROR_BUFFER_TOO_SMALL -3301
-#define WT_ATTEST_ERROR_NOT_READY -3302
-
 #define WT_SERVICE_ATTEST_SID     4096u
 #define WT_SERVICE_ATTEST_VERSION 1u
 #define WT_FFM_IPC_CALL           0     /* PSA_IPC_CALL */
-
-extern int WolfTrust_Attest_GetTokenSize(size_t challengeSize,
-                                         size_t* tokenSize);
-extern int WolfTrust_Attest_GetPublicKey(uint8_t* publicKey,
-    size_t publicKeyCapacity, size_t* publicKeySize);
+/* psa_call types — must match wolftrust/services/attestation_service.h. */
+#define WT_ATTEST_OP_TOKEN_SIZE   1
+#define WT_ATTEST_OP_PUBLIC_KEY   2
 
 extern int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version);
 extern int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
                                   wt_ffm_veneer_iovec_t* ns_iovec);
 extern void WolfTrust_FFM_Close(int32_t handle);
 
-static psa_status_t wt_attest_map_status(int status)
+/* One mediated query round trip (WT-SYS-0014): the retired direct
+ * WolfTrust_Attest_* veneers are gone; every attestation request rides
+ * psa_connect/psa_call to SERVICE_ATTEST. */
+static psa_status_t wt_attest_ipc_query(int32_t type, const void* in,
+    size_t in_len, void* out, size_t out_len, size_t* out_got)
 {
-    psa_status_t ret;
+    wt_ffm_veneer_iovec_t iovec;
+    int32_t handle;
+    int32_t status;
 
-    switch (status) {
-        case 0:
-            ret = PSA_SUCCESS;
-            break;
-        case WT_ATTEST_ERROR_INVALID_ARGUMENT:
-            ret = PSA_ERROR_INVALID_ARGUMENT;
-            break;
-        case WT_ATTEST_ERROR_BUFFER_TOO_SMALL:
-            ret = PSA_ERROR_BUFFER_TOO_SMALL;
-            break;
-        case WT_ATTEST_ERROR_NOT_READY:
-            ret = PSA_ERROR_BAD_STATE;
-            break;
-        default:
-            ret = PSA_ERROR_GENERIC_ERROR;
-            break;
+    handle = WolfTrust_FFM_Connect(WT_SERVICE_ATTEST_SID,
+                                   WT_SERVICE_ATTEST_VERSION);
+    if (handle < 0) {
+        return PSA_ERROR_GENERIC_ERROR;
     }
-
-    return ret;
+    memset(&iovec, 0, sizeof(iovec));
+    iovec.in[0].base = in;
+    iovec.in[0].len = (uint32_t)in_len;
+    iovec.out[0].base = out;
+    iovec.out[0].len = (uint32_t)out_len;
+    iovec.in_count = (in != NULL) ? 1u : 0u;
+    iovec.out_count = 1u;
+    status = WolfTrust_FFM_Call(handle, type, &iovec);
+    WolfTrust_FFM_Close(handle);
+    if (status != 0) {
+        return (psa_status_t)status;
+    }
+    if (out_got != NULL) {
+        *out_got = iovec.out[0].len;
+    }
+    return PSA_SUCCESS;
 }
 
 psa_status_t psa_initial_attest_get_token(const uint8_t* authChallenge,
@@ -85,12 +87,11 @@ psa_status_t psa_initial_attest_get_token(const uint8_t* authChallenge,
     }
     *tokenSize = 0u;
 
-    /* Route the attestation token through FF-M IPC (SERVICE_ATTEST) instead of
-     * a direct veneer. The COSE_Sign1 token length is deterministic, so the
-     * size query gives the exact transfer size for the output vector. */
-    rc = WolfTrust_Attest_GetTokenSize(challengeSize, &exactSize);
+    /* The COSE_Sign1 token length is deterministic, so the mediated size
+     * query gives the exact transfer size for the output vector. */
+    rc = (int)psa_initial_attest_get_token_size(challengeSize, &exactSize);
     if (rc != 0) {
-        return wt_attest_map_status(rc);
+        return (psa_status_t)rc;
     }
     if (exactSize > tokenCapacity) {
         return PSA_ERROR_BUFFER_TOO_SMALL;
@@ -121,13 +122,37 @@ psa_status_t psa_initial_attest_get_token(const uint8_t* authChallenge,
 psa_status_t psa_initial_attest_get_token_size(size_t challengeSize,
     size_t* tokenSize)
 {
-    return wt_attest_map_status(WolfTrust_Attest_GetTokenSize(challengeSize,
-                                                               tokenSize));
+    uint32_t challenge32 = (uint32_t)challengeSize;
+    uint32_t token32 = 0u;
+    psa_status_t st;
+
+    if (tokenSize == NULL) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    st = wt_attest_ipc_query(WT_ATTEST_OP_TOKEN_SIZE, &challenge32,
+                             sizeof(challenge32), &token32, sizeof(token32),
+                             NULL);
+    if (st != PSA_SUCCESS) {
+        return st;
+    }
+    *tokenSize = token32;
+    return PSA_SUCCESS;
 }
 
 psa_status_t wolftrust_attestation_get_iak_public_key(uint8_t* publicKey,
     size_t publicKeyCapacity, size_t* publicKeySize)
 {
-    return wt_attest_map_status(WolfTrust_Attest_GetPublicKey(publicKey,
-        publicKeyCapacity, publicKeySize));
+    size_t got = 0u;
+    psa_status_t st;
+
+    if (publicKey == NULL || publicKeySize == NULL) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    st = wt_attest_ipc_query(WT_ATTEST_OP_PUBLIC_KEY, NULL, 0u, publicKey,
+                             publicKeyCapacity, &got);
+    if (st != PSA_SUCCESS) {
+        return st;
+    }
+    *publicKeySize = got;
+    return PSA_SUCCESS;
 }
