@@ -658,9 +658,26 @@ wolfTrust on the board — the TF-M drop-in proof.
           under gcc/clang/ASan), split guard clean, box cross-build links for
           production + `WT_SP_FAULT_PROBE=1` + `WT_CONFORMANCE=1`. crypto_service.c
           kept (dead SHA/RANDOM face) until S6f.
-        - [ ] **S6f**: both guests on the single path (guest1 gains the wolfHSM
-          client legitimately; nm guard now forbids only raw WolfTrust_HSM_*);
-          bothpsa + bothiso green.
+        - [x] **S6f**: both guests on the single mediated path. guest0's
+          `exercise_ffm_crypto/keys/key_negatives` (dead SERVICE_CRYPTO 4097
+          op-protocol) rewritten onto the mediated wolfPSA path —
+          `psa_hash_compute` for the SHA KAT, volatile P-256
+          `psa_generate_key`/`psa_sign_hash`/`psa_verify_hash` for key-ops
+          (tampered-digest refusal + cross-key verify refusal); `exercise_ffm_negatives`
+          repointed to SERVICE_HSM 4102; every marker string preserved.
+          guest1 (FreeRTOS) links the wolfHSM client legitimately and now calls
+          `psa_crypto_init` in `guest_crypto_init` before the first mediated
+          `psa_hash_compute` (a first-boot `-137` BAD_STATE ordering bug found and
+          fixed on the box). nm guard asserts guest1 links `wt_hsm_psa_transport_cb`
+          (raw `WolfTrust_HSM_*` still bundled in the shared CMSE implib until S6g
+          deletes them). Evidence (M33MU box, one tree): `positive` + `bothpsa` +
+          `bothiso` all PASS — both guests emit `ffm sha256 ok` through SERVICE_HSM;
+          guest0 SERVICE_CRYPTO dispatch / key-ops / key-negatives / forged-handle /
+          oversized-vector all green; both-OS isolation negatives (forged, oversized,
+          unknown-SID) green from Zephyr and FreeRTOS — plus `confboot` PASS.
+          `crypto_service.c` + `ffm_crypto_client.c` stay (unscheduled dead code);
+          removing them needs descheduling SERVICE_CRYPTO from the secure image and
+          folds into S6g.
         - [ ] **S6g**: delete the three CMSE veneers + NS-RAM transport + guest
           HSM window; nm absence guards on every NS image; WT-FFM-0054 met;
           doc closure; full M33MU matrix green.

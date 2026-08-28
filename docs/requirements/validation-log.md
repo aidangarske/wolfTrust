@@ -3027,3 +3027,37 @@ packet refused client-side (WH_ERROR_BADARGS) and oversized invec refused by
 the relay dispatch. Green under gcc/clang + ASan/UBSan; core/port split guard
 hard leaks 0. COMM_DATA_LEN pinned to the target's 368 so host packets are
 the same 376 bytes the platform will relay.
+
+## Phase 7 S6f — Both guests on the single mediated path (WT-FFM-0054/0055, 2026-08-28)
+
+Closes the guest-repoint half of the bypass retirement: every non-secure crypto
+request from both operating systems now traverses `wolfPSA -> wolfCrypt(WH_DEV_ID)
+-> crypto_cb -> wh_Client -> wt_hsm_psa_transport_cb -> psa_call(SERVICE_HSM 4102)
+-> relay -> per-guest wolfHSM server`. No non-secure client speaks the retired
+SERVICE_CRYPTO (4097) op protocol, and the manifest exposes only SERVICE_HSM, so
+4097 is unreachable from non-secure code.
+
+Guest changes:
+
+- `guest0_psa`: `exercise_ffm_crypto` now proves the SHA-256 KAT with
+  `psa_hash_compute` (same input and digest); `exercise_ffm_keys` generates a
+  volatile P-256 pair whose private half lives only in the wolfHSM server, signs
+  and verifies a digest, and refuses a tampered digest; `exercise_ffm_key_negatives`
+  generates two P-256 keys and proves a signature under key A does not verify under
+  key B (no cross-key oracle); `exercise_ffm_negatives` connects to SERVICE_HSM for
+  its forged-handle and oversized-vector rejections. `WT_CRYPTO_SID` removed. Every
+  scenario marker string is unchanged.
+- `freertos_guest1`: links the full wolfHSM client subset and registers the
+  cryptocb; `guest_crypto_init` now calls `psa_crypto_init` (guest0 gets this from
+  wolfPSA's Zephyr SYS_INIT) so the first mediated `psa_hash_compute` is not
+  `PSA_ERROR_BAD_STATE` (-137) — a first-boot ordering bug caught on the box.
+
+Evidence (M33MU box, one tree): `positive`, `bothpsa`, `bothiso` all PASS, plus
+`confboot` PASS. Both guests emit `freertos_guest1: ffm sha256 ok` / the guest0
+`SERVICE_CRYPTO dispatch verified` marker through the SERVICE_HSM relay; guest0
+key-ops sign/verify, key negatives, forged-handle (st=-129) and oversized-vector
+(st=-135) rejections all green; both-OS isolation negatives (forged-handle,
+oversized-vector, unknown-SID connect refused) green from Zephyr and FreeRTOS. No
+fault markers. WT-FFM-0054's "no non-secure path outside the SPM" is met for the
+non-secure side; the secure-image retirement (delete the CMSE veneers +
+`crypto_service.c`/`ffm_crypto_client.c`, strict nm absence guards) is S6g.

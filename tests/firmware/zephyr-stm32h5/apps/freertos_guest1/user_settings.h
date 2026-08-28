@@ -44,13 +44,14 @@
 /* HMAC + HKDF kept on. */
 #define HAVE_HKDF
 
-/* DRBG + entropy hook. main.c exports the FF-M hook, which draws from
- * SERVICE_CRYPTO's vault-backed RNG through the SPM (WT-FFM-0054). */
+/* DRBG + entropy hook. The wolfHSM client glue exports the RNG stub, which
+ * draws entropy from the secure side over the SERVICE_HSM relay (WT-FFM-0054);
+ * no raw NS-to-HSM transport. */
 #define HAVE_HASHDRBG
-#define CUSTOM_RAND_GENERATE_BLOCK wolftrust_guest_ffm_rng
-#ifndef WOLFTRUST_GUEST_FFM_RNG_DECLARED
-#define WOLFTRUST_GUEST_FFM_RNG_DECLARED
-int wolftrust_guest_ffm_rng(unsigned char *output, unsigned int sz);
+#define CUSTOM_RAND_GENERATE_BLOCK wolftrust_guest_rng_stub
+#ifndef WOLFTRUST_GUEST_RNG_STUB_DECLARED
+#define WOLFTRUST_GUEST_RNG_STUB_DECLARED
+int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz);
 #endif
 
 /* Trim. */

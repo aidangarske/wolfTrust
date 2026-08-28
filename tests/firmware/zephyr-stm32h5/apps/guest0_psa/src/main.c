@@ -24,7 +24,7 @@
  * pointed at WH_DEV_ID by the wolfpsa module's SYS_INIT hook, traverse:
  *
  *   psa_*()  →  wolfPSA  →  wolfCrypt(WH_DEV_ID)  →  crypto_cb
- *            →  wh_Client_CryptoCb  →  CMSE Submit/Poll  →  secure wolfHSM
+ *            →  wh_Client_CryptoCb  →  SPM-mediated SERVICE_HSM  →  wolfHSM server
  *
  * Persistent-key + ITS samples need a key-storage backend wolfPSA doesn't
  * yet provide on this port, so this app keeps to volatile-key /
@@ -58,9 +58,9 @@ LOG_MODULE_REGISTER(guest0_psa, LOG_LEVEL_INF);
 #define WOLFTRUST_FN_FFM_CONNECT 3u
 #define WOLFTRUST_FN_FFM_CALL    4u
 #define WOLFTRUST_FN_FFM_CLOSE   5u
-#define WT_CRYPTO_SID 4097u
 #define WT_ITS_SID    4099u
 #define WT_PS_SID     4100u
+#define WT_SERVICE_HSM_SID 4102u
 
 #ifndef WT_EXPECTED_MEASUREMENT_HEX
 #define WT_EXPECTED_MEASUREMENT_HEX ""
@@ -165,11 +165,11 @@ static void exercise_tee_driver(void)
 		LOG_ERR("wolfTrust FF-M psa_framework_version unexpected=0x%04x", fw);
 }
 
-/* Item 3c-ns: proves the FF-M dispatch path 3a/3b/3c wired up (real
- * psa_connect/psa_call servicing SERVICE_CRYPTO) end to end from a real
- * Non-secure guest, not just a host test. Reuses the existing TEE
- * transport (task-list.md item 3c-followup tracks replacing it with
- * purpose-built FF-M veneers). */
+/* The SHA-256 KAT now traverses the single mediated path — psa_hash_compute
+ * -> wolfPSA -> wolfCrypt(WH_DEV_ID) -> crypto_cb -> the SPM-mediated
+ * SERVICE_HSM relay -> wolfHSM server, not the retired SERVICE_CRYPTO op
+ * protocol. Same input and expected digest, so the scenario marker is
+ * unchanged. */
 static void exercise_ffm_crypto(void)
 {
 	static const uint8_t input[] =
@@ -180,55 +180,19 @@ static void exercise_ffm_crypto(void)
 		0xf7, 0x1f, 0xae, 0xc6, 0x24, 0x6c, 0x7e, 0x72,
 		0x8e, 0x27, 0xa4, 0xb5, 0x0a, 0x49, 0x84, 0x66
 	};
-	const struct device *tee = DEVICE_DT_GET_ANY(wolfssl_wolftrust_tee);
-	struct tee_invoke_func_arg arg;
-	struct tee_param param[2];
 	uint8_t digest[sizeof(expected)];
-	int32_t handle;
-	int rc;
+	size_t digest_len = 0u;
+	psa_status_t st;
 
-	if (tee == NULL || !device_is_ready(tee)) {
-		LOG_WRN("wolftrust TEE device not present/ready");
+	st = psa_hash_compute(PSA_ALG_SHA_256, input, sizeof(input) - 1u,
+			      digest, sizeof(digest), &digest_len);
+	if (st != PSA_SUCCESS || digest_len != sizeof(expected) ||
+	    memcmp(digest, expected, sizeof(expected)) != 0) {
+		LOG_ERR("FF-M SERVICE_CRYPTO SHA-256 KAT failed st=%d len=%u",
+			(int)st, (unsigned)digest_len);
 		return;
 	}
-
-	memset(&arg, 0, sizeof(arg));
-	memset(param, 0, sizeof(param));
-	arg.func = WOLFTRUST_FN_FFM_CONNECT;
-	param[0].a = WT_CRYPTO_SID;
-	param[0].b = 1u;
-	rc = wt_tee_invoke(&arg, 1, param);
-	handle = (int32_t)arg.ret;
-	if (rc != 0 || handle <= 0) {
-		LOG_ERR("FF-M psa_connect(SERVICE_CRYPTO) failed rc=%d "
-			"handle=%d", rc, handle);
-		return;
-	}
-
-	memset(&arg, 0, sizeof(arg));
-	memset(param, 0, sizeof(param));
-	arg.func = WOLFTRUST_FN_FFM_CALL;
-	param[0].a = (uint64_t)handle;
-	param[0].b = 0u; /* PSA_IPC_CALL */
-	param[0].c = (uint64_t)(uintptr_t)input;
-	param[1].a = sizeof(input) - 1u;
-	param[1].b = (uint64_t)(uintptr_t)digest;
-	param[1].c = sizeof(digest);
-	rc = wt_tee_invoke(&arg, 2, param);
-	if (rc != 0 || (int32_t)arg.ret != 0) {
-		LOG_ERR("FF-M psa_call(SERVICE_CRYPTO) failed rc=%d st=%d",
-			rc, (int32_t)arg.ret);
-	} else if (memcmp(digest, expected, sizeof(expected)) != 0) {
-		LOG_ERR("wolfTrust FF-M SERVICE_CRYPTO digest mismatch");
-	} else {
-		LOG_INF("wolfTrust FF-M SERVICE_CRYPTO dispatch verified");
-	}
-
-	memset(&arg, 0, sizeof(arg));
-	memset(param, 0, sizeof(param));
-	arg.func = WOLFTRUST_FN_FFM_CLOSE;
-	param[0].a = (uint64_t)handle;
-	(void)wt_tee_invoke(&arg, 1, param);
+	LOG_INF("wolfTrust FF-M SERVICE_CRYPTO dispatch verified");
 }
 
 /* P4-S2: the full storage chain from a real Non-secure guest — NS ->
@@ -391,11 +355,10 @@ static void exercise_ffm_ps(void)
 	(void)wt_tee_invoke(&arg, 1, param);
 }
 
-/* P4-S4: vault key-ops through SERVICE_CRYPTO. The key never exists outside
- * the privileged vault domain — this probe proves generate, export_public,
- * sign, verify and a tampered-digest refusal end to end on target. The
- * leading destroy keeps the probe idempotent on hardware, where the NVM
- * persists across runs. */
+/* Key-ops now ride the single mediated path: wolfPSA generates a volatile
+ * P-256 key pair whose private part lives only inside the wolfHSM server, signs
+ * a digest, verifies it, and refuses a tampered digest. Same marker as the
+ * retired SERVICE_CRYPTO vault probe. */
 static void exercise_ffm_keys(void)
 {
 	static const uint8_t digest[32] = {
@@ -404,139 +367,51 @@ static void exercise_ffm_keys(void)
 		0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14,
 		0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C
 	};
-	const struct device *tee = DEVICE_DT_GET_ANY(wolfssl_wolftrust_tee);
-	struct tee_invoke_func_arg arg;
-	struct tee_param param[2];
-	uint8_t req[16 + 96];
-	uint8_t pub[65];
-	uint8_t sig[64];
-	uint64_t uid = 0x57544B56u; /* "WTKV" */
-	uint32_t usage = 0x3u;      /* SIGN | VERIFY */
-	uint32_t key_type = 1u;     /* P-256 */
-	int32_t handle;
-	int32_t st;
-	int rc;
+	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+	psa_key_id_t key = PSA_KEY_ID_NULL;
+	uint8_t sig[PSA_ECDSA_SIGNATURE_SIZE(256)];
+	uint8_t tampered[sizeof(digest)];
+	size_t sig_len = 0u;
+	psa_status_t st;
 	int ok = 1;
 
-	if (tee == NULL || !device_is_ready(tee)) {
-		LOG_WRN("wolftrust TEE device not present/ready");
+	psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH |
+					  PSA_KEY_USAGE_VERIFY_HASH);
+	psa_set_key_lifetime(&attr, PSA_KEY_LIFETIME_VOLATILE);
+	psa_set_key_type(&attr,
+			 PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+	psa_set_key_algorithm(&attr, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
+	psa_set_key_bits(&attr, 256);
+
+	st = psa_generate_key(&attr, &key);
+	if (st != PSA_SUCCESS) {
+		LOG_ERR("key generate failed st=%d", (int)st);
 		return;
 	}
 
-	memset(&arg, 0, sizeof(arg));
-	memset(param, 0, sizeof(param));
-	arg.func = WOLFTRUST_FN_FFM_CONNECT;
-	param[0].a = WT_CRYPTO_SID;
-	param[0].b = 1u;
-	rc = wt_tee_invoke(&arg, 1, param);
-	handle = (int32_t)arg.ret;
-	if (rc != 0 || handle <= 0) {
-		LOG_ERR("FF-M psa_connect(SERVICE_CRYPTO keys) failed rc=%d "
-			"handle=%d", rc, handle);
-		return;
-	}
-
-	memset(req, 0, sizeof(req));
-	memcpy(req, &uid, sizeof(uid));
-	memcpy(req + 8, &usage, sizeof(usage));
-	memcpy(req + 12, &key_type, sizeof(key_type));
-
-	/* Idempotence on persistent NVM: a stale key from a prior run is
-	 * removed first; DOES_NOT_EXIST on first boot is expected. */
-	memset(&arg, 0, sizeof(arg));
-	memset(param, 0, sizeof(param));
-	arg.func = WOLFTRUST_FN_FFM_CALL;
-	param[0].a = (uint64_t)handle;
-	param[0].b = 8u; /* WT_CRYPTO_OP_KEY_DESTROY */
-	param[0].c = (uint64_t)(uintptr_t)req;
-	param[1].a = 16u;
-	(void)wt_tee_invoke(&arg, 2, param);
-
-	memset(&arg, 0, sizeof(arg));
-	memset(param, 0, sizeof(param));
-	arg.func = WOLFTRUST_FN_FFM_CALL;
-	param[0].a = (uint64_t)handle;
-	param[0].b = 1u; /* WT_CRYPTO_OP_KEY_GENERATE */
-	param[0].c = (uint64_t)(uintptr_t)req;
-	param[1].a = 16u;
-	rc = wt_tee_invoke(&arg, 2, param);
-	st = (int32_t)arg.ret;
-	if (rc != 0 || st != 0) {
-		LOG_ERR("key generate failed rc=%d st=%d", rc, st);
+	st = psa_sign_hash(key, PSA_ALG_ECDSA(PSA_ALG_SHA_256), digest,
+			   sizeof(digest), sig, sizeof(sig), &sig_len);
+	if (st != PSA_SUCCESS) {
+		LOG_ERR("key sign failed st=%d", (int)st);
 		ok = 0;
 	}
 
 	if (ok) {
-		memset(pub, 0, sizeof(pub));
-		memset(&arg, 0, sizeof(arg));
-		memset(param, 0, sizeof(param));
-		arg.func = WOLFTRUST_FN_FFM_CALL;
-		param[0].a = (uint64_t)handle;
-		param[0].b = 3u; /* WT_CRYPTO_OP_KEY_EXPORT_PUBLIC */
-		param[0].c = (uint64_t)(uintptr_t)req;
-		param[1].a = 16u;
-		param[1].b = (uint64_t)(uintptr_t)pub;
-		param[1].c = sizeof(pub);
-		rc = wt_tee_invoke(&arg, 2, param);
-		st = (int32_t)arg.ret;
-		if (rc != 0 || st != 0 || pub[0] != 0x04u) {
-			LOG_ERR("export_public failed rc=%d st=%d", rc, st);
+		st = psa_verify_hash(key, PSA_ALG_ECDSA(PSA_ALG_SHA_256),
+				     digest, sizeof(digest), sig, sig_len);
+		if (st != PSA_SUCCESS) {
+			LOG_ERR("key verify failed st=%d", (int)st);
 			ok = 0;
 		}
 	}
 
 	if (ok) {
-		memcpy(req + 16, digest, sizeof(digest));
-		memset(sig, 0, sizeof(sig));
-		memset(&arg, 0, sizeof(arg));
-		memset(param, 0, sizeof(param));
-		arg.func = WOLFTRUST_FN_FFM_CALL;
-		param[0].a = (uint64_t)handle;
-		param[0].b = 4u; /* WT_CRYPTO_OP_KEY_SIGN */
-		param[0].c = (uint64_t)(uintptr_t)req;
-		param[1].a = 16u + sizeof(digest);
-		param[1].b = (uint64_t)(uintptr_t)sig;
-		param[1].c = sizeof(sig);
-		rc = wt_tee_invoke(&arg, 2, param);
-		st = (int32_t)arg.ret;
-		if (rc != 0 || st != 0) {
-			LOG_ERR("key sign failed rc=%d st=%d", rc, st);
-			ok = 0;
-		}
-	}
-
-	if (ok) {
-		memcpy(req + 16, digest, sizeof(digest));
-		memcpy(req + 16 + sizeof(digest), sig, sizeof(sig));
-		memset(&arg, 0, sizeof(arg));
-		memset(param, 0, sizeof(param));
-		arg.func = WOLFTRUST_FN_FFM_CALL;
-		param[0].a = (uint64_t)handle;
-		param[0].b = 5u; /* WT_CRYPTO_OP_KEY_VERIFY */
-		param[0].c = (uint64_t)(uintptr_t)req;
-		param[1].a = 16u + sizeof(digest) + sizeof(sig);
-		rc = wt_tee_invoke(&arg, 2, param);
-		st = (int32_t)arg.ret;
-		if (rc != 0 || st != 0) {
-			LOG_ERR("key verify failed rc=%d st=%d", rc, st);
-			ok = 0;
-		}
-	}
-
-	if (ok) {
-		req[16] ^= 0x01u; /* corrupt the digest */
-		memset(&arg, 0, sizeof(arg));
-		memset(param, 0, sizeof(param));
-		arg.func = WOLFTRUST_FN_FFM_CALL;
-		param[0].a = (uint64_t)handle;
-		param[0].b = 5u; /* WT_CRYPTO_OP_KEY_VERIFY */
-		param[0].c = (uint64_t)(uintptr_t)req;
-		param[1].a = 16u + sizeof(digest) + sizeof(sig);
-		rc = wt_tee_invoke(&arg, 2, param);
-		st = (int32_t)arg.ret;
-		if (rc != 0 || st != -149) {
-			LOG_ERR("tampered verify not refused rc=%d st=%d",
-				rc, st);
+		memcpy(tampered, digest, sizeof(tampered));
+		tampered[0] ^= 0x01u;
+		st = psa_verify_hash(key, PSA_ALG_ECDSA(PSA_ALG_SHA_256),
+				     tampered, sizeof(tampered), sig, sig_len);
+		if (st != PSA_ERROR_INVALID_SIGNATURE) {
+			LOG_ERR("tampered verify not refused st=%d", (int)st);
 			ok = 0;
 		}
 	}
@@ -545,146 +420,72 @@ static void exercise_ffm_keys(void)
 		LOG_INF("wolfTrust key-ops sign/verify verified");
 	}
 
-	memset(&arg, 0, sizeof(arg));
-	memset(param, 0, sizeof(param));
-	arg.func = WOLFTRUST_FN_FFM_CLOSE;
-	param[0].a = (uint64_t)handle;
-	(void)wt_tee_invoke(&arg, 1, param);
+	(void)psa_destroy_key(key);
 }
 
-/* P4-S5 on-target negative (WT-FFM-0046): a wrong-key AES-GCM decrypt fails
- * authentication — there is no cross-key oracle. Two AES keys are generated
- * in the vault; ciphertext produced under key A cannot be decrypted under
- * key B (st = INVALID_SIGNATURE), while key A still decrypts its own. This
- * is also the first on-target exercise of the key encrypt/decrypt path. */
+/* On-target key-isolation negative over the single mediated path (WT-FFM-0046):
+ * a signature produced under key A must not verify under key B — there is no
+ * cross-key oracle. Two volatile P-256 keys are generated in the wolfHSM
+ * server; A signs a digest, A verifies it, and B rejects A's signature. */
 static void exercise_ffm_key_negatives(void)
 {
-	static const uint8_t msg_pt[] = "wolfTrust key negative probe";
-	const struct device *tee = DEVICE_DT_GET_ANY(wolfssl_wolftrust_tee);
-	struct tee_invoke_func_arg arg;
-	struct tee_param param[2];
-	uint8_t req[16 + 128];
-	uint8_t ct[sizeof(msg_pt) + 28];
-	uint8_t pt[sizeof(msg_pt)];
-	uint64_t uid_a = 0x4E454741u; /* "NEGA" */
-	uint64_t uid_b = 0x4E454742u; /* "NEGB" */
-	uint32_t usage = 0xCu;   /* ENCRYPT | DECRYPT */
-	uint32_t key_type = 2u;  /* AES-256 */
-	int32_t handle;
-	int32_t st;
-	int rc;
+	static const uint8_t digest[32] = {
+		0x4E, 0x45, 0x47, 0x41, 0x01, 0x02, 0x03, 0x04,
+		0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
+		0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14,
+		0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C
+	};
+	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+	psa_key_id_t key_a = PSA_KEY_ID_NULL;
+	psa_key_id_t key_b = PSA_KEY_ID_NULL;
+	uint8_t sig[PSA_ECDSA_SIGNATURE_SIZE(256)];
+	size_t sig_len = 0u;
+	psa_status_t st;
 	int ok = 1;
-	uint32_t ct_len;
 
-	if (tee == NULL || !device_is_ready(tee)) {
-		LOG_WRN("wolftrust TEE device not present/ready");
+	psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH |
+					  PSA_KEY_USAGE_VERIFY_HASH);
+	psa_set_key_lifetime(&attr, PSA_KEY_LIFETIME_VOLATILE);
+	psa_set_key_type(&attr,
+			 PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+	psa_set_key_algorithm(&attr, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
+	psa_set_key_bits(&attr, 256);
+
+	st = psa_generate_key(&attr, &key_a);
+	if (st != PSA_SUCCESS) {
+		LOG_ERR("negatives key A generate failed st=%d", (int)st);
+		return;
+	}
+	st = psa_generate_key(&attr, &key_b);
+	if (st != PSA_SUCCESS) {
+		LOG_ERR("negatives key B generate failed st=%d", (int)st);
+		(void)psa_destroy_key(key_a);
 		return;
 	}
 
-	memset(&arg, 0, sizeof(arg));
-	memset(param, 0, sizeof(param));
-	arg.func = WOLFTRUST_FN_FFM_CONNECT;
-	param[0].a = WT_CRYPTO_SID;
-	param[0].b = 1u;
-	rc = wt_tee_invoke(&arg, 1, param);
-	handle = (int32_t)arg.ret;
-	if (rc != 0 || handle <= 0) {
-		LOG_ERR("FF-M psa_connect(SERVICE_CRYPTO negatives) failed rc=%d "
-			"handle=%d", rc, handle);
-		return;
-	}
-
-	/* Generate both AES keys (destroy-first for hardware idempotence). */
-	memset(req, 0, sizeof(req));
-	memcpy(req + 8, &usage, sizeof(usage));
-	memcpy(req + 12, &key_type, sizeof(key_type));
-	memcpy(req, &uid_a, sizeof(uid_a));
-	memset(&arg, 0, sizeof(arg));
-	memset(param, 0, sizeof(param));
-	arg.func = WOLFTRUST_FN_FFM_CALL;
-	param[0].a = (uint64_t)handle;
-	param[0].b = 8u; /* DESTROY */
-	param[0].c = (uint64_t)(uintptr_t)req;
-	param[1].a = 16u;
-	(void)wt_tee_invoke(&arg, 2, param);
-	param[0].b = 1u; /* GENERATE */
-	rc = wt_tee_invoke(&arg, 2, param);
-	if (rc != 0 || (int32_t)arg.ret != 0) {
-		ok = 0;
-	}
-	memcpy(req, &uid_b, sizeof(uid_b));
-	param[0].b = 8u; /* DESTROY */
-	(void)wt_tee_invoke(&arg, 2, param);
-	param[0].b = 1u; /* GENERATE */
-	rc = wt_tee_invoke(&arg, 2, param);
-	if (rc != 0 || (int32_t)arg.ret != 0) {
+	st = psa_sign_hash(key_a, PSA_ALG_ECDSA(PSA_ALG_SHA_256), digest,
+			   sizeof(digest), sig, sizeof(sig), &sig_len);
+	if (st != PSA_SUCCESS) {
+		LOG_ERR("negatives sign under A failed st=%d", (int)st);
 		ok = 0;
 	}
 
-	/* Encrypt under key A. */
-	ct_len = 0u;
 	if (ok) {
-		memcpy(req, &uid_a, sizeof(uid_a));
-		memcpy(req + 16, msg_pt, sizeof(msg_pt));
-		memset(&arg, 0, sizeof(arg));
-		memset(param, 0, sizeof(param));
-		arg.func = WOLFTRUST_FN_FFM_CALL;
-		param[0].a = (uint64_t)handle;
-		param[0].b = 6u; /* ENCRYPT */
-		param[0].c = (uint64_t)(uintptr_t)req;
-		param[1].a = 16u + sizeof(msg_pt);
-		param[1].b = (uint64_t)(uintptr_t)ct;
-		param[1].c = sizeof(ct);
-		rc = wt_tee_invoke(&arg, 2, param);
-		st = (int32_t)arg.ret;
-		ct_len = (uint32_t)param[1].c;
-		if (rc != 0 || st != 0) {
-			LOG_ERR("negatives encrypt failed rc=%d st=%d", rc, st);
+		st = psa_verify_hash(key_a, PSA_ALG_ECDSA(PSA_ALG_SHA_256),
+				     digest, sizeof(digest), sig, sig_len);
+		if (st != PSA_SUCCESS) {
+			LOG_ERR("negatives verify under A failed st=%d",
+				(int)st);
 			ok = 0;
 		}
 	}
 
-	/* Decrypt under key B must fail authentication (-149). */
 	if (ok) {
-		memcpy(req, &uid_b, sizeof(uid_b));
-		memcpy(req + 16, ct, ct_len);
-		memset(&arg, 0, sizeof(arg));
-		memset(param, 0, sizeof(param));
-		arg.func = WOLFTRUST_FN_FFM_CALL;
-		param[0].a = (uint64_t)handle;
-		param[0].b = 7u; /* DECRYPT */
-		param[0].c = (uint64_t)(uintptr_t)req;
-		param[1].a = 16u + ct_len;
-		param[1].b = (uint64_t)(uintptr_t)pt;
-		param[1].c = sizeof(pt);
-		rc = wt_tee_invoke(&arg, 2, param);
-		st = (int32_t)arg.ret;
-		if (rc != 0 || st != -149) {
-			LOG_ERR("wrong-key decrypt not refused rc=%d st=%d",
-				rc, st);
-			ok = 0;
-		}
-	}
-
-	/* Decrypt under key A must succeed and round-trip. */
-	if (ok) {
-		memcpy(req, &uid_a, sizeof(uid_a));
-		memcpy(req + 16, ct, ct_len);
-		memset(pt, 0, sizeof(pt));
-		memset(&arg, 0, sizeof(arg));
-		memset(param, 0, sizeof(param));
-		arg.func = WOLFTRUST_FN_FFM_CALL;
-		param[0].a = (uint64_t)handle;
-		param[0].b = 7u; /* DECRYPT */
-		param[0].c = (uint64_t)(uintptr_t)req;
-		param[1].a = 16u + ct_len;
-		param[1].b = (uint64_t)(uintptr_t)pt;
-		param[1].c = sizeof(pt);
-		rc = wt_tee_invoke(&arg, 2, param);
-		st = (int32_t)arg.ret;
-		if (rc != 0 || st != 0 ||
-		    memcmp(pt, msg_pt, sizeof(msg_pt)) != 0) {
-			LOG_ERR("right-key decrypt failed rc=%d st=%d", rc, st);
+		st = psa_verify_hash(key_b, PSA_ALG_ECDSA(PSA_ALG_SHA_256),
+				     digest, sizeof(digest), sig, sig_len);
+		if (st != PSA_ERROR_INVALID_SIGNATURE) {
+			LOG_ERR("cross-key verify under B not refused st=%d",
+				(int)st);
 			ok = 0;
 		}
 	}
@@ -693,11 +494,8 @@ static void exercise_ffm_key_negatives(void)
 		LOG_INF("wolfTrust key negatives verified");
 	}
 
-	memset(&arg, 0, sizeof(arg));
-	memset(param, 0, sizeof(param));
-	arg.func = WOLFTRUST_FN_FFM_CLOSE;
-	param[0].a = (uint64_t)handle;
-	(void)wt_tee_invoke(&arg, 1, param);
+	(void)psa_destroy_key(key_a);
+	(void)psa_destroy_key(key_b);
 }
 
 /* Item 9: FF-M IPC negatives on the emulator path. A real Non-secure guest
@@ -725,7 +523,7 @@ static void exercise_ffm_negatives(void)
 	memset(&arg, 0, sizeof(arg));
 	memset(param, 0, sizeof(param));
 	arg.func = WOLFTRUST_FN_FFM_CONNECT;
-	param[0].a = WT_CRYPTO_SID;
+	param[0].a = WT_SERVICE_HSM_SID;
 	param[0].b = 1u;
 	rc = wt_tee_invoke(&arg, 1, param);
 	handle = (int32_t)arg.ret;

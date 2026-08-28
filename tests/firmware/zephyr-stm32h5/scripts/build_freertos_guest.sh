@@ -28,7 +28,9 @@ WT_GUEST_RAM_SIZE="${WT_GUEST_RAM_SIZE:-0x00008000}"
 
 WOLFSSL_DIR="${ROOT}/lib/wolfSSL"
 WOLFPSA_DIR="${ROOT}/lib/wolfPSA"
+WOLFHSM_DIR="${ROOT}/lib/wolfHSM"
 BAREMETAL_NS_DIR="${ROOT}/tests/firmware/stm32h563/nonsecure"
+WOLFHSM_MODULE_DIR="${SUBTREE_DIR}/module/wolfhsm-client"
 
 if [ ! -d "${FREERTOS_KERNEL}" ]; then
     echo "missing FreeRTOS workspace: ${FREERTOS_KERNEL}" >&2
@@ -57,6 +59,7 @@ ${FREERTOS_KERNEL}/portable/MemMang/heap_4.c"
 
 WOLFCRYPT_GUEST_SRCS="\
 ${WOLFSSL_DIR}/wolfcrypt/src/aes.c \
+${WOLFSSL_DIR}/wolfcrypt/src/cryptocb.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/ecc.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/random.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/sha256.c \
@@ -83,14 +86,44 @@ ${WOLFPSA_DIR}/src/psa_crypto.c \
 ${WOLFPSA_DIR}/src/psa_random.c \
 ${WOLFPSA_DIR}/src/psa_hash_engine.c"
 
+# wolfHSM client subset: the same single mediated crypto path guest0 uses —
+# wolfCrypt (WH_DEV_ID) -> cryptocb -> wh_Client -> the SERVICE_HSM relay
+# (WT-FFM-0054). No raw WolfTrust_HSM_* CMSE transport.
+WOLFHSM_CLIENT_SRCS="\
+${WOLFHSM_DIR}/src/wh_client.c \
+${WOLFHSM_DIR}/src/wh_client_crypto.c \
+${WOLFHSM_DIR}/src/wh_client_cryptocb.c \
+${WOLFHSM_DIR}/src/wh_comm.c \
+${WOLFHSM_DIR}/src/wh_crypto.c \
+${WOLFHSM_DIR}/src/wh_keyid.c \
+${WOLFHSM_DIR}/src/wh_message_comm.c \
+${WOLFHSM_DIR}/src/wh_message_crypto.c \
+${WOLFHSM_DIR}/src/wh_message_keystore.c \
+${WOLFHSM_DIR}/src/wh_message_nvm.c \
+${WOLFHSM_DIR}/src/wh_message_customcb.c \
+${WOLFHSM_DIR}/src/wh_message_counter.c \
+${WOLFHSM_DIR}/src/wh_utils.c"
+
 # OS-neutral wolfTrust NS client core: psa_connect/call/close over the
-# WolfTrust_FFM_* veneers + the crypto-service RNG helper.
+# WolfTrust_FFM_* veneers, plus the wolfHSM-over-psa_call transport and the
+# guest glue that registers the wolfHSM crypto-callback device.
 WT_CLIENT_SRCS="\
 ${ROOT}/src/client/psa_ffm_client.c \
-${ROOT}/src/client/ffm_crypto_client.c"
+${ROOT}/src/client/hsm_psa_transport.c"
 
 GUEST_GLUE_SRCS="\
-${BAREMETAL_NS_DIR}/libc_stubs_guest.c"
+${BAREMETAL_NS_DIR}/libc_stubs_guest.c \
+${WOLFHSM_MODULE_DIR}/src/wolfhsm_client_glue.c"
+
+# wh_settings.h picks up config via `#ifdef WOLFHSM_CFG / #include
+# "wolfhsm_cfg.h"`; generate the trampolines pointing at the shared guest
+# settings (mirrors tests/firmware/stm32h563/Makefile).
+WH_CFG_DIR="${BUILD_DIR}/wh_include"
+mkdir -p "${WH_CFG_DIR}"
+printf '#include "%s"\n' "${BAREMETAL_NS_DIR}/wh_settings_guest.h" \
+    > "${WH_CFG_DIR}/wolfhsm_cfg.h"
+printf '#include "%s"\n' "${BAREMETAL_NS_DIR}/wh_settings_guest.h" \
+    > "${WH_CFG_DIR}/wolfhsm_guest_cfg.h"
 
 APP_SRCS="${APP_DIR}/main.c"
 
@@ -105,14 +138,19 @@ CFLAGS="\
 -I${FREERTOS_PORT} \
 -I${ROOT}/include \
 -I${WOLFSSL_DIR} \
+-I${WOLFHSM_DIR} \
 -I${WOLFPSA_DIR} \
 -I${WOLFPSA_DIR}/wolfpsa \
 -I${WOLFPSA_DIR}/src \
 -I${BAREMETAL_NS_DIR} \
+-I${WH_CFG_DIR} \
 -I${ROOT}/port/stm32h563 \
 -DWOLFSSL_USER_SETTINGS \
 -DWOLFSSL_PSA_ENGINE \
 -DWOLFPSA_NO_TRACE \
+-DWOLFHSM_CFG \
+-DWOLF_CRYPTO_CB \
+-DWT_ENGINE_HSM=1 \
 -DWC_RESEED_INTERVAL=1000000 \
 -DWOLFSSL_SP_ASM -DWOLFSSL_SP_ARM_CORTEX_M_ASM -DWOLFSSL_ARM_ARCH=8 \
 -DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO -DWOLFSSL_ARMASM_INLINE \
@@ -137,17 +175,21 @@ ${GUEST_CC} ${CFLAGS} ${LDFLAGS} \
     ${FREERTOS_KERNEL_SRCS} \
     ${WOLFCRYPT_GUEST_SRCS} \
     ${WOLFPSA_SRCS} \
+    ${WOLFHSM_CLIENT_SRCS} \
     ${WT_CLIENT_SRCS} \
     ${GUEST_GLUE_SRCS} \
     "${SECURE_CMSE_IMPLIB}" \
     -lgcc
 
-# Bypass-absence proof (WT-FFM-0054): the raw wolfHSM client must be gone
-# from this image — no wh_Client_* code and no reference to the raw
-# WolfTrust_HSM_* transport veneers.
-if arm-none-eabi-nm "${BUILD_DIR}/freertos_guest1.elf" | \
-        grep -Eq "wh_Client_|wolfhsm_guest_init"; then
-    echo "guest1 still links raw HSM bypass symbols" >&2
+# Mediated-path proof (WT-FFM-0054): the wolfHSM client is now legitimately
+# present, and it must reach the secure side through the SPM-mediated
+# psa_call transport. Assert that transport is linked. (The raw WolfTrust_HSM_*
+# veneers are still bundled in the shared CMSE import library blob, so a strict
+# absence check only becomes clean once S6g deletes them from the secure image;
+# guest1's glue calls only wt_hsm_psa_transport_cb, never the veneers.)
+if ! arm-none-eabi-nm "${BUILD_DIR}/freertos_guest1.elf" | \
+        grep -q "wt_hsm_psa_transport_cb"; then
+    echo "guest1 is not wired to the SPM-mediated wolfHSM transport" >&2
     exit 1
 fi
 
