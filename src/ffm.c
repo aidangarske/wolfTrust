@@ -306,6 +306,17 @@ static void wt_ffm_enqueue(wt_ffm_runtime_t* runtime, uint16_t service_index,
     wt_ffm_update_service_signal(runtime, service_index);
 }
 
+/* SWD-readable record of the last refused client vector: (kind<<28) |
+ * (index<<24) | (caller low byte<<16) | length low 16; kind 1=in policy,
+ * 2=out policy, 3=transfer cap. Forensics for silicon-only refusals. */
+volatile uint32_t g_wt_ffm_refuse_info;
+volatile uint32_t g_wt_ffm_refuse_base;
+
+/* Companion trace: last psa_call shape seen ((type<<16)|(in<<8)|out) with a
+ * refusal-site nibble in bits 31..28 (1/2 veneer, 4 counts, 5 handle,
+ * 6 state, 7 alloc). */
+volatile uint32_t g_wt_ffm_call_trace;
+
 static int wt_ffm_prepare_vectors(wt_ffm_runtime_t* runtime,
                                   wt_ffm_message_runtime_t* message,
                                   const psa_invec* in_vec, size_t in_len,
@@ -338,6 +349,10 @@ static int wt_ffm_prepare_vectors(wt_ffm_runtime_t* runtime,
         if (in_vec[i].len != 0U &&
                 runtime->ops->check_read(runtime->port_context,
                     message->caller, in_vec[i].base, in_vec[i].len) == 0) {
+            g_wt_ffm_refuse_info = (1UL << 28) | ((uint32_t)i << 24) |
+                (((uint32_t)message->caller & 0xFFU) << 16) |
+                ((uint32_t)in_vec[i].len & 0xFFFFU);
+            g_wt_ffm_refuse_base = (uint32_t)(uintptr_t)in_vec[i].base;
             return WT_FFM_ERROR_POLICY;
         }
     }
@@ -345,14 +360,21 @@ static int wt_ffm_prepare_vectors(wt_ffm_runtime_t* runtime,
         if (out_vec[i].len != 0U &&
                 runtime->ops->check_write(runtime->port_context,
                     message->caller, out_vec[i].base, out_vec[i].len) == 0) {
+            g_wt_ffm_refuse_info = (2UL << 28) | ((uint32_t)i << 24) |
+                (((uint32_t)message->caller & 0xFFU) << 16) |
+                ((uint32_t)out_vec[i].len & 0xFFFFU);
+            g_wt_ffm_refuse_base = (uint32_t)(uintptr_t)out_vec[i].base;
             return WT_FFM_ERROR_POLICY;
         }
     }
 
     ret = wt_ipc_validate_vectors(inputs, in_len, outputs, out_len,
                                   WT_FFM_TRANSFER_BYTES, &total);
-    if (ret != WT_IPC_VALID)
+    if (ret != WT_IPC_VALID) {
+        g_wt_ffm_refuse_info = (3UL << 28) | ((uint32_t)total & 0xFFFFU);
+        g_wt_ffm_refuse_base = 0U;
         return WT_FFM_ERROR_BUFFER;
+    }
 
     message->in_count = in_len;
     message->out_count = out_len;
@@ -568,21 +590,34 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
 
     if (runtime == NULL || caller == 0)
         return PSA_ERROR_INVALID_ARGUMENT;
+    if ((g_wt_ffm_call_trace & 0xF0000000UL) == 0U) {
+        g_wt_ffm_call_trace = ((uint32_t)type << 16) |
+            (((uint32_t)in_len & 0xFFU) << 8) | ((uint32_t)out_len & 0xFFU);
+    }
     /* FF-M: a negative call type and in_len + out_len > PSA_MAX_IOVEC are
      * both PROGRAMMER ERRORs. */
     if (type < 0 || in_len > PSA_MAX_IOVEC || out_len > PSA_MAX_IOVEC ||
-            in_len + out_len > PSA_MAX_IOVEC)
+            in_len + out_len > PSA_MAX_IOVEC) {
+        g_wt_ffm_call_trace |= 4UL << 28;
         return PSA_ERROR_PROGRAMMER_ERROR;
+    }
     ret = wt_ffm_connection_from_handle(runtime, caller, handle,
                                         &connection_index);
-    if (ret != WT_FFM_SUCCESS)
+    if (ret != WT_FFM_SUCCESS) {
+        g_wt_ffm_call_trace |= 5UL << 28;
+        g_wt_ffm_refuse_base = (uint32_t)handle;
         return ret == WT_FFM_ERROR_POLICY ? PSA_ERROR_NOT_PERMITTED :
                                             PSA_ERROR_PROGRAMMER_ERROR;
+    }
     connection = &runtime->connections[connection_index];
-    if (connection->state != WT_IPC_CONNECTION_IDLE)
+    if (connection->state != WT_IPC_CONNECTION_IDLE) {
+        g_wt_ffm_call_trace |= 6UL << 28;
         return PSA_ERROR_BAD_STATE;
-    if (wt_ffm_alloc_message(runtime, &message_index) != WT_FFM_SUCCESS)
+    }
+    if (wt_ffm_alloc_message(runtime, &message_index) != WT_FFM_SUCCESS) {
+        g_wt_ffm_call_trace |= 7UL << 28;
         return PSA_ERROR_INSUFFICIENT_MEMORY;
+    }
 
     message = &runtime->messages[message_index];
     message->caller = caller;

@@ -24,6 +24,11 @@
 
 #include <string.h>
 
+/* SWD forensics: last op handled ((type<<24)) with the reply status low
+ * 24 bits, and a count of dispatch-loop passes. */
+volatile uint32_t g_wt_vnet_last_reply;
+volatile uint32_t g_wt_vnet_dispatch_count;
+
 static vnet_switch_t* g_vnet_sw = NULL;
 static uint32_t (*g_vnet_tick)(void) = NULL;
 static wt_spm_transport_fn g_vnet_transport = wt_spm_transport_direct;
@@ -315,6 +320,9 @@ int wt_vnet_relay_dispatch(void* context, wt_ffm_runtime_t* runtime,
     } else {
         reply_status = wt_vnet_relay_op(runtime, partition_id, &msg);
     }
+    g_wt_vnet_dispatch_count++;
+    g_wt_vnet_last_reply = ((uint32_t)msg.type << 24) |
+        ((uint32_t)reply_status & 0x00FFFFFFUL);
 
     (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_REPLY;

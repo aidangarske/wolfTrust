@@ -30,6 +30,8 @@
 #include "wolftrust/platform.h"
 #include "wolftrust/types.h"
 
+extern volatile uint32_t g_wt_ffm_call_trace;
+
 static int wt_ffm_nsc_check_read(wt_guest_id_t guest_id,
                                  const void* address, size_t size)
 {
@@ -86,10 +88,13 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
     uint32_t i;
 
     if (!wt_ffm_veneer_caller(&caller)) {
+        g_wt_ffm_call_trace = 1UL << 28;
         return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
     }
     if (ns_iovec == NULL ||
             !wt_cmse_check_ns_rw(ns_iovec, sizeof(*ns_iovec))) {
+        g_wt_ffm_call_trace = (2UL << 28) |
+            ((uint32_t)(uintptr_t)ns_iovec & 0x0FFFFFFFUL);
         return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
     }
     /* Single read into a local copy: the struct's own fields are not

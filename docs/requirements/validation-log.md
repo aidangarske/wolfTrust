@@ -3377,3 +3377,38 @@ Evidence: board flash log `[check] PASS` x4 (no faults, guest0 alive,
 guest1 alive, first mediated ping sent) + the documented RX failure;
 `h5-uart-capture.log` retains the rc traces. Emulator leg: see the
 previous entry. Commit: `831f2d7`.
+
+## Defect #150 forensics - silicon RX failure narrowed to connection lifecycle (2026-08-29)
+
+SWD-readable forensics added (permanent): `g_wt_ffm_refuse_info/base`
+(prepare_vectors refusals incl. vector index/base/len and the transfer-cap
+case), `g_wt_ffm_call_trace` (latched-first psa_call shape + refusal site),
+and `g_wt_vnet_last_reply`/`g_wt_vnet_dispatch_count` in the relay.
+
+Board findings (NUCLEO-H563ZI, vnet scenario, three instrumented runs):
+- `prepare_vectors` NEVER refuses - the two-outvec RX_FETCH vectors pass the
+  real CMSE checks (info/base stay zero). The original "-145 = CMSE refusal"
+  hypothesis is DISPROVEN.
+- The relay partition is healthy: 181 completed messages at halt, last reply
+  `0x04FFF428` = RX_FETCH answered WT_VNET_E_EMPTY - the full scheduled
+  WAIT/GET/op/REPLY loop works on silicon, including empty fetches.
+- No partition faults: `g_wt_restart_events` = `g_wt_quarantine_events` = 0.
+- The latched trace reads `0x60040002`: the FIRST anomalous event in the
+  entire run is an RX_FETCH (in 0/out 2) finding its CONNECTION non-IDLE
+  (BAD_STATE site) - no earlier veneer, count, handle, or vector refusal
+  ever fired. The tick handler already defers guest switches that trap in
+  secure execution, so simple mid-call preemption is not the mechanism.
+- Client-visible sequence per guest: one -145 on an early fetch, then -137
+  forever (wedged connection); TX kept printing ping attempts (one-shot
+  error prints).
+
+Remaining suspect set for the next session: the -145 the client sees maps
+to no instrumented refusal site, so it is produced by the completion path -
+audit `wt_ffm_message` reply_status initialization on alloc, the
+reply-to-message pairing when two tight-loop NS clients interleave
+fetch/reply cycles at real-silicon timing, and which reply marks the
+connection ERROR (`wt_ffm_reply` maps a PROGRAMMER_ERROR reply to permanent
+connection ERROR - find who replies or defaults to -145). Next probes: latch
+the first non-SUCCESS value written into any `reply_status`; print the exact
+first failing status client-side. Emulator remains 6/6 green on identical
+images; host unit/all green with the forensics in.
