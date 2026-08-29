@@ -3,7 +3,7 @@
 Implementation notes covering where the upcoming virtual-Ethernet
 subsystem hooks into the existing wolfTrust monitor. The point of this
 document is to capture the contracts that *exist today* and that the
-VNET work will reuse — so the data-plane and ABI commits don't need to
+VNET work will reuse - so the data-plane and ABI commits don't need to
 re-litigate them.
 
 ## Caller identification
@@ -23,12 +23,12 @@ thin accessor (Wave 2).
 Two existing helpers in `src/arch/armv8m/cmse.c` cover the validation
 contract:
 
-  - `wt_cmse_check_ns_rw(ptr, size)` / `wt_cmse_check_ns_ro(ptr, size)` —
+  - `wt_cmse_check_ns_rw(ptr, size)` / `wt_cmse_check_ns_ro(ptr, size)` -
     CMSE address-range check. Tells you "this address range is reachable
     as NS world from S code, with the requested permission." Does NOT
     tell you which guest owns it.
 
-  - `wt_cmse_check_in_guest_ns_ram(guest_id, ptr, size)` — walks the
+  - `wt_cmse_check_in_guest_ns_ram(guest_id, ptr, size)` - walks the
     declared `memory_windows` for that guest's `wt_guest_config_t` and
     verifies the pointer lies entirely inside one of them. This is the
     isolation check: it stops guest A from passing guest B's RAM as an
@@ -56,7 +56,7 @@ queue full, frame-pool full, slot/gen mismatch on release, etc.).
 The secure monitor is cooperative + timer-driven: it runs to completion
 inside a veneer or a SysTick handler, with no preemption between
 veneers. There is a `wt_mutex_t` (`src/sync/mutex.c`) but its header
-explicitly forbids use from bootstrap or interrupt context — it is for
+explicitly forbids use from bootstrap or interrupt context - it is for
 coroutine code only.
 
 VNET's data plane runs inside veneer context (caller guest is by
@@ -68,7 +68,7 @@ inconsistent refcount/queue state, VNET will use a single
 `PRIMASK`. This is appropriate because every protected section is short
 (handful of pointer/counter edits) and the monitor is the only consumer.
 
-## Virtual IRQ — new infrastructure
+## Virtual IRQ - new infrastructure
 
 There is **no existing virtual-interrupt mechanism in the monitor.**
 Hardware IRQs pass through to the NS NVIC via the per-guest
@@ -84,7 +84,7 @@ VNET introduces the first synthesised, per-guest IRQ. Design:
   - Reflection point: on every guest dispatch, the monitor writes the
     pending bit into the NS NVIC's `ISPR` (if set) or `ICPR` (if clear).
   - `vnet_irq_ack` only clears the pending bit when the RX queue is
-    empty — re-asserting otherwise on next dispatch.
+    empty - re-asserting otherwise on next dispatch.
 
 Wave 4 implements this. Until then the data plane keeps the bit
 correct; the reflection is a stub.
@@ -94,20 +94,20 @@ correct; the reflection is a stub.
 Files added per wave (paths fixed up-front so subsequent commits stay
 coherent):
 
-  - `include/wolftrust/vnet/*.h` — public types, ABI, helper APIs
-  - `src/vnet/*.c` — pure dataplane, no hardware coupling
-  - `port/stm32h563/platform_stm32h563.c` — VNET veneers appended,
+  - `include/wolftrust/vnet/*.h` - public types, ABI, helper APIs
+  - `src/vnet/*.c` - pure dataplane, no hardware coupling
+  - `port/stm32h563/platform_stm32h563.c` - VNET veneers appended,
     pattern-matched to the existing `WolfTrust_HSM_*` block
-  - `tests/host/vnet/` — host-side unit tests (gcc, raw asserts,
+  - `tests/host/vnet/` - host-side unit tests (gcc, raw asserts,
     same shape as `tests/host/wolfhsm_loopback`)
-  - `docs/vnet/` — this note plus per-wave addenda
+  - `docs/vnet/` - this note plus per-wave addenda
 
 ## Build switch
 
 A top-level `CONFIG_VNET` switch in `mk/secure-armv8m-stm32h563.mk`
 gates whether `src/vnet/*.c` and the VNET veneers are linked into the
 secure image. It defaults to `n` until Wave 2 lands a working core.
-Host tests are unconditional — they don't link against the firmware.
+Host tests are unconditional - they don't link against the firmware.
 
 ## L3 stack: wolfIP
 
@@ -117,12 +117,12 @@ in `wolfip.h`) is the integration point: a guest links wolfIP, builds
 a `wolfIP_ll_dev` whose `.poll` calls `vnet_rx_poll`/`vnet_rx_read`/
 `vnet_rx_release` and whose `.send` calls `vnet_tx`, then registers it
 via the normal wolfIP setup. No vnet ↔ wolfIP coupling exists in the
-secure monitor — wolfIP is strictly NS-side.
+secure monitor - wolfIP is strictly NS-side.
 
 wolfIP's `struct wolfIP_eth_frame` lives in `src/wolfip.c` under
 `#ifdef ETHERNET` and is not exported. The vnet switch keeps its own
 minimal Ethernet header view (dst[6] + src[6] + ethertype) for
-source-MAC validation and FDB learning — there is no need to reach
+source-MAC validation and FDB learning - there is no need to reach
 into wolfIP internals.
 
 ## Acceptance bar
@@ -133,8 +133,8 @@ deliverable and the firmware-level pass criterion. Earlier waves are
 gated on host-side unit tests and the secure monitor compiling clean
 under `CONFIG_VNET=y`.
 
-A new firmware test target — separate from the existing wolfHSM
-dual-UART test — will host this demo (tentative path
+A new firmware test target - separate from the existing wolfHSM
+dual-UART test - will host this demo (tentative path
 `tests/firmware/stm32h563-vnet/`).
 
 ## Out of scope for the early waves

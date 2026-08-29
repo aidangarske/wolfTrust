@@ -30,10 +30,10 @@ TrustZone transition works on Cortex-M.
 `make test-target` runs four baseline scenarios through
 [`tests/target/run_m33mu_scenario.sh`](../tests/target/run_m33mu_scenario.sh):
 
-- `positive` — the signed boot chain and normal PSA/FF-M service path complete
-- `restart` — a guest spends its restart budget and unrelated work continues
-- `crossdomain` — an unprivileged storage partition is denied an SPM-RAM read
-- `confboot` — the full Arm FF-M IPC suite runs against the production SPM
+- `positive`: the signed boot chain and normal PSA/FF-M service path complete
+- `restart`: a guest spends its restart budget and unrelated work continues
+- `crossdomain`: an unprivileged storage partition is denied an SPM-RAM read
+- `confboot`: the full Arm FF-M IPC suite runs against the production SPM
 
 The same runner has focused scenario families:
 

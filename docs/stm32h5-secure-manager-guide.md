@@ -1,9 +1,9 @@
-# wolfTrust on STM32H5 — Secure-Manager guide (with real runs)
+# wolfTrust on STM32H5 - Secure-Manager guide (with real runs)
 
 This is the consolidated, evidence-backed guide to running **wolfTrust as a
 drop-in TrustZone-M Secure Manager / TF-M replacement** on the STM32H5
 (NUCLEO-H563ZI). Every state, transition, and test result below is quoted from
-an actual run on the lab board — the raw logs live under `docs/evidence/`.
+an actual run on the lab board - the raw logs live under `docs/evidence/`.
 
 For the *portable contract* (what a new SoC port must implement) see
 [`port-contract.md`](port-contract.md) and [`adding-a-port.md`](adding-a-port.md).
@@ -31,17 +31,17 @@ REGRESSION REPORT:
 ******* END OF ACS *******
 ```
 *(`docs/evidence/2026-08-19-h5-mp5-confboot/`, and reproduced 20/20 clean after
-the #83 fix — see §7.)*
+the #83 fix - see §7.)*
 
 The suite drives the chain through **92 real `SYSRESETREQ` panic-reboots per
-run**, val resuming off its flash-backed boot flag each time — i.e. this is the
+run**, val resuming off its flash-backed boot flag each time - i.e. this is the
 full authenticated wolfBoot → wolfTrust → Non-secure guest lifecycle, not a
 host stub.
 
 **The 4 skips are correct, not a gap.** They are the heap-isolation probes
 (i074 NSPE→APP-RoT heap, i078 NSPE→PSA-RoT heap, i082 APP-RoT→PSA-RoT heap,
 i086 SP→other-SP heap) plus build-excluded i067 (dynamic heap). wolfTrust is a
-**zero-allocation** design — no partition heaps exist — so these self-skip with
+**zero-allocation** design - no partition heaps exist - so these self-skip with
 skip code 42 ("not applicable, no heap region configured"), the same outcome
 TF-M produces with `heap_size: 0`. The **stack** equivalents (i081, i085) pass,
 which is the positive proof that per-domain isolation is enforced.
@@ -78,18 +78,18 @@ WT_OB=(TZEN=0xB4 BOOT_UBE=0xB4 SWAP_BANK=0x0
        SECWM1_STRT=0x0 SECWM1_END=0x4F SECWM2_STRT=0x0 SECWM2_END=0x7F)
 ```
 
-- `TZEN=0xB4` — TrustZone on (this is why DA uses the *certificate* OBK, per ST
-  AN6008 pairing — see §4).
-- `BOOT_UBE=0xB4` — OEM-iRoT boot path (so `SECBOOTADD` is unused).
-- `SECWM1 0x00–0x4F` — secure watermark over the entire wolfBoot+wolfTrust boot
+- `TZEN=0xB4` - TrustZone on (this is why DA uses the *certificate* OBK, per ST
+  AN6008 pairing - see §4).
+- `BOOT_UBE=0xB4` - OEM-iRoT boot path (so `SECBOOTADD` is unused).
+- `SECWM1 0x00–0x4F` - secure watermark over the entire wolfBoot+wolfTrust boot
   partition. **`0x4F`, not `0x3F`**: the earlier `0x3F` ended the watermark at
   `0x08080000`, so secure-alias writes past it were *silently dropped* and any
   secure image over 128 KiB was truncated on flash → wolfBoot integrity-reject
   (`hdr_ok=1, sha_ok=0`, panic). See §7.
-- `SECWM2 0x00–0x7F` — secure bank-2 window (NVM sectors).
+- `SECWM2 0x00–0x7F` - secure bank-2 window (NVM sectors).
 
 Guests live at `0x080A0000+` (sector `0x50`), past the watermark, so they stay
-Non-secure — exactly the isolation boundary a Secure Manager needs.
+Non-secure - exactly the isolation boundary a Secure Manager needs.
 
 ---
 
@@ -107,7 +107,7 @@ Authentication (DA) certificate Full Regression. Full walkthrough + raw console:
 | Provisioning | `0x17` | secure debug closed, NS open | DA regression |
 | TZ-Closed | `0xC6` | TrustZone sealed | DA regression |
 | Closed | `0x72` | debug fully closed | DA full regression |
-| Locked | `0x5C` | permanent | **never — brick** |
+| Locked | `0x5C` | permanent | **never - brick** |
 
 **Safety gate (non-negotiable):** before each advance, a non-destructive
 `discover` (DA `debugauth=2`) must show integrity `0xeaeaeaea` and a Full
@@ -130,7 +130,7 @@ discovery: permission if authorized........:(a/14) ==> Full Regression
 Debug Authentication: Discovery Success
 ```
 
-Real advance to TZ-Closed (note: closing debug drops the connection — benign):
+Real advance to TZ-Closed (note: closing debug drops the connection - benign):
 ```
 $ provisioning_ctrl.sh advance 0xc6
 ADVANCING product state 0x17 -> 0xc6 (regress is the only way back)
@@ -138,7 +138,7 @@ discovery: PSA lifecycle...................:ST_LIFECYCLE_TZ_CLOSED
 discovery: ST provisioning integrity status:0xeaeaeaea
 ```
 
-And the money shot — **wolfTrust boots and runs with debug fully sealed**
+And the money shot - **wolfTrust boots and runs with debug fully sealed**
 (Closed / TZ-Closed), then a DA Full Regression mass-erases back to Open for
 re-test. The dev board is *never* advanced to Locked (`0x5C`), which is
 permanent.
@@ -166,7 +166,7 @@ Same scenarios run on the **M33MU emulator** via
 [`tests/target/run_m33mu_scenario.sh`](../tests/target/run_m33mu_scenario.sh)
 (no board needed); the M33MU gate is the CI equivalent. Emulator = functional
 proof; hardware = the silicon-real proof (SECWM, physical reset line, persistent
-flash — none of which M33MU models).
+flash - none of which M33MU models).
 
 ---
 
@@ -176,15 +176,15 @@ flash — none of which M33MU models).
 
 1. **erase** the conformance NVM boot-flag sector (`pyocd erase -s 0x0C1FA000`)
    so stale cross-run counters don't misresume (the board keeps flash between
-   runs; the emulator starts fresh — this bit us, see §7).
+   runs; the emulator starts fresh - this bit us, see §7).
 2. **flash** wolfBoot + signed wolfTrust + both guests via CubeProgrammer.
-3. **reset** via pyocd (CubeProgrammer `-hardRst` proved unreliable — §7).
+3. **reset** via pyocd (CubeProgrammer `-hardRst` proved unreliable - §7).
 4. **capture** `/dev/ttyACM0` until the ACS report block appears.
 5. the suite runs all 89 tests; each panic test writes its boot flag, fires
-   `SYSRESETREQ`, and val resumes off the flag on reboot — **~92 authenticated
+   `SYSRESETREQ`, and val resumes off the flag on reboot - **~92 authenticated
    reboots per run**.
-6. assert the report block (§1) — only the quiet-window report is asserted, not
-   the interleaved boot banners (both guests share one UART — §7).
+6. assert the report block (§1) - only the quiet-window report is asserted, not
+   the interleaved boot banners (both guests share one UART - §7).
 
 Official assertions end with:
 ```
@@ -217,17 +217,17 @@ Learned the hard way on the board; each is a real defect fixed in-tree.
 4. **Shared-UART interleave.** Both guests raw-write USART3; boot banners splice
    mid-word every reboot. Only the quiet-window ACS report block is assertable.
 
-5. **The #83 gate flake — a Non-secure guest resetting the SoC.** ~1/4 runs
+5. **The #83 gate flake - a Non-secure guest resetting the SoC.** ~1/4 runs
    reported a single SIM ERROR. Root cause (found with a reset-survival SRAM
    "black box", since a reset defeats both the UART log and the ST-Link):
    guest0's Zephyr (`CONFIG_REBOOT` + `sys_reboot`) intermittently issued a
    **Non-secure `SYSRESETREQ`** mid-suite, resetting the whole SoC while val had
    armed `BOOT_NOT_EXPECTED`. **Fix (commit `52f13bb`):** set
    `AIRCR.SYSRESETREQS` in secure init so a Non-secure `SYSRESETREQ` can no
-   longer reset the SoC — the Secure world is the sole reset authority (correct
+   longer reset the SoC - the Secure world is the sole reset authority (correct
    Secure-Manager policy; TF-M does the same). Two latent bugs fell out of the
    same hunt and were fixed alongside: SysTick defaulted to priority 0 and could
-   preempt PendSV mid-coroutine-switch (INVPC faults) — now equal-lowest with
+   preempt PendSV mid-coroutine-switch (INVPC faults) - now equal-lowest with
    PendSV; and the HSM tasklet preempt is now SPSEL-gated (PSP-only). Result:
    **20/20 clean**. Full write-up: `requirements/validation-log.md` (#83).
 
@@ -244,7 +244,7 @@ Board bring-up, provisioning, the 4 scenarios, the lock workflow, and this
 gotcha list are packaged as the **`wolftrust-h5-hardware`** skill; the emulator
 equivalent is **`wolftrust-m33mu`**. Evidence archives:
 
-- `docs/evidence/2026-08-18-h5-mp1-mp2/` — bring-up + functional equivalence.
-- `docs/evidence/2026-08-18-h5-mp3-lock/` — the full lock ladder walkthrough.
-- `docs/evidence/2026-08-19-h5-mp5-confboot/` — the conformance run + 3 silicon
+- `docs/evidence/2026-08-18-h5-mp1-mp2/` - bring-up + functional equivalence.
+- `docs/evidence/2026-08-18-h5-mp3-lock/` - the full lock ladder walkthrough.
+- `docs/evidence/2026-08-19-h5-mp5-confboot/` - the conformance run + 3 silicon
   defects.

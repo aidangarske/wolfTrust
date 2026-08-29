@@ -1,6 +1,6 @@
 # wolfTrust task history (archive)
 
-> ARCHIVE — full historical detail through 2026-08-19 (MP5). The live tracker
+> ARCHIVE - full historical detail through 2026-08-19 (MP5). The live tracker
 > is [`task-list.md`](task-list.md); read this only for provenance.
 
 # wolfTrust implementation task list
@@ -10,7 +10,7 @@ is complete only when its implementation, negative tests, and the M33MU
 lifecycle gate pass on the same commit. Hardware results are recorded
 separately and are never implied by emulator results.
 
-## Phase 1 — dependencies and clean-room baseline
+## Phase 1 - dependencies and clean-room baseline
 
 - [x] Pin wolfCOSE to upstream commit `588232e6f2213133b48976f5cf3153b21fc7199c`.
 - [x] Keep wolfCOSE behind the wolfTrust attestation adapter.
@@ -18,7 +18,7 @@ separately and are never implied by emulator results.
 - [x] Re-run the complete M33MU lifecycle with the upstream wolfCOSE pin.
 - [x] Record the exact passing commit in `validation-log.md`.
 
-## Phase 2 — portable isolation contracts
+## Phase 2 - portable isolation contracts
 
 - [x] Define architecture-neutral domains, resources, lifecycle, restart, and
   isolation profiles.
@@ -28,7 +28,7 @@ separately and are never implied by emulator results.
 - [x] Provide aggregate host, compiler, sanitizer, and Valgrind entry points.
 - [x] Split the remaining public partition API from the Armv8-M context type.
 
-## Phase 3 — manifest, SPM, runtime binding, and IPC
+## Phase 3 - manifest, SPM, runtime binding, and IPC
 
 Done (host-verified):
 - [x] Generate a typed manifest and validate it before SPM ready state.
@@ -52,12 +52,12 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    WT-FFM-0027, `tests/host/ffm/main.c`).
 2a. [ ] Implement `psa_eoi`. Blocked: no engine function asserts an interrupt
    signal into `asserted_signals` yet (unlike the doorbell bit, IRQ signals
-   are validated in the manifest but never raised at runtime) — needs real
+   are validated in the manifest but never raised at runtime) - needs real
    interrupt-controller/ISR integration, tied to the M33MU NVIC question in
    item 10, not a host-only `ffm.c` change.
 2b. [ ] Honor the `psa_wait` timeout (`src/ffm_api.c` ignores it; `PSA_POLL`
    is already the de facto behavior since wait never blocks). `PSA_BLOCK`
-   needs the cooperative scheduler to retry/yield across partitions — that is
+   needs the cooperative scheduler to retry/yield across partitions - that is
    platform glue in item 3's production boot path, not `ffm.c` alone.
 3a. [x] Initialize the FF-M IPC runtime at boot against the real generated
    manifest: `wt_monitor_init` now calls `wt_ffm_boot_init` (`src/ffm_boot.c`,
@@ -69,28 +69,28 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    `port/stm32h563/manifest.json`) and on the Cortex-M cross-build
    (`sec_ffm_boot.o` links into `wolftrust.elf`). `check_read`/`check_write`
    are fail-closed placeholders (deny by default) and `dispatch` returns
-   `WT_FFM_ERROR_STATE` — safe today because nothing calls `psa_call` yet.
+   `WT_FFM_ERROR_STATE` - safe today because nothing calls `psa_call` yet.
 3b. [x] Real Armv8-M CMSE memory validation for `check_read`/`check_write` in
    `src/ffm_boot.c` (`WT-FFM-0012`: the SPM validates every external memory
    reference before an API transfer): pairs the raw CMSE range check
    (`wt_cmse_check_ns_ro`/`_rw`) with the per-guest declared-window check
    (`wt_cmse_check_in_guest_ns_addr`/`_ram`, `src/arch/armv8m/cmse.c`) for
    defense-in-depth, reusing existing infrastructure rather than new logic.
-   Secure-Partition callers (`caller > 0`) stay fail-closed — no per-SP
+   Secure-Partition callers (`caller > 0`) stay fail-closed - no per-SP
    memory envelope exists until item 5. CMSE/MPU details stay out of
    `src/ffm.c` per the architecture-neutral boundary rule. Verified only by
-   the Cortex-M cross-build compiling and linking — no test exists yet.
+   the Cortex-M cross-build compiling and linking - no test exists yet.
 3b-test. [x] Test evidence for 3b's `check_read`/`check_write`: closed by the
    3c-ns M33MU run below. The guest's FF-M `psa_call` crosses the CMSE
    veneer with real NS input/output pointers, so `check_read`/`check_write`
    execute live in `wt_ffm_prepare_vectors` on-target and the correct
-   SHA-256 comes back — the ARM-only CMSE path is exercised, not just
+   SHA-256 comes back - the ARM-only CMSE path is exercised, not just
    compiled.
 3c. [x] Secure-side half of the crypto migration through real
    `psa_connect`/`psa_call` dispatch. The SHA-256 service handler moved to
    its own architecture-neutral file, `src/services/crypto_service.c`
    (`wt_crypto_service_dispatch`: wait/get/read/wolfCrypt `wc_Sha256*`/
-   write/reply) — no Armv8-M/CMSE dependency, so it is directly
+   write/reply) - no Armv8-M/CMSE dependency, so it is directly
    host-testable, unlike everything else in `src/ffm_boot.c`. `dispatch`
    in `src/ffm_boot.c` now routes `PARTITION_CRYPTO_ID` to it instead of
    the `WT_FFM_ERROR_STATE` placeholder. **Real test evidence**:
@@ -98,23 +98,23 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    `wt_ffm_call` round trip (registering `wt_crypto_service_dispatch`
    directly as the port's `dispatch` callback, since `wt_ffm_call()`
    invokes it synchronously) and asserts the returned digest against a
-   real SHA-256 KAT — proving the dispatch path is correct, not just that
+   real SHA-256 KAT - proving the dispatch path is correct, not just that
    it compiles. Wired into `make test` (`unit/crypto_service`). Added the
    NS-to-Secure carrier: `WolfTrust_FFM_Connect`/`_Call`/`_Close`,
    `cmse_nonsecure_entry` veneers in `src/ffm_boot.c` following the exact
    pattern proven in `src/services/vnet/vnet_service.c`
    (`wt_platform_active_guest_id()` + paired `wt_cmse_check_ns_*`/
    `wt_cmse_check_in_guest_ns_*`). `WolfTrust_FFM_Call` bundles the vector
-   pair into one `wt_ffm_veneer_iovec_t` struct pointer, not 4 scalars —
+   pair into one `wt_ffm_veneer_iovec_t` struct pointer, not 4 scalars -
    `cmse_nonsecure_entry` functions can't take stack-passed args (~4
    register-arg limit); the struct is CMSE-checked then read once into a
    local copy to avoid a NS-side TOCTOU on its fields. Verified on the
    Cortex-M cross-build (compiles, links via `--cmse-implib`); `make test`
    green including the new crypto_service suite. The veneers themselves
-   (CMSE checks, guest-id mapping) are still only compile-verified — that
+   (CMSE checks, guest-id mapping) are still only compile-verified - that
    gap is 3b-test, unchanged, closes with 3c-ns. No purpose-built
    NS-to-Secure transport for wolfTrust's own `psa_connect`/`psa_call`
-   exists (`WT_NSC_VENEER` is defined but unused) —
+   exists (`WT_NSC_VENEER` is defined but unused) -
    these veneers ARE that transport, reusing the existing Zephyr `tee`
    driver (`tests/firmware/zephyr-stm32h5/module/wolftrust-tee/`, a generic
    vendor-neutral Zephyr subsystem, not Arm/TF-M-specific) as the carrier.
@@ -128,7 +128,7 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    the workflow (`.github/workflows/stm32h563-build.yml`) and in the local
    gate (`wolftrust-m33mu` skill / `run_m33mu.sh`). Because GitHub Actions
    is capped this month, the confirming run was the local M33MU gate on
-   `wolf-prec5560` in the CI container — emulator evidence, recorded as
+   `wolf-prec5560` in the CI container - emulator evidence, recorded as
    such. This gives 3a/3b/3c-secure their first real on-target caller.
 3c-followup. [ ] Remove the TEE-driver dependency once purpose-built FF-M
    NSC veneers exist (`WT_NSC_VENEER`-based, directly exposing
@@ -150,7 +150,7 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    domain, so no over-broad set is ever programmed). The predicate proves a
    span lies wholly inside a granted region and excludes any other domain's
    private memory. **Real test evidence**: `tests/host/ffm_domain/` drives 20
-   assertions printing `WT-FFM-0011` — a partition owns its RW RAM and RX
+   assertions printing `WT-FFM-0011` - a partition owns its RW RAM and RX
    flash (RX not writable), each partition excludes the other's private RAM,
    spans past a region end / zero length / address overflow are rejected, and
    every fail-closed path returns the right error with an empty domain. Green
@@ -160,37 +160,37 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
    production `-ffreestanding` flags (228 B text, no data/bss). This is the
    policy half only: the object is not yet called from the boot path because
    enforcement (5b) needs the region-table swap. Per the completion rule a
-   positive marker is not isolation evidence — 5a proves the derivation, 5c
+   positive marker is not isolation evidence - 5a proves the derivation, 5c
    proves the fault.
 5b. [x] Enforcement: run each Secure Partition as its own secure execution
    context and switch the secure MPU to the partition's resolved domain around
    dispatch, restoring the SPM whitelist on return. Design: reuse the existing
-   secure coroutine layer (`src/sched/coroutine.c` — per-context stacks,
+   secure coroutine layer (`src/sched/coroutine.c` - per-context stacks,
    cooperative switch from the monitor, and a fault handler that already marks
    a context FAULTED on MemManage/MPU_S/PSPLIM_S). A partition runs as a
    coroutine; on switch-in the port narrows the secure MPU to
    `[secure code RX] + [the partition's resolved private regions]`, on
    switch-out it restores the whitelist. Because the Level 3 profile copies
-   IOVEC transfers (WT-FFM-0041), the SPM — not the partition — touches client
+   IOVEC transfers (WT-FFM-0041), the SPM - not the partition - touches client
    memory, so a partition's table needs only code plus its own regions;
    PRIVDEFENA is already off, so an unmapped access faults even at privileged
    level. Constraint: the M33 secure MPU has 8 regions and `wt_mpu_s_init`
    already uses all 8, so the table is swapped on entry, not appended.
    As built: the crypto SP compute runs on its carved stack via a dedicated
-   secure-MSP trampoline (`wt_crypto_sp_call`) rather than a coroutine — the
+   secure-MSP trampoline (`wt_crypto_sp_call`) rather than a coroutine - the
    coroutine layer's 24 KiB stack gate and nested-context state made it the
    heavier option for a synchronous, non-yielding compute; the trampoline
    narrows/restores the MPU in a C body on the SP stack. Sub-steps (phased so
-   A–C are host/compile-only and only D/E spend an M33MU gate — two runs
+   A–C are host/compile-only and only D/E spend an M33MU gate - two runs
    total):
    - [x] Architecture-neutral table composition
      (`wt_ffm_compose_secure_partition_table`, `src/ffm_domain.c`): shared
      regions + the resolved private set, fail-closed past 8. Host-tested in
-     `tests/host/ffm_domain/` — the composed table maps secure code and the
+     `tests/host/ffm_domain/` - the composed table maps secure code and the
      partition's own RAM and excludes another partition's RAM and the MPU
      control block (`0xE000ED94`). gcc/clang/ASan/UBSan green; Cortex-M33
      compile clean.
-   - [x] Phase A — carve secure per-partition RAM. `memory_map.h` reserves the
+   - [x] Phase A - carve secure per-partition RAM. `memory_map.h` reserves the
      top 16 KiB of the secure RAM window (`0x3009C000..0x300A0000`, the end of
      physical SRAM) as two 8 KiB secure stacks (`WT_SP_CRYPTO_STACK_BASE`,
      `WT_SP_ATTEST_STACK_BASE`); `secure.ld` shrinks the main RAM to 464 KiB,
@@ -204,10 +204,10 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
      and binds the 5-domain manifest at boot, and boots the full lifecycle to
      `[EXPECT BKPT] Success`, exit 0. (That run also surfaced a pre-existing,
      unrelated bug: the wolfBoot `d85fa9d` boot handoff is rejected by
-     `wt_boot_handoff_consume` so attestation reports `lifecycle=0x0000` — see
+     `wt_boot_handoff_consume` so attestation reports `lifecycle=0x0000` - see
      the "boot handoff rejected" task; the local gate warns rather than fails on
      it so Phase D/E isolation stays verifiable.)
-   - [x] Phase B — separate NS-application domains from Secure-Partition
+   - [x] Phase B - separate NS-application domains from Secure-Partition
      domains. `manifest.json` now carries five domains: SPM (0), the two guests
      relabelled `NONSECURE_APPLICATION`/NON-SECURE (1,2), and new
      `SECURE_PARTITION` domains for attestation (3) and crypto (4) whose memory
@@ -215,12 +215,12 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
      `PARTITION_CRYPTO` re-point to domains 3/4; port `max_domains` 3→5; the
      guest-binding assertion in `partitions.c` now expects a Non-secure
      application domain. Proven host-side: the generator validates the manifest,
-     `unit/spm` binds it (guests → NS-app domains) and — with `src/ffm_domain.c`
-     linked in — asserts on the real generated manifest that the crypto Secure
+     `unit/spm` binds it (guests → NS-app domains) and - with `src/ffm_domain.c`
+     linked in - asserts on the real generated manifest that the crypto Secure
      Partition resolves to its own secure stack (`WT_SP_CRYPTO_STACK_BASE`) and
      no longer reaches Non-secure guest RAM (`0x20000000`). Full `make test`
      green.
-   - [x] Phase C — port secure-MPU swap primitive
+   - [x] Phase C - port secure-MPU swap primitive
      (`wt_platform_program_secure_partition_domain` /
      `wt_platform_restore_spm_domain`, `platform_stm32h563.c`; declared in
      `platform.h`). Programs regions 0..count-1 from the composed table with
@@ -230,9 +230,9 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
      (`-Wall -Wextra -Werror -pedantic`) and for Cortex-M33 freestanding
      (108 B text); the full-file secure link is verified at the Phase D
      container build.
-   - [x] Phase D — run the crypto SP compute on its own secure stack with the
+   - [x] Phase D - run the crypto SP compute on its own secure stack with the
      MPU narrowed to the composed domain. Two parts: **D1** reshaped
-     `crypto_service.c` around copied IOVEC (`5b9b8bd`) — the SPM drains the
+     `crypto_service.c` around copied IOVEC (`5b9b8bd`) - the SPM drains the
      input vector into a bounded buffer and calls a pure `wt_crypto_sp_hash`
      that makes no `psa_*` calls, host-proven in `tests/host/crypto_service/`
      (isolated-compute KAT + over-cap rejection). **D2** added the port runner
@@ -244,24 +244,24 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
      crypto-callback registry. **M33MU positive (run #1)**: `SERVICE_CRYPTO`
      returns the correct SHA-256 under the narrowed domain, attestation
      `verify=0 lifecycle=0x1000`, `[EXPECT BKPT] Success`, no fault markers.
-5c. [x] Phase E — M33MU negative proof (`f15fe11`): a test-gated probe
+5c. [x] Phase E - M33MU negative proof (`f15fe11`): a test-gated probe
    (`WT_FFM_NEGATIVE_PROBE`) executed inside the crypto Secure Partition reads
    SPM-private RAM (`WT_RAM_S_BASE`, 0x30028000) and faults the initiating
-   partition — `[MEMFAULT] pc=0x0c060f34 addr=0x30028000 sp=0x3009dff0` (SP
+   partition - `[MEMFAULT] pc=0x0c060f34 addr=0x30028000 sp=0x3009dff0` (SP
    stack), boot halts, no data exposed. Closes WT-FFM-0011's failure clause and
    `framework.md` acceptance-gate negative #1. **M33MU negative (run #2)** via
    `run_m33mu_negative.sh`. CI wiring of the negative job is DONE (the
    `wolfboot-wolftrust-m33mu-scenarios` matrix runs restart+crossdomain). Only
    graceful *production* fault recovery (the probe run continuing instead of
-   halting) remains under task #26 — a production feature, not a test-wrap-up gap.
+   halting) remains under task #26 - a production feature, not a test-wrap-up gap.
 6. [x] Make generated resources, entry points, lifecycle, services, and policy
    authoritative in the production runtime (not only at validation). Resources,
    entry points, IRQ mask, and NS MSP were already bound from the manifest in
    `wt_partitions_bind_manifest`; services and version policy are already
    manifest-driven in `src/ffm.c`. Closed the two remaining "validated but not
-   applied" gaps: **restart policy** — bind now assigns
+   applied" gaps: **restart policy** - bind now assigns
    `config->restart_policy` from the domain instead of equality-bricking on
-   mismatch (`22e5461`); **initial lifecycle** — `wt_partition_reset_runtime`
+   mismatch (`22e5461`); **initial lifecycle** - `wt_partition_reset_runtime`
    sets `runtime->state` from the manifest's `initial_lifecycle`, and NS guest
    domains declare `READY` (`95c61a1`). Host: `test_production_manifest` proves
    both values flow from the manifest (distinct restart_limit and a STOPPED
@@ -278,7 +278,7 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
      `wt_initial_attest_get_token` backend; wired `PARTITION_ATTEST_ID` into
      `wt_ffm_boot_dispatch` (gated on `WT_ATTEST_COSE`). Host-proven in
      `tests/host/attestation_service/` (real FF-M round trip, stubbed backend so
-     the suite isolates IPC routing — the token generator itself is M33MU-proven
+     the suite isolates IPC routing - the token generator itself is M33MU-proven
      already). Secure image compiles and links with the new service on target.
    - [x] Client side (`0de6c52`): the guest's `psa_initial_attest_get_token`
      shim (`wolftrust_attestation_client.c`) now connects `SERVICE_ATTEST`
@@ -298,18 +298,18 @@ Remaining, ordered (each closes with host + M33MU evidence on one commit):
 8. [x] Add the missing wolfTrust FF-M security tests: partition restart and
    cross-domain isolation (handle integrity, bounded pools, scrubbing, and
    pointer revalidation already covered in `tests/host/ffm/main.c`).
-   - [x] Slice 1 — restart-on-fault target scenario: `WT_GUEST_FAULT_PROBE`
+   - [x] Slice 1 - restart-on-fault target scenario: `WT_GUEST_FAULT_PROBE`
      (guest0_psa) reads Secure RAM on boot; the SecureFault escalates to the
      monitor. Proves the `guest0_psa alive` banner reappears `restart_limit+1`
-     = 4 times then the guest is FAULTED — manifest `restart_limit` honored on
+     = 4 times then the guest is FAULTED - manifest `restart_limit` honored on
      target, and the monitor gracefully restarts a Non-secure guest fault while
      the other guest keeps running.
-   - [x] Slice 2 — detect-or-skip harness: `tests/target/run_m33mu_scenario.sh`
+   - [x] Slice 2 - detect-or-skip harness: `tests/target/run_m33mu_scenario.sh`
      (DRY runner for positive/restart/crossdomain) + a standalone `make
      test-target` (separate from host-only `make test`, like
      `make test-conformance`). Auto-detects M33MU (or `WT_TARGET_SCENARIOS=1`);
      explicit `SKIP` otherwise, never a silent pass. M33MU: `PASS: target/all`.
-   - [x] Slice 3 — folded the item-5 cross-domain negative into the runner and
+   - [x] Slice 3 - folded the item-5 cross-domain negative into the runner and
      wired CI job `wolfboot-wolftrust-m33mu-scenarios` (matrix restart,
      crossdomain) driving the same runner so CI and the local harness assert
      identical markers. Closes the item-5 follow-up of wiring the negative job
@@ -332,10 +332,10 @@ them together, at the end, as a single **detect-or-skip** harness driven from
 `make test` (and the same harness in CI):
 
 - **Detection macro.** A build/env gate (e.g. `WT_TARGET_SCENARIOS`, set when an
-  M33MU binary — or real HW — is detected) selects the target-scenario suite.
+  M33MU binary - or real HW - is detected) selects the target-scenario suite.
   When present, `make test` builds and boots the gated scenario firmware and
   asserts each scenario. When absent, it **skips with an explicit message**
-  ("M33MU/HW not detected — target scenarios skipped"), never a silent pass —
+  ("M33MU/HW not detected - target scenarios skipped"), never a silent pass -
   same rule as the item-10 `make test-conformance` auto-detect.
 - **Every scenario stays host-provable where the logic is portable** (the
   compute, the policy, the state machine live in host unit tests); the harness
@@ -346,9 +346,9 @@ them together, at the end, as a single **detect-or-skip** harness driven from
   both the harness and the workflow yml):
   - restart policy honored on a real fault: a guest faults, restarts up to the
     manifest `restart_limit`, then goes `FAULTED` at the limit (item 6 restart
-    half / task 7). *This is the currently-missing target coverage — restart is
+    half / task 7). *This is the currently-missing target coverage - restart is
     never exercised in the happy-path lifecycle run.*
-  - cross-domain probe faults the initiating partition (item 5 Phase E — already
+  - cross-domain probe faults the initiating partition (item 5 Phase E - already
     have `run_m33mu_negative.sh`; fold its marker in).
   - graceful SP fault recovery so a negative run continues (task 26).
   - service dispatch by SID including `SERVICE_ATTEST` (task 3).
@@ -361,7 +361,7 @@ them together, at the end, as a single **detect-or-skip** harness driven from
 
 10. [ ] Expand `tests/host/psa_ff_upstream/` past the host-viable subset
     (now `i001,i003-i008,i010,i011,i012,i024,i025,i026,i067[SKIP],i071,i088,
-    i090` — Slice 1 added version-policy i010/i011/i026; i090 added the
+    i090` - Slice 1 added version-policy i010/i011/i026; i090 added the
     negative-type PROGRAMMER_ERROR check; i003 added the invec/outvec data
     plane, i027 the connection drop, i063 the signal-mask refusal, and i002 the
     full connection lifecycle via the per-test dispatch) to the full Arm
@@ -373,11 +373,11 @@ them together, at the end, as a single **detect-or-skip** harness driven from
     hardware/emulator was not detected and coverage fell back to non-HW tests.
     Confirm first whether m33mu models a real NVIC (IRQ-class tests need this;
     TrustZone isolation and flash-persisted reboot cycles are already proven by
-    existing CI). Real H5 hardware is not required for this gate — it stays a
+    existing CI). Real H5 hardware is not required for this gate - it stays a
     separate, never-implied-by-emulator hardware evidence record per the skill.
 10a. [x] Host version-policy tests `i010,i011,i026` wired. FF-M resolves an
     unspecified manifest service to version 1 + `STRICT`, so they model as a
-    `STRICT` service at version 1 — not the permissive `WT_SERVICE_VERSION_
+    `STRICT` service at version 1 - not the permissive `WT_SERVICE_VERSION_
     UNSPECIFIED` enum (that means "accept any version", a different concept).
     `i026` also required a conformance fix: `psa_call` with
     `in_len + out_len > PSA_MAX_IOVEC` now returns `PSA_ERROR_PROGRAMMER_ERROR`,
@@ -389,7 +389,7 @@ them together, at the end, as a single **detect-or-skip** harness driven from
     `g_active_test` selector routes to the right per-test server (the upstream
     tests reuse SIDs with contradictory server behavior). DONE: the router +
     `ipc_connect`/`ipc_close` vtable entries + `i003` (invec/outvec data plane)
-    + `i027` (connection drop — new `SERVER_CONNECTION_DROP` service; also fixed
+    + `i027` (connection drop - new `SERVER_CONNECTION_DROP` service; also fixed
     `wt_ffm_close` to allow closing a dropped `WT_IPC_CONNECTION_ERROR`
     connection, host test WT-FFM-0022) + `i063` (signal-mask refusal,
     client-visible half) + `i002` (all 9 connection-lifecycle checks:
@@ -406,11 +406,11 @@ H5 Non-secure guest-monitor lifecycle. It does not prove FF-M IPC or Level 3
 Secure Partition isolation. Phase 3 remains open until the acceptance gate in
 `framework.md` passes.
 
-## Item 10 — full TF-M-parity conformance port (program P1–P9)
+## Item 10 - full TF-M-parity conformance port (program P1–P9)
 
 Goal: run the UNMODIFIED upstream Arm PSA-FF conformance suite (NS client app +
 Arm's own Secure test partitions + driver partition) through wolfTrust's real
-production SPM on the STM32H563/M33MU, matching what TF-M provides — plus our own
+production SPM on the STM32H563/M33MU, matching what TF-M provides - plus our own
 equivalent tests, plus a TF-M baseline comparison. The host-only conformance
 subset (item 10 Slices 1-2, done) validated our IPC/policy logic in C; this
 program makes it a real on-target conformance result and a demonstrable TF-M
@@ -420,12 +420,12 @@ homework). Each phase is independently host + M33MU testable; anything not
 honestly provable yet is split into its own tracked item, never faked.
 
 Root blocker found by scouting (2026-08-12): wolfTrust Secure Partitions are NOT
-schedulable entities today — an SP is an inline C call on the NS caller's stack
+schedulable entities today - an SP is an inline C call on the NS caller's stack
 (`src/ffm_boot.c:78-90` hardcoded `if pid==CRYPTO/ATTEST`), `psa_wait` never
 blocks (`src/ffm.c:635-648`, `src/ffm_api.c:104-113` ignores timeout), and the
 monitor scheduler only sees NS guests. So P1 is the keystone.
 
-- P1. [x] **Generic SP scheduling/execution context (KEYSTONE, large) — DONE.**
+- P1. [x] **Generic SP scheduling/execution context (KEYSTONE, large) - DONE.**
   The 85/4 conformance run schedules 3 manifest-bound Arm SPs (SERVER/DRIVER/
   CLIENT) as suspend/resume contexts through the generic `dispatch(partition_id)`
   path (P1a/P1t/P1r landed), not the per-PID `if` chain. Original scope: make a
@@ -465,7 +465,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       touches it, and `wt_spm_call_would_block` flags an empty `psa_wait` as
       "suspend this SP". This is what the target SVC handler calls after
       unmarshalling registers. Evidence: `tests/host/spm_gate` (62 checks,
-      gcc+clang+ASan/UBSan) — gate routes the real connect+call dispatch path,
+      gcc+clang+ASan/UBSan) - gate routes the real connect+call dispatch path,
       classifies an empty wait as blocking, and rejects out-of-domain pointers.
       Not yet in the secure build (lands with P1t-2 under one M33MU gate).
     - P1t-2a. [x] **Gate live in the production image (M33MU 2026-08-12).** The
@@ -474,7 +474,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       the secure build. Still privileged/synchronous. Host: crypto_service KAT
       green under cc/gcc/clang + ASan/UBSan; `make test` all green. M33MU
       positive gate PASS (KAT + dispatch markers, `[EXPECT BKPT] Success`, no
-      faults) — the KAT transits the gate in the production image.
+      faults) - the KAT transits the gate in the production image.
     - P1t-2b. [x] **Coroutine-backed SP via SVC gate (M33MU +/- 2026-08-12).**
       The crypto SP runs as a scheduled coroutine, unprivileged on its own PSP
       stack + manifest MPU domain (nPRIV set on PendSV switch-in, MPU narrowed
@@ -506,7 +506,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   area from the manifest's writable resource (fail-closed if absent or too
   small), and appends non-EXEC domain resources to the MPU table. EXEC windows
   stay the shared whole-image RX (manifest 4K code window lies inside it;
-  Armv8-M MPU regions must not overlap — task #26 tracks narrowing). Tick only
+  Armv8-M MPU regions must not overlap - task #26 tracks narrowing). Tick only
   after the M33MU positive + negative-probe runs pass on this code.
 - P2a. [x] **Manifest-ingestion generator, identity headers (host, DONE).**
   `tools/manifest/ingest_psa_arch.py` converts Arm's 3 upstream
@@ -523,14 +523,14 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   cross-partition dependencies by name→SID and bumping caps/limits. The committed
   `port/stm32h563/manifest-conformance.json` is now proven reproducible from the
   unmodified upstream manifests (test asserts generated == committed and that it
-  validates through `generate.py`) — no more hand-transcription.
+  validates through `generate.py`) - no more hand-transcription.
 - P2c. [x] **Capacity + build selection (host, DONE).** 5-slot secure stack carve
   (`memory_map.h`, `secure.ld`), platform caps 8 domains / 3 mem-resources
   (checked as `<=`, so production stays valid), `WT_CONFORMANCE=1` swaps the
   conformance manifest into the secure build. Remaining P2 (trampoline generalized
-  to N schedulable SPs) is folded into P1t — a one-shot generalization is a
+  to N schedulable SPs) is folded into P1t - a one-shot generalization is a
   dead-end because real Arm SPs call back into the SPM mid-execution.
-- P2. [x] **Table-driven SP load/entry + capacity (large) — DONE.** The 85/4 run
+- P2. [x] **Table-driven SP load/entry + capacity (large) - DONE.** The 85/4 run
   registers SERVER/DRIVER/CLIENT SPs from manifest data alone (the generator
   emits the `psa_manifest` sid/pid headers; per-SP stack/capacity bumped for the
   3-SP set). Original scope: `entry_point` is
@@ -553,11 +553,11 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   already exist upstream (`platform/drivers/{uart,watchdog}/stm/`), but NVM must be
   real flash (upstream `pal_nvmem.c` is SRAM-only). Test-bucket order (of 90):
 - P3. [x] **Bucket (a): NS client + val + SERVER SP + DRIVER SP (print/NVM only)
-  — the true minimum-viable real SPM run.** Needs P1/P2 + the 3-SP hosting +
+  - the true minimum-viable real SPM run.** Needs P1/P2 + the 3-SP hosting +
   target PAL + manifest ingestion + real UART/NVM drivers. First real on-target
   conformance (version-policy, lifecycle, data-plane, signal/status). Then bucket
   (a′): add CLIENT_PARTITION SP. NOTE (2026-08-12 scout): upstream checkout is
-  **90 IPC tests** (`test_i001..i090`), not 36 — 36 was a stale count; the
+  **90 IPC tests** (`test_i001..i090`), not 36 - 36 was a stale count; the
   runnable non-IRQ/non-isolation subset is the P3 target, the rest fall in P4/P5.
   PSA_BLOCK now works (P1t-2b coroutine suspend/resume). Full scout map +
   first-slice brief in `/tmp/wolftrust-p3-plan-2026-08-12.md`. Sliced P3a/b/c:
@@ -568,14 +568,14 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       (`src/arch/armv8m/spm_svc.c`). Per-SP coroutine + domain + dispatch keyed
       by the current coroutine (the `g_spm_sp_*` singletons become arrays; the
       SVC entry resolves the caller from `wt_co_current()`). Crypto stays green
-      as table entry 0. No Arm SP yet — pure foundation. Gate: existing M33MU
+      as table entry 0. No Arm SP yet - pure foundation. Gate: existing M33MU
       positive (crypto KAT) + negative regression on the generalized path.
     - P3a-2. [ ] **NS->S `psa_*` client veneers** (`psa_framework_version`,
       `psa_version`, `psa_connect/call/close`) aliasing the existing
       `WolfTrust_FFM_*` + `wt_ffm_framework_version/service_version`, exported to
       the NS guest through the `.gnu.sgstubs` veneer table. Gate: NS guest calls
       `psa_framework_version()` across the veneer and gets the right value.
-    - P3a-3. [x] **Build integration** — compile Arm `val/` NSPE +
+    - P3a-3. [x] **Build integration** - compile Arm `val/` NSPE +
       `ff/partition/{server,client}_partition.c` into the images: server/client
       partitions into the secure image as scheduled SPs, val NSPE + `psa/client.h`
       shim into the Zephyr NS guest. Dominant unknown; Mac cannot target-compile,
@@ -616,11 +616,11 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       confboot `TOTAL PASSED : 4`. Landed with P3c-2 as part of the six-test
       green (`96fee67`); the epilogue USGFLT did not reproduce on the fixed
       tree.
-    - P3c-2. [x] **Doorbell + psa_wait signal-mask scheduler completeness —
+    - P3c-2. [x] **Doorbell + psa_wait signal-mask scheduler completeness -
       land i058, i063** (pulls P6 #35 scope forward for these two; i021/i067
       stay deferred for IRQ/heap). The psa_wait signal-mask *primitive* is
       already correct (`wt_ffm_wait` returns NOT_READY on `(asserted&mask)==0`;
-      `wt_spm_slot_ready` wakes only on a masked signal) — the gap is
+      `wt_spm_slot_ready` wakes only on a masked signal) - the gap is
       cross-partition doorbell-driven origination plus the three-party
       interleave, decomposed into ordered phases:
       - Phase A. [x] **Lock in psa_wait signal-mask semantics (host)**
@@ -641,7 +641,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
         SP-as-client gate; it asserts a server signal the server masks out, so
         it stays starved across the server's masked waits and is delivered only
         when the server waits on it, completing with `CONNECTION_REFUSED`.
-        **Finding: the existing gate + runtime already carry this — no
+        **Finding: the existing gate + runtime already carry this - no
         `wt_spm_sched_dispatch`/`wt_spm_slot_ready` change was needed.** So the
         target faults below are coroutine-choreography/epilogue bugs, not a
         missing capability. `make test` green (spm_gate 126 checks).
@@ -649,13 +649,13 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
         2026-08-14). Root cause was NOT a stale-handle race: the SP-side SVC
         transport re-issued any NOT_READY gate call, so a `PSA_POLL` wait miss
         (i058's post-`psa_clear` doorbell poll) spun the client coroutine
-        forever — silent hang, no fault. Found via WT_CONFORMANCE-gated hang
+        forever - silent hang, no fault. Found via WT_CONFORMANCE-gated hang
         tripwires (WAIT-run spin guard + SysTick idle probe + diag-trap
         register dumps, kept in-tree). Transport now re-issues only calls that
         suspended (`wt_spm_call_would_block`). Same-class sibling: the crypto
         SP's WAIT lacked `timeout` after the POLL/BLOCK split (`1d37648`,
         host-guarded). i058 and i063 both `Result=Passed` under confboot.
-      - Phase E. [x] **NS epilogue USGFLT** — did not reproduce on the fixed
+      - Phase E. [x] **NS epilogue USGFLT** - did not reproduce on the fixed
         tree: confboot exits clean through `[EXPECT BKPT] Success`, exit 0.
         The 2026-08-13 fault was collateral of the pre-fix stall class.
       - Phase F. [x] **Full subset green + close P3 (target)** (2026-08-14).
@@ -665,12 +665,12 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
         `make test` green. Validation-log entry recorded.
 - P4/P5. [ ] **Buckets (b)+(c): MMIO/IRQ isolation + reboot/NVM continuity.**
   Scout finding (2026-08-14): of P4's 7 tests, **6 are `panic_test`s**
-  (`i047,i055,i057,i064,i065,i066` — deliberate programmer errors that pass only
+  (`i047,i055,i057,i064,i065,i066` - deliberate programmer errors that pass only
   if the SPM panics the offending SP and the framework then RESUMES); only
   `i021` is a live UART-IRQ test. Nearly all of P5's 41 tests are the same
-  panic-reboot shape plus survive-reset NVM. So P4 and P5 share ONE keystone —
+  panic-reboot shape plus survive-reset NVM. So P4 and P5 share ONE keystone -
   **panic → controlled reset → survive-reset NVM → val resumes from the boot
-  flag** — with a real emulator-feasibility gate. Decomposed below; the Keystone
+  flag** - with a real emulator-feasibility gate. Decomposed below; the Keystone
   (K) is done first, then P4/P5 test buckets hang off it. One M33MU-gated slice
   at a time; host evidence before every target run.
 
@@ -679,26 +679,26 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     reads the flag (`NVM_BOOT`/`NVM_PREVIOUS_TEST_ID`) and marks the panicked
     check passed, continuing. So each panic test resets the whole image; a run
     reboots once per panic test and resumes further each time. Today
-    `wt_platform_panic` spins (`bkpt; for(;;)`) and NVM is RAM-backed — neither
+    `wt_platform_panic` spins (`bkpt; for(;;)`) and NVM is RAM-backed - neither
     survives, so this is the gating subsystem.
-    - K1. [x] **Reset feasibility probe — GO (emulator-source verified,
+    - K1. [x] **Reset feasibility probe - GO (emulator-source verified,
       2026-08-14).** Answered by authoritative inspection of the pinned M33MU
       (`danielinux/m33mu@c84792f7`) rather than a throwaway probe firmware:
       (a) default CPU is `stm32h563` (`src/cpu_db.c:89`, our runner passes no
       `--cpu`); (b) an `AIRCR` write with VECTKEY `0x05FA` + SYSRESETREQ bit 2
       requests a warm reset (`src/scs.c:582`) that re-runs firmware from the
       reset vector without reloading images (`src/main.c:6064`,
-      `[RESET] ... reinitialising core`); (c) flash + option bytes survive it —
+      `[RESET] ... reinitialising core`); (c) flash + option bytes survive it -
       the emulator's own `tests/firmware/test-stm32h563-dualbank/main.c:240`
       programs SWAP, does `AIRCR=0x05FA0004`, and reads it back intact on the
       second boot, over the same FLASH MMIO (`0x40022000`) wolfTrust's
-      `port/stm32h563/hsm_flash.c` already drives; (d) bonus — `.noinit` RAM
+      `port/stm32h563/hsm_flash.c` already drives; (d) bonus - `.noinit` RAM
       also survives (the dualbank `reset_marker`), a cheap boot-count detector
       for K3/K4. **GO: the panic-reboot bucket is feasible, not
       hardware-gated.** `wt_platform_system_reset` is built in K3 (where it runs
       through the production SPM path); the first target run of reset lands in
       K3/K4, not a disposable probe. Ledger: validation-log.md.
-    - K2. [x] **Flash-backed survive-reset NVM — host-proven + conformance
+    - K2. [x] **Flash-backed survive-reset NVM - host-proven + conformance
       cross-build clean (2026-08-14).** The DRIVER partition's NVMEM PAL
       (`pal_nvmem_*`) now keeps a RAM shadow loaded from a reserved secure-flash
       sector (`WT_CONF_NVM_FLASH_BASE_S`, one sector below the wolfHSM NVM) at
@@ -707,18 +707,18 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       intercepted in the arch SVC layer (`wt_spm_svc_entry`) before the neutral
       FF-M gate; the flash erase/program stays in the tested `hsm_flash.c`
       (`wt_conf_nvm_flash_sync`). Host suite `tests/host/flash_nvm` drives the
-      real PAL against a faithful flash model — write-through, whole-sector RMW
+      real PAL against a faithful flash model - write-through, whole-sector RMW
       preserves other fields, and reload-after-simulated-reset all green. The
       cross-reset **M33MU** proof (write NVM → real SYSRESETREQ → read back)
       lands in K4, where reset runs through the production panic path. Reserved
       sector, gate op, and hsm_flash primitive all compile+link clean in the
       conformance image (no warnings).
-    - K3. [x] **Controlled panic-reset in the SPM — code + host-proven,
+    - K3. [x] **Controlled panic-reset in the SPM - code + host-proven,
       cross-build clean (2026-08-14).** `wt_platform_system_reset`
       (AIRCR.SYSRESETREQ, `platform_stm32h563.c`) is the reset primitive. The
       neutral gate now sets a `must_panic` flag on the FF-M must-panic
-      PROGRAMMER ERRORs — `psa_get`/`psa_read`/`psa_write` with an out-of-domain
-      buffer (i047/i055/i057) — instead of only returning the error; the arch
+      PROGRAMMER ERRORs - `psa_get`/`psa_read`/`psa_write` with an out-of-domain
+      buffer (i047/i055/i057) - instead of only returning the error; the arch
       SVC layer (`wt_spm_svc_entry`), ONLY under `WT_CONFORMANCE`, resets on that
       flag. Production ignores it (fail-closed quarantine stays task #26). No
       NVM write in the fault path: val itself writes `BOOT_EXPECTED_NS` to flash
@@ -726,8 +726,8 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       Host: `spm_gate` suite asserts `must_panic` is set on the three bad-buffer
       ops and clear on valid / zero-length transfers (133 checks). The target
       panic→reboot proof is K4's single M33MU run (i047).
-    - K4. [x] **DONE — 7/7 across a real panic-reset reboot (2026-08-14).**
-      Three pieces closed it: (1) per-SP MMIO carve — the CONFDATA grant now
+    - K4. [x] **DONE - 7/7 across a real panic-reset reboot (2026-08-14).**
+      Three pieces closed it: (1) per-SP MMIO carve - the CONFDATA grant now
       excludes each pseudo-MMIO hole from every non-owner SP's domain
       (`wt_spm_conf_grant`; constants in memory_map.h; `#error` cross-check;
       secure.ld overflow assert; SERVER MMIO relocated to `0x30095C00` clear of
@@ -735,9 +735,9 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       out-of-domain violation → `must_panic` → SPM reset. (2) A real wolfTrust
       cross-guest bug fixed: `wt_dispatch_hsm_tasklet` now reinstates the
       guest's NS-banked registers (`wt_platform_restore_ns_bank`) before
-      resuming its secure tasklet. (3) The **M33MU-1 emulator defect** — the
+      resuming its secure tasklet. (3) The **M33MU-1 emulator defect** - the
       CPU model lost CONTROL.SPSEL across cross-domain exception entry/return
-      (spec: EXC_RETURN bit2 saves/restores the HANDLER domain's SPSEL) —
+      (spec: EXC_RETURN bit2 saves/restores the HANDLER domain's SPSEL) -
       root-caused via the emulator's own instrumentation and fixed by the
       in-repo `tests/target/m33mu-tb-sec-chain.patch`, which the runner applies
       after the pinned checkout (upstream submission tracked in #63). Evidence:
@@ -745,7 +745,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       `[RESET] System reset requested` and clean `[EXPECT BKPT] Success`
       (local Docker, same CI container); host `make test` green. Details in
       validation-log.md M33MU defect register.
-  - P4.3. [x] **i048-i053 psa_call invalid-vector tests — GREEN (2026-08-17,
+  - P4.3. [x] **i048-i053 psa_call invalid-vector tests - GREEN (2026-08-17,
     confboot 19/19, 14 resets).** Scope-corrected from "driver MMIO isolation":
     NS clients pass iovec array/base/end landing in Secure memory; the SPE
     CLIENT partition re-runs each from Secure where FF-M mandates panic. Fixed
@@ -755,17 +755,17 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     quit-on-faults; conformance monitor answers guest faults with a system
     reset). Full story in validation-log.md (Item 10 P4 close). Suite now 19
     tests green; only i067 (heap) skipped by design.
-  - P4.1. [x] **Six panic isolation tests — ALL SIX GREEN (2026-08-17,
+  - P4.1. [x] **Six panic isolation tests - ALL SIX GREEN (2026-08-17,
     confboot 12/12: i047,i055,i057,i064,i065,i066).** Original scope: un-skip
     `i047,i055,i057,i064,i065,i066`, wire into the schedule (gen_tests_list
     panic mode), M33MU green across their reboots. Confirm each induces the SP
     panic our SPM already raises (bad msg pointer, oversized vector, etc.).
     **i047 is DONE** (K4). Mini-plan for the rest, ordered:
-    - P4.1a. [x] **i055 + i057 — buffer-panic pair (DONE 2026-08-17).** Same
+    - P4.1a. [x] **i055 + i057 - buffer-panic pair (DONE 2026-08-17).** Same
       must-panic path as i047: `psa_read`/`psa_write` on
       `PLATFORM_DRIVER_PARTITION_MMIO_START` (0x30095E00) from the SERVER
       partition, already out-of-domain (per-SP carve) and already flagged
-      `must_panic` by the gate — so pure schedule + build wiring, no SPM/gate
+      `must_panic` by the gate - so pure schedule + build wiring, no SPM/gate
       change. Mirrored the i047 wiring in `mk/secure-armv8m-stm32h563.mk`
       (`CONF_SEC_OBJS`, `CONF_UPSTREAM_SRCS`, two `conf_sec_%.o` pattern rules,
       two `panic_test`-strip sed rules) and `guest0_psa/CMakeLists.txt` (3
@@ -774,10 +774,10 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       (one panic-reset reboot per test, each resuming off its flash boot flag),
       `PASS: target/confboot`.** Evidence in validation-log.md. The reboot loop
       scales to three panics in one boot.
-    - P4.1b. [x] **i064–066 — psa_eoi misuse panics (DONE 2026-08-17, 12/12).**
+    - P4.1b. [x] **i064–066 - psa_eoi misuse panics (DONE 2026-08-17, 12/12).**
       With P4.2b's `wt_ffm_eoi` and the P4.2c interrupt route landed, all three
       pass on target: i064 (non-interrupt), i065 (unasserted), and i066
-      (multiple-signal) each panic-reset and resume off the flash boot flag —
+      (multiple-signal) each panic-reset and resume off the flash boot flag -
       confboot `TOTAL PASSED : 12 / FAILED : 0` with SIX mid-suite resets in one
       boot, `PASS: target/confboot`. i066 additionally proves the full
       peripheral-interrupt chain: `psa_irq_enable` → LPUART1 TXEIE → NVIC 63 →
@@ -786,12 +786,12 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       validation-log.md (Item 10 P4.1b + P4.2c route).
     - P4.4. [x] **RESOLVED VOID (2026-08-17): the "flash durability limit" was
       never a flash bug.** Diagnosis history: first suspected flash wear, then
-      bank-swap divergence (disproven by an `M33MU_FLASH_TRACE=1` run — every
+      bank-swap divergence (disproven by an `M33MU_FLASH_TRACE=1` run - every
       erase identical, ~130 stores fine), then the val→driver IPC path. The
       actual root cause, read from the upstream test source: i066's driver-side
       check REQUIRES a real asserted interrupt before its illegal eoi
       (`val_generate_interrupt` → `psa_wait(DRIVER_UART_INTR_SIG, PSA_BLOCK)`),
-      and no interrupt route existed — the driver took upstream's own
+      and no interrupt route existed - the driver took upstream's own
       "didn't receive irq signal" branch, replied an error, never panicked
       (client error 27 = VAL_STATUS_SPM_FAILED), and the nvmem error was
       downstream noise. Fixed by building the P4.2c route. No flash defect
@@ -799,16 +799,16 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     - P4.1b-note (superseded framing). Original: Each
       calls `psa_eoi` with an illegal argument (non-interrupt / unasserted /
       multiple signals) that must panic. Needs `psa_eoi` to at least VALIDATE
-      its argument and panic on misuse — a subset of the full IRQ work — so it
+      its argument and panic on misuse - a subset of the full IRQ work - so it
       couples with P4.2, not P4.1a. Do after P4.2 lands `psa_eoi`.
-  - P4.2. [x] **i021 UART-IRQ + `psa_eoi` — DONE (2026-08-17, confboot 13/13,
+  - P4.2. [x] **i021 UART-IRQ + `psa_eoi` - DONE (2026-08-17, confboot 13/13,
     i021 `Result=Passed`).** Original: (own feasibility gate; supersedes
     task #13).** Probe whether M33MU delivers a USART peripheral NVIC line
-    (SysTick works, but a peripheral IRQ is unproven — logged as candidate
+    (SysTick works, but a peripheral IRQ is unproven - logged as candidate
     defect M33MU-2). If yes: route real UART TX IRQ → driver SP's IRQ signal →
     `psa_wait`/`psa_eoi`. If no: hardware-gate it like K1, document, keep `i021`
     skipped. Independent of the reboot keystone. Mini-plan:
-    - P4.2a. [x] **NVIC-delivery feasibility probe — GO (source, 2026-08-17).**
+    - P4.2a. [x] **NVIC-delivery feasibility probe - GO (source, 2026-08-17).**
       Read-only emulator-source probe (free, K1-style). GO: the USART model
       asserts its NVIC line via `mm_nvic_set_pending` on `TXE`/`RXNE` gated by
       `CR1.TXEIE`/`RXNEIE` (`cpu/stm32_usart.c:340-347`), per-IRQ S/NS routing
@@ -816,13 +816,13 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       lines to the guest is already proven (SysTick/EXTI/RNG). No hardware gate
       for peripheral IRQ delivery; remaining P4.2 work is wolfTrust-side.
       Details in validation-log.md (Item 10 P4.2a); closes candidate M33MU-2.
-    - P4.2b. [x] **`psa_eoi` argument validation + panic — host-proven
+    - P4.2b. [x] **`psa_eoi` argument validation + panic - host-proven
       (2026-08-17).** New arch-neutral engine fn `wt_ffm_eoi` derives the
       partition's interrupt-signal mask from its manifest and rejects the three
       FF-M programmer errors: multiple/zero bits (`WT_FFM_ERROR_ARGUMENT`),
       a non-declared signal (`WT_FFM_ERROR_POLICY`, i064), and a declared but
       unasserted signal (`WT_FFM_ERROR_STATE`, i065); a legal EOI clears the
-      asserted bit. Both `psa_eoi` veneers route through it —
+      asserted bit. Both `psa_eoi` veneers route through it -
       `src/ffm_api.c` panics on error, the SP-side `spm_sp_api.c` issues a new
       `WT_SPM_OP_EOI` gate op that sets `must_panic` on misuse (mirrors
       psa_get/read/write). Host: `unit/ffm` `psa_eoi argument validation`
@@ -830,25 +830,25 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       misuse` (146 checks). Replaces the old always-panic stub (which would
       have falsely passed i064–066). Target proof lands with P4.1b's confboot.
     - P4.2c. [x] **DONE (2026-08-17): route + i021 both green.** i021 un-skipped
-      (pure schedule wiring — the route needed no new code, not even a legal-eoi
+      (pure schedule wiring - the route needed no new code, not even a legal-eoi
       NVIC re-enable, since the test quiesces the source before eoi): confboot
       `TOTAL PASSED : 13 / FAILED : 0 / SKIPPED : 0`, i021 `Result=Passed`,
       six reboots, `PASS: target/confboot`. i021 target-proves the legal chain:
       enable → real IRQ → wait sees 256 → signal persists until eoi (second
       BLOCK wait returns it again) → legal `psa_eoi` clears → POLL confirms
       deasserted. Only i067 (heap) remains skipped in the schedule. History:
-      The route — manifest-declared LPUART1 (IRQ 63) ↔ signal 256, real
+      The route - manifest-declared LPUART1 (IRQ 63) ↔ signal 256, real
       `psa_irq_enable` (gate op + NVIC unmask), secure FLIH asserting the
       manifest-routed signal, PAL `pal_generate/disable_interrupt` via the
-      conf SVC plane — is target-proven by i066 (12/12 run). Remaining: un-skip
-      i021 (TEST_INTR_SERVICE: legal `psa_eoi` ack + re-fire loop) — needs the
+      conf SVC plane - is target-proven by i066 (12/12 run). Remaining: un-skip
+      i021 (TEST_INTR_SERVICE: legal `psa_eoi` ack + re-fire loop) - needs the
       legal-eoi NVIC re-enable hook. Original: real UART IRQ → driver SP
       `psa_wait` → `psa_eoi` acks; M33MU green.
   - P5.1. [x] **VOID (2026-08-17): stale framing.** Every remaining db
     candidate is `panic_test`-marked; there is no separate "non-panic
     continuity" bucket. P5 = scale the panic/reboot/triage recipe in batches
     (A: i002+i004-i012; B: i024-i027+i054; C: i068-i090 skip-triage).
-  - P5.2a. [x] **Batch A — i002 + i004-i012 GREEN (2026-08-17, M33MU 29/29,
+  - P5.2a. [x] **Batch A - i002 + i004-i012 GREEN (2026-08-17, M33MU 29/29,
     23 resets).** i002 is the golden-path lifecycle test (server-driven
     BUSY/REFUSED replies, status/type passthrough, client-identity signs,
     connect-limit exhaustion, PSA_BLOCK RES bits, PSA_POLL); i004-i011 SPE
@@ -856,42 +856,42 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     panics Secure callers on SPM-level policy refusal (BUSY and server-replied
     refusals stay returnable); gate CLOSE panics on any close_begin failure.
     Host `unit/spm_gate` 216 checks. Found and fixed emulator defect M33MU-3
-    (entry-time SPSEL clear destroying a parked thread's stack selection —
+    (entry-time SPSEL clear destroying a parked thread's stack selection -
     patch reworked to ARM-correct semantics; see validation-log).
-  - P5.2b. [x] **Batch B — i024-i027 + i054 GREEN (2026-08-17, M33MU 34/34,
+  - P5.2b. [x] **Batch B - i024-i027 + i054 GREEN (2026-08-17, M33MU 34/34,
     28 resets, first run).** Gate CALL panics Secure callers on begin-path
     PROGRAMMER_ERROR (forged/null handle, iovec count) and on a
     server-completed PROGRAMMER_ERROR reply (i027); i054's non-writable
     outvec was already covered by the P4 vector check. Host spm_gate 241.
-  - P5.2c. [x] **Batch C COMPLETE — FULL SUITE GREEN (2026-08-17, confboot
+  - P5.2c. [x] **Batch C COMPLETE - FULL SUITE GREEN (2026-08-17, confboot
     `TOTAL PASSED : 85 / FAILED : 0 / SKIPPED : 4`, `PASS: target/confboot`).**
-    Chunk 1 i013-i023 (44/44): server-side misuse panics — gate
+    Chunk 1 i013-i023 (44/44): server-side misuse panics - gate
     GET/SET_RHANDLE/REPLY failures panic the server; `wt_ffm_reply` enforces
     the connect-reply status set. Chunk 2 i028-i046 (`f5c3cab`): read/skip/
     write misuse panics via `wt_ffm_msg_access_check`. Chunk 3 (final 26 +
     i056/i059-i062): wait-mask validation (`wt_ffm_partition_signal_set`,
     i062 ARGUMENT semantics), NOTIFY/CLEAR panics, full 89-test wiring.
     Skips are honest capability gaps: i067 (heap; excluded from wiring) and
-    i074/i078/i082/i086 (RESULT_SKIP — SP_HEAP_MEM_SUPP undefined in the
+    i074/i078/i082/i086 (RESULT_SKIP - SP_HEAP_MEM_SUPP undefined in the
     zero-allocation image). Getting here required: flash/RAM layout growth
     (secure slot 0x40000, guests 0x080A0000/0x080C0000, 64 KiB RAM each);
     the GTZC MPCBB fix (`wt_gtzc_init` derives the NS block count from the
-    memory map — the hardcoded 4 words secure-blocked guest1's moved RAM);
+    memory map - the hardcoded 4 words secure-blocked guest1's moved RAM);
     conformance SP-fault system reset (`wt_secure_tasklet_fault_dispatch`)
     so the Arm isolation tests recover across their induced SP faults; and
-    real SP data isolation for i080/i084 — per-partition CONFDATA bands
+    real SP data isolation for i080/i084 - per-partition CONFDATA bands
     (server test_supp_* and driver_partition data in `secure.ld`, carved out
     of other partitions' MPU grants in `spm_svc.c`). Also found and fixed
     emulator defect M33MU-4 (ITSTATE advance dropped the current-condition
     bit; see #63 and validation-log defect register).
-  - P5.3. [ ] **Watchdog-reset tests — DEFERRED (wolfTrust-original robustness,
+  - P5.3. [ ] **Watchdog-reset tests - DEFERRED (wolfTrust-original robustness,
     not FF-M conformance).** The Arm FF-M IPC suite has no watchdog test, so this
     is outside the 85/4 conformance gate and the M33MU wrap-up. M33MU does model
     IWDG/WWDG (MMIO + a `watchdog_tick` hook, `cpu/stm32h5_mmio.c`), but
     `platform_stm32h563.c` has no WDG driver yet, so a real reset-on-timeout test
     needs that driver plus a confirmed emulator reset path. Track as a
     post-conformance feature, not a wrap-up gap.
-- P6. [x] **Interrupt + scheduler completeness — DONE.** i002 (PSA_BLOCK/POLL),
+- P6. [x] **Interrupt + scheduler completeness - DONE.** i002 (PSA_BLOCK/POLL),
   i058 (PSA_DOORBELL), i063 (psa_wait signal mask) all pass in the 85/4 confboot
   run; psa_eoi/psa_wait host tests (#13/#14) are green. Original scope: real
   partition IRQ delivery: FLIH asserts a `psa_signal_t` into a partition's
@@ -908,8 +908,8 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   `tests/target/run_m33mu_scenario.sh`, the wolftrust-m33mu skill's
   `run_m33mu.sh`, and `.github/workflows/stm32h563-build.yml`, then delete the
   local patch and the runner's `git apply` step. Do NOT drop the patch while
-  only one PR is merged — it carries both fixes.
-- P7. [x] **Full suite green on M33MU + `make test-conformance` auto-detect —
+  only one PR is merged - it carries both fixes.
+- P7. [x] **Full suite green on M33MU + `make test-conformance` auto-detect -
   DONE (2026-08-18).** `make test-conformance` is now the one entry point: with
   an M33MU emulator (or `WT_TARGET_SCENARIOS=1`) it runs the full FF-M IPC suite
   on the target (`run_m33mu_scenario.sh confboot` → 85/4, the same call CI's
@@ -918,7 +918,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   `test-target`.
   - P7.1. [x] **Shared probe.** `tests/target/detect_m33mu.sh` (exit 0 when an
     emulator/HW is reachable or forced, else non-zero with a one-line reason).
-    Both `test-conformance` and `test-target` call it — the duplicated inline
+    Both `test-conformance` and `test-target` call it - the duplicated inline
     check is gone, so they cannot drift.
   - P7.2. [x] **`make test-conformance` target-aware.** Probe present →
     `RUN: conformance/target` + the full confboot; absent → host subset +
@@ -933,10 +933,10 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   - P7.4. [x] **Single canonical entry.** `make test-conformance` is THE
     command (auto-selects target vs host). CI keeps the parallel
     `wolfboot-wolftrust-m33mu-scenarios` matrix whose `confboot` leg is the
-    identical target call — left as-is deliberately (parallel > collapsing to
+    identical target call - left as-is deliberately (parallel > collapsing to
     one serial make target); documented in the recipe comment.
   - **Bonus fix (pre-existing, P4.2-era):** running `test-conformance` surfaced
-    that `test-manifest-ingest` had been RED since P4.2 — the committed
+    that `test-manifest-ingest` had been RED since P4.2 - the committed
     `manifest-conformance.json` carried the DRIVER UART interrupt (line 63,
     `DRIVER_UART_INTR_SIG`) but `tools/manifest/ingest_psa_arch.py`'s
     `emit_manifest` hardcoded `interrupts: []` and no `interrupt_resources`, so
@@ -944,9 +944,9 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     map (`FF_TEST_UART_IRQ → 63`) and to carry interrupts into the partition,
     the SP domain's `interrupt_resources`, and `max_interrupts_per_domain`.
     Regen now byte-matches the committed manifest; `make test-conformance`
-    host branch is green end to end. The committed manifests are unchanged —
+    host branch is green end to end. The committed manifests are unchanged -
     only the generator was fixed to reproduce them.
-  - Evidence: host branch — `make test-conformance` runs the 20-test subset,
+  - Evidence: host branch - `make test-conformance` runs the 20-test subset,
     prints the non-HW warnings, exits 0 (`build/psa-ff-upstream/logs/
     conformance.log`); detection verified both ways; target branch dispatches
     to the confboot call P5 validated at 85/4; `make test` still `PASS:
@@ -961,17 +961,17 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   before hardware is a single-commit validation run: host `make test` +
   `make test-target` (4 scenarios) + `make test-conformance` (85/4) on one HEAD,
   recorded in `validation-log.md`.
-- P8. [ ] **TF-M baseline comparison** — same suite on TF-M vs wolfTrust, parity.
-- **ACTIVE PROGRAM — wolfTrust Secure Manager replacement, the H5 port mega plan
+- P8. [ ] **TF-M baseline comparison** - same suite on TF-M vs wolfTrust, parity.
+- **ACTIVE PROGRAM - wolfTrust Secure Manager replacement, the H5 port mega plan
   (2026-08-18).** The M33MU / conformance program (P1–P7 above) is COMPLETE and
   green; this is the current work. Full plan:
   `docs/requirements/wolftrust-secure-manager-port-plan.md`; positioning
   (verified): `docs/competitive-edge-vs-secure-manager.md`. Board: NUCLEO-H563ZI
   on the box (STLINK-V3, `/dev/ttyACM0`), TrustZone-provisioned (TZEN on,
   SECBOOTADD=0x0C000000, OEM-iRoT). **First HW boot done:** wolfTrust boots (core
-  `Running [Nonsecure]`); console baud-mismatched — MP1 fix.
+  `Running [Nonsecure]`); console baud-mismatched - MP1 fix.
   - MP1 [x] H5 bring-up DONE (2026-08-18): console clean (authoritative 240 MHz
-    clock tree) and the full positive smoke GREEN on the board —
+    clock tree) and the full positive smoke GREEN on the board -
     `run_h5_hardware.sh flash` exit 0, `SERVICE_CRYPTO dispatch verified` with
     the unprivileged SP in its own MPU domain. Three silicon-only fixes:
     handler-mode fault-recovery resume (Thread-mode thunk was invalid on HW),
@@ -979,7 +979,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     cleared (resets all-privileged, blocked unpriv SPs below the MPU). See
     validation-log "MP1 GREEN".
   - MP2 [x] Hardware equivalence suite DONE (2026-08-18): `make test-hardware`
-    green on the board — positive lifecycle + restart quarantine (exactly 3
+    green on the board - positive lifecycle + restart quarantine (exactly 3
     restarts then FAULTED, monitor event counters) + cross-domain isolation
     (SP denied at WT_RAM_S_BASE, graceful quarantine, guest1 survives). Fixed
     on the way: restart-engine window reset ran before the quarantine check
@@ -989,11 +989,11 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     See validation-log "MP2". ITS remains Phase-4 scope (no wolfPSA
     key-storage backend yet).
   - MP3 [x] Immutable-RoT lock model + reversible lock test + workflow DONE
-    (2026-08-19): all three lock rungs sealed AND reversed on the board —
+    (2026-08-19): all three lock rungs sealed AND reversed on the board -
     Provisioning (0x17), TZ-Closed (0xC6), and Closed (0x72) each advanced, then
     certificate DA Full Regression → Open with wolfTrust restored+booting. Single
     control script `tests/target/provisioning_ctrl.sh`. Key findings: DA is
-    CERTIFICATE-based (TZEN enabled, AN6008 — a password OBK here can't
+    CERTIFICATE-based (TZEN enabled, AN6008 - a password OBK here can't
     authenticate); advance to the target lock state DIRECTLY from Provisioning
     (TZ-Closed can't chain); after a Closed regression the MCU self-resets so the
     reconnect retries. Never touched permanent `Locked` (0x5C). See validation-log
@@ -1002,7 +1002,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     leaks in core, CI job) + WT-PORT contract documented + hardware-validated
     (make test-hardware ALL GREEN on the final tree). Vendor
     reach is DOCS-ONLY: a written porting plan mapping other ST parts (U5/L5/H7)
-    and vendors (NXP/Nordic/Renesas/Microchip) onto the contract — no other-part
+    and vendors (NXP/Nordic/Renesas/Microchip) onto the contract - no other-part
     implementation in this milestone. Plan:
     `~/.claude/plans/zany-wandering-stallman.md`. Principle: Armv8-M specifics
     move to the arch port `src/arch/armv8m/` (mirroring SoC code in
@@ -1020,7 +1020,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     - GATE S1+S2 [x] GREEN (2026-08-19): `validate-in-container.sh` =
       `make test` (unit/all) + `make test-target` (all) + `make test-conformance`
       (Arm 85 passed / 4 skipped / 0 failed, `[EXPECT BKPT] Success`),
-      `FINAL_RC=0` — secure image built + linked with S1+S2, no regression.
+      `FINAL_RC=0` - secure image built + linked with S1+S2, no regression.
     - MP4-S3 (E1) [ ] forward-declare `wt_guest_context_t` in `platform.h`.
     - MP4-S4 (A) [ ] extract 5 ffm_boot CMSE veneers → `src/arch/armv8m/ffm_nsc.c`
       (ATOMIC; keep veneer names + `cmse_nonsecure_entry` + `-mcmse`).
@@ -1029,7 +1029,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     - MP4-S7 [x] DONE (2026-08-19, `673ec01`, gate-green): neutral
       `include/wolftrust/port_nvm.h` flash-provider contract; core `wt_hsm.c`
       includes it instead of the bare port `hsm_flash.h`. (Entropy needs no new
-      header — it is a wolfCrypt `CUSTOM_RAND_GENERATE_BLOCK` config macro, not a
+      header - it is a wolfCrypt `CUSTOM_RAND_GENERATE_BLOCK` config macro, not a
       core include coupling.) SAFE TIER of MP4 now complete + gate-verified.
     - MP4-S4 [x] DONE (2026-08-19, `194cba3`, gate-green): 5 FF-M NS veneers →
       `src/arch/armv8m/ffm_nsc.c`; core `ffm_boot.c` fully neutral with a
@@ -1046,7 +1046,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       A/B: 1014B pre-change vs 968B post). Fix = drop the section attribute
       (bodies → `.text`; ld synthesizes only 8-byte `sg` stubs: 96B default /
       160B vnet) + the TF-M-style `. = ALIGN(32);` keep-alive in `secure.ld`.
-    - MP4-S3+S6 [x] DONE (2026-08-19, `335cdf9`): guest context held by POINTER —
+    - MP4-S3+S6 [x] DONE (2026-08-19, `335cdf9`): guest context held by POINTER -
       `platform.h` forward-declares `struct wt_guest_context`, neutral
       `partition.h` owns the runtime struct, arch `context.h` defines the body,
       port owns storage + wiring (`g_partition_contexts`), monitor uses the
@@ -1062,7 +1062,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
     - MP4-guard [x] DONE (2026-08-19, `5505c31`): `tools/check-core-port-split.sh`
       (report-only; `WT_SPLIT_STRICT=1` fails on hard core→arch leaks). It caught
       that S1 added the barrier hooks but left the inline `dmb`/`dsb` in
-      `boot_handoff.c` — fixed in `87336c9` (re-gate running). Remaining hard
+      `boot_handoff.c` - fixed in `87336c9` (re-gate running). Remaining hard
       leaks reported: S4 (ffm_boot cmse), S5 (vnet cmse), S3+S6 (context via
       `platform.h`/`monitor.h`). Wire into CI once S3–S6 land.
     - MP4-S6 (E2) [ ] DEFERRED own milestone: `monitor.h`/`partition.h` context
@@ -1070,7 +1070,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       port `offsetof` asm). Needed for a non-Armv8-M port.
   - MP5 [ ] Drop-in proof ON SILICON: the unmodified Arm `val` NSPE FF-M IPC
     suite (pinned SHA `e17d294`, 85 passed / 4 skipped) runs against wolfTrust on
-    the real NUCLEO-H563ZI via a new `confboot` hardware scenario — same PSA ABI,
+    the real NUCLEO-H563ZI via a new `confboot` hardware scenario - same PSA ABI,
     zero test edits. Panic tests reboot the chain with real SYSRESETREQ and val
     resumes off its flash boot flag (K2/K3). Gate = on-board
     `TOTAL PASSED : 85 / SKIPPED : 4 / FAILED : 0`. Subsumes old P8.
@@ -1087,7 +1087,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
       (none reproducible on M33MU): (1) SECWM1 watermark short (0x3F → 0x4F);
       (2) flaky CubeProgrammer `-hardRst` (explicit `pyocd reset`); (3) stale
       flash boot-flag (erase 0x0C1FA000 before confboot). OPEN: a 4th (suite)
-      run stalled in an infinite reboot loop (476 reboots, no report) — the K3
+      run stalled in an infinite reboot loop (476 reboots, no report) - the K3
       panic path's flash boot-flag write races SYSRESETREQ on real silicon (fix
       = flush flash + barrier before reset). Drop-in claim stands; automated
       gate not yet deterministic. Evidence `docs/evidence/2026-08-19-h5-mp5-confboot/`.
@@ -1100,14 +1100,14 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
   - Guardrails: reversible lock only on dev; DA credential before every lock;
     hardware ledger separate from emulator; RM0481 before external claims.
 
-## Phase 4 — Crypto, protected storage, and ITS
+## Phase 4 - Crypto, protected storage, and ITS
 
 - [ ] Implement PSA Crypto service ownership through wolfHSM.
 - [ ] Implement protected storage and ITS semantics, including WRITE_ONCE.
 - [ ] Preserve backend failures and never treat storage errors as blank storage.
 - [ ] Add per-client key namespace and restart/persistence tests.
 
-## Phase 5 — Initial Attestation
+## Phase 5 - Initial Attestation
 
 - [ ] Consume authenticated wolfBoot/DICE measurement handoff.
 - [ ] Encode PSA Initial Attestation EAT claims with wolfCOSE.
@@ -1115,7 +1115,7 @@ monitor scheduler only sees NS guests. So P1 is the keystone.
 - [ ] Verify challenge, identity, lifecycle, measurements, signer IDs, and
   buffer/error behavior end to end.
 
-## Phase 6 and later — boot, portability, and TFA expansion
+## Phase 6 and later - boot, portability, and TFA expansion
 
 - [ ] Complete authenticated update and rollback policy.
 - [ ] Add a second Cortex-M port using the same core/service contracts.

@@ -2,7 +2,7 @@
 
 Compressed live tracker. Full historical detail (Phase-3 slices P1–P7, K1–K4,
 MP1–MP4 sub-tasks, per-test batches) is archived in
-[`task-history.md`](task-history.md) — read that only for provenance.
+[`task-history.md`](task-history.md) - read that only for provenance.
 
 Legend: `[x]` done · `[~]` in progress / partial · `[ ]` not started.
 Canonical phase definitions: `phases.md`. Evidence ledger: `validation-log.md`.
@@ -13,27 +13,27 @@ The FF-M / Secure-Manager runtime is built, isolated (L3), and proven under the
 M33MU emulator (Arm conformance 85/4) **and** on real STM32H563 silicon. The
 core/port split is enforced (adding a port = one `port/<soc>/` folder, zero core
 edits, CI-guarded). The unmodified Arm PSA/FF-M conformance suite runs against
-wolfTrust on the board — the TF-M drop-in proof.
+wolfTrust on the board - the TF-M drop-in proof.
 
-## Milestones — H5 secure-manager port (`wolftrust-secure-manager-port-plan.md`)
+## Milestones - H5 secure-manager port (`wolftrust-secure-manager-port-plan.md`)
 
-- [x] **MP1** — first STM32H563 hardware boot (clean console, positive smoke).
-- [x] **MP2** — full functional equivalence on silicon (`make test-hardware`:
+- [x] **MP1** - first STM32H563 hardware boot (clean console, positive smoke).
+- [x] **MP2** - full functional equivalence on silicon (`make test-hardware`:
   positive / restart / crossdomain).
-- [x] **MP3** — reversible immutable-RoT lock proven on silicon at all three
+- [x] **MP3** - reversible immutable-RoT lock proven on silicon at all three
   rungs (Provisioning / TZ-Closed / Closed → DA-cert regression → Open).
-- [x] **MP4** — core/port split enforced; core has zero arch code (CI-guarded);
+- [x] **MP4** - core/port split enforced; core has zero arch code (CI-guarded);
   port contract + adding-a-port docs.
-- [x] **MP5** — TF-M drop-in proof. Unmodified Arm FF-M IPC suite reaches
+- [x] **MP5** - TF-M drop-in proof. Unmodified Arm FF-M IPC suite reaches
   **85/4 on H563 silicon** via the new `confboot` hardware scenario, now
   **deterministic** (20/20 clean back-to-back). ST-SM/H573I-DK side-by-side
   **descoped** (owner decision). Gate flake (#83) root-caused to a Non-secure
   guest issuing SYSRESETREQ mid-suite; fixed by `AIRCR.SYSRESETREQS` (Secure
   becomes sole reset authority), plus a SysTick/PendSV priority-inversion fix
   and an SPSEL-gated HSM preempt. See Open items #A (closed).
-- [x] **MP6** — docs + completion of the H5 port. Consolidated guide written:
+- [x] **MP6** - docs + completion of the H5 port. Consolidated guide written:
   [`docs/stm32h5-secure-manager-guide.md`](../stm32h5-secure-manager-guide.md)
-  — ties together the memory map, provisioning perimeter, the real
+  - ties together the memory map, provisioning perimeter, the real
   Open→Provisioning→TZ-Closed→Closed lock-ladder transitions, the four hardware
   scenarios, the on-silicon 85/4 conformance run, and the silicon gotchas
   (incl. the #83 SYSRESETREQS fix), every state/result quoted from an actual
@@ -49,7 +49,7 @@ wolfTrust on the board — the TF-M drop-in proof.
 
 ## Remaining implementation phases (`phases.md`)
 
-- [~] **Phase 4 — Crypto + trusted storage** (the last big implementation
+- [~] **Phase 4 - Crypto + trusted storage** (the last big implementation
   chunk). Run Crypto / Protected Storage / ITS as isolated SPs; route key ops to
   wolfHSM via wolfPSA; enforce per-client identity + WRITE_ONCE across restarts.
   Unlocks the psa-arch-tests `dev_apis` suites → widens the drop-in claim from
@@ -57,11 +57,11 @@ wolfTrust on the board — the TF-M drop-in proof.
   security thesis = keys never leave the wolfHSM vault (stronger than TF-M,
   which holds key material in the Crypto partition's own RAM). Every slice:
   host test → cross-build → M33MU gate → single-line commit → validation-log.
-  - [x] **P4-S0 — requirements + capacity** (`97de1bb`): WT-FFM-0044..0048 +
+  - [x] **P4-S0 - requirements + capacity** (`97de1bb`): WT-FFM-0044..0048 +
     Phase 4 acceptance gate in framework.md; wolfHSM NVM directory 8→32
     objects (no flash-layout change; SECWM rules untouched).
-  - [x] **P4-S1 — gated wolfHSM vault, the keystone** (`52b7239`):
-    `SERVICE_VAULT` (sid 4098) behind the SPM gate — SP-only
+  - [x] **P4-S1 - gated wolfHSM vault, the keystone** (`52b7239`):
+    `SERVICE_VAULT` (sid 4098) behind the SPM gate - SP-only
     (`nonsecure_clients: false`) + `dependencies[]` authorization; scheduled
     PRIVILEGED coroutine (NVM mutex needs a coroutine context; MPU never
     narrowed, slot table = SVC bounds-check whitelist); backend over
@@ -72,9 +72,9 @@ wolfTrust on the board — the TF-M drop-in proof.
     `unit/all` incl. `tests/host/vault_service` (real wolfHSM NVM over
     ramsim, 19 asserts); M33MU positive 11/11; confboot **89/85/0/4/0** with
     the vault in-image.
-  - [x] **P4-S2 — ITS Secure Partition**: `SERVICE_ITS` (sid 4099, NS-facing)
+  - [x] **P4-S2 - ITS Secure Partition**: `SERVICE_ITS` (sid 4099, NS-facing)
     as a real unprivileged isolated SP (own 8 KiB stack @ 0x3008F000,
-    narrowed MPU), storage-less — every op forwards to SERVICE_VAULT over
+    narrowed MPU), storage-less - every op forwards to SERVICE_VAULT over
     SP-to-SP FF-M IPC through the SVC gate (`dependencies: [4098]` in both
     manifests); end clients namespaced at the vault via the delegated
     sub_owner (a frontend can only partition its OWN namespace). Neutral
@@ -86,9 +86,9 @@ wolfTrust on the board — the TF-M drop-in proof.
     `tests/host/storage_service` (16 asserts); M33MU positive 12/12 incl.
     **"wolfTrust ITS set/get verified"** (NS → ITS SP → vault → flash NVM,
     three domains); confboot **89/85/0/4/0**.
-  - [x] **P4-S3 — PS Secure Partition**: `SERVICE_PS` (sid 4100, NS-facing
+  - [x] **P4-S3 - PS Secure Partition**: `SERVICE_PS` (sid 4100, NS-facing
     unprivileged SP, prod domain 7 / conformance domain 10, 8 KiB stack @
-    0x3008D000) — the S2 storage loop parameterized (ctx gains
+    0x3008D000) - the S2 storage loop parameterized (ctx gains
     `client_flags_mask`/`vault_flags`/`caps`) so every PS request is
     forwarded with `WT_VAULT_FLAG_SEALED`. Sealing runs entirely INSIDE the
     privileged vault domain (`wt_hsm_seal.c`): AES-256-GCM under a
@@ -96,7 +96,7 @@ wolfTrust on the board — the TF-M drop-in proof.
     NONEXPORTABLE + immutable, never enters any SP), nonce = the persisted
     monotonic rollback counter (table @ 0x0121, counter persisted BEFORE
     ciphertext so power loss can never repeat a nonce), AAD = the object
-    label — so a replayed/rolled-back or cross-object ciphertext fails tag
+    label - so a replayed/rolled-back or cross-object ciphertext fails tag
     authentication (WT-FFM-0048). `create`/`set_extended` gated on
     `psa_ps_get_support()` = 0 (honest NOT_SUPPORTED, no silent success);
     NO_* hints accepted and recorded but never honored downward.
@@ -110,9 +110,9 @@ wolfTrust on the board — the TF-M drop-in proof.
     reboot); M33MU positive 13/13 incl. **"wolfTrust PS sealed set/get
     verified"**; confboot **89/85/0/4/0** with the 11-domain manifest.
 
-  - [x] **P4-S4 — crypto key-ops in the gated vault** (deepest, Fable):
+  - [x] **P4-S4 - crypto key-ops in the gated vault** (deepest, Fable):
     key generate/import/export_public/sign/verify/{en,de}crypt as vault
-    wire ops 5-11 — ECC P-256 + AES-256-GCM compute runs INSIDE the
+    wire ops 5-11 - ECC P-256 + AES-256-GCM compute runs INSIDE the
     privileged vault (`wt_hsm_keyvault.c`; P-256 objects store
     [d][X9.63 pub], public derived once at creation; raw r||s signatures),
     keys stored SENSITIVE+NONEXPORTABLE in the S1 NVM window with usage
@@ -121,12 +121,12 @@ wolfTrust on the board — the TF-M drop-in proof.
     private-export wire op exists, the storage face refuses key-flagged
     objects, and NONEXPORTABLE blocks every *Checked NVM read.
     SERVICE_CRYPTO forwards ops 1-8 SP-to-SP (PARTITION_CRYPTO gains
-    `dependencies: [4098]` in both manifests — no new
+    `dependencies: [4098]` in both manifests - no new
     domain/partition/service). wolfPSA becomes the NS-side psa_* shim at S6
     (decided: private-key compute cannot leave the vault). Gate caught +
     fixed: ECC verify's arbitrary-point multiply
     (`sp_256_ecc_mulmod_fast_8`) overflowed the vault's 8 KiB coroutine
-    stack — a REAL ARMv8-M `PSPLIM` STKOF hardware catch (CFSR
+    stack - a REAL ARMv8-M `PSPLIM` STKOF hardware catch (CFSR
     0x00100000); VAULTSTACK grown to 16 KiB @ 0x3008F000 (ITS → 0x3008D000,
     PS → 0x3008B000, RAM 404→396 KiB). Evidence on one tree: host
     `unit/all` incl. `tests/host/keyvault` (28 asserts: generate/import/
@@ -137,7 +137,7 @@ wolfTrust on the board — the TF-M drop-in proof.
     verified"**; confboot **89/85/0/4/0**. On-H5 hardware run pending the
     board (both runners carry the new assertions).
 
-  - [x] **P4-S5 — security negatives (the beat-TF-M proof, Fable)**: a
+  - [x] **P4-S5 - security negatives (the beat-TF-M proof, Fable)**: a
     consolidated adversarial suite `tests/host/negatives` (24 asserts)
     enumerating the threat model wolfTrust's gated vault defeats and TF-M's
     Crypto-partition-RAM key storage does not, over the real
@@ -160,7 +160,7 @@ wolfTrust on the board — the TF-M drop-in proof.
     SYSRESETREQ proof as a hardware-pending item (needs the board; do not
     fake board evidence). #26's fault-recovery half remains separate.
 
-  - [x] **P4-S6 — unlock dev_apis conformance**: real bodies for
+  - [x] **P4-S6 - unlock dev_apis conformance**: real bodies for
     `pal_its/ps/crypto_function` (conformance_pal.c stubs) translating
     VAL codes into `psa_connect(SID)/psa_call`; add `dev_apis/storage`
     (s001–s017) + `dev_apis/crypto` (c001–c080) to the WT_RUN_CONFORMANCE
@@ -174,7 +174,7 @@ wolfTrust on the board — the TF-M drop-in proof.
       (`wt_hsm_vault_reserve`, wolfHSM NOTBLANK poisoning) with counter-table
       headroom so sealed REMOVE always fits; storage uid 0 rejected.
     - [x] **S6b Crypto**: compile upstream `pal_crypto_intf.c` directly
-      against wolfPSA (the guest psa_* provider) — no hand port;
+      against wolfPSA (the guest psa_* provider) - no hand port;
       `WT_CONF_SUITE=crypto` build (78 scheduled test_c*; c064/c065 hash
       suspend/resume are db-excluded upstream); `pal_crypto_config.h` matched
       to the guest wolfCrypt set (ECC P-256, AES CBC/CTR/GCM/CCM, SHA-256,
@@ -189,7 +189,7 @@ wolfTrust on the board — the TF-M drop-in proof.
       c020 fixed (below).
     - [x] **c020 TLS12_PRF was a real wolfPSA bug**: `wolfpsa_kdf_tls12_prf`
       and `_psk_to_ms` passed a `WC_HASH_TYPE_*` value to `wc_PRF_TLS`, which
-      wants a `wc_MACAlgorithm` id — the enums alias (`WC_HASH_TYPE_SHA256`
+      wants a `wc_MACAlgorithm` id - the enums alias (`WC_HASH_TYPE_SHA256`
       = 6 = `sha512_mac`), so `wc_PRF` picked the wrong/unbuilt hash and
       returned `HASH_TYPE_E` → PSA `GENERIC_ERROR`. Fixed with a
       `wolfpsa_prf_mac_from_alg` helper (maps only SHA-256/384/512; others
@@ -215,7 +215,7 @@ wolfTrust on the board — the TF-M drop-in proof.
     - [x] **Max-size HSM response overflowed the CMSE slot** (found by
       c017, task #92): the transport slot data area was sized to hold
       `WOLFHSM_CFG_COMM_DATA_LEN` but must hold the whole wolfHSM comm
-      packet — the 8-byte `whCommHeader` rides in front of the payload in
+      packet - the 8-byte `whCommHeader` rides in front of the payload in
       the same slot. A max-size RNG chunk (cap = COMM_DATA_LEN − 16) yields a
       response whose payload exactly fills COMM_DATA_LEN, so
       `wh_CommServer_SendResponse` hands the transport `8 + COMM_DATA_LEN`,
@@ -229,15 +229,15 @@ wolfTrust on the board — the TF-M drop-in proof.
       the build instead of hanging). New RNG single-shot cap = 352 B; 512/
       1000 chunk cleanly. Buffer stays 768 B (already ends at the sram1
       boundary). Follow-up: the tasklet's silent error swallow + the client
-      loop's missing timeout are a robustness gap — candidate wolfHSM
+      loop's missing timeout are a robustness gap - candidate wolfHSM
       upstream report (with S6a's NOTBLANK).
     - [ ] **Magic psa_store return codes** (logged 2026-08-21): wolfPSA's
       `psa_store` contract uses bare ints (0 ok, -4 not-found, other = fail)
       and `psa_key_storage.c` hardcodes `== -4`; wolfTrust's
       `psa_store_stub.c` now returns -4 for the volatile-only "not found".
       Replace the literal with a named constant (e.g. `WOLFPSA_STORE_NOTFOUND`)
-      in a shared header — candidate for an upstream wolfPSA cleanup.
-    - [x] **On-H5 runs of both suites — DONE (2026-08-24, real silicon)**:
+      in a shared header - candidate for an upstream wolfPSA cleanup.
+    - [x] **On-H5 runs of both suites - DONE (2026-08-24, real silicon)**:
       `devcrypto`/`devstorage` scenarios wired into `run_h5_hardware.sh`
       (scenario-conditional 256K guest layout, guest1 at 0x080E0000; other
       scenarios keep the proven 128K layout). Results match the emulator
@@ -246,7 +246,7 @@ wolfTrust on the board — the TF-M drop-in proof.
       the debugger and fixed in the runner:
       1. A vault pool written by an older firmware generation made wolfHSM
          NVM init fail (`WH_ERROR_ACCESS`) and the secure image BKPT-trap
-         into a mute HardFault pre-UART (emulator never sees it — blank
+         into a mute HardFault pre-UART (emulator never sees it - blank
          flash every run). Runner now guarantees a blank pool; the real
          defect (init must reformat/quarantine, never dead-trap) is its
          own tracked item below.
@@ -258,14 +258,14 @@ wolfTrust on the board — the TF-M drop-in proof.
          flashing, `reset halt` → erase vault+boot-flag while halted →
          boot exactly once. Also added a build/flash scenario stamp so
          mismatched images fail fast.
-    - [x] **Vault NVM init recovery (silicon robustness) — DONE (#95)**: the
+    - [x] **Vault NVM init recovery (silicon robustness) - DONE (#95)**: the
       boot-time IAK provisioning now recovers from a foreign/corrupt pool
       instead of the BKPT dead-trap. On a pool whose IAK slot is held by a
       NONMODIFIABLE object (or is otherwise unreadable), the recovery is
       **lifecycle-gated**: only the unlocked development states
       (ASSEMBLY_AND_TEST / PSA_ROT_PROVISIONING) may reformat + re-provision
       (rebinding the attest server to the fresh store); a SECURED or unknown
-      lifecycle **never auto-wipes** — it fails closed (attestation degraded,
+      lifecycle **never auto-wipes** - it fails closed (attestation degraded,
       `g_wt_attest_degraded`, no trap), so WRITE_ONCE storage and the sealed
       key survive. Geometry stays in the port (`wt_hsm_flash_format`). A
       deterministic `WT_VAULT_FOREIGN_PROBE` build forces the foreign-pool
@@ -275,12 +275,12 @@ wolfTrust on the board — the TF-M drop-in proof.
       after self-heal; graceful no-brick fail-closed).
 
 
-- [x] **Phase 5 — Initial Attestation — COMPLETE (2026-08-25).** All slices
+- [x] **Phase 5 - Initial Attestation - COMPLETE (2026-08-25).** All slices
   below have real evidence: production tagged profile-2 token; ARM `test_a001`
   green on host, M33MU (shim + reference QCBOR), and H563 silicon (both
   backends); deterministic claim-set golden vector; handoff/challenge/tamper
   negatives; replay + lifecycle binding; IAK key-isolation at the wolfHSM
-  enforcement layers (beat-TF-M — the signing key never leaves the vault); and
+  enforcement layers (beat-TF-M - the signing key never leaves the vault); and
   the on-target `attestneg` scenario in CI. All host suites also green under
   gcc/clang and ASan/UBSan. Slices:
     - [x] **P5-S2 (buckets 2+3 core): host COSE_Sign1 real ES256 sign→verify.**
@@ -290,7 +290,7 @@ wolfTrust on the board — the TF-M drop-in proof.
       token / wrong key / undersized buffer / bad flags / null signer (15/15
       host checks). Added to `UNIT_SUITES` → runs in `make test` and as its own
       `Unit tests / attestation` CI check.
-    - [x] **P5-S1 (bucket 1): deterministic EAT claims — DONE.** New
+    - [x] **P5-S1 (bucket 1): deterministic EAT claims - DONE.** New
       `tests/host/attestation_golden/` pins the production claim set against an
       embedded 216-byte golden vector (fixed RFC 6979 P-256 IAK so the UEID is
       deterministic, fixed handoff/challenge): tokens byte-identical up to the
@@ -298,32 +298,32 @@ wolfTrust on the board — the TF-M drop-in proof.
       Profile decision pinned by test: profile-2 claim set, no boot-seed (268).
       Regenerate after an intended claim change with
       `make run EXTRA_CFLAGS=-DWT_GOLDEN_GEN`. In `UNIT_SUITES`/CI.
-    - [x] **P5-S3 (bucket 3): negative evidence — DONE.** New
+    - [x] **P5-S3 (bucket 3): negative evidence - DONE.** New
       `tests/host/attestation_negatives/` (19/19, gcc/clang/ASan): NOT_READY
       before any handoff; NULL/unknown-hash/truncated-measurement handoffs
       rejected without arming the state; challenge 0/31/33/65 + NULL rejected
       at runtime; a good token then fails against a different measurement,
       a different lifecycle, and with one in-token measurement byte flipped
       (ES256 catches it). In `UNIT_SUITES`/CI. On-target attestneg = #102.
-    - [x] **P5-S4 (bucket 4, the beat-TF-M proof): IAK key-isolation — DONE.**
+    - [x] **P5-S4 (bucket 4, the beat-TF-M proof): IAK key-isolation - DONE.**
       New `tests/host/attestation_iak/` (14/14, gcc/clang/ASan) provisions the
       IAK exactly as `wt_hsm_attest_generate_key` (same server config, keygen
       message, lockdown flags, commit id) on ramsim, then proves at the real
       wolfHSM layers: sign works + only the 65-byte public point exports (I1);
       raw `WH_KEY_EXPORT` refused (I2); Checked NVM read refused (I3);
       destroy/re-provision refused, original still signs (I4); a guest client
-      identity can neither sign with nor even see the IAK — namespace
-      isolation — while the attest identity still signs (I5). TF-M keeps this
+      identity can neither sign with nor even see the IAK - namespace
+      isolation - while the attest identity still signs (I5). TF-M keeps this
       key in partition RAM; wolfTrust never lets it leave the vault.
-    - [x] **P5-S5 (bucket 5): replay + lifecycle — DONE.** New
+    - [x] **P5-S5 (bucket 5): replay + lifecycle - DONE.** New
       `tests/host/attestation_replay/` (13/13, gcc/clang/ASan): different
       challenges → different tokens, each verifying only under its own
       challenge (replay of an old token under a fresh nonce is rejected both
       directions); a real lifecycle transition 0x1000→0x3000 via a new
-      handoff — the secured token is rejected as development and vice versa.
+      handoff - the secured token is rejected as development and vice versa.
       Boot-seed decision pinned in P5-S1 (no claim 268). In `UNIT_SUITES`/CI.
     - [x] **P5-CONF (ARM drop-in proof): unlock `dev_apis/initial_attestation`
-      (`test_a001`)** from the pinned psa-arch-tests (rev `e17d294`) — DONE:
+      (`test_a001`)** from the pinned psa-arch-tests (rev `e17d294`) - DONE:
       host + M33MU both ways + H5 silicon both ways, all green.
       - [x] **CBOR backend done + interop proven.** `test_a001`'s val needs QCBOR;
         wolfTrust uses wolfCOSE. Built a wolfCOSE-backed `qcbor.h`/`qcbor_shim.c`
@@ -332,14 +332,14 @@ wolfTrust on the board — the TF-M drop-in proof.
         real wolfCOSE `COSE_Sign1` (array-of-4 + tag 18 + claims map) and byte-
         exact Sig_structure encode; also builds the SAME test against the
         reference QCBOR lib (fetched test-only, `tests/upstream/fetch_qcbor.sh` +
-        `qcbor.rev`, gitignored) — a wolfCOSE token verifies under both. Both run
+        `qcbor.rev`, gitignored) - a wolfCOSE token verifies under both. Both run
         in CI: `Unit tests / qcbor_shim` (in UNIT_SUITES) + `Unit tests / CBOR
         interop (wolfCOSE and QCBOR)`. Green host + gcc + ASan/UBSan.
       - [x] **Target integration DONE.** `attestation` suite block in
         `guest0_psa/CMakeLists.txt` compiles val_attestation + `test_a001` + the
         two unmodified upstream attestation PALs against wolfPSA; new
         `port/stm32h563/conformance/pal_attestation_config.h` (COSE constants,
-        `CRYPTO_VERSION_BETA3`; NO `PLATFORM_OVERRIDE_ATTEST_PK` — the IAK is
+        `CRYPTO_VERSION_BETA3`; NO `PLATFORM_OVERRIDE_ATTEST_PK` - the IAK is
         device-generated, so `conformance_pal.c` bridges
         `tfm_initial_attest_get_public_key` to the runtime IAK); testlist gen in
         `mk/secure-armv8m-stm32h563.mk`; NS client fix: zero/NULL token buffer →
@@ -350,27 +350,27 @@ wolfTrust on the board — the TF-M drop-in proof.
         the SW component carries a **signer_id** (label 5, `SHA-256("wolfBoot")`),
         bumping the map `3u→4u` so profile-2 `mandatory_sw_components==2`. wolfCOSE
         already tag-capable both ways (encode gated by `WOLFCOSE_SIGN1_UNTAGGED`;
-        verify auto-detects tag 18) — no wolfCOSE change. Evidence: new host suite
+        verify auto-detects tag 18) - no wolfCOSE change. Evidence: new host suite
         `tests/host/attestation_token/` drives the real production encoder + the
         production guest verifier (26/26, gcc/clang/ASan) + M33MU `positive`
         (`token_len=291`, `COSE_Sign1 verified`, `verify=0 … cose=ES256`).
       - [x] `test_a001` on M33MU **both ways**: `PASS: target/devattest` (shim,
         16/16 checks, TOTAL 1/0) + `PASS: target/devattestqcbor` (reference
-        QCBOR, TOTAL 1/0), one tree, profile 2 — see validation-log.
+        QCBOR, TOTAL 1/0), one tree, profile 2 - see validation-log.
       - [x] `test_a001` on H5 **silicon** both ways: `PASS: hardware/h5/devattest`
         (shim, rerun after a one-time first-boot 0/0 transient on the image
-        switch) + `PASS: hardware/devattestqcbor` — both `Result=Passed`,
+        switch) + `PASS: hardware/devattestqcbor` - both `Result=Passed`,
         TOTAL 1/0, profile 2, no fault markers. P5-CONF COMPLETE.
-    - [x] **P5-CI — DONE.** `attestneg` M33MU scenario (production image +
+    - [x] **P5-CI - DONE.** `attestneg` M33MU scenario (production image +
       `WT_ATTEST_NEG_PROBE` guest probe over real FF-M IPC): oversized
       challenge and zero token buffer rejected `st=-135`, tampered token and
       lifecycle mismatch refused by the guest verify, positive lifecycle still
-      green, clean exit — `PASS: target/attestneg`. In the M33MU CI matrix +
+      green, clean exit - `PASS: target/attestneg`. In the M33MU CI matrix +
       `ci:attestneg` label. H5 variant rides #96 (positive HW image fix).
       **PHASE 5 COMPLETE.**
 
 
-- [x] **Phase 6 — authenticated boot, runtime verification, and update**
+- [x] **Phase 6 - authenticated boot, runtime verification, and update**
   (`phases.md:120-126`). **COMPLETE (2026-08-26): the full emulated
   boot-and-update gate passes (S6 `bootupdate` green).** Scoped to the normative
   source: authenticated/measured guest launch, firmware rollback + recovery,
@@ -380,7 +380,7 @@ wolfTrust on the board — the TF-M drop-in proof.
   at dispatch vs a manifest-pinned digest + min-version; fail closed). Plan:
   `~/.claude/plans/zany-wandering-stallman.md`. Slices:
     - [x] **S0 (baseline): Phase-6 reqs + collapse dead `src/lifecycle.c` into
-      `src/monitor.c` (#28) — DONE.** Added `WT-SYS-0013` (runtime
+      `src/monitor.c` (#28) - DONE.** Added `WT-SYS-0013` (runtime
       re-measurement) and a framework Phase 6 block (`WT-FFM-0049..0052`,
       `WT-FWU-0001..0003`) + acceptance gate. Single-sourced the live restart
       engine: extracted `wt_restart_policy_evaluate` (`src/restart_policy.c`,
@@ -388,15 +388,15 @@ wolfTrust on the board — the TF-M drop-in proof.
       `src/lifecycle.{c,h}` from the secure build, repointed
       `tests/host/lifecycle/` at the real predicate. Host `make test` green
       (`unit/lifecycle` 25, gcc/clang + ASan/UBSan); M33MU `PASS: target/restart`
-      (guest restarted 3x then FAULTED, banners 4/4) — extracted engine proven
+      (guest restarted 3x then FAULTED, banners 4/4) - extracted engine proven
       on-target.
     - [x] **S1 (keystone, Fable): authenticated guest launch (WT-SYS-0002 /
-      WT-FFM-0049) — DONE on M33MU.** Manifest carries the policy
+      WT-FFM-0049) - DONE on M33MU.** Manifest carries the policy
       (`launch_required`+`launch_min_version` per domain, schema + conformance
       regen + fixture); the pinned digests ride in a `.wt_guest_meas` slot the
       image-assembly patcher (`tools/measure/patch_guest_digests.py`) stamps
       into `wolftrust.bin` BEFORE wolfBoot signs, so the pins share the image
-      root of trust (patch-then-sign; forced by build order — guests link
+      root of trust (patch-then-sign; forced by build order - guests link
       against the secure implib). `wt_monitor_init` + every relaunch re-hash
       the guest image (`wt_guest_verify_image`, SHA-256 + constant-time pin +
       version floor) and fail closed to FAULTED/quarantine. Verified digests
@@ -409,12 +409,12 @@ wolfTrust on the board — the TF-M drop-in proof.
       measurement), `PASS: target/authneg` (corrupt guest0 refused, guest1
       survives), `PASS: target/devattest` (a001 green on the 3-component
       token). Defect found by the gate: the const slot accessor const-folded
-      the unpatched marker — fixed with a volatile load. `authneg` in the CI
+      the unpatched marker - fixed with a volatile load. `authneg` in the CI
       matrix + `ci:authneg`.
     - [ ] **S1-HW: repeat authenticated-launch evidence on H563 silicon**
       (devattest + authneg via the updated `run_h5_hardware.sh` patch-then-sign
-      flow) — hardware-pending, board session (rides with #91/#96).
-    - [x] **S2 (Fable): firmware anti-rollback (WT-FFM-0050) — DONE on M33MU.**
+      flow) - hardware-pending, board session (rides with #91/#96).
+    - [x] **S2 (Fable): firmware anti-rollback (WT-FFM-0050) - DONE on M33MU.**
       `boot_handoff.image_version` finally consumed: `wt_hsm_rollback_enforce`
       runs on the boot stack after `wt_hsm_init` (NVM live) and before the
       first dispatch, checking the image version + every S1 pinned guest
@@ -427,45 +427,45 @@ wolfTrust on the board — the TF-M drop-in proof.
       `src/rollback.c` + host `rollback` suite 51/51 (35-suite unit/all);
       M33MU `PASS: target/positive` (floor advance, no regression) +
       `PASS: target/rollbackneg` (probe arms floor above the running version,
-      SYSRESETREQ, second boot refused fail-closed 0x7D — floor proven
+      SYSRESETREQ, second boot refused fail-closed 0x7D - floor proven
       persistent across reset; probe forces SECURED like vaultrecoversec).
       `rollbackneg` in the CI matrix + `ci:rollbackneg`; the inline per-guest
       CI job reordered to the S1 patch-then-sign flow. Silicon rides #113.
-    - [x] **S3 (Fable): graceful SP fault recovery + CI (#26) — DONE on M33MU.**
+    - [x] **S3 (Fable): graceful SP fault recovery + CI (#26) - DONE on M33MU.**
       A faulted Secure Partition is now recovered without resetting the world
       (WT-SYS-0008 / WT-FFM-0017): the fault handler only marks the coroutine
       dead and pends recovery; the SPM dispatch path then runs the neutral
       engine (`src/sp_recovery.c`: locks released via `wt_hsm_release_locks`,
       pinned clients failed with a defined error via
-      `wt_ffm_fail_partition_messages` — which also drains the dead
-      partition's queues and deasserts its signals — stack scrubbed, coroutine
+      `wt_ffm_fail_partition_messages` - which also drains the dead
+      partition's queues and deasserts its signals - stack scrubbed, coroutine
       restarted in place via `wt_co_reinit` under the manifest
       `restart_policy` budget; NEVER/PLATFORM or exhausted budget escalate).
       Recovery deliberately runs on the bootstrap thread, never in handler
       mode. Host: new `sp_recovery` suite (300 checks: budget decision,
       ordered orchestration incl. failed-restart downgrade, 50x in-place
-      reinit with slot/domain identity preserved) + `ffm` fault-unblock case —
+      reinit with slot/domain identity preserved) + `ffm` fault-unblock case -
       36-suite `unit/all` green, gcc/clang + ASan/UBSan. M33MU:
-      `PASS: target/spfaultneg` — the crypto SP faults once
+      `PASS: target/spfaultneg` - the crypto SP faults once
       (`WT_SP_FAULT_PROBE` out-of-domain read), the pinned client unblocks
       with -145, the RESTARTED SP serves the later key-ops, ITS/PS/HSM/
-      attestation all green through a clean BKPT exit, no platform reset —
+      attestation all green through a clean BKPT exit, no platform reset -
       plus `PASS: target/positive`, `target/crossdomain`, `target/confboot`
       (85/0/4) regressions. `spfaultneg` in the CI matrix + `ci:spfaultneg`.
       Three defects found by the gate: (1) `wt_secure_fault_dispatch` blamed
-      the scheduled NS guest for Secure-Thread faults — `SecureFault_Handler`
+      the scheduled NS guest for Secure-Thread faults - `SecureFault_Handler`
       now routes secure-frame Thread faults to the tasklet recovery entry
       (also covers the M33MU delivering secure MPU faults through the
-      SecureFault vector — emulator defect #3, stale `securefault_pending`,
+      SecureFault vector - emulator defect #3, stale `securefault_pending`,
       tracked with the #63 patch family); (2) force-completed messages left
       queued kept the service signal asserted (restart spin); (3) the fault
       path left `g_wt_co_pendsv_target` stale. Collapses #26. Silicon rides
       #113.
-    - [x] **S3-R: fix pre-existing `target/restart` regression (task #114) —
+    - [x] **S3-R: fix pre-existing `target/restart` regression (task #114) -
       virtual-SysTick injection inside the dispatch window.**
       `wt_virtual_systick_restore_arriving` armed the guest SysTick and
       pended owed ticks (`PENDSTSET`) from `wt_platform_prepare_guest_return`
-      — after the `VTOR_NS` write but before the NS bank restore. With
+      - after the `VTOR_NS` write but before the NS bank restore. With
       PRIS=0 the injected tick preempts the secure dispatcher right there,
       vectoring through the ARRIVING guest's table while stacking on the
       DEPARTING guest's live MSP_NS; the arriving guest's MPU denies the
@@ -473,7 +473,7 @@ wolfTrust on the board — the TF-M drop-in proof.
       banners). Proof from the failure log itself: the faulting SysTick
       context's `EXC_RETURN=0xFFFFFFD0` (ES=0, Mode=Handler, S=1) shows an
       NS tick that preempted secure HANDLER code. S1's in-handler relaunch
-      hash guarantees owed ticks at every relaunch dispatch — hence the
+      hash guarantees owed ticks at every relaunch dispatch - hence the
       S0-green/S1-red bisect. Fix: the arm/inject step is deferred to
       `wt_virtual_systick_arm_arriving()`, called from the tail of
       `wt_exception_return_ns_msp` and `wt_jump_to_ns` once
@@ -492,7 +492,7 @@ wolfTrust on the board — the TF-M drop-in proof.
       (`memory_map.h`/`secure.ld`/cap 8→9); FWU is production-only, excluded
       from the conformance manifest by the ingester so the 85/4 layout is
       unchanged. Evidence: host `fwu_service` 33 checks (gcc/clang/ASan, every
-      negative — bad-state/oversize/misaligned/rolled-back/storage-failure/
+      negative - bad-state/oversize/misaligned/rolled-back/storage-failure/
       abort-restores) + M33MU `PASS: target/fwustage` (NS guest drives
       start/write/finish/install over IPC, candidate lands in update-partition
       flash and verifies, write-before-start refused) + `positive` + `confboot`
@@ -504,14 +504,14 @@ wolfTrust on the board — the TF-M drop-in proof.
       `wt_runtime_verify_should_quarantine` (guest_verify.c) reuse the S1
       SHA-256 pin check; `wt_runtime_verify_guest` (monitor.c) does the
       window+record lookup and, on any mismatch, drives the domain through the
-      fail-closed `wt_monitor_quarantine_guest` path — a tamper after launch is
+      fail-closed `wt_monitor_quarantine_guest` path - a tamper after launch is
       caught instead of trusting the boot-time measurement. Guest-domain only
-      (SPs have no pinned-digest store — split if SP coverage is wanted).
+      (SPs have no pinned-digest store - split if SP coverage is wanted).
       Evidence: host `runtime_verify` 7 checks (gcc/clang/ASan: untampered OK,
       tampered/rolled-back/shrunken/no-record fail closed, no-launch-policy
       passes) + M33MU `PASS: target/remeasureneg` (a secure probe re-measures
-      guest0 clean, then tampers its flash window in place — secure MPU dropped
-      for the single privileged-RO program — and the on-demand re-measure
+      guest0 clean, then tampers its flash window in place - secure MPU dropped
+      for the single privileged-RO program - and the on-demand re-measure
       catches it and quarantines, `[BKPT] imm=0x6c`, no fault) + `positive` +
       `confboot` (85/4) green on one tree. CI matrix `remeasureneg` +
       `ci:remeasureneg`.
@@ -525,18 +525,18 @@ wolfTrust on the board — the TF-M drop-in proof.
       M33MU `PASS: target/bootupdate` (no fault, token reports v2's measurement
       not v1's, clean exit) + `positive` + `fwustage` + `confboot` (85/4) green on
       one tree. CI matrix `bootupdate` + `ci:bootupdate`. H563 silicon:
-      `PASS: hardware/h5/bootupdate` — SWD read-back of the boot-partition header
+      `PASS: hardware/h5/bootupdate` - SWD read-back of the boot-partition header
       == v2, != v1 after the armed reset (wolfBoot physically swapped on real
       silicon). Closes Phase 6 (`phases.md:126`).
 
 
-- [ ] **Phase 7 — OS integrations** (`phases.md:128-134`): OS-neutral NS client
+- [ ] **Phase 7 - OS integrations** (`phases.md:128-134`): OS-neutral NS client
   ABI + thin Zephyr/FreeRTOS integrations; same PSA/isolation tests from both.
   Stop = both OS gates pass. **Security decision LOCKED (2026-08-26, most
   secure): every non-secure client call goes NS -> FF-M SPM -> SERVICE_*
   partition; the raw HSM-CMSE bypass is retired from production so the SPM is
   the single mediated gatekeeper; FreeRTOS reaches full PSA parity.**
-    - [x] **S0**: Phase 7 reqs seated — `WT-SYS-0014` (one OS-neutral NS client
+    - [x] **S0**: Phase 7 reqs seated - `WT-SYS-0014` (one OS-neutral NS client
       ABI, SPM the single mediated path) in system.md; `WT-FFM-0053` (OS-neutral
       client core, met by S1/S2, `cb87ae5`), `WT-FFM-0054` (single mediated path,
       open S3/S6), `WT-FFM-0055` (both-OS parity, open S4/S5) + the Phase 7
@@ -568,21 +568,21 @@ wolfTrust on the board — the TF-M drop-in proof.
       disasm proof that guest1 branches ONLY the WolfTrust_FFM_* veneers, never
       the raw HSM veneers; build-time `nm` guard fails if any `wh_Client_*`
       returns.
-    - [x] **S4**: Both-OS PSA gate — new `bothpsa` M33MU scenario asserts the
+    - [x] **S4**: Both-OS PSA gate - new `bothpsa` M33MU scenario asserts the
       SAME three operations from guest0 (Zephyr) AND guest1 (FreeRTOS) in one
       boot: mediated SERVICE_CRYPTO SHA-256 KAT, `psa_generate_random`, and
       `psa_hash_compute` KAT. Wired into the M33MU matrix + `pr-m33mu-select`
       (`ci:bothpsa`). Evidence: `PASS: target/bothpsa` (8/8 checks) on the box.
       **WT-FFM-0055.**
-    - [x] **S5**: Both-OS isolation gate — guest1 `run_ffm_negatives` (forged
+    - [x] **S5**: Both-OS isolation gate - guest1 `run_ffm_negatives` (forged
       handle, oversized input vector, unknown-SID connect) mirrors guest0's proven
       rejections through the neutral client; new `bothiso` M33MU scenario asserts
       the SPM rejects forged-handle + oversized-vector from BOTH OSes, refuses the
       bad SID, and neither guest faults (guest1 keeps serving mediated
       SERVICE_CRYPTO). CI matrix + `pr-m33mu-select` (`ci:bothiso`). Ran on
-      `claude-opus-4-8` — replicating proven patterns, not deep work. **WT-FFM-0055
+      `claude-opus-4-8` - replicating proven patterns, not deep work. **WT-FFM-0055
       (isolation half).** Evidence: `PASS: target/bothiso` (8/8 checks) on the box.
-    - [ ] **S6**: Retire the raw HSM-CMSE bypass entirely — NO gate, NO mixed
+    - [ ] **S6**: Retire the raw HSM-CMSE bypass entirely - NO gate, NO mixed
       transport (decision LOCKED 2026-08-27, plan `/tmp/wolftrust-s6-plan-2026-08-27.md`):
       the wolfHSM server becomes the ONE crypto backend for every algorithm,
       reached only through a new `SERVICE_HSM` relay partition (the wolfHSM
@@ -590,18 +590,18 @@ wolfTrust on the board — the TF-M drop-in proof.
       second keystore (`wt_hsm_keyvault`) and SERVICE_CRYPTO's ad-hoc handlers
       retire with it. Closes WT-FFM-0054; flips the Phase 7 header. H5 rides
       Phase 8. Sub-slices:
-        - [x] **S6a**: host proof of the relay transport — real wolfHSM client
+        - [x] **S6a**: host proof of the relay transport - real wolfHSM client
           over `psa_call` to a real wolfHSM server through the in-process FF-M
           runtime. New neutral `src/services/hsm_relay_service.c` (opaque-packet
           dispatch, pluggable submit seam, fail-closed default, 512 B bound) +
           `src/client/hsm_psa_transport.c` (the whTransportClientCb whose Send is
-          one synchronous mediated psa_call — blocking wrappers complete with NO
+          one synchronous mediated psa_call - blocking wrappers complete with NO
           NOTREADY spin, retiring the multi-chunk hang class). Evidence:
           `tests/host/wolfhsm_relay` 19/19 (CommInit, blocking RNG, 1000 B
           multi-chunk RNG, ECC keygen+sign+verify through the relay, fail-closed
           without the hook, client- and relay-side bounds) under gcc/clang +
           ASan/UBSan; split guard clean.
-        - [x] **S6b**: manifest swap — PARTITION_CRYPTO/SERVICE_CRYPTO(4097) →
+        - [x] **S6b**: manifest swap - PARTITION_CRYPTO/SERVICE_CRYPTO(4097) →
           PARTITION_HSM/SERVICE_HSM(4102) reusing domain 4, deps dropped (the
           relay talks to the monitor, not the vault); both manifests; generator
           verified (`PARTITION_HSM_ID 4`, `SERVICE_HSM_SID 4102`). Boot core now
@@ -610,7 +610,7 @@ wolfTrust on the board — the TF-M drop-in proof.
           spm/ffm_veneer/psa_ffm_client fixtures updated. Host `unit/all` +
           conformance host-subset green. Target scenarios intentionally red
           until the S6c/S6d arc completes.
-        - [x] **S6c**: secure relay — `wt_hsm_relay_submit` in `wt_hsm.c` maps
+        - [x] **S6c**: secure relay - `wt_hsm_relay_submit` in `wt_hsm.c` maps
           the SPM-stamped caller to its guest server and pumps
           `wh_Server_HandleRequestMessage` inline over a per-guest secure
           capture buffer in monitor RAM (no tasklet wake, no NS-RAM CSR);
@@ -627,31 +627,31 @@ wolfTrust on the board — the TF-M drop-in proof.
           guard clean; box cross-build links for production,
           `WT_SP_FAULT_PROBE=1`, and `WT_CONFORMANCE=1` (scenario layout).
           Target proof (devcrypto through the relay) lands at S6d.
-        - [x] **S6d**: NS transport swap in both wolfhsm_client_glue copies —
+        - [x] **S6d**: NS transport swap in both wolfhsm_client_glue copies -
           one synchronous `psa_call(SERVICE_HSM 4102)` per packet over
           `wt_hsm_psa_transport_cb`; the CSR window and the raw veneer calls
           are gone from both glues. The wolfhsm-client Zephyr module now owns
           `psa_ffm_client.c` + `hsm_psa_transport.c` (guest0 links too;
           guest0_psa dropped its duplicate), and the baremetal harness
           compiles both under a new src/client rule. Evidence (M33MU box):
-          `devcrypto` PASS first try — 77 scheduled / 64 passed / 13 skipped
-          / 0 failed / 0 SIM ERROR through the relay; `confboot` ACS clean —
+          `devcrypto` PASS first try - 77 scheduled / 64 passed / 13 skipped
+          / 0 failed / 0 SIM ERROR through the relay; `confboot` ACS clean -
           85 passed / 0 failed / 4 skipped / 0 SIM ERROR. confboot's
           post-suite check list still fails on the guests' SERVICE_CRYPTO
-          (4097) demo probes (handle=-130) — the known mid-arc redness S6f
+          (4097) demo probes (handle=-130) - the known mid-arc redness S6f
           retires; a post-suite scheduler diag-trap rides that same failed
           probe epilogue and should disappear with it (verify at S6f).
         - [x] **S6e**: retire the second keystore. `wt_hsm_keyvault.c` deleted;
           the vault no longer registers a key backend, so its key ops stay
           fail-closed (keys live only in the wolfHSM server keystore now). The
           vault RANDOM face split onto its own `wt_vault_service_set_rng` seam
-          (RNG relocated to `wt_hsm_vault_random` in wt_hsm.c) — that op plus
+          (RNG relocated to `wt_hsm_vault_random` in wt_hsm.c) - that op plus
           crypto_service + ffm_crypto_client are guest-RNG-coupled and retire
           with the guest repoint at S6f. Host suites: `keyvault` deleted;
           `negatives` reduced to the vault storage-face negatives (WT-FFM-0044
           owner isolation + WT-FFM-0048 sealing + flag forgery); new
           `tests/host/keystore_isolation` re-asserts WT-FFM-0046 on the server
-          keystore — two servers on shared NVM at distinct stamped client_ids
+          keystore - two servers on shared NVM at distinct stamped client_ids
           prove cross-client key isolation (request path + direct NVM
           namespace) and NONEXPORTABLE, modelled on the on-target IAK
           provisioning. Evidence: host `unit/all` green (incl. keystore_isolation
@@ -660,7 +660,7 @@ wolfTrust on the board — the TF-M drop-in proof.
           kept (dead SHA/RANDOM face) until S6f.
         - [x] **S6f**: both guests on the single mediated path. guest0's
           `exercise_ffm_crypto/keys/key_negatives` (dead SERVICE_CRYPTO 4097
-          op-protocol) rewritten onto the mediated wolfPSA path —
+          op-protocol) rewritten onto the mediated wolfPSA path -
           `psa_hash_compute` for the SHA KAT, volatile P-256
           `psa_generate_key`/`psa_sign_hash`/`psa_verify_hash` for key-ops
           (tampered-digest refusal + cross-key verify refusal); `exercise_ffm_negatives`
@@ -671,21 +671,21 @@ wolfTrust on the board — the TF-M drop-in proof.
           fixed on the box). nm guard asserts guest1 links `wt_hsm_psa_transport_cb`
           (raw `WolfTrust_HSM_*` still bundled in the shared CMSE implib until S6g
           deletes them). Evidence (M33MU box, one tree): `positive` + `bothpsa` +
-          `bothiso` all PASS — both guests emit `ffm sha256 ok` through SERVICE_HSM;
+          `bothiso` all PASS - both guests emit `ffm sha256 ok` through SERVICE_HSM;
           guest0 SERVICE_CRYPTO dispatch / key-ops / key-negatives / forged-handle /
           oversized-vector all green; both-OS isolation negatives (forged, oversized,
-          unknown-SID) green from Zephyr and FreeRTOS — plus `confboot` PASS.
+          unknown-SID) green from Zephyr and FreeRTOS - plus `confboot` PASS.
           `crypto_service.c` + `ffm_crypto_client.c` stay (unscheduled dead code);
           removing them needs descheduling SERVICE_CRYPTO from the secure image and
           folds into S6g.
         - [x] **Audit follow-ups** (adversarial audit of the closed milestone
           found one live same-shape sibling): the three direct attestation
           veneers (`WolfTrust_Attest_GetTokenSize/GetToken/GetPublicKey`) are
-          deleted — `GetToken` (IAK-signing) had no in-tree caller; the size
+          deleted - `GetToken` (IAK-signing) had no in-tree caller; the size
           and public-key queries now ride `psa_call` to SERVICE_ATTEST as new
           call types (`WT_ATTEST_OP_TOKEN_SIZE`/`WT_ATTEST_OP_PUBLIC_KEY`,
           host-proven in tests/host/attestation_service with exact PSA status
-          mapping). The secure-image guard is now a WHITELIST — any
+          mapping). The secure-image guard is now a WHITELIST - any
           non-secure-callable veneer outside `WolfTrust_FFM_*` fails the link
           (the dedicated vnet firmware opts `WolfTrust_VNet_*` in via
           CONFIG_VNET=y and sits outside the FF-M mediation boundary); all
@@ -706,14 +706,14 @@ wolfTrust on the board — the TF-M drop-in proof.
           `memory_map.h` NS-RAM window macros are all deleted (spm host test
           updated). Two latent scenario breaks found+fixed: crossdomain's
           `WT_FFM_NEGATIVE_PROBE` lived only in the descheduled crypto-SP path
-          (dead since the manifest swap) — re-homed into the live unprivileged
+          (dead since the manifest swap) - re-homed into the live unprivileged
           ITS partition loop; spfaultneg's assertions still expected the
           pre-relay MEMFAULT signature + the retired guest connect-failure
-          marker — updated to the relay's UNDEFINSTR UsageFault + restarted-
+          marker - updated to the relay's UNDEFINSTR UsageFault + restarted-
           relay service markers (client-unblock stays host-proven in
           sp_recovery). The repaired scenario then caught a REAL resilience
           defect: the relay's fault window can overlap a guest's boot, and the
-          NS wolfHSM client glue latched one failed init as terminal — guest0's
+          NS wolfHSM client glue latched one failed init as terminal - guest0's
           connect raced the recovery window and every later mediated op failed
           (A/B: same build, probe disabled, fully green). Fixed client-side
           (FF-M lets partitions restart; clients must reconnect): the glue
@@ -735,16 +735,16 @@ wolfTrust on the board — the TF-M drop-in proof.
           M33MU matrix green (see validation-log).
 
 
-- [ ] **Phase 8 — hardware and port qualification** (`phases.md:136-143`):
+- [ ] **Phase 8 - hardware and port qualification** (`phases.md:136-143`):
   **second Cortex-M port** (proves the MP4 port kit) + Cortex-A/TFA replacement
   boundary; H5/C5 hardware qualification. (Moved here from the old Phase 6 line.)
 
 
-- [ ] **Phase 9+ — parity, security review, release qualification.**
+- [ ] **Phase 9+ - parity, security review, release qualification.**
 
 ## Open items (active)
 
-- **#A confboot gate flakiness (MP5) — CLOSED (#83).** Now deterministic (20/20
+- **#A confboot gate flakiness (MP5) - CLOSED (#83).** Now deterministic (20/20
   clean, 0 SIM ERROR). Previously ~1-in-4 runs reported a single SIM ERROR.
   Root cause (found via a reset-survival SRAM black box, since
   the reset defeats both the UART log and the debugger): guest0's Zephyr
@@ -753,7 +753,7 @@ wolfTrust on the board — the TF-M drop-in proof.
   `BOOT_NOT_EXPECTED` → SIM ERROR. Fix: set `AIRCR.SYSRESETREQS` in secure init
   so a NS SYSRESETREQ can no longer reset the SoC (correct Secure-Manager
   policy). Two latent bugs fixed alongside: SysTick defaulted to priority 0 and
-  preempted PendSV mid-coroutine-switch (INVPC faults) — now equal-lowest with
+  preempted PendSV mid-coroutine-switch (INVPC faults) - now equal-lowest with
   PendSV; and the HSM tasklet preempt is SPSEL-gated. Proven 20/20 clean.
 - **#63 m33mu upstream point-back.** Blocked on two upstream PRs (SPSEL #16 +
   ITSTATE-advance). When both merge: bump `M33MU_REF` in the runners + yml and
@@ -761,13 +761,13 @@ wolfTrust on the board — the TF-M drop-in proof.
 - **#26 / #28 recovery + lifecycle cleanup.** Graceful SP fault recovery + wire
   the negative M33MU job into CI; collapse dead `src/lifecycle.c` into monitor.
 - **#16 TEE-driver dependency** removal once purpose-built FF-M veneers suffice.
-- **#62 watchdog-reset tests** — deferred (needs a WDG driver; not FF-M
+- **#62 watchdog-reset tests** - deferred (needs a WDG driver; not FF-M
   conformance).
 
 ## Test entry points
 
 - Host: `make test` (unit/all).
 - Emulator: `make test-target` (positive/restart/crossdomain/confboot) +
-  `make test-conformance` (85/4) — skill `wolftrust-m33mu`.
-- Hardware: `WT_H5_DOCKER_IMAGE=… make test-hardware` — skill
+  `make test-conformance` (85/4) - skill `wolftrust-m33mu`.
+- Hardware: `WT_H5_DOCKER_IMAGE=… make test-hardware` - skill
   `wolftrust-h5-hardware`. Physical-board evidence is a separate ledger.

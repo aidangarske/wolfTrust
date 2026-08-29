@@ -1,4 +1,4 @@
-# wolfTrust Secure Manager replacement — the H5 port mega plan
+# wolfTrust Secure Manager replacement - the H5 port mega plan
 
 Authoritative program plan to carry the wolfTrust STM32H5 port to completion as a
 portable, OEM-owned equivalent of ST's Secure Manager. Supersedes the emulator-era
@@ -7,13 +7,13 @@ P8/P9; folds in `hardware-tfm-replacement-plan.md` (bring-up detail) and
 
 ## Vision
 
-wolfTrust delivers the same thing ST's Secure Manager delivers — a PSA-Certified
+wolfTrust delivers the same thing ST's Secure Manager delivers - a PSA-Certified
 secure runtime (Crypto / Attestation / ITS via FF-M IPC) sealed as an immutable
-Root of Trust — but **portable across every Armv8-M part and with the OEM owning
+Root of Trust - but **portable across every Armv8-M part and with the OEM owning
 the keys and the RoT**, not ST. The H5 is the reference port; the structure must
 generalize to any other ST part (not port-specific) and to other vendors.
 
-## Architecture — the "Secure Manager role" = generic core + thin port
+## Architecture - the "Secure Manager role" = generic core + thin port
 
 Clean separation, enforced:
 
@@ -26,9 +26,9 @@ Clean separation, enforced:
   Microchip: CEHL), flash/RAM map, UART + clock tree, crypto backend, and the
   wolfBoot chain. A new part or vendor = a new port implementing the same
   contract; the core is unchanged.
-- **Provisioning/lock contract.** A defined interface each port fills — *seal the
+- **Provisioning/lock contract.** A defined interface each port fills - *seal the
   RoT immutably* → *prove sealed* → *regress (reversible, dev) / lock (permanent,
-  prod)* — so the lock **workflow is uniform** across vendors while each maps to
+  prod)* - so the lock **workflow is uniform** across vendors while each maps to
   its native primitive.
 
 Net: "generally support Secure Manager for any ST part that isn't port-specific"
@@ -40,20 +40,20 @@ shape every time.
 - **Core proven on M33MU emulator:** full Arm FF-M IPC suite 85/4, isolation,
   panic-reset, all host suites green. Emulator evidence.
 - **H5 port complete through MP6.** MP1–MP3 (bring-up, functional equivalence,
-  reversible immutable-RoT lock at all rungs), MP4 (core/port split enforced —
+  reversible immutable-RoT lock at all rungs), MP4 (core/port split enforced -
   guard clean, hard leaks = 0), and MP5 (the unmodified Arm FF-M IPC suite
   **85/4 on H563 silicon** via the `confboot` scenario, now deterministic 20/20
   after the #83 `AIRCR.SYSRESETREQS` fix, commit `52f13bb`) are all done and
   recorded in `validation-log.md`. MP6 consolidated the port + Secure-Manager
   guides and cross-checked the encodings against RM0481
   (`docs/rm0481-encoding-crosscheck.md`).
-- **Next: Phase 4** — Crypto / Protected Storage / ITS as isolated Secure
+- **Next: Phase 4** - Crypto / Protected Storage / ITS as isolated Secure
   Partitions (wolfPSA→wolfHSM), widening the drop-in claim from FF-M IPC to full
   PSA.
 
-## Program — H5 reference port to completion
+## Program - H5 reference port to completion
 
-### MP1 — H5 bring-up: clean console + positive smoke green
+### MP1 - H5 bring-up: clean console + positive smoke green
 - Fix the console: reconcile USART3 (the Nucleo ST-Link VCP) baud against the real
   H5 clock tree so 115200 is clean. Resolve any further hardware-only faults
   (clock/PLL, VOS/wait-states, I/D cache, GTZC-vs-SECWM, RNG) until the positive
@@ -62,25 +62,25 @@ shape every time.
   board (TEE init → SERVICE_CRYPTO → SHA-256 KAT → attestation verified → guest
   done, no fault marker).
 
-### MP2 — Full functional equivalence on silicon
+### MP2 - Full functional equivalence on silicon
 - Bring the full service surface green on hardware: PSA Crypto, Initial
-  Attestation, ITS, FF-M IPC round trips, and L3 isolation — the M33MU suite's
+  Attestation, ITS, FF-M IPC round trips, and L3 isolation - the M33MU suite's
   assertions, now on real silicon.
 - Repeatable `make test-hardware` smoke + a **hardware ledger** in
   `validation-log.md` (separate from emulator evidence).
 
-### MP3 — Immutable-RoT lock model + reversible lock test + workflow
+### MP3 - Immutable-RoT lock model + reversible lock test + workflow
 - Implement the H5 provisioning/lock workflow: **⚠️ provision the Debug-Auth
   regression credential FIRST** (skipping it makes `Closed` a permanent brick),
   seal via HDP/SECWM/WRP/BOOT_UBE + `PRODUCT_STATE` → `Closed`/`TZ-Closed`, prove
   sealed (secure region unreadable, boots only wolfTrust), then regress to `Open`
-  (mass-erase). **Reversible only — never permanent `Locked` on the dev board.**
+  (mass-erase). **Reversible only - never permanent `Locked` on the dev board.**
 - Ship it as scripts + docs an OEM can reproduce. wolfBoot automates the
   TZ-partitioning option bytes; the HDP/product-state seal is our added step.
 - Exit: lock proven + regression proven on the Nucleo, recorded. Permanent
   `Locked` explicitly deferred (production-only, likely never on this board).
 
-### MP4 — Generalize: enforce the core/port split + the port contract
+### MP4 - Generalize: enforce the core/port split + the port contract
 - Refactor so the core has zero silicon specifics and the H5 port implements a
   documented **port contract** (lock primitives, flash map, uart/clock, crypto,
   boot chain, provisioning/lock hooks).
@@ -89,10 +89,10 @@ shape every time.
   (from the competitive doc's cross-vendor table). Stretch: stand up a second port
   (U5 or nRF5340) to prove the abstraction.
 
-### MP5 — TF-M / Secure Manager drop-in proof (on silicon)
+### MP5 - TF-M / Secure Manager drop-in proof (on silicon)
 - Drop-in proof: the unmodified Arm `val` NSPE FF-M IPC conformance suite (pinned
   SHA, 85 passed / 4 skipped) runs **unmodified** against wolfTrust's secure side
-  on the real H563 board — same PSA ABI, zero test edits. Delivered as a new
+  on the real H563 board - same PSA ABI, zero test edits. Delivered as a new
   `confboot` scenario in `run_h5_hardware.sh`; the panic tests reboot the chain
   with real SYSRESETREQ and val resumes off its flash boot flag (K2/K3).
 - ST Secure Manager side-by-side baseline **descoped** (2026-08-19, owner
@@ -100,7 +100,7 @@ shape every time.
   Manager and the board is not owned). The unmodified-Arm-conformance-on-silicon
   result is the drop-in evidence.
 
-### MP6 — Docs, testing, completion
+### MP6 - Docs, testing, completion
 - Docs: the H5 port guide, the Secure-Manager-replacement guide, the lock
   workflow, the port contract, plus the competitive doc. A direct **RM0481** pass
   on exact option-byte encodings before any external-facing security claim.
@@ -114,7 +114,7 @@ shape every time.
 
 ## Guardrails
 - **Reversible lock only on dev** (`Closed` → regress); **never permanent
-  `Locked`** on the dev board — keeps the hardware reusable for testing.
+  `Locked`** on the dev board - keeps the hardware reusable for testing.
 - **DA regression credential provisioned before every lock** (brick-safety;
   documented ST H563 brick case).
 - **Hardware evidence is a separate ledger**, never emulator-implied.

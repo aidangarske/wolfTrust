@@ -1,4 +1,4 @@
-# MP5 evidence — unmodified Arm val conformance on STM32H563 silicon, 2026-08-19
+# MP5 evidence - unmodified Arm val conformance on STM32H563 silicon, 2026-08-19
 
 Raw outputs backing the validation-log "MP5" entry and the task-list MP5
 completion marks. **HARDWARE, not emulator**: NUCLEO-H563ZI (ST-Link SWD +
@@ -26,7 +26,7 @@ run with fresh flash):
    were silently dropped: any secure image over 128K (the conformance image is
    140.6K signed) was truncated on flash and wolfBoot integrity-rejected it
    (`hdr_ok=1, sha_ok=0, not_sha_ok=1`, panic in `wolfBoot_start`). Fix:
-   `SECWM1_END=0x4F` (secure through 0x0809FFFF — the whole boot partition;
+   `SECWM1_END=0x4F` (secure through 0x0809FFFF - the whole boot partition;
    guests at 0x080A0000 stay NS). `provisioning_ctrl.sh` and the hardware plan
    now carry 0x4F.
 2. **CubeProgrammer `-hardRst` unreliable.** After flashing, the board was
@@ -38,7 +38,7 @@ run with fresh flash):
    Unlike the emulator (fresh flash every run), the board keeps last run's
    counters, so a *second* back-to-back confboot inherited stale state and ~2
    panic tests misresumed as `SIM ERROR` (seen once as 83 passed / 2 SIM ERROR
-   — 83+4+2=89, zero real conformance failures). Fix: `run_h5_hardware.sh`
+   - 83+4+2=89, zero real conformance failures). Fix: `run_h5_hardware.sh`
    erases that sector (`pyocd erase -s 0x0C1FA000`) before each confboot run.
    Verified deterministic: two back-to-back runs both 85/0-sim-error, then the
    full 4-scenario `make test-hardware` with confboot last.

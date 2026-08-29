@@ -91,14 +91,14 @@ negative tests pass.
 
 Crypto, Internal Trusted Storage (ITS), and Protected Storage (PS) run as
 independently isolated Secure Partitions and reach the wolfHSM key/NVM vault
-only through the SPM gate. Private keys never leave the vault — the stronger
+only through the SPM gate. Private keys never leave the vault - the stronger
 posture than a Crypto partition holding key material in its own memory.
 
 | ID | Behavior | Failure | Source | Tests | Commit |
 | --- | --- | --- | --- | --- | --- |
 | WT-FFM-0044 | Every ITS and PS object is owned by the SPM-authenticated caller partition. A caller reaches only its own `(owner, uid)` namespace on set, get, get_info, and remove. | A cross-owner access reveals nothing and returns does-not-exist, never another owner's data or metadata. | SRC-PSA-STORAGE, SRC-FFM 3.3.4 | Per-client storage isolation tests | |
 | WT-FFM-0045 | An object created with `PSA_STORAGE_FLAG_WRITE_ONCE` cannot be modified or removed, and the flag survives reset. Enforced in SECURED and locked debug lifecycles, relaxed in provisioning. | A set or remove on a write-once uid returns not-permitted, before and after a `SYSRESETREQ` reboot. | SRC-PSA-STORAGE | Write-once persistence tests | |
-| WT-FFM-0046 | Persistent and private keys live only in the wolfHSM server keystore, reached through the SERVICE_HSM relay — the single crypto backend. Keys are namespaced by the wolfHSM client_id the server stamps from the SPM-mediated caller, so a key owned by one non-secure client is unusable and invisible to another; private material is stored NONEXPORTABLE and never leaves the server. | A read or export of a non-exportable key, or cross-client key use, returns not-permitted or does-not-exist with no key bytes disclosed. | SRC-PSA-CRYPTO | `tests/host/keystore_isolation` cross-client isolation + NONEXPORTABLE; `devcrypto` dev_apis Crypto through the relay | |
+| WT-FFM-0046 | Persistent and private keys live only in the wolfHSM server keystore, reached through the SERVICE_HSM relay - the single crypto backend. Keys are namespaced by the wolfHSM client_id the server stamps from the SPM-mediated caller, so a key owned by one non-secure client is unusable and invisible to another; private material is stored NONEXPORTABLE and never leaves the server. | A read or export of a non-exportable key, or cross-client key use, returns not-permitted or does-not-exist with no key bytes disclosed. | SRC-PSA-CRYPTO | `tests/host/keystore_isolation` cross-client isolation + NONEXPORTABLE; `devcrypto` dev_apis Crypto through the relay | |
 | WT-FFM-0047 | The Crypto, ITS, and PS partitions reach the wolfHSM vault only through the SPM gate, tagged with the caller identity the SPM stamps. No partition maps vault state into its own domain. | A partition that touches vault memory directly, or supplies a forged owner identity, faults or is overridden by the SPM-stamped identity. | SRC-FFM 3.2, WT-SYS-0009 | Gated-routing and domain-isolation tests | |
 | WT-FFM-0048 | PS objects are AES-GCM encrypted and authenticated under a device-unique wolfHSM key with a fresh nonce per write, and are rollback-protected by a monotonic counter. | A tampered or replayed PS object returns invalid-signature or data-corrupt and yields no plaintext. | SRC-PSA-STORAGE | PS confidentiality and rollback tests | |
 
