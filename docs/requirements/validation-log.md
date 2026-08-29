@@ -3319,3 +3319,34 @@ the layout, not a regression) - each image holding exactly 5 veneers; the
 repointed demo firmware builds with its guard green. This closes the
 fenced-veneer follow-ups: the second NS surface no longer exists to fence.
 Commit: recorded in the next entry.
+
+## Mediated VNET S5 - vnet M33MU scenario green through the authenticated chain (WT-FFM-0058 emulator leg, 2026-08-28)
+
+New `vnet` scenario in `tests/target/run_m33mu_scenario.sh` and the CI matrix:
+the STANDARD authenticated chain (wolfBoot -> signed CONFIG_VNET=y wolfTrust ->
+digest-pinned guests) with the bare-metal wolfIP pair relinked into the
+standard NS windows (0x080A0000/0x080E0000, 64K RAM each) in place of the
+Zephyr/FreeRTOS guests; guest paths are parameterized so stamping, boot, and
+flashing share one variable pair. guest0 gains an emulator-only
+`WT_VNET_EXIT_BKPT` end-marker on the first echo reply (hardware builds leave
+it off), and one-shot rc prints on the first failing tx/fetch.
+
+Two defects found and fixed by the first true run of the scenario:
+- The direct-boot demo path is DEAD by design since authenticated launch and
+  the measured wolfBoot handoff: unmeasured guests are quarantined silently.
+  The scenario therefore rides the standard chain with pinned digests; the
+  legacy standalone demo flow is superseded.
+- REAL FF-M sizing defect: `psa_call` copied transfers are bounded by
+  `WT_FFM_TRANSFER_BYTES` (1024), and wolfIP's 1536-byte LINK_MTU receive
+  buffer made every RX_FETCH exceed it -> PSA_ERROR_INVALID_ARGUMENT (-135)
+  before dispatch. Fix: the mediated link's MTU is now an explicit ABI bound -
+  `WT_VNET_PSA_MTU` (1000) in vnet_abi.h - OPEN caps the reported mtu, wolfIP
+  sizes itself from the config, and the host suite asserts the cap. A frame
+  plus RX metadata always fits one copied transfer.
+
+Evidence: box `tests/target/run_m33mu_scenario.sh vnet` PASS - all six
+checks green (no fault markers, both guests alive, `ping seq=1 to 10.0.0.2`,
+`ping reply from 10.0.0.2 seq=1`, `[EXPECT BKPT] Success`); the pinned
+5-veneer whitelist held during the same secure build. Host `make test`
+unit/all PASS (vnet_relay 29 checks incl. the MTU cap). Emulator evidence;
+silicon is the next entry. Commit: recorded in the next entry.

@@ -292,6 +292,8 @@ int main(void)
     status = psa_call(h0, WT_VNET_OP_OPEN, NULL, 0U, out_vec, 1U);
     check(status == PSA_SUCCESS && info.abi_version == WT_VNET_ABI_VERSION,
           "WT-FFM-0056 guest0 OPEN returns the switch ABI info");
+    check(info.mtu <= WT_VNET_PSA_MTU,
+          "WT-FFM-0056 OPEN caps the reported MTU to the transfer budget");
 
     in_vec.base = mac0;
     in_vec.len = sizeof(mac0);

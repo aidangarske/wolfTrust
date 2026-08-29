@@ -51,8 +51,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|bothpsa|bothiso|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate) ;;
-  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate" >&2; exit 2 ;;
+  positive|bothpsa|bothiso|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet) ;;
+  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -161,6 +161,10 @@ elif [ "$scenario" = "remeasureneg" ]; then
   secure_flags="WT_REMEASURE_PROBE=1"
 elif [ "$scenario" = "bootupdate" ]; then
   secure_flags="WT_BOOTUPDATE_PROBE=1"
+elif [ "$scenario" = "vnet" ]; then
+  # Mediated virtual network (WT-FFM-0058): the production chain with the
+  # SERVICE_VNET partition compiled in; guests are the bare-metal wolfIP pair.
+  secure_flags="CONFIG_VNET=y"
 fi
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
 # Stash the pre-patch image and matching elf: the guest build below can relink
@@ -192,14 +196,30 @@ elif [ "$scenario" = "attestneg" ]; then
 elif [ "$scenario" = "fwustage" ]; then
   guest_flags="WT_FWU_PROBE=1"
 fi
+
+# Guest images per scenario: the vnet scenario swaps the Zephyr/FreeRTOS pair
+# for the bare-metal wolfIP guests, relinked into the standard NS windows.
+g0_img="$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin"
+g1_img="$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
+if [ "$scenario" = "vnet" ]; then
+  rm -rf tests/firmware/stm32h563-vnet/build
+  make -C tests/firmware/stm32h563-vnet build/guest0.bin build/guest1.bin \
+    WT_GUEST0_FLASH_ORIGIN=0x080A0000 WT_GUEST1_FLASH_ORIGIN=0x080E0000 \
+    WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST1_RAM_BASE=0x20010000 \
+    WT_GUEST_RAM_SIZE=0x00010000 \
+    GUEST_EXTRA_CFLAGS="-DWT_VNET_EXIT_BKPT=1"
+  g0_img="$repo/tests/firmware/stm32h563-vnet/build/guest0.bin"
+  g1_img="$repo/tests/firmware/stm32h563-vnet/build/guest1.bin"
+else
 make -C tests/firmware/zephyr-stm32h5 clone
 env $guest_flags $secure_flags WT_REUSE_SECURE_BUILD=1 WT_EXPECTED_LIFECYCLE=0x1000u \
   WT_ATTESTATION_DEVELOPMENT_PROFILE=1 WT_M33MU_EXPECT_BKPT=1 \
   make -C tests/firmware/zephyr-stm32h5 build-guest0-psa build-freertos-guest1
+fi
 
 echo "Guest vector tables (SP, reset PC):"
-od -An -tx4 -N8 "$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin"
-od -An -tx4 -N8 "$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
+od -An -tx4 -N8 "$g0_img"
+od -An -tx4 -N8 "$g1_img"
 
 # --- Pin the guest measurements into the secure image, then sign: the wolfBoot
 #     signature covers the pins, extending the chain of trust to the guests.
@@ -207,8 +227,8 @@ od -An -tx4 -N8 "$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freer
 #     asserts the token's reported value below. ---
 cp "$repo/build/wolftrust-unsigned.bin" "$repo/build/wolftrust.bin"
 python3 tools/measure/patch_guest_digests.py "$repo/build/wolftrust.bin" \
-  "0:${WT_GUEST0_VERSION:-1}:$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin" \
-  "1:${WT_GUEST1_VERSION:-1}:$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
+  "0:${WT_GUEST0_VERSION:-1}:$g0_img" \
+  "1:${WT_GUEST1_VERSION:-1}:$g1_img"
 IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x40000 WOLFBOOT_SECTOR_SIZE=0x2000 \
   "$repo/wolfBoot/tools/keytools/sign" --ecc256 \
     "$repo/build/wolftrust.bin" \
@@ -298,8 +318,8 @@ log="$repo/ci-m33mu-$scenario.log"
 set +e
 "$M33MU" "$repo/wolfBoot/wolfboot.bin" \
   "$repo/build/wolftrust_v1_signed.bin:0x60000" \
-  "$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0xA0000" \
-  "$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xE0000" \
+  "$g0_img:0xA0000" \
+  "$g1_img:0xE0000" \
   ${update_img:+"$update_img"} \
   --uart-stdout --expect-bkpt 0x7f $quit_flag --timeout "$timeout_s" | tee "$log"
 emu_status=${PIPESTATUS[0]}
@@ -679,5 +699,22 @@ case "$scenario" in
       "token measurement=$WT_EXPECTED_MEASUREMENT_HEX"
     expect "[EXPECT BKPT] Success clean exit after the swap" "[EXPECT BKPT] Success"
     echo "PASS: target/bootupdate"
+    ;;
+  vnet)
+    # Mediated inter-guest networking (WT-FFM-0058): both bare-metal wolfIP
+    # guests come up, guest0 sends an ICMP echo to guest1 through SERVICE_VNET
+    # psa_call, guest1's wolfIP auto-replies through the same mediated path,
+    # and guest0 prints the reply. No raw veneer exists in this image (the
+    # link-time whitelist held during the secure build above).
+    refute_re "no fault markers in boot log" \
+      '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+    expect "guest0 alive" "vnet-guest0: alive"
+    expect "guest1 alive" "vnet-guest1: alive"
+    expect "guest0 sends the first mediated ping" "ping seq=1 to 10.0.0.2"
+    expect "guest0 receives guest1's mediated echo reply" \
+      "ping reply from 10.0.0.2 seq=1"
+    expect "[EXPECT BKPT] Success clean exit on the first reply" \
+      "[EXPECT BKPT] Success"
+    echo "PASS: target/vnet"
     ;;
 esac

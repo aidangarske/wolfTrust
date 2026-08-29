@@ -135,6 +135,9 @@ static psa_status_t wt_vnet_relay_open(wt_ffm_runtime_t* runtime,
     if (rc != WT_VNET_OK) {
         return (psa_status_t)rc;
     }
+    if (info.mtu > (uint16_t)WT_VNET_PSA_MTU) {
+        info.mtu = (uint16_t)WT_VNET_PSA_MTU;
+    }
     if (wt_vnet_relay_write_vec(runtime, partition_id, msg->handle, 0U,
                                 &info, sizeof(info)) != WT_FFM_SUCCESS) {
         return PSA_ERROR_GENERIC_ERROR;

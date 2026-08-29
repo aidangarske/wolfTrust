@@ -29,7 +29,9 @@
 #define WOLF_CONFIG_H
 
 #define ETHERNET
-#define LINK_MTU 1536
+/* Bounded by the mediated SERVICE_VNET link (WT_VNET_PSA_MTU): one frame
+ * plus RX metadata must fit a single psa_call copied transfer. */
+#define LINK_MTU 1000
 #define LINK_MTU_MIN 64U
 
 #define MAX_TCPSOCKETS 1

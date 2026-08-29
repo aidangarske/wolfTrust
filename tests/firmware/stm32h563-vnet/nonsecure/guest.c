@@ -195,12 +195,20 @@ static void wt_zero_bss(void)
  * WolfTrust_VNet_* veneers are retired from this guest. */
 
 static wt_vnet_psa_ctx_t g_vnet;
+static int g_tx_err_logged;
+static int g_rx_err_logged;
 
 static int vnet_ll_send(struct wolfIP_ll_dev *ll, void *buf, uint32_t len)
 {
     (void)ll;
     if (len < 14u || len > 1536u) return -1;
     int rc = wt_vnet_psa_tx(&g_vnet, buf, (uint16_t)len);
+    if (rc != 0 && !g_tx_err_logged) {
+        g_tx_err_logged = 1;
+        wt_uart_puts("vnet tx err rc=-");
+        wt_uart_put_u32((uint32_t)(-rc));
+        wt_uart_puts("\r\n");
+    }
     return (rc == 0) ? (int)len : -1;
 }
 
@@ -210,6 +218,12 @@ static int vnet_ll_poll(struct wolfIP_ll_dev *ll, void *buf, uint32_t len)
     vnet_rx_meta_t meta;
     int n = wt_vnet_psa_rx_fetch(&g_vnet, &meta, buf,
                                  (uint16_t)((len > 0xFFFFu) ? 0xFFFFu : len));
+    if (n < 0 && n != WT_VNET_E_EMPTY && !g_rx_err_logged) {
+        g_rx_err_logged = 1;
+        wt_uart_puts("vnet rx err rc=-");
+        wt_uart_put_u32((uint32_t)(-n));
+        wt_uart_puts("\r\n");
+    }
     return (n < 0) ? 0 : n;
 }
 
@@ -376,6 +390,10 @@ static int run_guest(uint32_t guest_id)
                         wt_uart_put_u32(seq);
                         wt_uart_puts("\r\n");
                         last_seq = (int)seq;
+#if defined(WT_VNET_EXIT_BKPT) && (WT_VNET_EXIT_BKPT == 1)
+                        /* Emulator harness end-marker; never on hardware. */
+                        __asm volatile("bkpt 0x7f");
+#endif
                     }
                 }
             }
