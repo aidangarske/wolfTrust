@@ -3470,3 +3470,42 @@ abandon in src/sched/coroutine.c:376), one board run, read the fault type;
 then apply the #83-style gating/priority fix to the dispatch-run window.
 The client heal + all latches stay in-tree. Emulator vnet scenario remains
 green (CI matrix guards it).
+
+## Defect #150 round 4 - root cause proven and fixed (2026-08-29)
+
+Reading the pre-existing tasklet-fault latches over SWD (no rebuild)
+decoded the round-3 abandon: CFSR `0x00040000` = **UsageFault INVPC**,
+EXC_RETURN `0xFFFFFFFD` (return to Secure Thread on PSP), fault count 4 =
+the restart budget (limit 3) plus the terminal quarantine - the fault is
+**deterministic per service run**, not a timing flake. A secure-tick hold
+across the whole coroutine dispatch window changed nothing (tried, proven
+non-causal, reverted), so precision latches were added to the fault
+dispatcher: at fault time the failed frame pointer equals PSP equals
+`co->sp + 32` - exactly where PendSV expects the basic 8-word frame -
+but the memory there holds `0xFEFA125B`, the **v8-M secure-context
+integrity signature**, followed by the cleared callee registers of an
+**NS-exception preemption of the Secure coroutine** (the stacked r1 slot
+held `&g_vnet_transport`, a live coroutine register).
+
+Root cause: when a guest's 1 ms NS SysTick preempts the vnet coroutine
+while PendSV is pended (the coroutine's block point), the hardware stacks
+the extended signed secure context and PendSV tail-chains in after the NS
+handler. PendSV saved the coroutine but resumed it through a **hardcoded
+basic-frame EXC_RETURN (0xFFFFFFFD)**, so the unstack read the signature
+as r0 and a pointer as RETPSR and failed the integrity check - INVPC,
+silent abandon, restart, repeat until quarantine. The emulator does not
+model this preemption shape, which is why the same images ran 6/6 there.
+
+Fix (commit `8871a55`): each coroutine (and the bootstrap) now records the
+live EXC_RETURN at PendSV switch-out and replays it at switch-in; the
+fault-path bootstrap resume replays the recorded value too. New initial
+frames record the basic-frame value. The permanent fault forensics
+(frame/xPSR/PSP/ICSR/coroutine latches) stay in-tree.
+
+Evidence on the fix commit: NUCLEO-H563ZI `vnet` scenario PASS 5/5 twice
+(first `ping reply from 10.0.0.2 seq=1` ever on silicon), fault latches
+all zero after 1.1M+ relay dispatches and 594k/636k clean per-guest
+fetches with no failing status ever latched; box M33MU scenarios `vnet`,
+`positive`, `spfaultneg`, `bothpsa` all PASS; host `make test` unit/all
+PASS. WT-FFM-0058's silicon leg is met and the mediated virtual network
+acceptance gate is closed.

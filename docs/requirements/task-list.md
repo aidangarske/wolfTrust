@@ -735,7 +735,7 @@ wolfTrust on the board - the TF-M drop-in proof.
           M33MU matrix green (see validation-log).
 
 
-- [ ] **Mediated virtual network service (SERVICE_VNET)** - feature milestone
+- [x] **Mediated virtual network service (SERVICE_VNET)** - feature milestone
   between the OS-integration and hardware phases (#143-#149; plan
   `~/.claude/plans/zany-wandering-stallman.md`, copy
   `/tmp/wolftrust-vnet-spm-plan-2026-08-28.md`). Re-home the existing
@@ -819,17 +819,25 @@ wolfTrust on the board - the TF-M drop-in proof.
       `WT_VNET_EXIT_BKPT` end-marker. Box scenario PASS (6/6 checks:
       no faults, both guests alive, ping seq=1 sent, `ping reply from
       10.0.0.2 seq=1`, clean BKPT); host unit/all green. Commit `a16c419`.
-    - [~] **S6** (#149): H5 hardware `vnet` scenario landed in
+    - [x] **S6** (#149): H5 hardware `vnet` scenario landed in
       `run_h5_hardware.sh` (demo guests swapped in, per-scenario guest
-      paths, silicon assertions) and RUN on the NUCLEO-H563ZI: no faults,
-      BOTH wolfIP guests authenticated-launch and come alive, mediated
-      OPEN/SET_MAC succeed, and guest0 TXes pings through SERVICE_VNET on
-      real silicon - but RX_FETCH (out 2: meta+payload) is refused
-      PSA_ERROR_PROGRAMMER_ERROR (-145) by the real CMSE check path on the
-      first call (static outvec targets change nothing; the emulator
-      accepts the same images 6/6). Filed #150 for the silicon-only
-      two-outvec refusal; the WT-FFM-0058 silicon leg and this milestone
-      stay open on it. Emulator leg met (S5).
+      paths, silicon assertions) and GREEN on the NUCLEO-H563ZI: PASS 5/5
+      twice (no faults, both wolfIP guests authenticated-launch and alive,
+      ping seq=1 sent, `ping reply from 10.0.0.2 seq=1` on real silicon).
+      The blocker was #150: what first presented as a silicon-only
+      RX_FETCH refusal was root-caused across four forensic rounds to a
+      **deterministic silent INVPC UsageFault of the vnet coroutine** -
+      a guest's 1 ms NS SysTick preempting the Secure coroutine stacks the
+      extended signed secure context, and PendSV resumed the coroutine
+      through a hardcoded basic-frame EXC_RETURN, failing the unstack
+      integrity check (restart budget spent, partition quarantined, client
+      wedged; the emulator does not model the preemption shape). Fix
+      `8871a55`: PendSV records each coroutine's live EXC_RETURN at
+      switch-out and replays it at switch-in (bootstrap and fault-path
+      resume included). Evidence: H5 5/5 x2 with all fault latches zero
+      after 1.1M+ dispatches; box M33MU vnet/positive/spfaultneg/bothpsa
+      PASS; host unit/all green. WT-FFM-0058 met on emulator AND silicon -
+      the mediated virtual network acceptance gate is closed.
 
 
 - [ ] **Phase 8 - hardware and port qualification** (`phases.md:136-143`):
