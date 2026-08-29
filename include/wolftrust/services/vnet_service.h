@@ -51,6 +51,10 @@ int wt_vnet_service_begin(uint32_t* out_vm, vnet_switch_t** out_sw);
 /* Monotonic scheduler tick for switch aging, exposed for the port veneers. */
 uint32_t wt_vnet_service_now_tick(void);
 
+/* The monitor-owned switch instance for the SERVICE_VNET relay; NULL until
+ * wt_vnet_service_init succeeds, which keeps the relay fail-closed. */
+vnet_switch_t* wt_vnet_service_switch(void);
+
 #endif /* CONFIG_VNET */
 
 #endif

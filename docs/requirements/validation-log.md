@@ -3213,7 +3213,7 @@ touched (SERVICE_VNET is not a PSA conformance service).
 Evidence: requirement rows present and traced (WT-SYS-0015,
 WT-FFM-0056..0058); acceptance gate names the proving slices; no runtime
 gate for this slice; host suite unaffected (`make test` unit/all PASS).
-Commit: `9ca776d`.
+Commit: `316849e`.
 
 ## Mediated VNET S1 - SERVICE_VNET relay dispatch host-proven (WT-FFM-0056, 2026-08-28)
 
@@ -3241,4 +3241,32 @@ guest0 TX -> switch -> guest1 RX_FETCH round trip through the real
 refused, unknown unicast dropped (flood off), runt frame refused, short
 SET_MAC vector refused, undersized RX meta vector refused, unknown op
 refused, out-of-range stamped identity refused. Suite added to the
-aggregate host run; `make test` unit/all PASS. Commit: `2ba5a3d`.
+aggregate host run; `make test` unit/all PASS. Commit: `f65a635`.
+
+## Mediated VNET S2 - SERVICE_VNET seated in the manifest and SPM boot path (2026-08-28)
+
+`port/stm32h563/manifest-vnet.json` (new, selected by `CONFIG_VNET=y`;
+`WT_CONFORMANCE=1` takes precedence): the production manifest plus domain 9
+(entry window 0x0C019000/4K, stack 0x30093000/8K, FWU-mirrored class/role/
+policy) and `PARTITION_VNET` with `SERVICE_VNET` sid 4103; its own
+`max_partitions` 7 / `max_domains` 10. `manifest.json` is untouched, so the
+default image carries no virtual network manifest row, generated id, or
+service at all. `WT_FFM_MAX_PARTITIONS` stays 9U (conformance uses 8, the
+vnet manifest 7). The partition stack aliases the conformance data window
+(`WT_SP_VNET_STACK_*`; vnet and conformance builds are mutually exclusive,
+the window is empty otherwise), so the fully-consumed secure RAM chain needs
+no re-layout and no other manifest changes.
+
+Wiring: `wt_spm_vnet_entry`/`wt_spm_vnet_start` (spm_svc.c, CONFIG_VNET
+only) install the SVC transport, the monitor-owned switch via the new
+`wt_vnet_service_switch()` accessor (NULL until init -> relay fail-closed),
+and the scheduler tick, then schedule the relay loop like the other
+partitions; `ffm_boot.c` registers `wt_vnet_relay_dispatch` and starts the
+partition under `#ifdef PARTITION_VNET_ID`, which only the vnet manifest
+generates. `tools/manifest/generate.py` validates the new manifest clean.
+
+Evidence: host `make test` unit/all PASS (vnet_relay suite riding the new
+boot registration path); box container cross-builds green both ways -
+default `make all` (no VNET symbol or manifest row in the image) and
+`make all CONFIG_VNET=y` (7-partition manifest generated, secure veneer
+whitelist passing). Commit: recorded below.

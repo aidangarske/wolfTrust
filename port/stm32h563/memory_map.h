@@ -148,6 +148,15 @@
 #define WT_SP_FWU_STACK_BASE     (WT_RAM_S_BASE + 0x00061000u)  /* 0x30089000 */
 #define WT_SP_FWU_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
 
+/* VNET partition stack (CONFIG_VNET builds): SERVICE_VNET's scheduled
+ * coroutine stack aliases the conformance data window - VNET and
+ * WT_CONFORMANCE builds are mutually exclusive, and the window is empty
+ * outside conformance builds, so the secure RAM chain needs no growth.
+ * MUST match the CONFDATA origin in src/services/wolfhsm/runner/secure.ld
+ * and the manifest-vnet.json domain stack. */
+#define WT_SP_VNET_STACK_BASE    (WT_RAM_S_BASE + 0x0006B000u)  /* 0x30093000 */
+#define WT_SP_VNET_STACK_SIZE    WT_SP_SECURE_STACK_SIZE
+
 /* wolfBoot update partition (WOLFBOOT_PARTITION_UPDATE_ADDRESS): the secure
  * flash window SERVICE_FWU stages a candidate image into (WT-FWU-0002). Secure
  * alias, inside the writable secure-alias MPU region. */

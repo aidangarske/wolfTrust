@@ -70,6 +70,11 @@ uint32_t wt_vnet_service_now_tick(void)
     return (s != NULL) ? s->monotonic_ticks : 0U;
 }
 
+vnet_switch_t* wt_vnet_service_switch(void)
+{
+    return g_switch_ready ? &g_switch : NULL;
+}
+
 int wt_vnet_service_begin(uint32_t *out_vm, vnet_switch_t **out_sw)
 {
     uint32_t vm;

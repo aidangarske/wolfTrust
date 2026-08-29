@@ -24,6 +24,7 @@
 #include "wolftrust/spm_sched.h"
 #include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/services/fwu_service.h"
+#include "wolftrust/services/vnet_relay.h"
 #include "wolftrust/services/storage_service.h"
 #include "wolftrust/services/vault_service.h"
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
@@ -174,6 +175,12 @@ int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
                                               wt_fwu_service_dispatch, NULL);
         (void)vault_ret;
 #endif
+#ifdef PARTITION_VNET_ID
+        vault_ret = wt_ffm_register_partition(&g_ffm_runtime,
+                                              PARTITION_VNET_ID,
+                                              wt_vnet_relay_dispatch, NULL);
+        (void)vault_ret;
+#endif
     }
     return ret;
 }
@@ -221,6 +228,11 @@ int wt_ffm_boot_start_sched(void)
 #ifdef PARTITION_FWU_ID
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_fwu_start(&g_ffm_runtime, PARTITION_FWU_ID);
+    }
+#endif
+#ifdef PARTITION_VNET_ID
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_vnet_start(&g_ffm_runtime, PARTITION_VNET_ID);
     }
 #endif
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)

@@ -46,7 +46,9 @@ MEMORY {
    * their val_api/psa_api tables in .data; a hosted SP must reach its own data
    * but not the SPM's, so it lives in this 8 KiB window (WT_CONF_SP_DATA_* in
    * memory_map.h) that the SP MPU domain grants while SPM RAM at 0x30028000
-   * stays denied. Empty in non-conformance builds. */
+   * stays denied. Empty in non-conformance builds; CONFIG_VNET builds reuse
+   * the first 8 KiB as the SERVICE_VNET partition stack (WT_SP_VNET_STACK_*,
+   * manifest-vnet.json domain) - the two builds are mutually exclusive. */
   CONFDATA (rw): ORIGIN = 0x30093000, LENGTH = 12K
   /* Secure per-partition stacks (WT-FFM-0011). The top 40 KiB of the secure
    * RAM window, reserved so each Secure Partition runs on its own secure

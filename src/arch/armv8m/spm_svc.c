@@ -38,6 +38,10 @@
 #include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/services/storage_service.h"
 #include "wolftrust/services/vault_service.h"
+#if defined(CONFIG_VNET)
+#include "wolftrust/services/vnet_relay.h"
+#include "wolftrust/services/vnet_service.h"
+#endif
 #include "wolftrust/sp_recovery.h"
 #include "wolftrust/spm_gate.h"
 
@@ -982,3 +986,25 @@ int wt_spm_fwu_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
     return wt_spm_sched_add_common(runtime, partition_id, wt_spm_fwu_entry,
                                    (void*)(intptr_t)partition_id, 1u);
 }
+
+#if defined(CONFIG_VNET)
+/* The virtual network partition (WT-FFM-0056): a scheduled privileged
+ * coroutine driving the monitor-owned switch through the neutral relay. */
+static void wt_spm_vnet_entry(void* arg)
+{
+    int32_t partition_id = (int32_t)(intptr_t)arg;
+
+    for (;;) {
+        (void)wt_vnet_relay_dispatch(NULL, NULL, partition_id);
+    }
+}
+
+int wt_spm_vnet_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    wt_vnet_relay_set_transport(wt_spm_svc_transport);
+    wt_vnet_relay_set_switch(wt_vnet_service_switch());
+    wt_vnet_relay_set_tick(wt_vnet_service_now_tick);
+    return wt_spm_sched_add_common(runtime, partition_id, wt_spm_vnet_entry,
+                                   (void*)(intptr_t)partition_id, 1u);
+}
+#endif /* CONFIG_VNET */

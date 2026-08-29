@@ -762,12 +762,22 @@ wolfTrust on the board - the TF-M drop-in proof.
       into one `vnet_switch_t` - byte-exact guest0 TX -> guest1 RX_FETCH,
       no cross/reflected delivery, spoofed source refused, unknown unicast
       dropped, runt/short/undersized vectors refused, out-of-range identity
-      refused. WT-FFM-0056 host-proven; commit `2ba5a3d`.
-    - [ ] **S2** (#145): manifest domain 9 + `PARTITION_VNET`/sid 4103;
-      capacity bumps (`max_partitions` 7, `max_domains` 10,
-      `WT_FFM_MAX_PARTITIONS` 10U); `memory_map.h`/`secure.ld` VNET stack;
-      `ffm_boot.c` register + `wt_spm_vnet_start` under
-      `#ifdef PARTITION_VNET_ID`. Host + cross-build green.
+      refused. WT-FFM-0056 host-proven; commit `f65a635`.
+    - [x] **S2** (#145): `manifest-vnet.json` variant (selected by
+      `CONFIG_VNET=y`, conformance takes precedence) adds domain 9 +
+      `PARTITION_VNET`/`SERVICE_VNET` sid 4103 and bumps its own
+      `max_partitions` 7 / `max_domains` 10 - `manifest.json` untouched, so
+      the DEFAULT image carries no VNET manifest row at all.
+      `WT_FFM_MAX_PARTITIONS` needs no bump (9 covers conformance's 8 and
+      vnet's 7). VNET stack aliases the conformance data window
+      (`WT_SP_VNET_STACK_*` = 0x30093000/8K; vnet and conformance builds are
+      mutually exclusive, zero RAM-chain growth). `wt_spm_vnet_entry/start`
+      in spm_svc.c install transport + monitor-owned switch
+      (`wt_vnet_service_switch`) + tick into the relay; `ffm_boot.c`
+      registers and schedules under `#ifdef PARTITION_VNET_ID` (generated
+      only from the vnet manifest). Host unit/all green; box cross-builds
+      green BOTH ways (default: no VNET symbol; CONFIG_VNET=y: 7-partition
+      manifest generated, veneer whitelist still passing).
     - [ ] **S3** (#146): `src/client/vnet_psa_transport.c` (mirror
       `hsm_psa_transport.c`, opcode in invec[0]); repoint
       `tests/firmware/stm32h563-vnet` guest off the veneers onto `psa_call`.

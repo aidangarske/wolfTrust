@@ -12,9 +12,13 @@ WOLFHAL_DIR := $(ROOT)/lib/wolfhal
 WOLFCOSE_DIR := $(ROOT)/lib/wolfCOSE
 
 BUILD_DIR ?= build
-# WT_CONFORMANCE=1 swaps in the manifest that also hosts Arm's test partitions
+# WT_CONFORMANCE=1 swaps in the manifest that also hosts Arm's test partitions;
+# CONFIG_VNET=y swaps in the variant that adds the SERVICE_VNET partition so
+# the default image carries no virtual network service at all
 ifeq ($(WT_CONFORMANCE),1)
 MANIFEST_INPUT := $(PORT_DIR)/manifest-conformance.json
+else ifeq ($(CONFIG_VNET),y)
+MANIFEST_INPUT := $(PORT_DIR)/manifest-vnet.json
 else
 MANIFEST_INPUT := $(PORT_DIR)/manifest.json
 endif
@@ -283,6 +287,7 @@ WT_SECURE_EXTRA_SRCS += \
     $(ROOT)/src/vnet/vnet_fdb.c    \
     $(ROOT)/src/vnet/vnet_switch.c \
     $(ROOT)/src/services/vnet/vnet_service.c \
+    $(ROOT)/src/services/vnet/vnet_relay_service.c \
     $(ROOT)/src/arch/armv8m/vnet_nsc.c
 endif
 
