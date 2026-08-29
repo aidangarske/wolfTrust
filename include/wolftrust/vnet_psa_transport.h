@@ -33,6 +33,10 @@
 
 typedef struct wt_vnet_psa_ctx {
     int32_t handle;
+    uint32_t sid;
+    uint32_t version;
+    uint8_t mac[6];
+    uint8_t mac_set;
 } wt_vnet_psa_ctx_t;
 
 int wt_vnet_psa_open(wt_vnet_psa_ctx_t* ctx, uint32_t sid, uint32_t version,

@@ -3412,3 +3412,34 @@ connection ERROR - find who replies or defaults to -145). Next probes: latch
 the first non-SUCCESS value written into any `reply_status`; print the exact
 first failing status client-side. Emulator remains 6/6 green on identical
 images; host unit/all green with the forensics in.
+
+## Defect #150 round 2 - dispatch-level failure isolated to the first non-empty fetch (2026-08-29)
+
+Shared-UART digit interleaving made every printed rc unreliable; guest-side
+SWD latches (g_first_rx_status/g_first_tx_status/g_rx_ok_count in guest RAM)
+now record ground truth. Board data: guest0 262 and guest1 242 successful
+fetches (empty included), then EXACTLY ONE -132 PSA_ERROR_GENERIC_ERROR
+each - whose only source is `wt_ffm_dispatch_message` returning failure in
+`wt_ffm_call` (connection then ERROR by design). Zero fault text anywhere in
+the capture (unanchored search) - no SP fault, no recovery. The -132 lands
+at each guest's FIRST NON-EMPTY fetch (the ARP delivery), the first exercise
+of the gate WRITE with vec_idx=1 carrying payload on silicon; the in-flight
+frame is released with the failed message, ARP retries re-trigger the same
+failure, so the exchange never completes - deterministic, not a flake.
+
+The client transport now heals across recovery-killed connections
+(reconnect + re-open + re-bind MAC on COMMUNICATION_FAILURE/BAD_STATE,
+mirroring the wolfHSM glue) - correct resilience regardless, host suite
+green - but healing cannot save a frame the dispatch failure consumed.
+
+Next session kill-shot list (three short reads):
+- the SVC gate WT_SPM_OP_WRITE arm (does a vec-1 write failure derail the
+  coroutine state rather than return a clean error);
+- `wt_ffm_write` output-offset math for vec index > 0 (out_offset[1]);
+- `wt_co_run`'s zero-return conditions (what leaves the co non-BLOCKED so
+  `wt_spm_sched_dispatch`'s final state check fails).
+Also relevant: known-open #116 (dispatch-window NS preemption ordering) -
+both vnet guests run 1 ms NS SysTicks, hammering that window for the first
+time. Emulator remains green on identical images (its gate WRITE vec-1 path
+did carry real ARP payloads), so the divergence is timing- or
+state-dependent, not plain logic.

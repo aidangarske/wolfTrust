@@ -23,19 +23,26 @@
 
 #include "psa/client.h"
 
-int wt_vnet_psa_open(wt_vnet_psa_ctx_t* ctx, uint32_t sid, uint32_t version,
-                     vnet_info_t* info)
+/* A connection pinned in a Secure Partition fault completes with
+ * COMMUNICATION_FAILURE and is dead thereafter (BAD_STATE); recovery
+ * restarts the service, so the client heals by reconnecting and
+ * re-binding its port, mirroring the wolfHSM client glue. */
+static int wt_vnet_psa_healable(psa_status_t status)
+{
+    return status == PSA_ERROR_COMMUNICATION_FAILURE ||
+           status == PSA_ERROR_BAD_STATE;
+}
+
+static psa_status_t wt_vnet_psa_do_open(wt_vnet_psa_ctx_t* ctx,
+                                        vnet_info_t* info)
 {
     psa_handle_t handle;
     psa_outvec out_vec;
     psa_status_t status;
 
-    if (ctx == NULL || info == NULL) {
-        return WT_VNET_E_BADARG;
-    }
-    handle = psa_connect(sid, version);
+    handle = psa_connect(ctx->sid, ctx->version);
     if (!PSA_HANDLE_IS_VALID(handle)) {
-        return WT_VNET_E_NOTREADY;
+        return (psa_status_t)WT_VNET_E_NOTREADY;
     }
     ctx->handle = (int32_t)handle;
     out_vec.base = info;
@@ -44,15 +51,57 @@ int wt_vnet_psa_open(wt_vnet_psa_ctx_t* ctx, uint32_t sid, uint32_t version,
     if (status != PSA_SUCCESS) {
         psa_close(handle);
         ctx->handle = (int32_t)PSA_NULL_HANDLE;
+    }
+    return status;
+}
+
+static int wt_vnet_psa_heal(wt_vnet_psa_ctx_t* ctx)
+{
+    vnet_info_t info;
+    psa_invec in_vec;
+    psa_status_t status;
+
+    if (ctx->handle != (int32_t)PSA_NULL_HANDLE) {
+        psa_close((psa_handle_t)ctx->handle);
+        ctx->handle = (int32_t)PSA_NULL_HANDLE;
+    }
+    status = wt_vnet_psa_do_open(ctx, &info);
+    if (status != PSA_SUCCESS) {
         return (int)status;
     }
+    if (ctx->mac_set != 0U) {
+        in_vec.base = ctx->mac;
+        in_vec.len = VNET_MAC_LEN;
+        status = psa_call((psa_handle_t)ctx->handle, WT_VNET_OP_SET_MAC,
+                          &in_vec, 1U, NULL, 0U);
+        if (status != PSA_SUCCESS) {
+            return (int)status;
+        }
+    }
     return 0;
+}
+
+int wt_vnet_psa_open(wt_vnet_psa_ctx_t* ctx, uint32_t sid, uint32_t version,
+                     vnet_info_t* info)
+{
+    psa_status_t status;
+
+    if (ctx == NULL || info == NULL) {
+        return WT_VNET_E_BADARG;
+    }
+    ctx->handle = (int32_t)PSA_NULL_HANDLE;
+    ctx->sid = sid;
+    ctx->version = version;
+    ctx->mac_set = 0U;
+    status = wt_vnet_psa_do_open(ctx, info);
+    return (status != PSA_SUCCESS) ? (int)status : 0;
 }
 
 int wt_vnet_psa_set_mac(wt_vnet_psa_ctx_t* ctx, const uint8_t* mac6)
 {
     psa_invec in_vec;
     psa_status_t status;
+    uint32_t i;
 
     if (ctx == NULL || mac6 == NULL) {
         return WT_VNET_E_BADARG;
@@ -61,6 +110,12 @@ int wt_vnet_psa_set_mac(wt_vnet_psa_ctx_t* ctx, const uint8_t* mac6)
     in_vec.len = VNET_MAC_LEN;
     status = psa_call((psa_handle_t)ctx->handle, WT_VNET_OP_SET_MAC,
                       &in_vec, 1U, NULL, 0U);
+    if (status == PSA_SUCCESS) {
+        for (i = 0U; i < VNET_MAC_LEN; i++) {
+            ctx->mac[i] = mac6[i];
+        }
+        ctx->mac_set = 1U;
+    }
     return (status != PSA_SUCCESS) ? (int)status : 0;
 }
 
@@ -76,6 +131,10 @@ int wt_vnet_psa_tx(wt_vnet_psa_ctx_t* ctx, const void* frame, uint16_t len)
     in_vec.len = len;
     status = psa_call((psa_handle_t)ctx->handle, WT_VNET_OP_TX,
                       &in_vec, 1U, NULL, 0U);
+    if (wt_vnet_psa_healable(status) && wt_vnet_psa_heal(ctx) == 0) {
+        status = psa_call((psa_handle_t)ctx->handle, WT_VNET_OP_TX,
+                          &in_vec, 1U, NULL, 0U);
+    }
     return (status != PSA_SUCCESS) ? (int)status : 0;
 }
 
@@ -94,6 +153,14 @@ int wt_vnet_psa_rx_fetch(wt_vnet_psa_ctx_t* ctx, vnet_rx_meta_t* meta,
     out_vec[1].len = dst_len;
     status = psa_call((psa_handle_t)ctx->handle, WT_VNET_OP_RX_FETCH,
                       NULL, 0U, out_vec, 2U);
+    if (wt_vnet_psa_healable(status) && wt_vnet_psa_heal(ctx) == 0) {
+        out_vec[0].base = meta;
+        out_vec[0].len = sizeof(*meta);
+        out_vec[1].base = dst;
+        out_vec[1].len = dst_len;
+        status = psa_call((psa_handle_t)ctx->handle, WT_VNET_OP_RX_FETCH,
+                          NULL, 0U, out_vec, 2U);
+    }
     if (status != PSA_SUCCESS) {
         return (int)status;
     }

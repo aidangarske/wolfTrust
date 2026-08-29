@@ -197,6 +197,11 @@ static void wt_zero_bss(void)
 static wt_vnet_psa_ctx_t g_vnet;
 static int g_tx_err_logged;
 static int g_rx_err_logged;
+/* SWD-readable first-failure latches: the shared UART interleaves both
+ * guests' digits, so printed rc values are unreliable. */
+static volatile uint32_t g_first_rx_status;
+static volatile uint32_t g_first_tx_status;
+static volatile uint32_t g_rx_ok_count;
 
 static int vnet_ll_send(struct wolfIP_ll_dev *ll, void *buf, uint32_t len)
 {
@@ -205,6 +210,7 @@ static int vnet_ll_send(struct wolfIP_ll_dev *ll, void *buf, uint32_t len)
     int rc = wt_vnet_psa_tx(&g_vnet, buf, (uint16_t)len);
     if (rc != 0 && !g_tx_err_logged) {
         g_tx_err_logged = 1;
+        g_first_tx_status = (uint32_t)rc;
         wt_uart_puts("vnet tx err rc=-");
         wt_uart_put_u32((uint32_t)(-rc));
         wt_uart_puts("\r\n");
@@ -221,8 +227,12 @@ static int vnet_ll_poll(struct wolfIP_ll_dev *ll, void *buf, uint32_t len)
     static vnet_rx_meta_t meta;
     int n = wt_vnet_psa_rx_fetch(&g_vnet, &meta, buf,
                                  (uint16_t)((len > 0xFFFFu) ? 0xFFFFu : len));
+    if (n >= 0 || n == WT_VNET_E_EMPTY) {
+        g_rx_ok_count++;
+    }
     if (n < 0 && n != WT_VNET_E_EMPTY && !g_rx_err_logged) {
         g_rx_err_logged = 1;
+        g_first_rx_status = (uint32_t)n;
         wt_uart_puts("vnet rx err rc=-");
         wt_uart_put_u32((uint32_t)(-n));
         wt_uart_puts("\r\n");
