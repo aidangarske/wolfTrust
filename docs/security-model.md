@@ -43,8 +43,10 @@ These checks are in
 and
 [`build_freertos_guest.sh`](../tests/firmware/zephyr-stm32h5/scripts/build_freertos_guest.sh).
 
-The optional VNET build is a stated exception: it adds dedicated VNET veneers
-to that whitelist. They are outside the FF-M service path.
+The optional wolfIP virtual network build is not an exception to this: with
+`CONFIG_VNET=y` the switch ships as the `SERVICE_VNET` FF-M partition, reached
+through the same `WolfTrust_FFM_*` gateway, so the whitelist admits no dedicated
+virtual network veneer and the count assertion holds unchanged.
 
 ## Per-guest keys and crypto
 
