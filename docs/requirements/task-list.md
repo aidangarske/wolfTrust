@@ -793,10 +793,18 @@ wolfTrust on the board - the TF-M drop-in proof.
       box container builds the repointed firmware green (secure
       CONFIG_VNET=y + both guests; wolfIP submodule now initialized).
       Emulator ping behavior lands with the S5 scenario.
-    - [ ] **S4** (#147): delete `src/arch/armv8m/vnet_nsc.c` from the build;
-      drop the `NSC_ALLOWED` VNet exception; guest absence guards. Whitelist
-      = `WolfTrust_FFM_*` only, even with `CONFIG_VNET=y`. Closes
-      #139/#141/#142; WT-FFM-0057 met.
+    - [x] **S4** (#147): `src/arch/armv8m/vnet_nsc.c` DELETED (file, build
+      entry, and the 7 `WolfTrust_VNet_*` prototypes from vnet_abi.h; the
+      orphaned `wt_vnet_service_begin` removed with it). The secure veneer
+      whitelist is now pinned to the EXACT five `WolfTrust_FFM_*` names
+      with a count==5 assert, in EVERY build (the CONFIG_VNET exception is
+      gone - closes #139 definitively, and the exact-name pin + count
+      assert deliver #141/#142). Demo guest gains a fail-closed nm absence
+      guard (rejects `WolfTrust_VNet_`, requires `wt_vnet_psa_tx`).
+      Evidence: host unit/all green; box builds green on default,
+      CONFIG_VNET=y (5 veneers), and WT_CONFORMANCE=1 with the runner
+      flash layout (5 veneers); demo firmware + guard green. WT-FFM-0057
+      met.
     - [ ] **S5** (#148): M33MU `vnet` scenario (two guests, wolfIP ping
       through SERVICE_VNET, assert `ping reply from 10.0.0.2 seq=1`, zero
       fault markers) + CI matrix entry; box-validate.

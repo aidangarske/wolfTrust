@@ -3296,3 +3296,26 @@ container builds the repointed firmware green: secure CONFIG_VNET=y image +
 both guest ELFs linking the mediated client (lib/wolfIP submodule
 initialized to build the demo). The end-to-end emulator ping is the S5
 scenario's gate. Commit: recorded in the next entry.
+
+## Mediated VNET S4 - raw veneers deleted, whitelist pinned (WT-FFM-0057, 2026-08-28)
+
+`src/arch/armv8m/vnet_nsc.c` is deleted outright - file, CONFIG_VNET build
+entry, and the seven `WolfTrust_VNet_*` prototypes in `vnet/vnet_abi.h`;
+the veneer-only `wt_vnet_service_begin` helper goes with it. The secure
+veneer whitelist loses its CONFIG_VNET escape and is pinned to the exact
+five gateway names - `__acle_se_WolfTrust_FFM_(FrameworkVersion|
+ServiceVersion|Connect|Call|Close)$` - plus a count==5 assert, enforced on
+every linked secure image. No build of wolfTrust can now export a
+non-FF-M non-secure-callable veneer, and an added or renamed FF-M veneer
+also fails the link. The vnet demo guests gain a fail-closed nm absence
+guard (nm failure fails the build; any `WolfTrust_VNet_` reference fails;
+`wt_vnet_psa_tx` must be present).
+
+Evidence: host `make test` unit/all PASS; box container builds green on
+all three secure configurations - default, `CONFIG_VNET=y`, and
+`WT_CONFORMANCE=1` (with the scenario runner's `WT_SECURE_FLASH_*` layout;
+a bare conformance make without that layout overflows flash by design of
+the layout, not a regression) - each image holding exactly 5 veneers; the
+repointed demo firmware builds with its guard green. This closes the
+fenced-veneer follow-ups: the second NS surface no longer exists to fence.
+Commit: recorded in the next entry.

@@ -63,16 +63,4 @@ typedef struct vnet_rx_meta {
 #define WT_VNET_OP_RX_FETCH   4
 #define WT_VNET_OP_IRQ_ACK    5
 
-/* The seven NSC veneers exported by the secure side. Each returns a
- * signed int (wolfHSM/wt_vnet error space; 0 on success, negative on
- * failure). NS guests link these via secure_cmse_implib.o. */
-int WolfTrust_VNet_Open(vnet_info_t *ns_info);
-int WolfTrust_VNet_SetMac(const uint8_t *ns_mac6, uint32_t flags);
-int WolfTrust_VNet_Tx(const void *ns_frame, uint16_t len, uint32_t flags);
-int WolfTrust_VNet_RxPoll(vnet_rx_meta_t *ns_meta);
-int WolfTrust_VNet_RxRead(uint16_t slot, uint16_t gen,
-                          void *ns_dst, uint16_t dst_len);
-int WolfTrust_VNet_RxRelease(uint16_t slot, uint16_t gen);
-int WolfTrust_VNet_IrqAck(void);
-
 #endif

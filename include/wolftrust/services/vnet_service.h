@@ -43,12 +43,7 @@ void wt_vnet_service_init(void);
  * the underlying state via vnet_rx_poll and can poll. */
 void wt_vnet_service_refresh_irq(wt_guest_id_t guest_id);
 
-/* NS-veneer entry helper for the architecture port: resolves the active
- * guest, checks the switch is ready, and hands back the switch handle.
- * Never trusts a guest-supplied VM id. Returns WT_VNET_OK or an error. */
-int wt_vnet_service_begin(uint32_t* out_vm, vnet_switch_t** out_sw);
-
-/* Monotonic scheduler tick for switch aging, exposed for the port veneers. */
+/* Monotonic scheduler tick for switch aging, exposed for the relay. */
 uint32_t wt_vnet_service_now_tick(void);
 
 /* The monitor-owned switch instance for the SERVICE_VNET relay; NULL until

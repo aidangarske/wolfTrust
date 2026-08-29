@@ -94,6 +94,16 @@ GUEST_SRCS := \
 
 all: secure $(GUEST0_BIN) $(GUEST1_BIN)
 	@$(SIZE) $(GUEST0_ELF) $(GUEST1_ELF)
+	@for elf in $(GUEST0_ELF) $(GUEST1_ELF); do \
+		NM_OUT=$$($(TOOLPREFIX)nm $$elf) || \
+			{ echo "FAIL: nm on $$elf failed" >&2; exit 1; }; \
+		if printf '%s\n' "$$NM_OUT" | grep -q 'WolfTrust_VNet_'; then \
+			echo "FAIL: retired raw vnet veneer referenced by $$elf (WT-FFM-0057)" >&2; \
+			exit 1; \
+		fi; \
+		printf '%s\n' "$$NM_OUT" | grep -q 'wt_vnet_psa_tx' || \
+			{ echo "FAIL: mediated vnet transport missing from $$elf" >&2; exit 1; }; \
+	done
 
 secure:
 	rm -rf $(TOP_BUILD_DIR)

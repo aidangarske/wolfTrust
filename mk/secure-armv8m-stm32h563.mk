@@ -79,12 +79,11 @@ WT_GUEST1_FLASH_SIZE ?= 0x00020000
 CONFIG_VNET ?= n
 
 # Whitelist of non-secure-callable veneers the linked secure image may
-# export: only the mediated FF-M gateway. The dedicated vnet firmware opts
-# its own veneers in and sits outside the FF-M mediation boundary.
-NSC_ALLOWED := __acle_se_WolfTrust_FFM_
-ifeq ($(CONFIG_VNET),y)
-NSC_ALLOWED := $(NSC_ALLOWED)|__acle_se_WolfTrust_VNet_
-endif
+# export: exactly the five mediated FF-M gateway entries, pinned by full
+# name so a renamed or added veneer fails the link in every build,
+# CONFIG_VNET included (virtual networking rides SERVICE_VNET psa_call).
+NSC_ALLOWED := __acle_se_WolfTrust_FFM_(FrameworkVersion|ServiceVersion|Connect|Call|Close)$$
+NSC_COUNT := 5
 WT_VNET_POOL_SLOTS ?= 8
 WT_VNET_FRAME_MAX ?= 1536
 WT_VNET_RX_QUEUE_DEPTH ?= 8
@@ -287,8 +286,7 @@ WT_SECURE_EXTRA_SRCS += \
     $(ROOT)/src/vnet/vnet_fdb.c    \
     $(ROOT)/src/vnet/vnet_switch.c \
     $(ROOT)/src/services/vnet/vnet_service.c \
-    $(ROOT)/src/services/vnet/vnet_relay_service.c \
-    $(ROOT)/src/arch/armv8m/vnet_nsc.c
+    $(ROOT)/src/services/vnet/vnet_relay_service.c
 endif
 
 HSM_SECURE_BASE_OBJS := $(patsubst %.c,$(BUILD_DIR)/sec_%.o,$(notdir $(SECURE_SRCS)))
@@ -1387,6 +1385,11 @@ $(SECURE_ELF) $(SECURE_CMSE_IMPLIB) &: $(ALL_SECURE_OBJS) $(WOLFHSM_RUNNER_DIR)/
 	@if grep ' __acle_se_' $(BUILD_DIR)/nsc-syms.txt | \
 			grep -vE '$(NSC_ALLOWED)'; then \
 		echo "FAIL: non-secure-callable veneer outside the FF-M gateway (WT-FFM-0054)" >&2; \
+		exit 1; \
+	fi
+	@n=$$(grep -cE ' __acle_se_' $(BUILD_DIR)/nsc-syms.txt); \
+	if [ "$$n" -ne $(NSC_COUNT) ]; then \
+		echo "FAIL: expected $(NSC_COUNT) FF-M veneers, found $$n (WT-FFM-0057)" >&2; \
 		exit 1; \
 	fi
 

@@ -75,15 +75,4 @@ vnet_switch_t* wt_vnet_service_switch(void)
     return g_switch_ready ? &g_switch : NULL;
 }
 
-int wt_vnet_service_begin(uint32_t *out_vm, vnet_switch_t **out_sw)
-{
-    uint32_t vm;
-    if (!g_switch_ready) return WT_VNET_E_NOTREADY;
-    vm = wt_platform_active_guest_id();
-    if (vm >= (uint32_t)WT_MAX_GUESTS) return WT_VNET_E_BADARG;
-    *out_vm = vm;
-    *out_sw = &g_switch;
-    return WT_VNET_OK;
-}
-
 #endif /* CONFIG_VNET */
