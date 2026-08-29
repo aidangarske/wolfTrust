@@ -1,10 +1,17 @@
 # VNET integration notes (Wave 0)
 
-Implementation notes covering where the upcoming virtual-Ethernet
-subsystem hooks into the existing wolfTrust monitor. The point of this
-document is to capture the contracts that *exist today* and that the
-VNET work will reuse - so the data-plane and ABI commits don't need to
-re-litigate them.
+> **Historical (superseded).** These notes captured the original design, in
+> which guests reached the switch through raw `WolfTrust_VNet_*` CMSE veneers.
+> That surface was removed: wolfIP virtual networking now ships as
+> `SERVICE_VNET`, a Secure Partition reached only through the FF-M SPM
+> (`psa_connect`/`psa_call`), with no dedicated veneer. Caller identity is the
+> SPM-stamped client id, and NS-pointer validation happens in the FF-M gateway,
+> not in a per-service veneer. See [architecture.md](../architecture.md) and
+> the `WT-FFM-0056..0058` rows in `docs/requirements/framework.md` for the
+> shipping contract; the sections below are kept for design history.
+
+Implementation notes covering where the virtual-Ethernet subsystem hooked into
+the wolfTrust monitor in the original veneer-based design.
 
 ## Caller identification
 

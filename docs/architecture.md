@@ -63,9 +63,12 @@ symbol check rejects any other Non-secure-callable veneer. The Zephyr and
 FreeRTOS guest builds also reject the retired direct HSM and attestation
 veneers and require the PSA-mediated HSM transport.
 
-Virtual networking is an optional, separate data path. Enabling
-`CONFIG_VNET=y` deliberately adds `WolfTrust_VNet_*` veneers to the build
-whitelist. See the [VNET integration notes](vnet/integration_notes.md).
+wolfIP virtual networking is an optional Secure Partition, not a second
+Non-secure surface. Enabling `CONFIG_VNET=y` builds `SERVICE_VNET`, an FF-M
+partition guests reach only through `psa_connect`/`psa_call` — the same
+`WolfTrust_FFM_*` gateway every other service uses, with no `WolfTrust_VNet_*`
+veneer. The linked-symbol whitelist admits only the FF-M gateway even with the
+capability enabled. See the [VNET integration notes](vnet/integration_notes.md).
 
 ## Services
 

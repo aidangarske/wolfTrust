@@ -14,6 +14,7 @@ endif
 		test-domain-host test-domain-compilers test-domain-sanitize \
 		test-domain-valgrind test-manifest-host test-manifest-compilers \
 		test-manifest-sanitize test-manifest-valgrind test-vnet-host \
+		test-vnet test-vnet-target test-vnet-hardware \
 		test-lifecycle-host test-lifecycle-compilers test-lifecycle-sanitize \
 		test-lifecycle-valgrind \
 		test-ipc-host test-ipc-compilers test-ipc-sanitize \
@@ -213,6 +214,42 @@ test-spm-valgrind:
 
 test-vnet-host:
 	$(MAKE) -C tests/host/vnet run
+
+# wolfIP virtual network support host proof: the Ethernet switch dataplane
+# (tests/host/vnet) plus the SPM-mediated SERVICE_VNET dispatch round trip
+# (tests/host/vnet_relay), where guest0 -> SERVICE_VNET -> switch -> guest1.
+# Both also run individually as CI unit suites; this is the one-command
+# aggregate.
+test-vnet: test-vnet-host
+	$(MAKE) -C tests/host/vnet_relay run
+
+# wolfIP virtual network end-to-end scenario on the M33MU emulator: two
+# authenticated bare-metal wolfIP guests exchange an ICMP echo through
+# SERVICE_VNET (CONFIG_VNET=y). Auto-detect-or-skip like test-target, so it
+# never silently passes; runs inside the wolfboot-ci-m33mu container.
+test-vnet-target:
+	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
+		echo "SKIP: wolfIP vnet target scenario ($$(tests/target/detect_m33mu.sh 2>&1))"; \
+	else \
+		mkdir -p logs; \
+		echo "RUN: target/vnet (wolfIP virtual network)"; \
+		if tests/target/run_m33mu_scenario.sh vnet > logs/target-vnet.log 2>&1; then \
+			grep -F '  [check] ' logs/target-vnet.log || true; \
+			echo "PASS: target/vnet"; \
+		else \
+			grep -F '  [check] ' logs/target-vnet.log || true; \
+			echo "FAIL: target/vnet (tail of logs/target-vnet.log):"; \
+			tail -20 logs/target-vnet.log; exit 1; \
+		fi; \
+		echo "LOG: logs/target-vnet.log"; \
+	fi
+
+# wolfIP virtual network end-to-end scenario on real STM32H563 silicon: the
+# on-board counterpart of test-vnet-target. Needs the ST-Link + board
+# (detect_h5.sh) and a container toolchain for the build (WT_H5_DOCKER_IMAGE);
+# skips otherwise. HARDWARE evidence — recorded separately from emulator.
+test-vnet-hardware:
+	@WT_H5_SCENARIOS=vnet tests/target/run_h5_suite.sh
 
 test-wolfcose-host:
 	$(MAKE) -C tests/host/wolfcose run

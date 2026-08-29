@@ -290,7 +290,7 @@ jobs:
           - { key: fwustage,        name: "PSA Firmware Update staging" }
           - { key: remeasureneg,    name: "Runtime re-measurement quarantine" }
           - { key: bootupdate,      name: "Full boot-and-update swap gate" }
-          - { key: vnet,            name: "Mediated virtual network ping" }
+          - { key: vnet,            name: "wolfIP virtual network (mediated ping)" }
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15

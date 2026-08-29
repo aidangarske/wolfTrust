@@ -22,8 +22,8 @@ FreeRTOS guests on STM32H563.
 - [Port contract](port-contract.md): the architecture and SoC interfaces a
   port supplies
 - [Adding a port](adding-a-port.md): the short bring-up checklist
-- [VNET integration notes](vnet/integration_notes.md): the optional virtual
-  networking data path
+- [VNET integration notes](vnet/integration_notes.md): design history for the
+  optional wolfIP virtual network (now the `SERVICE_VNET` FF-M partition)
 - [Requirements](requirements/README.md): the traceability ledger of approved
   sources, requirement IDs, compatibility decisions, and validation records
 

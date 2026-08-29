@@ -164,16 +164,30 @@ make test-conformance  # Arm FF-M conformance on M33MU, host subset without it
 make test-hardware     # STM32H563 silicon scenarios (skips without a board)
 ```
 
-Run the end-to-end virtual-network demo:
+#### wolfIP virtual network support
+
+Two isolated Non-secure guests can exchange real Ethernet and TCP/IP traffic
+([wolfIP](https://github.com/wolfSSL/wolfip)) through the Secure world, entirely
+mediated by the FF-M SPM. Guests reach the switch only through `psa_connect` and
+`psa_call` to `SERVICE_VNET` — no raw Non-secure-callable veneer exists, so the
+capability adds no second attack surface. It is off by default and compiled in
+only with `CONFIG_VNET=y`.
+
+Run the wolfIP virtual network tests, most-portable first:
 
 ```sh
-make run-stm32h563-vnet
+make test-vnet           # host: Ethernet switch dataplane + mediated SERVICE_VNET round trip
+make test-vnet-target    # M33MU emulator: two wolfIP guests ping through SERVICE_VNET (skips without m33mu)
+make test-vnet-hardware  # STM32H563 silicon: the same end-to-end ping on a board (skips without one)
 ```
 
-This builds the Secure image with `CONFIG_VNET=y`, launches two bare-metal
-guests with wolfIP, and verifies that guest A receives an ICMP echo reply from
-guest B through the Secure virtual switch. VNET is disabled in the normal Secure
-build unless `CONFIG_VNET=y` is supplied.
+`make test-vnet-target` builds the Secure image with `CONFIG_VNET=y`, launches
+two authenticated bare-metal wolfIP guests, and asserts that guest A receives an
+ICMP echo reply from guest B through the mediated switch. `make test-vnet`
+proves the Ethernet dataplane and the `guest0 -> SERVICE_VNET -> switch ->
+guest1` delivery path on the host with no hardware. All three also run in CI (the
+host suites as `vnet`/`vnet_relay` units, the emulator scenario as the `vnet`
+M33MU scenario).
 
 ### Zephyr, PSA, FreeRTOS, and PKCS#11
 
@@ -206,7 +220,7 @@ Common options include:
 | `WT_TIMESLICE_MS` | `2` | Static scheduler timeslice |
 | `WT_CO_STACK_SIZE` | `24576` | Secure tasklet stack size in bytes |
 | `WT_ENGINE_HSM` | `1` | Include the wolfHSM service |
-| `CONFIG_VNET` | `n` | Include the Secure VNET data plane and veneers |
+| `CONFIG_VNET` | `n` | Build the wolfIP virtual network as the `SERVICE_VNET` FF-M partition |
 | `TOOLPREFIX` | `arm-none-eabi-` | Cross-toolchain command prefix |
 | `M33MU` | `m33mu` | Emulator command or path |
 
