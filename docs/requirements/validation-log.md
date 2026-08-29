@@ -3295,7 +3295,7 @@ RX_FETCH, and EMPTY pass-through; aggregate `make test` unit/all PASS. Box
 container builds the repointed firmware green: secure CONFIG_VNET=y image +
 both guest ELFs linking the mediated client (lib/wolfIP submodule
 initialized to build the demo). The end-to-end emulator ping is the S5
-scenario's gate. Commit: recorded in the next entry.
+scenario's gate. Commit: `72526b7`.
 
 ## Mediated VNET S4 - raw veneers deleted, whitelist pinned (WT-FFM-0057, 2026-08-28)
 
@@ -3349,4 +3349,31 @@ checks green (no fault markers, both guests alive, `ping seq=1 to 10.0.0.2`,
 `ping reply from 10.0.0.2 seq=1`, `[EXPECT BKPT] Success`); the pinned
 5-veneer whitelist held during the same secure build. Host `make test`
 unit/all PASS (vnet_relay 29 checks incl. the MTU cap). Emulator evidence;
-silicon is the next entry. Commit: recorded in the next entry.
+silicon is the next entry. Commit: `a16c419`.
+
+## Mediated VNET S6 - hardware scenario landed; silicon 4/5 with a tracked RX defect (2026-08-28)
+
+`tests/target/run_h5_hardware.sh` gains the `vnet` scenario: the same
+authenticated chain as the emulator leg (CONFIG_VNET=y secure image, demo
+wolfIP guests relinked to the standard NS windows, digest-pinned, signed),
+guest image paths parameterized per scenario, silicon assertions without the
+emulator-only BKPT end-marker.
+
+REAL NUCLEO-H563ZI RUN (recorded as silicon evidence, distinct from the
+emulator): no fault markers; BOTH bare-metal wolfIP guests pass
+authenticated launch and print alive; mediated OPEN and SET_MAC succeed on
+real hardware (the psa_call outvec returns live switch info); guest0
+transmits pings through SERVICE_VNET (`ping seq=1..3 to 10.0.0.2` with no
+tx error, so TX psa_calls reach the switch). NOT green: RX_FETCH
+(in 0 / out 2: meta + payload) is refused PSA_ERROR_PROGRAMMER_ERROR
+(-145) on the first call for both guests - before dispatch - and a later
+TX on the wedged connection reports BAD_STATE (-137). Moving the outvec
+targets out of the guest stack into .bss changes nothing; the emulator
+runs the identical images 6/6 green, so this is a silicon-only divergence
+in the real CMSE check path for the two-outvec shape. Filed as defect
+task #150; the WT-FFM-0058 acceptance gate's silicon leg stays open on it.
+
+Evidence: board flash log `[check] PASS` x4 (no faults, guest0 alive,
+guest1 alive, first mediated ping sent) + the documented RX failure;
+`h5-uart-capture.log` retains the rc traces. Emulator leg: see the
+previous entry. Commit: `831f2d7`.

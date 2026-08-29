@@ -42,7 +42,7 @@ set -o pipefail
 mode="${1:-all}"
 scenario="${2:-positive}"
 case "$mode" in build|flash|all) ;; *) echo "usage: $0 build|flash|all [scenario]" >&2; exit 2 ;; esac
-case "$scenario" in positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|bootupdate) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|bootupdate" >&2; exit 2 ;; esac
+case "$scenario" in positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|bootupdate|vnet) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|bootupdate|vnet" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -99,6 +99,10 @@ GUEST0_ADDR=0x080A0000
 GUEST1_ADDR=0x080E0000
 guest0="$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin"
 guest1="$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
+if [ "$scenario" = "vnet" ]; then
+  guest0="$repo/tests/firmware/stm32h563-vnet/build/guest0.bin"
+  guest1="$repo/tests/firmware/stm32h563-vnet/build/guest1.bin"
+fi
 
 if [ "$mode" != "flash" ]; then
   : > "$LOGFILE"
@@ -162,6 +166,7 @@ if [ "$mode" != "flash" ]; then
   [ "$scenario" = "crossdomain" ] && secure_flags="WT_FFM_NEGATIVE_PROBE=1"
   [ "$scenario" = "restart" ] && guest_flags="WT_GUEST_FAULT_PROBE=1"
   [ "$scenario" = "bootupdate" ] && secure_flags="WT_BOOTUPDATE_PROBE=1"
+  [ "$scenario" = "vnet" ] && secure_flags="CONFIG_VNET=y"
   # WT_CONF_DIAG_TRAP=0: the emulator-only hang-probe fault would become a
   # conformance-monitor reset on silicon and can eat the suite's report window.
   [ "$scenario" = "confboot" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0"; guest_flags="WT_RUN_CONFORMANCE=1"; }
@@ -188,12 +193,22 @@ if [ "$mode" != "flash" ]; then
 
   # Hardware guest build: NO WT_M33MU_EXPECT_BKPT (emulator-only breakpoint).
   stage "building guests (hardware variant, no emulator BKPT, $scenario)"
+  if [ "$scenario" = "vnet" ]; then
+    {
+      rm -rf tests/firmware/stm32h563-vnet/build
+      make -C tests/firmware/stm32h563-vnet build/guest0.bin build/guest1.bin \
+        WT_GUEST0_FLASH_ORIGIN=0x080A0000 WT_GUEST1_FLASH_ORIGIN=0x080E0000 \
+        WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST1_RAM_BASE=0x20010000 \
+        WT_GUEST_RAM_SIZE=0x00010000
+    } >> "$LOGFILE" 2>&1
+  else
   {
     make -C tests/firmware/zephyr-stm32h5 clone
     env $guest_flags $secure_flags WT_REUSE_SECURE_BUILD=1 WT_EXPECTED_LIFECYCLE=0x1000u \
       WT_ATTESTATION_DEVELOPMENT_PROFILE=1 \
       make -C tests/firmware/zephyr-stm32h5 build-guest0-psa build-freertos-guest1
   } >> "$LOGFILE" 2>&1
+  fi
 
   stage "pinning guest measurements + signing ($scenario)"
   {
@@ -513,6 +528,19 @@ if [ "$mode" != "build" ]; then
       else
         check_fail "swap" "boot slot still holds v1 measurement $v1meas"
       fi
+      ;;
+    vnet)
+      # Mediated inter-guest networking on silicon (WT-FFM-0058): both
+      # bare-metal wolfIP guests come up and guest0's ICMP echo round-trips
+      # through SERVICE_VNET psa_call. No emulator BKPT on hardware; the
+      # capture window plus the needles are the gate.
+      refute_re "no fault markers on silicon" \
+        '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+      expect "guest0 alive" "vnet-guest0: alive"
+      expect "guest1 alive" "vnet-guest1: alive"
+      expect "guest0 sends the first mediated ping" "ping seq=1 to 10.0.0.2"
+      expect "guest0 receives guest1's mediated echo reply" \
+        "ping reply from 10.0.0.2 seq=1"
       ;;
   esac
   echo "PASS: hardware/h5/$scenario"

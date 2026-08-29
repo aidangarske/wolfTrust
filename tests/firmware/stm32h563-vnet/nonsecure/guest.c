@@ -215,7 +215,10 @@ static int vnet_ll_send(struct wolfIP_ll_dev *ll, void *buf, uint32_t len)
 static int vnet_ll_poll(struct wolfIP_ll_dev *ll, void *buf, uint32_t len)
 {
     (void)ll;
-    vnet_rx_meta_t meta;
+    /* Static meta: silicon CMSE range checks are the real thing, so keep
+     * the outvec targets in plain guest .bss while the RX path is brought
+     * up (the emulator accepts the stack address either way). */
+    static vnet_rx_meta_t meta;
     int n = wt_vnet_psa_rx_fetch(&g_vnet, &meta, buf,
                                  (uint16_t)((len > 0xFFFFu) ? 0xFFFFu : len));
     if (n < 0 && n != WT_VNET_E_EMPTY && !g_rx_err_logged) {

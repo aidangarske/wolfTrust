@@ -805,12 +805,31 @@ wolfTrust on the board - the TF-M drop-in proof.
       CONFIG_VNET=y (5 veneers), and WT_CONFORMANCE=1 with the runner
       flash layout (5 veneers); demo firmware + guard green. WT-FFM-0057
       met.
-    - [ ] **S5** (#148): M33MU `vnet` scenario (two guests, wolfIP ping
-      through SERVICE_VNET, assert `ping reply from 10.0.0.2 seq=1`, zero
-      fault markers) + CI matrix entry; box-validate.
-    - [ ] **S6** (#149): H5 silicon `vnet` scenario via the lab box;
-      silicon evidence recorded separately. WT-FFM-0058 met on target +
-      hardware; flips this milestone.
+    - [x] **S5** (#148): `vnet` scenario rides the STANDARD authenticated
+      chain (wolfBoot + signed CONFIG_VNET=y image + digest-pinned bare-metal
+      wolfIP guests relinked to the standard NS windows; guest paths
+      parameterized in the runner) + CI matrix entry. First true runs found
+      and fixed: the legacy direct-boot demo path is dead by design
+      (unmeasured guests quarantined - superseded by the chain flow), and a
+      REAL sizing defect - wolfIP's 1536 LINK_MTU receive buffer exceeded
+      the 1024-byte `WT_FFM_TRANSFER_BYTES` copied-transfer budget, so every
+      RX_FETCH died with -135 before dispatch. Fix: `WT_VNET_PSA_MTU` (1000)
+      in the ABI; OPEN caps the reported mtu, wolfIP sizes from it, host
+      suite asserts the cap; guest0 gains an emulator-only
+      `WT_VNET_EXIT_BKPT` end-marker. Box scenario PASS (6/6 checks:
+      no faults, both guests alive, ping seq=1 sent, `ping reply from
+      10.0.0.2 seq=1`, clean BKPT); host unit/all green. Commit `a16c419`.
+    - [~] **S6** (#149): H5 hardware `vnet` scenario landed in
+      `run_h5_hardware.sh` (demo guests swapped in, per-scenario guest
+      paths, silicon assertions) and RUN on the NUCLEO-H563ZI: no faults,
+      BOTH wolfIP guests authenticated-launch and come alive, mediated
+      OPEN/SET_MAC succeed, and guest0 TXes pings through SERVICE_VNET on
+      real silicon - but RX_FETCH (out 2: meta+payload) is refused
+      PSA_ERROR_PROGRAMMER_ERROR (-145) by the real CMSE check path on the
+      first call (static outvec targets change nothing; the emulator
+      accepts the same images 6/6). Filed #150 for the silicon-only
+      two-outvec refusal; the WT-FFM-0058 silicon leg and this milestone
+      stay open on it. Emulator leg met (S5).
 
 
 - [ ] **Phase 8 - hardware and port qualification** (`phases.md:136-143`):
