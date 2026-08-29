@@ -165,3 +165,26 @@ raw non-secure-to-wolfHSM bypass retired from the production image
 (`WT-FFM-0054`), and the same PSA client and isolation suites pass from both the
 Zephyr and FreeRTOS non-secure clients, positive and negative (`WT-FFM-0055`).
 Stop after both operating-system gates pass.
+
+## Mediated virtual network service requirements
+
+wolfTrust optionally provides SERVICE_VNET, a Secure Partition that hosts the
+virtual Ethernet switch so isolated non-secure guests exchange Ethernet and IP
+traffic entirely through the SPM. The capability is disabled by default, and
+enabling it must not reintroduce any non-secure-callable entry point outside
+the FF-M client ABI.
+
+| ID | Behavior | Failure | Source | Tests | Commit |
+| --- | --- | --- | --- | --- | --- |
+| WT-FFM-0056 | Non-secure guests reach the virtual switch only through psa_connect and psa_call to SERVICE_VNET; the service binds each switch port to the SPM-stamped caller identity, so port binding, transmit, and receive operate only on the caller's own port. | A switch operation submitted outside the SPM, against another guest's port, or under a self-supplied identity is rejected with no frame delivered. | SRC-FFM 3.3.1, 3.3.3; WT-FFM-0016, WT-FFM-0054; WT-SYS-0015 | SERVICE_VNET host dispatch round-trip suite | |
+| WT-FFM-0057 | The raw non-secure-callable virtual network veneers are absent from every secure image, including builds with the capability enabled; the secure veneer whitelist admits only the FF-M client gateway. | Any non-secure-callable veneer outside the FF-M gateway fails the secure link, and a guest image referencing a retired virtual network veneer fails its build guard. | WT-FFM-0054; WT-SYS-0014, WT-SYS-0015 | Secure veneer whitelist and guest absence guards | |
+| WT-FFM-0058 | Two isolated non-secure guests exchange Ethernet and IP traffic end to end through SERVICE_VNET, with frames delivered only to the addressed port; the capability is compile-time gated and contributes nothing to the default build. | Cross-port delivery, delivery while the capability is disabled, or a failing end-to-end exchange fails the gate. | WT-SYS-0015; WT-FFM-0056 | Mediated virtual network target scenarios | |
+
+## Mediated virtual network acceptance gate
+
+The mediated virtual network capability is complete only when the SERVICE_VNET
+dispatch round trip passes on the host with per-caller port isolation
+(`WT-FFM-0056`), the secure veneer whitelist holds with the capability enabled
+and no raw virtual network veneer survives in any image (`WT-FFM-0057`), and
+two guests complete an end-to-end IP exchange through the SPM on the target
+and on hardware (`WT-FFM-0058`).

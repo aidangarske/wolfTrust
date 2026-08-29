@@ -735,6 +735,47 @@ wolfTrust on the board - the TF-M drop-in proof.
           M33MU matrix green (see validation-log).
 
 
+- [ ] **Mediated virtual network service (SERVICE_VNET)** - feature milestone
+  between the OS-integration and hardware phases (#143-#149; plan
+  `~/.claude/plans/zany-wandering-stallman.md`, copy
+  `/tmp/wolftrust-vnet-spm-plan-2026-08-28.md`). Re-home the existing
+  `src/vnet/` switch behind the FF-M SPM as a 7th Secure Partition
+  (`SERVICE_VNET`, sid 4103, domain 9) reached only by `psa_call`; delete the
+  raw `WolfTrust_VNet_*` veneers so `CONFIG_VNET=y` no longer opens a second
+  NS surface (closes #139/#141/#142). Off by default. RX is poll-based
+  (`RX_READ`/`RX_RELEASE`): NS guests cannot block on PSA signals (`psa_wait`
+  is SP-only) and the demo guest already polls. Reqs: `WT-SYS-0015`,
+  `WT-FFM-0056..0058`. Sub-slices:
+    - [x] **S0** (#143): reqs seated - `WT-SYS-0015` + `WT-FFM-0056` (mediated
+      port-isolated dispatch), `WT-FFM-0057` (veneers absent, whitelist holds),
+      `WT-FFM-0058` (end-to-end IP exchange, off by default) + the mediated
+      virtual network acceptance gate (framework.md). Docs-only, no runtime
+      gate; commit recorded in validation-log.
+    - [ ] **S1** (#144): op protocol + `wt_vnet_service_dispatch` (model
+      `wt_hsm_relay_dispatch`) + `tests/host/vnet_relay/` round trip: two
+      simulated guests through the dispatch into one `vnet_switch_t`
+      (guest0 TX -> SERVICE_VNET -> switch -> guest1 RX) + cross-port
+      negatives. Proves WT-FFM-0056 on the host.
+    - [ ] **S2** (#145): manifest domain 9 + `PARTITION_VNET`/sid 4103;
+      capacity bumps (`max_partitions` 7, `max_domains` 10,
+      `WT_FFM_MAX_PARTITIONS` 10U); `memory_map.h`/`secure.ld` VNET stack;
+      `ffm_boot.c` register + `wt_spm_vnet_start` under
+      `#ifdef PARTITION_VNET_ID`. Host + cross-build green.
+    - [ ] **S3** (#146): `src/client/vnet_psa_transport.c` (mirror
+      `hsm_psa_transport.c`, opcode in invec[0]); repoint
+      `tests/firmware/stm32h563-vnet` guest off the veneers onto `psa_call`.
+    - [ ] **S4** (#147): delete `src/arch/armv8m/vnet_nsc.c` from the build;
+      drop the `NSC_ALLOWED` VNet exception; guest absence guards. Whitelist
+      = `WolfTrust_FFM_*` only, even with `CONFIG_VNET=y`. Closes
+      #139/#141/#142; WT-FFM-0057 met.
+    - [ ] **S5** (#148): M33MU `vnet` scenario (two guests, wolfIP ping
+      through SERVICE_VNET, assert `ping reply from 10.0.0.2 seq=1`, zero
+      fault markers) + CI matrix entry; box-validate.
+    - [ ] **S6** (#149): H5 silicon `vnet` scenario via the lab box;
+      silicon evidence recorded separately. WT-FFM-0058 met on target +
+      hardware; flips this milestone.
+
+
 - [ ] **Phase 8 - hardware and port qualification** (`phases.md:136-143`):
   **second Cortex-M port** (proves the MP4 port kit) + Cortex-A/TFA replacement
   boundary; H5/C5 hardware qualification. (Moved here from the old Phase 6 line.)

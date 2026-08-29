@@ -3179,3 +3179,38 @@ query (exact size + bad-size refused with PSA_ERROR_INVALID_ARGUMENT through
 real FF-M dispatch) and mediated IAK public-key query (65-byte uncompressed
 point, 0x04 prefix) - plus host `unit/all`, split guard, and the M33MU
 positive/devattest/attestneg/bothpsa/confboot scenarios on one tree.
+
+## Mediated VNET S0 - requirements seated (WT-SYS-0015, WT-FFM-0056..0058, 2026-08-28)
+
+Docs-only slice: seats the requirements for re-homing the virtual Ethernet
+switch behind the FF-M SPM as SERVICE_VNET, replacing the raw
+`WolfTrust_VNet_*` CMSE veneers (the last designed-in non-FFM NS surface,
+previously fenced by #139/#141/#142 - this milestone deletes it instead).
+
+- `system.md`: WT-SYS-0015 - isolated guests exchange network frames only
+  through an SPM-dispatched virtual network Secure Partition; ports bind to
+  the SPM-stamped caller identity; disabled by default; no NS-callable entry
+  point outside the FF-M client ABI.
+- `framework.md`: WT-FFM-0056 (psa_call-only switch access with per-caller
+  port isolation), WT-FFM-0057 (raw veneers absent from every image, secure
+  whitelist admits only the FF-M gateway even with the capability enabled),
+  WT-FFM-0058 (two guests exchange Ethernet/IP end to end through
+  SERVICE_VNET; compile-time gated, nothing in the default build), plus the
+  mediated virtual network acceptance gate naming the proving slices.
+- `task-list.md`: SERVICE_VNET feature milestone seated between the
+  OS-integration and hardware phases with sub-slices S0-S6 (#143-#149).
+
+Design facts fixed at seat time (exploration-verified): NS guests cannot
+block on PSA signals (`psa_wait` is SP-only, gated to scheduled SP slots;
+NS `psa_call` is synchronous run-to-completion), so RX is poll-based
+`RX_READ`/`RX_RELEASE` over `psa_call` - matching the existing demo guest,
+which already polls (`vnet_ll_poll`; `IrqAck` never called). Capacity
+ceilings are maxed and S2 must bump `limits.max_partitions` 6->7,
+`profile_capabilities.max_domains` 9->10, `WT_FFM_MAX_PARTITIONS` 9U->10U;
+next free sid 4103, next domain id 9. `manifest-conformance.json` is not
+touched (SERVICE_VNET is not a PSA conformance service).
+
+Evidence: requirement rows present and traced (WT-SYS-0015,
+WT-FFM-0056..0058); acceptance gate names the proving slices; no runtime
+gate for this slice; host suite unaffected (`make test` unit/all PASS).
+Commit: `9ca776d`.
