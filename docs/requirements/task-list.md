@@ -751,11 +751,18 @@ wolfTrust on the board - the TF-M drop-in proof.
       `WT-FFM-0058` (end-to-end IP exchange, off by default) + the mediated
       virtual network acceptance gate (framework.md). Docs-only, no runtime
       gate; commit recorded in validation-log.
-    - [ ] **S1** (#144): op protocol + `wt_vnet_service_dispatch` (model
-      `wt_hsm_relay_dispatch`) + `tests/host/vnet_relay/` round trip: two
-      simulated guests through the dispatch into one `vnet_switch_t`
-      (guest0 TX -> SERVICE_VNET -> switch -> guest1 RX) + cross-port
-      negatives. Proves WT-FFM-0056 on the host.
+    - [x] **S1** (#144): op protocol (ops ride the psa_call type:
+      OPEN/SET_MAC/TX/RX_FETCH/IRQ_ACK; RX_FETCH = poll+read+release in one
+      call so slot/gen cookies never cross the NS boundary) +
+      `wt_vnet_relay_dispatch` in `src/services/vnet/vnet_relay_service.c`
+      (WAIT/GET/REPLY loop modeled on the HSM relay; caller port from the
+      SPM-stamped `-(guest+1)` client id; switch/tick/transport seams;
+      fail-closed without a switch) + `tests/host/vnet_relay/` 23-check
+      round trip: two simulated guests through the real neutral client core
+      into one `vnet_switch_t` - byte-exact guest0 TX -> guest1 RX_FETCH,
+      no cross/reflected delivery, spoofed source refused, unknown unicast
+      dropped, runt/short/undersized vectors refused, out-of-range identity
+      refused. WT-FFM-0056 host-proven; commit `2ba5a3d`.
     - [ ] **S2** (#145): manifest domain 9 + `PARTITION_VNET`/sid 4103;
       capacity bumps (`max_partitions` 7, `max_domains` 10,
       `WT_FFM_MAX_PARTITIONS` 10U); `memory_map.h`/`secure.ld` VNET stack;

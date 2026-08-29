@@ -3214,3 +3214,31 @@ Evidence: requirement rows present and traced (WT-SYS-0015,
 WT-FFM-0056..0058); acceptance gate names the proving slices; no runtime
 gate for this slice; host suite unaffected (`make test` unit/all PASS).
 Commit: `9ca776d`.
+
+## Mediated VNET S1 - SERVICE_VNET relay dispatch host-proven (WT-FFM-0056, 2026-08-28)
+
+`src/services/vnet/vnet_relay_service.c` + `include/wolftrust/services/
+vnet_relay.h`: the neutral SERVICE_VNET dispatch loop (WAIT -> GET -> op ->
+REPLY, modeled on the HSM relay) driving the unchanged `src/vnet/` switch
+data plane. Operations ride the psa_call type (OPEN, SET_MAC, TX, RX_FETCH,
+IRQ_ACK); the caller's switch port comes only from the SPM-stamped
+`-(guest+1)` client id (mirrors wt_ffm_boot_caller_guest; secure-origin and
+out-of-range ids refused). RX_FETCH dequeues, copies, and releases one frame
+in a single call, so pool slot/generation cookies never leave the secure
+side - the stale-cookie/double-release surface does not exist at the NS
+boundary. Switch refusals reply as the untranslated WT_VNET_E_* code (the
+-3000 range does not collide with PSA_ERROR_*); no switch installed fails
+closed with PSA_ERROR_NOT_SUPPORTED. Frame staging uses two file-scope
+1536-byte buffers (one message in flight in the cooperative SPM; keeps the
+partition stack small).
+
+Evidence: `tests/host/vnet_relay` (23 checks, all printing WT-FFM-0056) -
+boot-core init from a two-partition fixture manifest, registration, connect
+per guest, fail-closed-no-switch, OPEN info, SET_MAC binding, byte-exact
+guest0 TX -> switch -> guest1 RX_FETCH round trip through the real
+`src/client/psa_ffm_client.c` marshaling, queue drain after one fetch
+(release proven), no reflected or cross-port delivery, spoofed source MAC
+refused, unknown unicast dropped (flood off), runt frame refused, short
+SET_MAC vector refused, undersized RX meta vector refused, unknown op
+refused, out-of-range stamped identity refused. Suite added to the
+aggregate host run; `make test` unit/all PASS. Commit: `2ba5a3d`.
