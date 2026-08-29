@@ -38,6 +38,11 @@ static wt_spm_transport_fn g_vnet_transport = wt_spm_transport_direct;
  * keeps the 1536-byte frames off the partition stack. */
 static uint8_t g_vnet_tx_scratch[WT_VNET_FRAME_MAX];
 static uint8_t g_vnet_rx_scratch[WT_VNET_FRAME_MAX];
+/* Reply staging in service .bss: the gate bounds-checks every psa_write
+ * buffer against the partition whitelist, which does not cover the
+ * vnet coroutine stack band. */
+static vnet_info_t g_vnet_info_scratch;
+static vnet_rx_meta_t g_vnet_meta_scratch;
 
 void wt_vnet_relay_set_switch(vnet_switch_t* sw)
 {
@@ -130,21 +135,22 @@ static psa_status_t wt_vnet_relay_open(wt_ffm_runtime_t* runtime,
                                        vnet_switch_t* sw, uint32_t vm,
                                        const psa_msg_t* msg)
 {
-    vnet_info_t info;
     int rc;
 
-    if (msg->out_size[0] < sizeof(info)) {
+    if (msg->out_size[0] < sizeof(g_vnet_info_scratch)) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
-    rc = vnet_switch_open(sw, vm, &info);
+    rc = vnet_switch_open(sw, vm, &g_vnet_info_scratch);
     if (rc != WT_VNET_OK) {
         return (psa_status_t)rc;
     }
-    if (info.mtu > (uint16_t)WT_VNET_PSA_MTU) {
-        info.mtu = (uint16_t)WT_VNET_PSA_MTU;
+    if (g_vnet_info_scratch.mtu > (uint16_t)WT_VNET_PSA_MTU) {
+        g_vnet_info_scratch.mtu = (uint16_t)WT_VNET_PSA_MTU;
     }
     if (wt_vnet_relay_write_vec(runtime, partition_id, msg->handle, 0U,
-                                &info, sizeof(info)) != WT_FFM_SUCCESS) {
+                                &g_vnet_info_scratch,
+                                sizeof(g_vnet_info_scratch)) !=
+            WT_FFM_SUCCESS) {
         return PSA_ERROR_GENERIC_ERROR;
     }
     return PSA_SUCCESS;
@@ -213,15 +219,15 @@ static psa_status_t wt_vnet_relay_rx_fetch(wt_ffm_runtime_t* runtime,
                                            vnet_switch_t* sw, uint32_t vm,
                                            const psa_msg_t* msg)
 {
-    vnet_rx_meta_t meta;
     size_t dst_cap;
     int rc;
     int n;
 
-    if (msg->out_size[0] < sizeof(meta) || msg->out_size[1] == 0U) {
+    if (msg->out_size[0] < sizeof(g_vnet_meta_scratch) ||
+            msg->out_size[1] == 0U) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
-    rc = vnet_switch_poll_rx(sw, vm, &meta);
+    rc = vnet_switch_poll_rx(sw, vm, &g_vnet_meta_scratch);
     if (rc != WT_VNET_OK) {
         return (psa_status_t)rc;
     }
@@ -229,18 +235,22 @@ static psa_status_t wt_vnet_relay_rx_fetch(wt_ffm_runtime_t* runtime,
     if (dst_cap > sizeof(g_vnet_rx_scratch)) {
         dst_cap = sizeof(g_vnet_rx_scratch);
     }
-    n = vnet_switch_read_rx(sw, vm, meta.token_slot, meta.token_gen,
+    n = vnet_switch_read_rx(sw, vm, g_vnet_meta_scratch.token_slot,
+                            g_vnet_meta_scratch.token_gen,
                             g_vnet_rx_scratch, (uint16_t)dst_cap);
     if (n < 0) {
         return (psa_status_t)n;
     }
-    rc = vnet_switch_release_rx(sw, vm, meta.token_slot, meta.token_gen);
+    rc = vnet_switch_release_rx(sw, vm, g_vnet_meta_scratch.token_slot,
+                                g_vnet_meta_scratch.token_gen);
     if (rc != WT_VNET_OK) {
         return (psa_status_t)rc;
     }
-    meta.len = (uint16_t)n;
+    g_vnet_meta_scratch.len = (uint16_t)n;
     if (wt_vnet_relay_write_vec(runtime, partition_id, msg->handle, 0U,
-                                &meta, sizeof(meta)) != WT_FFM_SUCCESS) {
+                                &g_vnet_meta_scratch,
+                                sizeof(g_vnet_meta_scratch)) !=
+            WT_FFM_SUCCESS) {
         return PSA_ERROR_GENERIC_ERROR;
     }
     if (n > 0 &&

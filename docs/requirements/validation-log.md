@@ -3443,3 +3443,30 @@ both vnet guests run 1 ms NS SysTicks, hammering that window for the first
 time. Emulator remains green on identical images (its gate WRITE vec-1 path
 did carry real ARP payloads), so the divergence is timing- or
 state-dependent, not plain logic.
+
+## Defect #150 round 3 - the vnet coroutine is silently FAULTING (2026-08-29)
+
+New `g_wt_sched_fail` latch (first failing `wt_spm_sched_dispatch` branch +
+coroutine state + partition id) reads `0x53000009` on silicon: branch 5
+(final state check), partition 9 (VNET), coroutine state 3 =
+**WT_CO_FAULTED** - "took a Secure-side fault (MemManage / UsageFault
+including PSPLIM_S overflow) and was abandoned by the fault handler." The
+abandon path prints nothing and `wt_spm_recover_faulted` restarts the
+partition on the next dispatch, which is why the service kept serving with
+zero visible markers and zero guest-restart events: the -132 the client
+sees is the dispatch that caught the corpse. Off-stack reply staging did
+not change it (buffers were never the trigger) and growing the coroutine
+stack 8K -> 12K (kept: the full band, in manifest-vnet.json) did not
+either - so this is an access/usage fault, not stack exhaustion. The
+failure rate (~once per few hundred SP runs, only with two tight-loop
+clients + 1 ms NS guest SysTicks) matches the #83-class tick-window faults
+(INVPC on preempted coroutine switches) previously fixed for the
+HSM-tasklet path; sched-dispatch-run coroutines enter through different
+machinery.
+
+Next session, first cycle: latch CFSR (+ MMFAR/return address if cheap) in
+the arch fault path that abandons a coroutine (caller of the neutral
+abandon in src/sched/coroutine.c:376), one board run, read the fault type;
+then apply the #83-style gating/priority fix to the dispatch-run window.
+The client heal + all latches stay in-tree. Emulator vnet scenario remains
+green (CI matrix guards it).

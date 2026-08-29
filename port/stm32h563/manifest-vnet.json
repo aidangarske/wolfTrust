@@ -334,7 +334,7 @@
       "initial_lifecycle": 0,
       "entry_point": 201428992,
       "stack_base": 805908480,
-      "stack_size": 8192,
+      "stack_size": 12288,
       "memory_resources": [
         {
           "base": 201428992,
@@ -344,7 +344,7 @@
         },
         {
           "base": 805908480,
-          "size": 8192,
+          "size": 12288,
           "attributes": 19,
           "share_id": 0
         }

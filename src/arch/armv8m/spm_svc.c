@@ -598,6 +598,20 @@ void wt_spm_conf_irq(uint32_t irq)
  * blocks on its message while the serving partition's signal is asserted, so
  * cross-partition progress happens here on the bootstrap context, never
  * inside another partition's SVC. Runs until no partition is wakeable. */
+/* SWD forensics: first failing wt_spm_sched_dispatch branch
+ * ((branch<<28)|(co state<<24)|partition id low 16); 1 entry-faulted,
+ * 2 first run, 3 wake-loop run, 4 pass cap, 5 final not blocked. */
+volatile uint32_t g_wt_sched_fail;
+
+static void wt_spm_sched_note(uint32_t branch, wt_co_t* co, int32_t pid)
+{
+    if ((g_wt_sched_fail >> 28) == 0U) {
+        g_wt_sched_fail = (branch << 28) |
+            (((uint32_t)wt_co_state(co) & 0xFU) << 24) |
+            ((uint32_t)pid & 0xFFFFU);
+    }
+}
+
 static int wt_spm_sched_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                  int32_t partition_id)
 {
@@ -615,9 +629,11 @@ static int wt_spm_sched_dispatch(void* context, wt_ffm_runtime_t* runtime,
      * be restartable, in which case this wake finds it BLOCKED and healthy. */
     wt_spm_recover_faulted();
     if (co == NULL || wt_co_state(co) == WT_CO_FAULTED) {
+        wt_spm_sched_note(1U, co, partition_id);
         return WT_FFM_ERROR_STATE;
     }
     if (wt_spm_run_co(co) != WT_FFM_SUCCESS) {
+        wt_spm_sched_note(2U, co, partition_id);
         return WT_FFM_ERROR_STATE;
     }
     /* The run above may itself have faulted the partition: recover NOW so the
@@ -636,6 +652,7 @@ static int wt_spm_sched_dispatch(void* context, wt_ffm_runtime_t* runtime,
                 continue;
             }
             if (wt_spm_run_co(slot->co) != WT_FFM_SUCCESS) {
+                wt_spm_sched_note(3U, slot->co, slot->partition_id);
                 return WT_FFM_ERROR_STATE;
             }
             progressed = 1;
@@ -644,11 +661,15 @@ static int wt_spm_sched_dispatch(void* context, wt_ffm_runtime_t* runtime,
             wt_spm_sched_diag_trap(wt_spm_sched_diag_word(runtime, 0),
                                    wt_spm_sched_diag_word(runtime, 1),
                                    wt_spm_sched_diag_word(runtime, 2));
+            wt_spm_sched_note(4U, co, partition_id);
             return WT_FFM_ERROR_STATE;
         }
     } while (progressed != 0);
-    return wt_co_state(co) == WT_CO_BLOCKED ? WT_FFM_SUCCESS :
-                                              WT_FFM_ERROR_STATE;
+    if (wt_co_state(co) != WT_CO_BLOCKED) {
+        wt_spm_sched_note(5U, co, partition_id);
+        return WT_FFM_ERROR_STATE;
+    }
+    return WT_FFM_SUCCESS;
 }
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
