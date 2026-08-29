@@ -71,6 +71,13 @@ struct wt_co {
      * HSM RNG hang. Placed after unprivileged: PendSV asm reads earlier
      * fields by fixed offset. */
     volatile uint8_t wake_pending;
+
+    /* EXC_RETURN captured by PendSV when this coroutine is switched out and
+     * replayed on switch-in. An NS exception that preempts the coroutine
+     * stacks the extended signed secure context; resuming through a
+     * hardcoded basic-frame EXC_RETURN unstacks it as an 8-word frame and
+     * faults INVPC (H563 silicon). PendSV asm reads this by fixed offset. */
+    uint32_t exc_return;
 };
 
 /* Exposed to the ARMv8-M exception-based switch path. */

@@ -191,6 +191,7 @@ void wt_co_init(void)
         co->next_wait    = (struct wt_co *)0;
         co->domain       = (const struct wt_secure_domain *)0;
         co->unprivileged = 0u;
+        co->exc_return   = 0u;
     }
 
     g_wt_co_bootstrap.sp         = 0u;
@@ -204,6 +205,7 @@ void wt_co_init(void)
     g_wt_co_bootstrap.next_wait  = (struct wt_co *)0;
     g_wt_co_bootstrap.domain     = (const struct wt_secure_domain *)0;
     g_wt_co_bootstrap.unprivileged = 0u;
+    g_wt_co_bootstrap.exc_return = 0u;
 
     g_wt_co_current   = &g_wt_co_bootstrap;
     g_runqueue_head   = (struct wt_co *)0;

@@ -31,6 +31,7 @@ extern void wt_platform_panic(void);
 #define WT_CO_SP_OFFSET         0
 #define WT_CO_STACK_BASE_OFFSET 4
 #define WT_CO_UNPRIV_OFFSET     40
+#define WT_CO_EXCRET_OFFSET     44
 
 _Static_assert(offsetof(struct wt_co, sp) == WT_CO_SP_OFFSET,
                "struct wt_co: sp must be at offset 0");
@@ -38,6 +39,8 @@ _Static_assert(offsetof(struct wt_co, stack_base) == WT_CO_STACK_BASE_OFFSET,
                "struct wt_co: stack_base must be at offset 4");
 _Static_assert(offsetof(struct wt_co, unprivileged) == WT_CO_UNPRIV_OFFSET,
                "struct wt_co: unprivileged must match PendSV asm offset");
+_Static_assert(offsetof(struct wt_co, exc_return) == WT_CO_EXCRET_OFFSET,
+               "struct wt_co: exc_return must match PendSV asm offset");
 _Static_assert(sizeof(uintptr_t) == 4,
                "wt_co struct layout assumes 32-bit pointers");
 
@@ -85,6 +88,7 @@ void wt_co_arch_init_stack(struct wt_co *co,
     *--frame = (uint32_t)(uintptr_t)(void *)entry;          /* R4 */
 
     co->sp = (uintptr_t)frame;
+    co->exc_return = WT_EXC_RETURN_S_THREAD_PSP;
 }
 
 /* When the target carries a Secure Partition domain, narrow the MPU to it
@@ -158,13 +162,18 @@ void PendSV_Handler(void)
         "tst    lr, #4                                          \n"
         "beq    1f                                              \n"
 
-        /* Leaving a tasklet: save R4-R11 onto PSP and remember the new SP. */
+        /* Leaving a tasklet: save R4-R11 onto PSP, remember the new SP and
+         * the live EXC_RETURN. An NS exception that preempted the coroutine
+         * stacked the extended signed context (DCRS clear); replaying a
+         * hardcoded basic-frame EXC_RETURN on resume unstacks it as 8 words
+         * and faults INVPC on silicon. */
         "mrs    r0, psp                                         \n"
         "stmdb  r0!, {r4-r11}                                   \n"
         "ldr    r1, =g_wt_co_current                            \n"
         "ldr    r2, [r1]                                        \n"
         "cbz    r2, 5f                                          \n"
         "str    r0, [r2, #" "0" "]                              \n"
+        "str    lr, [r2, #" "44" "]                             \n"
         "b      2f                                              \n"
 
         /* Entering from bootstrap: preserve bootstrap R4-R11 on MSP. */
@@ -173,6 +182,7 @@ void PendSV_Handler(void)
         "ldr    r0, =g_wt_co_bootstrap                          \n"
         "mov    r1, sp                                          \n"
         "str    r1, [r0, #0]                                    \n"
+        "str    lr, [r0, #" "44" "]                             \n"
 
         "2:                                                     \n"
         "ldr    r0, =g_wt_co_pendsv_target                      \n"
@@ -196,8 +206,7 @@ void PendSV_Handler(void)
         "isb                                                    \n"
         "ldr    r0, =g_wt_co_current                            \n"
         "str    r2, [r0]                                        \n"
-        "ldr    r0, =0xFFFFFFFD                                 \n"
-        "mov    lr, r0                                          \n"
+        "ldr    lr, [r2, #" "44" "]                             \n"
         "bx     lr                                              \n"
 
         /* Resume bootstrap on MSP_S, always privileged. */
@@ -205,14 +214,13 @@ void PendSV_Handler(void)
         "ldr    r0, =g_wt_co_current                            \n"
         "ldr    r1, =g_wt_co_bootstrap                          \n"
         "str    r1, [r0]                                        \n"
+        "ldr    lr, [r1, #" "44" "]                             \n"
         "movs   r0, #0                                          \n"
         "msr    psplim, r0                                      \n"
         "mrs    r1, control                                     \n"
         "bic    r1, r1, #1                                      \n"
         "msr    control, r1                                     \n"
         "pop    {r4-r11}                                        \n"
-        "ldr    r0, =0xFFFFFFF9                                 \n"
-        "mov    lr, r0                                          \n"
         "bx     lr                                              \n"
 
         "5:                                                     \n"

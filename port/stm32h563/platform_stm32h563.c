@@ -131,6 +131,12 @@ static volatile uint32_t g_wt_attest_degraded __attribute__((used));
 static volatile uint32_t g_tasklet_fault_cfsr;
 static volatile uint32_t g_tasklet_fault_pc;
 static volatile uint32_t g_tasklet_fault_exc_return;
+static volatile uint32_t g_tasklet_fault_frame;
+static volatile uint32_t g_tasklet_fault_xpsr;
+static volatile uint32_t g_tasklet_fault_psp;
+static volatile uint32_t g_tasklet_fault_icsr;
+static volatile uint32_t g_tasklet_fault_co;
+static volatile uint32_t g_tasklet_fault_co_sp;
 static void (*g_secure_thread_resume_entry)(void) __attribute__((noreturn));
 
 typedef struct wt_virtual_systick {
@@ -1760,9 +1766,23 @@ static void wt_secure_tasklet_fault_dispatch(uint32_t *frame,
      * tell what faulted (MMFSR/UFSR bits), where (PC), and from which mode
      * (EXC_RETURN bit 3). g_last_fault_address below adds the data address. */
     if (g_tasklet_fault_cfsr == 0u) {
+        uint32_t psp_now;
+
         g_tasklet_fault_cfsr = cfsr;
         g_tasklet_fault_pc = frame[6];
         g_tasklet_fault_exc_return = exc_return;
+        /* Frame position vs the coroutine stack identifies which pusher
+         * built it (SVC/tick 8-word vs NS-preempt callee+signature). */
+        g_tasklet_fault_frame = (uint32_t)(uintptr_t)frame;
+        g_tasklet_fault_xpsr = frame[7];
+        __asm volatile("mrs %0, psp" : "=r"(psp_now));
+        g_tasklet_fault_psp = psp_now;
+        g_tasklet_fault_icsr = WT_SCB_ICSR_S;
+        g_tasklet_fault_co = (uint32_t)(uintptr_t)wt_co_current();
+        if (wt_co_current() != NULL) {
+            g_tasklet_fault_co_sp = *(const uint32_t*)(const void*)
+                                        wt_co_current();
+        }
     }
     if ((cfsr & WT_SCB_CFSR_MMFSR_MMARVALID) != 0u) {
         g_last_fault_address = WT_SCB_MMFAR_S;
@@ -1824,6 +1844,7 @@ static void wt_secure_tasklet_fault_entry(void)
          * thunk cannot exception-return on hardware (M33MU accepted it,
          * H5 silicon IACCVIOL-faults at 0xFFFFFFF8). */
         "ldr    r0, =g_wt_co_bootstrap              \n"
+        "ldr    lr, [r0, #44]                       \n"
         "ldr    r0, [r0, #0]                        \n"
         "msr    msp, r0                             \n"
         "pop    {r4-r11}                            \n"
