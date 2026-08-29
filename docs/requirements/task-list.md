@@ -778,9 +778,21 @@ wolfTrust on the board - the TF-M drop-in proof.
       only from the vnet manifest). Host unit/all green; box cross-builds
       green BOTH ways (default: no VNET symbol; CONFIG_VNET=y: 7-partition
       manifest generated, veneer whitelist still passing).
-    - [ ] **S3** (#146): `src/client/vnet_psa_transport.c` (mirror
-      `hsm_psa_transport.c`, opcode in invec[0]); repoint
-      `tests/firmware/stm32h563-vnet` guest off the veneers onto `psa_call`.
+    - [x] **S3** (#146): `src/client/vnet_psa_transport.c` +
+      `include/wolftrust/vnet_psa_transport.h` - the guest-side transport
+      (open = psa_connect + OPEN, set_mac/tx one psa_call each, rx_fetch
+      returns the frame length or the untranslated switch refusal); ops +
+      SID moved to `vnet_abi.h` so the client pulls no SPM-internal
+      headers. Demo guest `vnet_ll_send`/`vnet_ll_poll` + open/set-mac
+      repointed off the raw veneers onto the transport (poll is now ONE
+      mediated call instead of RxPoll/RxRead/RxRelease); guest links
+      `psa_ffm_client.c` + the transport. wolfip_config untouched.
+      Evidence: host vnet_relay suite extended to drive the REAL transport
+      functions through the stubbed gateway (28 checks green: transport
+      open/info, TX, cross-guest RX_FETCH byte-exact, EMPTY pass-through);
+      box container builds the repointed firmware green (secure
+      CONFIG_VNET=y + both guests; wolfIP submodule now initialized).
+      Emulator ping behavior lands with the S5 scenario.
     - [ ] **S4** (#147): delete `src/arch/armv8m/vnet_nsc.c` from the build;
       drop the `NSC_ALLOWED` VNet exception; guest absence guards. Whitelist
       = `WolfTrust_FFM_*` only, even with `CONFIG_VNET=y`. Closes

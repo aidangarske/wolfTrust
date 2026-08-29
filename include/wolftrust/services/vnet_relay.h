@@ -32,14 +32,10 @@
  * copied FF-M vectors, so pool slot/generation tokens never leave the
  * secure side and cannot be forged or replayed by a guest. */
 
-/* Operations, carried as the psa_call type (positive, service-defined). */
-#define WT_VNET_OP_OPEN       1
-#define WT_VNET_OP_SET_MAC    2
-#define WT_VNET_OP_TX         3
-#define WT_VNET_OP_RX_FETCH   4
-#define WT_VNET_OP_IRQ_ACK    5
-
-/* Vector layout per operation:
+/* The WT_VNET_OP_* operation codes and SID live in vnet_abi.h, shared with
+ * the non-secure client transport.
+ *
+ * Vector layout per operation:
  *   OPEN:     outvec[0] = vnet_info_t
  *   SET_MAC:  invec[0]  = 6-byte MAC
  *   TX:       invec[0]  = one Ethernet frame

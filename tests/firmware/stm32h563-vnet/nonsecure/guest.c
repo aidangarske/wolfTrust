@@ -35,6 +35,7 @@
 
 #include "memory_map.h"
 #include "wolftrust/vnet/vnet_abi.h"
+#include "wolftrust/vnet_psa_transport.h"
 #include "wolfip.h"
 
 #ifndef WT_GUEST_CORE_CLOCK_HZ
@@ -189,13 +190,17 @@ static void wt_zero_bss(void)
     while (dst < &_ebss) *dst++ = 0u;
 }
 
-/* ---------- vnet driver shim plugged into wolfIP_ll_dev ----------------- */
+/* ---------- vnet driver shim plugged into wolfIP_ll_dev -----------------
+ * All switch traffic rides psa_call to SERVICE_VNET; the raw
+ * WolfTrust_VNet_* veneers are retired from this guest. */
+
+static wt_vnet_psa_ctx_t g_vnet;
 
 static int vnet_ll_send(struct wolfIP_ll_dev *ll, void *buf, uint32_t len)
 {
     (void)ll;
     if (len < 14u || len > 1536u) return -1;
-    int rc = WolfTrust_VNet_Tx(buf, (uint16_t)len, 0u);
+    int rc = wt_vnet_psa_tx(&g_vnet, buf, (uint16_t)len);
     return (rc == 0) ? (int)len : -1;
 }
 
@@ -203,17 +208,8 @@ static int vnet_ll_poll(struct wolfIP_ll_dev *ll, void *buf, uint32_t len)
 {
     (void)ll;
     vnet_rx_meta_t meta;
-    int n;
-    int rc = WolfTrust_VNet_RxPoll(&meta);
-    if (rc != 0) return 0;
-    if (meta.len > len) {
-        /* Caller buffer too small — drop the frame to keep the queue moving.
-         * wolfIP gives us LINK_MTU each call so this only fires on bugs. */
-        (void)WolfTrust_VNet_RxRelease(meta.token_slot, meta.token_gen);
-        return 0;
-    }
-    n = WolfTrust_VNet_RxRead(meta.token_slot, meta.token_gen, buf, (uint16_t)len);
-    (void)WolfTrust_VNet_RxRelease(meta.token_slot, meta.token_gen);
+    int n = wt_vnet_psa_rx_fetch(&g_vnet, &meta, buf,
+                                 (uint16_t)((len > 0xFFFFu) ? 0xFFFFu : len));
     return (n < 0) ? 0 : n;
 }
 
@@ -291,20 +287,21 @@ static int run_guest(uint32_t guest_id)
 
     wt_uart_puts(id->banner);
 
-    rc = WolfTrust_VNet_Open(&info);
+    rc = wt_vnet_psa_open(&g_vnet, WT_VNET_SERVICE_SID,
+                          WT_VNET_SERVICE_VERSION, &info);
     if (rc != 0) { wt_uart_puts("vnet open failed\r\n"); return -1; }
     wt_uart_puts("vnet open ok, rx_irq=");
     wt_uart_put_u32((uint32_t)info.rx_irq);
     wt_uart_puts("\r\n");
 
     /* Stage the MAC in RAM. m33mu returns zero on secure-side reads of NS
-     * flash, so passing &id->mac (which lives in .rodata) into the veneer
+     * flash, so passing &id->mac (which lives in .rodata) into the call
      * would feed the switch a zeroed MAC. The on-target wolfTrust build
      * works either way; this is the emulator-compatible path. */
     {
         uint8_t mac_ram[6];
         memcpy(mac_ram, id->mac, 6);
-        rc = WolfTrust_VNet_SetMac(mac_ram, 0u);
+        rc = wt_vnet_psa_set_mac(&g_vnet, mac_ram);
     }
     if (rc != 0) {
         wt_uart_puts("vnet set_mac failed rc=");

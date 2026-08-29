@@ -52,7 +52,8 @@ _WT_SRCS := \
     $(ROOT)/src/vnet/vnet_switch.c
 
 _CLIENT_SRCS := \
-    $(ROOT)/src/client/psa_ffm_client.c
+    $(ROOT)/src/client/psa_ffm_client.c \
+    $(ROOT)/src/client/vnet_psa_transport.c
 
 _TEST_SRCS := main.c
 

@@ -30,6 +30,7 @@
 #include "wolftrust/spm_sched.h"
 #include "wolftrust/services/vnet_relay.h"
 #include "wolftrust/vnet/vnet_errors.h"
+#include "wolftrust/vnet_psa_transport.h"
 #include "wolftrust/ffm_veneer.h"
 #include "psa/client.h"
 #include "psa_manifest/pid.h"
@@ -246,6 +247,9 @@ int main(void)
     psa_invec in_vec;
     psa_outvec out_vec[2];
     psa_status_t status;
+    wt_vnet_psa_ctx_t c0;
+    wt_vnet_psa_ctx_t c1;
+    int n;
     uint32_t i;
 
     for (i = 0U; i < TEST_NVM; i++) {
@@ -405,6 +409,32 @@ int main(void)
     psa_close(h1);
     g_active_client = TEST_GUEST0;
     psa_close(h0);
+
+    /* The guest-side transport itself: the exact client code the reference
+     * guests run, driven through the same stubbed gateway. */
+    g_active_client = TEST_GUEST0;
+    memset(&info, 0, sizeof(info));
+    check(wt_vnet_psa_open(&c0, TEST_VNET_SID, 1U, &info) == 0 &&
+              info.abi_version == WT_VNET_ABI_VERSION,
+          "WT-FFM-0056 client transport open connects and reads info");
+    build_frame(frame, mac1, mac0, payload, sizeof(payload) - 1U);
+    check(wt_vnet_psa_tx(&c0, frame, sizeof(frame)) == 0,
+          "WT-FFM-0056 client transport TX succeeds");
+
+    g_active_client = TEST_GUEST1;
+    check(wt_vnet_psa_open(&c1, TEST_VNET_SID, 1U, &info) == 0,
+          "WT-FFM-0056 client transport guest1 open succeeds");
+    memset(rx_buf, 0, sizeof(rx_buf));
+    n = wt_vnet_psa_rx_fetch(&c1, &meta, rx_buf, sizeof(rx_buf));
+    check(n == (int)sizeof(frame) &&
+              memcmp(rx_buf, frame, sizeof(frame)) == 0,
+          "WT-FFM-0056 client transport RX_FETCH returns the frame");
+    n = wt_vnet_psa_rx_fetch(&c1, &meta, rx_buf, sizeof(rx_buf));
+    check(n == WT_VNET_E_EMPTY,
+          "WT-FFM-0056 client transport surfaces EMPTY unchanged");
+    wt_vnet_psa_close(&c1);
+    g_active_client = TEST_GUEST0;
+    wt_vnet_psa_close(&c0);
 
     if (g_failures == 0) {
         printf("PASS: vnet_relay (SERVICE_VNET mediated switch dispatch)\n");

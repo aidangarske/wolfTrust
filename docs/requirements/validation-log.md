@@ -3269,4 +3269,30 @@ Evidence: host `make test` unit/all PASS (vnet_relay suite riding the new
 boot registration path); box container cross-builds green both ways -
 default `make all` (no VNET symbol or manifest row in the image) and
 `make all CONFIG_VNET=y` (7-partition manifest generated, secure veneer
-whitelist passing). Commit: recorded below.
+whitelist passing). Commit: `2612167`.
+
+## Mediated VNET S3 - guest client transport on psa_call (WT-FFM-0056, 2026-08-28)
+
+`src/client/vnet_psa_transport.c` + `include/wolftrust/vnet_psa_transport.h`:
+the neutral guest-side transport - open (psa_connect + the OPEN call,
+returning the switch info), set_mac and tx as one psa_call each, rx_fetch as
+one psa_call returning the frame length (or the untranslated WT_VNET_E_*
+refusal, WT_VNET_E_EMPTY when idle), close. The WT_VNET_OP_* codes and the
+service SID moved into `vnet/vnet_abi.h` (the shared NS/S ABI header) so the
+client compiles freestanding without SPM-internal headers. The stm32h563-vnet
+demo guest is repointed: `vnet_ll_send`/`vnet_ll_poll` and the open/set-mac
+bring-up now ride the transport - receive is ONE mediated call where the raw
+path needed RxPoll + RxRead + RxRelease, and no slot/generation cookie ever
+reaches the guest. `wolfip_config` unchanged (the swap is entirely below
+wolfIP's send/poll seam). The guest links `src/client/psa_ffm_client.c` and
+the transport; the raw veneer symbols have no remaining call site in the
+demo (deleted from the build in the next slice).
+
+Evidence: `tests/host/vnet_relay` extended to drive the REAL transport
+functions through the stubbed gateway into the live dispatch + switch - 28
+checks green including transport open/info, TX, cross-guest byte-exact
+RX_FETCH, and EMPTY pass-through; aggregate `make test` unit/all PASS. Box
+container builds the repointed firmware green: secure CONFIG_VNET=y image +
+both guest ELFs linking the mediated client (lib/wolfIP submodule
+initialized to build the demo). The end-to-end emulator ping is the S5
+scenario's gate. Commit: recorded in the next entry.

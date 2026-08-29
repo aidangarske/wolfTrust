@@ -49,6 +49,20 @@ typedef struct vnet_rx_meta {
     uint32_t src_vm;
 } vnet_rx_meta_t;
 
+/* SERVICE_VNET over FF-M (WT-FFM-0056): the SID the vnet manifest assigns
+ * (manifest-vnet.json) and the operations, carried as the psa_call type.
+ * Vector layout: OPEN outvec[0]=vnet_info_t; SET_MAC invec[0]=6-byte MAC;
+ * TX invec[0]=one frame; RX_FETCH outvec[0]=vnet_rx_meta_t,
+ * outvec[1]=payload; IRQ_ACK no vectors. */
+#define WT_VNET_SERVICE_SID      4103U
+#define WT_VNET_SERVICE_VERSION  1U
+
+#define WT_VNET_OP_OPEN       1
+#define WT_VNET_OP_SET_MAC    2
+#define WT_VNET_OP_TX         3
+#define WT_VNET_OP_RX_FETCH   4
+#define WT_VNET_OP_IRQ_ACK    5
+
 /* The seven NSC veneers exported by the secure side. Each returns a
  * signed int (wolfHSM/wt_vnet error space; 0 on success, negative on
  * failure). NS guests link these via secure_cmse_implib.o. */

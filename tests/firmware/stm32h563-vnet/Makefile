@@ -86,6 +86,8 @@ GUEST1_BIN := $(BUILD_DIR)/guest1.bin
 GUEST_SRCS := \
     nonsecure/guest.c \
     nonsecure/libc_stubs.c \
+    $(ROOT)/src/client/psa_ffm_client.c \
+    $(ROOT)/src/client/vnet_psa_transport.c \
     $(WOLFIP_DIR)/src/wolfip.c
 
 .PHONY: all secure clean run run-uarts
