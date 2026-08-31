@@ -635,6 +635,15 @@ int wt_spm_measure_read_call(unsigned int index, void* record,
     return call.ret_int;
 }
 
+int wt_spm_thread_unprivileged(void)
+{
+    unsigned int control;
+    unsigned int ipsr;
+    __asm volatile("mrs %0, control" : "=r"(control));
+    __asm volatile("mrs %0, ipsr" : "=r"(ipsr));
+    return (int)(ipsr == 0u && (control & 1u) != 0u);
+}
+
 int wt_spm_keystore_lock_call(int sub_op)
 {
     wt_spm_call_t call;

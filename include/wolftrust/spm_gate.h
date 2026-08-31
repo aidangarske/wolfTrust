@@ -93,16 +93,11 @@ typedef enum wt_spm_op {
  * partition); such code reaches privileged platform services only through
  * the SVC gate. Handler mode is always privileged even when the interrupted
  * thread's CONTROL.nPRIV is set, so the gate's own re-entry into these seams
- * takes the direct path. Host builds are never unprivileged. */
+ * takes the direct path. Host builds are never unprivileged. The CMSE
+ * definition reads CONTROL/IPSR and lives in the arch SVC layer so this core
+ * header carries no architecture assembly. */
 #if defined(__ARM_FEATURE_CMSE)
-static inline int wt_spm_thread_unprivileged(void)
-{
-    unsigned int control;
-    unsigned int ipsr;
-    __asm volatile("mrs %0, control" : "=r"(control));
-    __asm volatile("mrs %0, ipsr" : "=r"(ipsr));
-    return (int)(ipsr == 0u && (control & 1u) != 0u);
-}
+int wt_spm_thread_unprivileged(void);
 /* Gated NVM-lock hop for the keystore lock callback (defined in the arch SVC
  * layer); loops internally until the lock is granted. Returns 0 on success. */
 int wt_spm_keystore_lock_call(int sub_op);
