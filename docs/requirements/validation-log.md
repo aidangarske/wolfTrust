@@ -3609,3 +3609,30 @@ Proof:
   exit - no regression. `confboot` does not gate on fault markers by design (its
   isolation probes fault the Non-secure client on purpose); its PASSED/SKIPPED/
   FAILED counts and clean exit are the correctness gate, and both are green.
+
+## Firmware Update partition confinement evidence
+
+Commit: `wolftfm-l3` HEAD after this change.
+
+SERVICE_FWU no longer runs privileged. It is now an unprivileged scheduled
+Secure Partition confined to its manifest MPU domain (`wt_spm_fwu_start` uses
+`wt_spm_sched_add`, so `wt_co_set_domain` narrows it). Its only privileged need
+is programming the wolfBoot update partition flash, which now routes through a
+narrow SPM gate op (`WT_SPM_OP_FWU_BACKEND`, sub-ops begin/write/arm/disarm):
+the SVC dispatcher runs the port flash backend in handler mode and pins the
+operation to `PARTITION_FWU_ID`, so no other partition can reach the staging
+backend, and the write sub-op bounds-checks the source buffer against the
+caller's own domain (`WT-FFM-0061`; confines under `WT-FFM-0011`/`WT-FFM-0013`).
+
+Proof:
+- M33MU `positive`: PASS, 0 fault markers - confining FWU unprivileged does not
+  regress the lifecycle.
+- M33MU `fwustage`: PASS - the confined FWU partition erases, programs, and
+  verifies a staged candidate through the gate.
+- M33MU `bootupdate`: PASS - a full v1->v2 update stages through the confined
+  FWU + gate, wolfBoot swaps, and the post-swap token reports v2's measurement.
+- M33MU `crossdomain`: PASS - the ITS partition's `WT_SPM_OP_FWU_BACKEND`
+  request is refused at the SVC (returns `ERROR_ARGUMENT`, not the flash
+  backend), then the pre-existing SPM-RAM read faults as designed; the added
+  gate-pin probe raises no extra fault, proving the FWU gate cannot be abused
+  as a cross-partition privilege escalation.

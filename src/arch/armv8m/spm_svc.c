@@ -104,6 +104,10 @@ int wt_conf_nvm_flash_sync(uint8_t *buf, uint32_t len, int store);
 void wt_conf_uart_irq_set(int on);
 #endif
 
+/* Port flash staging backend (WT-FWU-0002); the SVC dispatcher runs its ops
+ * privileged on behalf of the confined FWU partition. */
+extern const wt_fwu_backend_t wt_fwu_flash_backend;
+
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 /* Conformance-only hang tripwires: silent stalls on target are undebuggable,
  * so convert them into diag-trap register dumps. Activity is any SVC or
@@ -356,6 +360,41 @@ void wt_spm_svc_entry(uint32_t* frame)
         return;
     }
 #endif
+
+    /* SERVICE_FWU staging (WT-FWU-0002): the confined FWU partition cannot
+     * touch the flash controller, so its backend ops trap here for the
+     * privileged program/erase, pinned to the FWU partition identity. */
+    if (call->op == WT_SPM_OP_FWU_BACKEND) {
+        int fwu_ret = -1;
+
+        if (slot->partition_id != PARTITION_FWU_ID) {
+            frame[0] = (uint32_t)WT_FFM_ERROR_ARGUMENT;
+            return;
+        }
+        if (call->call_type == WT_SPM_FWU_BEGIN &&
+                wt_fwu_flash_backend.begin != NULL) {
+            fwu_ret = wt_fwu_flash_backend.begin(NULL);
+        }
+        else if (call->call_type == WT_SPM_FWU_WRITE &&
+                wt_fwu_flash_backend.write != NULL &&
+                wt_secure_domain_contains(&slot->table,
+                    (uintptr_t)call->buffer, call->num_bytes, 0) != 0) {
+            fwu_ret = wt_fwu_flash_backend.write(NULL, call->vec_idx,
+                (const uint8_t*)call->buffer, (uint32_t)call->num_bytes);
+        }
+        else if (call->call_type == WT_SPM_FWU_ARM &&
+                wt_fwu_flash_backend.arm != NULL) {
+            fwu_ret = wt_fwu_flash_backend.arm(NULL,
+                (uint32_t)call->num_bytes, call->version);
+        }
+        else if (call->call_type == WT_SPM_FWU_DISARM &&
+                wt_fwu_flash_backend.disarm != NULL) {
+            fwu_ret = wt_fwu_flash_backend.disarm(NULL);
+        }
+        call->ret_int = fwu_ret;
+        frame[0] = (uint32_t)WT_FFM_SUCCESS;
+        return;
+    }
 
     /* The caller's identity is the scheduled slot's, never the SP-supplied
      * field: a partition cannot impersonate another through the gate. */
@@ -960,7 +999,20 @@ static void wt_spm_its_entry(void* arg)
         /* Negative isolation proof (WT-FFM-0011): an unprivileged read of
          * SPM-private RAM from inside the SP domain must MemManage-fault.
          * Never built into production images. */
+        wt_spm_call_t pin;
         volatile uint32_t probe;
+
+        /* Gate-pin proof (WT-FFM-0061): a staging-backend request from a
+         * non-FWU partition must be refused at the SVC; reaching the flash
+         * backend from here would be a privilege escape, so trap hard
+         * (unexpected extra fault fails the scenario) instead of continuing
+         * to the expected MPU probe below. */
+        (void)memset(&pin, 0, sizeof(pin));
+        pin.op = WT_SPM_OP_FWU_BACKEND;
+        pin.call_type = WT_SPM_FWU_BEGIN;
+        if (wt_spm_svc_raw(&pin) != WT_FFM_ERROR_ARGUMENT) {
+            __asm volatile("udf #1");
+        }
         probe = *(const volatile uint32_t*)(uintptr_t)WT_RAM_S_BASE;
         (void)probe;
 #endif
@@ -1004,20 +1056,74 @@ int wt_spm_ps_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
                             (void*)(intptr_t)partition_id);
 }
 
-/* The Firmware Update partition (WT-FWU-0001/0002): a scheduled PRIVILEGED
- * coroutine, like the vault, because it programs the wolfBoot update partition
- * flash to stage a candidate. Context lives on its own stack; the port
- * supplies the flash staging backend. */
-extern const wt_fwu_backend_t wt_fwu_flash_backend;
+/* Confined FWU staging backend: each op traps to the privileged SVC
+ * dispatcher (WT_SPM_OP_FWU_BACKEND), which pins the caller to the FWU
+ * partition and runs the port flash backend in handler mode. */
+static int wt_spm_fwu_gate_op(int32_t sub_op, uint32_t offset,
+                              const uint8_t* data, uint32_t size,
+                              uint32_t version)
+{
+    wt_spm_call_t call;
 
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_FWU_BACKEND;
+    call.call_type = sub_op;
+    call.vec_idx = offset;
+    call.buffer = (void*)(uintptr_t)data;
+    call.num_bytes = size;
+    call.version = version;
+    if (wt_spm_svc_transport(NULL, &call) != WT_FFM_SUCCESS) {
+        return -1;
+    }
+    return call.ret_int;
+}
+
+static int wt_spm_fwu_gate_begin(void* ctx)
+{
+    (void)ctx;
+    return wt_spm_fwu_gate_op(WT_SPM_FWU_BEGIN, 0u, NULL, 0u, 0u);
+}
+
+static int wt_spm_fwu_gate_write(void* ctx, uint32_t offset,
+                                 const uint8_t* data, uint32_t size)
+{
+    (void)ctx;
+    return wt_spm_fwu_gate_op(WT_SPM_FWU_WRITE, offset, data, size, 0u);
+}
+
+static int wt_spm_fwu_gate_arm(void* ctx, uint32_t image_size,
+                               uint32_t version)
+{
+    (void)ctx;
+    return wt_spm_fwu_gate_op(WT_SPM_FWU_ARM, 0u, NULL, image_size, version);
+}
+
+static int wt_spm_fwu_gate_disarm(void* ctx)
+{
+    (void)ctx;
+    return wt_spm_fwu_gate_op(WT_SPM_FWU_DISARM, 0u, NULL, 0u, 0u);
+}
+
+/* The Firmware Update partition (WT-FWU-0001/0002): a confined scheduled SP.
+ * Context and the gate backend live on its own stack; capacity/align mirror
+ * the port flash backend (rodata, readable from the confined domain). */
 static void wt_spm_fwu_entry(void* arg)
 {
     int32_t partition_id = (int32_t)(intptr_t)arg;
     wt_fwu_service_ctx_t ctx;
+    wt_fwu_backend_t backend;
+
+    (void)memset(&backend, 0, sizeof(backend));
+    backend.begin = wt_spm_fwu_gate_begin;
+    backend.write = wt_spm_fwu_gate_write;
+    backend.arm = wt_spm_fwu_gate_arm;
+    backend.disarm = wt_spm_fwu_gate_disarm;
+    backend.capacity = wt_fwu_flash_backend.capacity;
+    backend.align = wt_fwu_flash_backend.align;
 
     (void)memset(&ctx, 0, sizeof(ctx));
     ctx.transport = wt_spm_svc_transport;
-    ctx.backend = &wt_fwu_flash_backend;
+    ctx.backend = &backend;
     ctx.backend_ctx = NULL;
     ctx.version_floor = 0u;
     ctx.state = PSA_FWU_READY;
@@ -1029,8 +1135,8 @@ static void wt_spm_fwu_entry(void* arg)
 
 int wt_spm_fwu_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
-    return wt_spm_sched_add_common(runtime, partition_id, wt_spm_fwu_entry,
-                                   (void*)(intptr_t)partition_id, 1u);
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_fwu_entry,
+                            (void*)(intptr_t)partition_id);
 }
 
 #if defined(CONFIG_VNET)

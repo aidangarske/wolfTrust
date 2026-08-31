@@ -47,6 +47,11 @@ typedef enum wt_spm_op {
     WT_SPM_OP_CLOSE,
     WT_SPM_OP_EOI,
     WT_SPM_OP_IRQ_ENABLE
+    /* Production platform service, NOT an FF-M IPC op: the arch SVC layer
+     * intercepts it before this gate and pins it to the FWU partition. The
+     * confined staging loop traps here for the privileged flash backend;
+     * call_type selects the WT_SPM_FWU_* sub-operation. */
+    , WT_SPM_OP_FWU_BACKEND = 0x40
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     /* Platform conformance services, NOT FF-M IPC ops: the arch SVC layer
      * intercepts them before this gate, so no case handles them here. Real
@@ -58,6 +63,12 @@ typedef enum wt_spm_op {
     , WT_SPM_OP_CONF_IRQ_SET = 0x101
 #endif
 } wt_spm_op_t;
+
+/* WT_SPM_OP_FWU_BACKEND sub-operations, carried in call_type. */
+#define WT_SPM_FWU_BEGIN  0
+#define WT_SPM_FWU_WRITE  1
+#define WT_SPM_FWU_ARM    2
+#define WT_SPM_FWU_DISARM 3
 
 /* SP-as-client iovec capacity per direction (i003 widens with the NS veneer). */
 #define WT_SPM_SP_IOVEC 4U
