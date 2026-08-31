@@ -411,9 +411,14 @@ wolfTrust on the board - the TF-M drop-in proof.
       token). Defect found by the gate: the const slot accessor const-folded
       the unpatched marker - fixed with a volatile load. `authneg` in the CI
       matrix + `ci:authneg`.
-    - [ ] **S1-HW: repeat authenticated-launch evidence on H563 silicon**
-      (devattest + authneg via the updated `run_h5_hardware.sh` patch-then-sign
-      flow) - hardware-pending, board session (rides with #91/#96).
+    - [x] **S1-HW: authenticated-launch evidence on H563 silicon** (#113): both
+      `devattest` (dev_apis initial_attestation 1/0 on silicon) and the new
+      `authneg` scenario (one-byte guest0 tamper after pinning -> launch refused,
+      quarantine events=1, guest0 never enters its domain, guest1 keeps running
+      with live mediated crypto) PASS on a NUCLEO-H563ZI. #96 also closed: the
+      positive lifecycle boots and runs on silicon (guest0 `g_guest0_lifecycle`
+      SWD latch = 0xFF), gated over SWD to dodge the shared-USART3 interleave.
+      Commits `bef7379` + `da67006` (see validation-log).
     - [x] **S2 (Fable): firmware anti-rollback (WT-FFM-0050) - DONE on M33MU.**
       `boot_handoff.image_version` finally consumed: `wt_hsm_rollback_enforce`
       runs on the boot stack after `wt_hsm_init` (NVM live) and before the

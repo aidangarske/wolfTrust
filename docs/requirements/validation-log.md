@@ -3509,3 +3509,31 @@ fetches with no failing status ever latched; box M33MU scenarios `vnet`,
 `positive`, `spfaultneg`, `bothpsa` all PASS; host `make test` unit/all
 PASS. WT-FFM-0058's silicon leg is met and the mediated virtual network
 acceptance gate is closed.
+
+## Phase 8 H5 silicon: positive lifecycle, attestation, authenticated launch (2026-08-31)
+
+The positive lifecycle, device attestation, and authenticated-launch-fail-closed
+scenarios now pass on a NUCLEO-H563ZI. Closes #96 and #113.
+
+- **positive** PASS: the full PSA/FF-M lifecycle runs on silicon (guests boot,
+  which #96's "128K-layout bit-rot" broke and the 256K-layout unification cured).
+  The gate now reads guest0's `g_guest0_lifecycle` bitmask over SWD instead of
+  grepping the shared USART3 console: both guests write the same UART and their
+  banners interleave char-by-char, so a console grep was flaky. Latched value
+  `0xFF` = TEE init, mediated crypto dispatch, ITS, PS, key-ops, SHA-256 KAT,
+  attestation COSE verify, and guest0 completion. The attestation token
+  measurement equals the wolfBoot measurement of the signed image.
+- **devattest** PASS: `dev_apis initial_attestation` 1 passed, 0 failed on
+  silicon.
+- **authneg** PASS: one byte of guest0 is corrupted after its digest is pinned
+  and the image signed; launch verification refuses guest0 (quarantine events
+  = 1), guest0 never enters its domain, and guest1 keeps running with live
+  mediated crypto. New H5 runner scenario mirroring the M33MU authneg.
+
+Also fixed a harness bug the container-build/host-flash split (run_h5_suite.sh)
+exposed: `WT_EXPECTED_MEASUREMENT_HEX` was computed only in the build path, so
+the flash-path attestation check compared against an empty string; it is now
+recomputed from the on-disk signed image in the flash path.
+
+Commits `bef7379` (guest0 lifecycle latch) and `da67006` (SWD-latched positive
+gate, measurement recompute, authneg scenario).
