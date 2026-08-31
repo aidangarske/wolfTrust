@@ -42,7 +42,7 @@ set -o pipefail
 mode="${1:-all}"
 scenario="${2:-positive}"
 case "$mode" in build|flash|all) ;; *) echo "usage: $0 build|flash|all [scenario]" >&2; exit 2 ;; esac
-case "$scenario" in positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|bootupdate|vnet) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|bootupdate|vnet" >&2; exit 2 ;; esac
+case "$scenario" in positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|bootupdate|vnet) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|bootupdate|vnet" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -60,7 +60,7 @@ SERIAL="${H5_SERIAL:-/dev/ttyACM0}"
 # confboot reboots the whole chain once per panic test (real SYSRESETREQ, each
 # re-running wolfBoot), so it needs a long ceiling; the capture stops early on
 # the suite report.
-case "$scenario" in restart) cap_default=32 ;; confboot) cap_default=900 ;; devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec) cap_default=600 ;; bootupdate) cap_default=45 ;; authneg) cap_default=30 ;; *) cap_default=25 ;; esac
+case "$scenario" in restart) cap_default=32 ;; confboot) cap_default=900 ;; devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec) cap_default=600 ;; bootupdate) cap_default=45 ;; authneg) cap_default=30 ;; writeonce) cap_default=40 ;; *) cap_default=25 ;; esac
 CAP_S="${H5_CAPTURE_SECONDS:-$cap_default}"
 LOGFILE="${WT_SCENARIO_LOG:-ci-h5-hardware-$scenario.log}"
 case "$LOGFILE" in /*) ;; *) LOGFILE="$repo/$LOGFILE" ;; esac
@@ -165,6 +165,7 @@ if [ "$mode" != "flash" ]; then
   secure_flags=""; guest_flags=""
   [ "$scenario" = "crossdomain" ] && secure_flags="WT_FFM_NEGATIVE_PROBE=1"
   [ "$scenario" = "restart" ] && guest_flags="WT_GUEST_FAULT_PROBE=1"
+  [ "$scenario" = "writeonce" ] && guest_flags="WT_WRITE_ONCE_RESET_PROBE=1"
   [ "$scenario" = "bootupdate" ] && secure_flags="WT_BOOTUPDATE_PROBE=1"
   [ "$scenario" = "vnet" ] && secure_flags="CONFIG_VNET=y"
   # WT_CONF_DIAG_TRAP=0: the emulator-only hang-probe fault would become a
@@ -330,6 +331,17 @@ if [ "$mode" != "build" ]; then
     pyocd erase -t "$PYOCD_TARGET" -s 0x0C1FE000 >> "$LOGFILE" 2>&1 || true
     pyocd erase -t "$PYOCD_TARGET" -s 0x0C1FA000 >> "$LOGFILE" 2>&1 || true
     pyocd cmd -t "$PYOCD_TARGET" -c reset >/dev/null 2>&1 || true
+  elif [ "$scenario" = "writeonce" ]; then
+    # First boot on a blank vault: guest0 seals a WRITE_ONCE object and latches
+    # g_write_once_stage=1. The second reset (in the assertion below) boots again
+    # and confirms the object survived the reset and is immutable. The halt,
+    # erase, and release MUST share one pyocd session — separate invocations let
+    # the target resume between them and the running firmware rewrites the pool
+    # before the erase lands (same race the dev scenarios avoid).
+    stage "writeonce: halt, erase vault NVM, first boot (seed WRITE_ONCE)"
+    pyocd cmd -t "$PYOCD_TARGET" -c "reset halt" \
+      -c "erase 0x0C1FC000" -c "erase 0x0C1FE000" -c reset \
+      >> "$LOGFILE" 2>&1 || true
   else
     pyocd cmd -t "$PYOCD_TARGET" -c reset >/dev/null 2>&1 || true
   fi
@@ -421,6 +433,33 @@ if [ "$mode" != "build" ]; then
       fi
       expect "guest1 (unrelated domain) still runs" "freertos_guest1: heartbeat"
       expect "guest1 mediated crypto still live" "freertos_guest1: ffm sha256 ok"
+      ;;
+    writeonce)
+      # Boot A (post-flash) sealed a WRITE_ONCE object on a blank vault and
+      # latched stage 1. Reset once more for boot B, which reads it back
+      # (survived the reset) and confirms it refuses set (NONMODIFIABLE) and
+      # remove (NONDESTROYABLE), latching stage 2. Read over SWD across boots.
+      refute_re "no fault markers on silicon" \
+        '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+      seeded=$(read_guest0_u32 g_write_once_stage)
+      if [ -n "$seeded" ] && [ $((0x$seeded)) -eq 1 ]; then
+        check_pass "first boot sealed the WRITE_ONCE object (stage=1)"
+      else
+        check_fail "seed" "stage 0x${seeded:-none}, expected 1"
+      fi
+      stage "writeonce: reset for the second boot (verify reset survival)"
+      pyocd cmd -t "$PYOCD_TARGET" -c reset >/dev/null 2>&1 || true
+      waited=0; st2=""
+      while [ "$waited" -lt 20 ]; do
+        st2=$(read_guest0_u32 g_write_once_stage)
+        [ -n "$st2" ] && [ $((0x$st2)) -ne 0 ] && break
+        sleep 2; waited=$((waited + 2))
+      done
+      if [ -n "$st2" ] && [ $((0x$st2)) -eq 2 ]; then
+        check_pass "WRITE_ONCE object survived the reset and refused set/remove (stage=2)"
+      else
+        check_fail "survival" "stage 0x${st2:-none}, expected 2"
+      fi
       ;;
     restart)
       # The guest faults on boot each cycle; the monitor restarts it
