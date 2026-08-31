@@ -159,6 +159,12 @@ wolfTrust on the board - the TF-M drop-in proof.
     confboot **89/85/0/4/0**. Splits out the silicon-only WRITE_ONCE-across-
     SYSRESETREQ proof as a hardware-pending item (needs the board; do not
     fake board evidence). #26's fault-recovery half remains separate.
+    - [x] **WRITE_ONCE survives SYSRESETREQ on H563 silicon** (#91): the
+      `writeonce` two-boot scenario seals a WRITE_ONCE PS object on a freshly
+      erased vault, resets the board, and confirms on the second boot that the
+      object survived and refuses set (NONMODIFIABLE) and remove
+      (NONDESTROYABLE), read over SWD. PASS on a NUCLEO-H563ZI. Commits
+      `94db012` + `4677bc4` (see validation-log).
 
   - [x] **P4-S6 - unlock dev_apis conformance**: real bodies for
     `pal_its/ps/crypto_function` (conformance_pal.c stubs) translating

@@ -3537,3 +3537,21 @@ recomputed from the on-disk signed image in the flash path.
 
 Commits `bef7379` (guest0 lifecycle latch) and `da67006` (SWD-latched positive
 gate, measurement recompute, authneg scenario).
+
+## Phase 8 H5 silicon: WRITE_ONCE survives SYSRESETREQ (2026-08-31)
+
+The `writeonce` scenario passes on a NUCLEO-H563ZI, closing #91. A guest0 probe
+(WT_WRITE_ONCE_RESET_PROBE) seals a WRITE_ONCE PS object on a freshly erased
+vault and latches g_write_once_stage=1; the runner resets the board; the second
+boot reads the object back (it survived the reset), confirms it refuses a second
+set (NONMODIFIABLE) and a remove (NONDESTROYABLE), and latches stage=2. The
+runner reads the latch over SWD across both boots and asserts stage==2 with no
+fault markers.
+
+The object's own existence is the boot-phase detector (WT_VAULT_FLAG_WRITE_ONCE
+= 0x1, accepted by the SERVICE_PS face). Harness note: the pre-boot vault erase
+must halt, erase, and release in one pyocd session — separate invocations let
+the target resume between them and the running firmware rewrites the pool before
+the erase lands, which first made the seeded object appear to pre-exist.
+
+Commits `94db012` (guest probe + build flag) and `4677bc4` (runner scenario).
