@@ -54,6 +54,21 @@
 
 LOG_MODULE_REGISTER(guest0_psa, LOG_LEVEL_INF);
 
+/* SWD ground-truth progress latch: guest0 and guest1 share USART3, so their
+ * banners interleave char-by-char and a UART grep is unreliable on silicon.
+ * Each milestone ORs its bit here; the hardware runner reads the word over
+ * SWD instead of the console. WT_LC_ALL means the full lifecycle ran. */
+volatile uint32_t g_guest0_lifecycle __attribute__((used));
+#define WT_LC_TEE     0x001u
+#define WT_LC_CRYPTO  0x002u
+#define WT_LC_ITS     0x004u
+#define WT_LC_PS      0x008u
+#define WT_LC_KEYOPS  0x010u
+#define WT_LC_SHAKAT  0x020u
+#define WT_LC_COSE    0x040u
+#define WT_LC_DONE    0x080u
+#define WT_LC_ALL     0x0FFu
+
 #define WOLFTRUST_FN_HSM_CANCEL 2u
 #define WOLFTRUST_FN_FFM_CONNECT 3u
 #define WOLFTRUST_FN_FFM_CALL    4u
@@ -193,6 +208,7 @@ static void exercise_ffm_crypto(void)
 		return;
 	}
 	LOG_INF("wolfTrust FF-M mediated crypto dispatch verified");
+	g_guest0_lifecycle |= WT_LC_CRYPTO;
 }
 
 /* P4-S2: the full storage chain from a real Non-secure guest — NS ->
@@ -266,6 +282,7 @@ static void exercise_ffm_its(void)
 			LOG_ERR("wolfTrust ITS get returned wrong data");
 		} else {
 			LOG_INF("wolfTrust ITS set/get verified");
+			g_guest0_lifecycle |= WT_LC_ITS;
 		}
 	}
 
@@ -345,6 +362,7 @@ static void exercise_ffm_ps(void)
 			LOG_ERR("wolfTrust PS get returned wrong data");
 		} else {
 			LOG_INF("wolfTrust PS sealed set/get verified");
+			g_guest0_lifecycle |= WT_LC_PS;
 		}
 	}
 
@@ -418,6 +436,7 @@ static void exercise_ffm_keys(void)
 
 	if (ok) {
 		LOG_INF("wolfTrust key-ops sign/verify verified");
+		g_guest0_lifecycle |= WT_LC_KEYOPS;
 	}
 
 	(void)psa_destroy_key(key);
@@ -614,6 +633,7 @@ static void exercise_psa_hash(void)
     }
 
     LOG_INF("psa_hash_compute(SHA-256) KAT verified");
+    g_guest0_lifecycle |= WT_LC_SHAKAT;
 }
 
 static void exercise_psa_cipher(void)
@@ -729,6 +749,7 @@ static void exercise_psa_initial_attestation(void)
         }
         measurementHex[64] = '\0';
         LOG_INF("wolfTrust attestation: COSE_Sign1 verified");
+        g_guest0_lifecycle |= WT_LC_COSE;
         LOG_INF("wolfTrust attestation: token measurement=%s", measurementHex);
         LOG_INF("attestation verify=0 challenge=ok identity=ok "
             "lifecycle=0x%04x measurement=ok cose=ES256",
@@ -1019,6 +1040,7 @@ int main(void)
 	rc = wt_zephyr_client_init("guest0_psa");
 	if (rc == 0) {
 		LOG_INF("wolfTrust TEE client initialized");
+		g_guest0_lifecycle |= WT_LC_TEE;
 	} else {
 		LOG_WRN("wolfTrust TEE init rc=%d (%s)", rc,
 			wt_zephyr_client_status_string(rc));
@@ -1053,6 +1075,7 @@ int main(void)
 #endif
 
 	LOG_INF("guest0_psa done");
+	g_guest0_lifecycle |= WT_LC_DONE;
 
 #if defined(WT_M33MU_EXPECT_BKPT)
     __asm volatile("bkpt #0x7f");
