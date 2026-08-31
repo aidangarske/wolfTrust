@@ -48,6 +48,7 @@
 /* wolfHSM headers. */
 #include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_comm.h"
+#include "wolfhsm/wh_message.h"
 #include "wolfhsm/wh_nvm.h"
 #include "wolfhsm/wh_nvm_flash.h"
 #include "wolfhsm/wh_lock.h"
@@ -663,6 +664,8 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
     wt_hsm_guest_t* g;
     wt_hsm_relay_buf_t* buf;
     wt_guest_id_t gid;
+    const whCommHeader* hdr;
+    uint16_t kind;
     int guard = 1000;
     int rc = WH_ERROR_OK;
 
@@ -685,6 +688,21 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
             req_len > sizeof(whCommHeader) + WOLFHSM_CFG_COMM_DATA_LEN) {
         return WH_ERROR_BADARGS;
     }
+    if (req_len < sizeof(whCommHeader)) {
+        return WH_ERROR_BADARGS;
+    }
+
+    /* The guest relay is a crypto-only door: refuse NVM-group packets so a
+     * guest cannot reach the vault, rollback, or replay-counter pool. */
+    hdr = (const whCommHeader*)(const void*)req;
+    kind = wh_Translate16(hdr->magic, hdr->kind);
+    if (WH_MESSAGE_GROUP(kind) == WH_MESSAGE_GROUP_NVM) {
+        return WH_ERROR_BADARGS;
+    }
+
+    /* Bind the server to this guest's namespace so a spoofed COMM-INIT client
+     * id cannot reach the attestation IAK or another guest's keys. */
+    g->server.comm->client_id = (uint8_t)wt_hsm_guest_client_id(gid);
 
     (void)memcpy(buf->req, req, req_len);
     buf->req_len = (uint16_t)req_len;

@@ -3555,3 +3555,31 @@ the target resume between them and the running firmware rewrites the pool before
 the erase lands, which first made the seeded object appear to pre-exist.
 
 Commits `94db012` (guest probe + build flag) and `4677bc4` (runner scenario).
+
+## Mediated wolfHSM caller isolation: guest cannot reach the IAK or trusted NVM (2026-08-31)
+
+Two skoll security findings on the mediated wolfHSM relay are closed
+(`WT-FFM-0059`). A compromised guest could (1) forge a COMM_INIT claiming the
+attestation-reserved wolfHSM client id (`WH_CLIENT_ID_MAX`) and then sign with
+the committed IAK (key `0xF0`), and (2) issue NVM-group requests that reach the
+shared pool and rewrite the rollback table (`0x0122`) or snapshot the PS
+replay-counter (`0x0121`), defeating anti-rollback and replay protection.
+
+Fix (`src/services/wolfhsm/wt_hsm.c`, `wt_hsm_relay_submit`): before pumping each
+guest server the relay forces `comm->client_id` to the caller's bound namespace
+(guest id + 1), so a forged identity cannot select the IAK namespace or another
+guest; and it decodes the packet's `whCommHeader` and refuses any
+`WH_MESSAGE_GROUP_NVM` request, since a guest reaches storage only through the
+SERVICE_ITS/SERVICE_PS partitions, never raw NVM.
+
+Proof - new `hsmattackneg` scenario (guest0 `WT_HSM_ATTACK_PROBE`): a guest forges
+the COMM_INIT, attempts the IAK sign, and issues a raw NVM-group request.
+- M33MU: PASS. IAK sign refused (rc=-2104), NVM group refused (rc=-2002),
+  own-namespace crypto still works, no fault, clean exit.
+- NUCLEO-H563ZI silicon: PASS. SWD latch `g_hsm_attack_probe` == `0x7` (both
+  attacks refused, own namespace ok), no fault markers.
+- Regression: M33MU `positive` + `bothpsa` green - the client_id binding does not
+  break per-guest crypto, and the NVM-group block does not break legit guest
+  traffic, which uses only comm, crypto, and key groups.
+The host `wolfhsm_relay` suite is unchanged and green. CI: `hsmattackneg` added to
+the M33MU matrix.

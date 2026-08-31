@@ -283,6 +283,7 @@ jobs:
           - { key: devattest,       name: "dev_apis Initial Attestation (a001, shim)" }
           - { key: devattestqcbor,  name: "dev_apis Initial Attestation (a001, QCBOR)" }
           - { key: attestneg,       name: "Attestation negatives (IPC + tamper)" }
+          - { key: hsmattackneg,    name: "wolfHSM cross-namespace + NVM relay negatives" }
           - { key: authneg,         name: "Authenticated launch fail-closed" }
           - { key: rollbackneg,     name: "Anti-rollback downgrade refused" }
           - { key: vaultrecover,    name: "Vault recovery self-heal" }

@@ -52,6 +52,16 @@
 
 #include "attestation_verify.h"
 
+#include "wolfssl/wolfcrypt/ecc.h"
+#include "wolfhsm/wh_error.h"
+#include "wolfhsm/wh_comm.h"
+#include "wolfhsm/wh_keyid.h"
+#include "wolfhsm/wh_client.h"
+#include "wolfhsm/wh_client_crypto.h"
+#include "wolfhsm/wh_message.h"
+#include "wolfhsm/wh_message_nvm.h"
+#include "wolftrust/services/hsm.h"
+
 LOG_MODULE_REGISTER(guest0_psa, LOG_LEVEL_INF);
 
 /* SWD ground-truth progress latch: guest0 and guest1 share USART3, so their
@@ -489,6 +499,103 @@ static void exercise_write_once_reset(void)
 	(void)wt_tee_invoke(&arg, 1, param);
 }
 #endif /* WT_WRITE_ONCE_RESET_PROBE */
+
+#if defined(WT_HSM_ATTACK_PROBE)
+/* Compromised-guest probe: forge a COMM_INIT claiming the attestation-reserved
+ * client_id (WH_CLIENT_ID_MAX) and try to sign with the committed IAK (key
+ * 0xF0), then try an NVM-group read of the rollback table (0x0122). Both must
+ * fail; the guest's own crypto must still work. */
+extern whClientContext *wolfhsm_guest_client(void);
+
+volatile uint32_t g_hsm_attack_probe __attribute__((used));
+#define WT_HSM_ATTACK_IAK_REFUSED   0x1u
+#define WT_HSM_ATTACK_NVM_REFUSED   0x2u
+#define WT_HSM_ATTACK_OWN_NS_OK     0x4u
+#define WT_HSM_ATTACK_ALL           0x7u
+/* IAK key index (WT_HSM_ATTEST_KEY_ID, private to the secure runtime). */
+#define WT_HSM_ATTACK_IAK_KEY_ID    0xF0u
+
+static void exercise_hsm_attack_probe(void)
+{
+    whClientContext *ctx = wolfhsm_guest_client();
+    ecc_key key;
+    uint8_t hash[32];
+    uint8_t sig[72];
+    uint16_t sigLen = (uint16_t)sizeof(sig);
+    uint8_t nvmbuf[16];
+    uint8_t rngbuf[16];
+    uint16_t rGroup = 0u;
+    uint16_t rAction = 0u;
+    uint16_t rSize = 0u;
+    int guard2 = 0;
+    uint32_t outClientId = 0;
+    uint32_t outServerId = 0;
+    psa_status_t st;
+    int rc;
+
+    if (ctx == NULL) {
+        LOG_ERR("hsmattackneg no wolfHSM client context");
+        return;
+    }
+
+    ctx->comm->client_id = WH_CLIENT_ID_MAX;
+    do {
+        rc = wh_Client_CommInitRequest(ctx);
+    } while (rc == WH_ERROR_NOTREADY);
+    if (rc == WH_ERROR_OK) {
+        do {
+            rc = wh_Client_CommInitResponse(ctx, &outClientId, &outServerId);
+        } while (rc == WH_ERROR_NOTREADY);
+    }
+    LOG_INF("hsmattackneg forged COMM_INIT client_id=%u rc=%d",
+        (unsigned)outClientId, rc);
+
+    (void)memset(hash, 0x42, sizeof(hash));
+    (void)wc_ecc_init(&key);
+    rc = wh_Client_EccSetKeyId(&key, WT_HSM_ATTACK_IAK_KEY_ID);
+    if (rc == WH_ERROR_OK) {
+        rc = wh_Client_EccSign(ctx, &key, hash, (uint16_t)sizeof(hash),
+            sig, &sigLen);
+    }
+    wc_ecc_free(&key);
+    if (rc != WH_ERROR_OK) {
+        LOG_INF("hsmattackneg IAK sign refused rc=%d", rc);
+        g_hsm_attack_probe |= WT_HSM_ATTACK_IAK_REFUSED;
+    } else {
+        LOG_ERR("hsmattackneg IAK sign SUCCEEDED (should have been refused)");
+    }
+
+    /* A raw NVM-group request must be refused by the relay before it reaches
+     * the server; the relay rejects on the message group alone, so the
+     * payload only needs the targeted rollback-table id. */
+    (void)memset(nvmbuf, 0, sizeof(nvmbuf));
+    nvmbuf[0] = (uint8_t)(WT_HSM_ROLLBACK_TABLE_ID & 0xFFu);
+    nvmbuf[1] = (uint8_t)((WT_HSM_ROLLBACK_TABLE_ID >> 8) & 0xFFu);
+    rc = wh_Client_SendRequest(ctx, WH_MESSAGE_GROUP_NVM,
+        WH_MESSAGE_NVM_ACTION_READ, (uint16_t)sizeof(nvmbuf), nvmbuf);
+    if (rc == WH_ERROR_OK) {
+        rSize = (uint16_t)sizeof(nvmbuf);
+        guard2 = 1000;
+        do {
+            rc = wh_Client_RecvResponse(ctx, &rGroup, &rAction, &rSize, nvmbuf);
+        } while (rc == WH_ERROR_NOTREADY && guard2-- > 0);
+    }
+    if (rc != WH_ERROR_OK) {
+        LOG_INF("hsmattackneg rollback NVM group refused rc=%d", rc);
+        g_hsm_attack_probe |= WT_HSM_ATTACK_NVM_REFUSED;
+    } else {
+        LOG_ERR("hsmattackneg rollback NVM group SUCCEEDED (should have been refused)");
+    }
+
+    st = psa_generate_random(rngbuf, sizeof(rngbuf));
+    if (st == PSA_SUCCESS) {
+        LOG_INF("hsmattackneg own-namespace crypto still works");
+        g_hsm_attack_probe |= WT_HSM_ATTACK_OWN_NS_OK;
+    } else {
+        LOG_ERR("hsmattackneg own-namespace crypto FAILED st=%d", (int)st);
+    }
+}
+#endif /* WT_HSM_ATTACK_PROBE */
 
 /* Key-ops now ride the single mediated path: wolfPSA generates a volatile
  * P-256 key pair whose private part lives only inside the wolfHSM server, signs
@@ -1173,6 +1280,9 @@ int main(void)
 	exercise_ffm_keys();
 	exercise_ffm_key_negatives();
 	exercise_ffm_negatives();
+#if defined(WT_HSM_ATTACK_PROBE)
+	exercise_hsm_attack_probe();
+#endif
 #if defined(WT_FWU_PROBE)
 	exercise_ffm_fwu();
 #endif

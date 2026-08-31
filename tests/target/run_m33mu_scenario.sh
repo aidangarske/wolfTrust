@@ -51,8 +51,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|bothpsa|bothiso|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet) ;;
-  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet" >&2; exit 2 ;;
+  positive|bothpsa|bothiso|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet) ;;
+  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -193,6 +193,8 @@ elif [ "$scenario" = "devattestqcbor" ]; then
   guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=attestation WT_ATTEST_CBOR=qcbor"
 elif [ "$scenario" = "attestneg" ]; then
   guest_flags="WT_ATTEST_NEG_PROBE=1"
+elif [ "$scenario" = "hsmattackneg" ]; then
+  guest_flags="WT_HSM_ATTACK_PROBE=1"
 elif [ "$scenario" = "fwustage" ]; then
   guest_flags="WT_FWU_PROBE=1"
 fi
@@ -566,6 +568,23 @@ case "$scenario" in
       "wolfTrust attestation negatives verified"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/attestneg"
+    ;;
+  hsmattackneg)
+    # Production image + guest probe: a forged COMM_INIT
+    # claiming client_id=WH_CLIENT_ID_MAX must not reach the committed IAK,
+    # an NVM-group packet must never reach the server, and the guest's own
+    # crypto namespace must still work.
+    refute_re "no fault markers in boot log" \
+      '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+    expect "forged COMM_INIT attempted" "hsmattackneg forged COMM_INIT"
+    expect "IAK sign refused" "hsmattackneg IAK sign refused"
+    expect "rollback NVM group refused" "hsmattackneg rollback NVM group refused"
+    expect "own-namespace crypto still works" \
+      "hsmattackneg own-namespace crypto still works"
+    refute_re "IAK sign never succeeded" 'hsmattackneg IAK sign SUCCEEDED'
+    refute_re "NVM group never succeeded" 'hsmattackneg rollback NVM group SUCCEEDED'
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
+    echo "PASS: target/hsmattackneg"
     ;;
   vaultrecover)
     # The foreign-pool probe forces the boot-time vault recovery. In the

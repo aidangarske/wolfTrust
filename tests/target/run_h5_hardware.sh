@@ -42,7 +42,7 @@ set -o pipefail
 mode="${1:-all}"
 scenario="${2:-positive}"
 case "$mode" in build|flash|all) ;; *) echo "usage: $0 build|flash|all [scenario]" >&2; exit 2 ;; esac
-case "$scenario" in positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|bootupdate|vnet) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|bootupdate|vnet" >&2; exit 2 ;; esac
+case "$scenario" in positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -166,6 +166,7 @@ if [ "$mode" != "flash" ]; then
   [ "$scenario" = "crossdomain" ] && secure_flags="WT_FFM_NEGATIVE_PROBE=1"
   [ "$scenario" = "restart" ] && guest_flags="WT_GUEST_FAULT_PROBE=1"
   [ "$scenario" = "writeonce" ] && guest_flags="WT_WRITE_ONCE_RESET_PROBE=1"
+  [ "$scenario" = "hsmattackneg" ] && guest_flags="WT_HSM_ATTACK_PROBE=1"
   [ "$scenario" = "bootupdate" ] && secure_flags="WT_BOOTUPDATE_PROBE=1"
   [ "$scenario" = "vnet" ] && secure_flags="CONFIG_VNET=y"
   # WT_CONF_DIAG_TRAP=0: the emulator-only hang-probe fault would become a
@@ -459,6 +460,20 @@ if [ "$mode" != "build" ]; then
         check_pass "WRITE_ONCE object survived the reset and refused set/remove (stage=2)"
       else
         check_fail "survival" "stage 0x${st2:-none}, expected 2"
+      fi
+      ;;
+    hsmattackneg)
+      # Single boot, no reset needed. guest0 latches a 3-bit result in
+      # g_hsm_attack_probe: bit0 IAK-sign refused, bit1 rollback-NVM-read
+      # refused, bit2 own-namespace crypto still works. SWD read (not UART
+      # grep) for the same interleaved-console reason as g_guest0_lifecycle.
+      refute_re "no fault markers on silicon" \
+        '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+      st=$(read_guest0_u32 g_hsm_attack_probe)
+      if [ -n "$st" ] && [ $((0x$st & 0x7)) -eq 7 ]; then
+        check_pass "hsmattackneg: IAK sign + NVM read refused, own namespace ok (0x$st)"
+      else
+        check_fail "hsmattackneg" "latched 0x${st:-none}, expected bit0|bit1|bit2 = 0x7"
       fi
       ;;
     restart)

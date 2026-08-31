@@ -188,3 +188,13 @@ dispatch round trip passes on the host with per-caller port isolation
 and no raw virtual network veneer survives in any image (`WT-FFM-0057`), and
 two guests complete an end-to-end IP exchange through the SPM on the target
 and on hardware (`WT-FFM-0058`).
+
+## Mediated wolfHSM caller isolation requirements
+
+The mediated wolfHSM relay is the only path from a non-secure guest to the
+secure keystore. It confines each guest to its own namespace so a compromised
+guest cannot reach privileged key material or the trusted store.
+
+| ID | Behavior | Failure | Source | Tests | Commit |
+| --- | --- | --- | --- | --- | --- |
+| WT-FFM-0059 | The relay binds every guest wolfHSM request to the SPM-stamped caller's client namespace and refuses NVM-group requests, so a guest cannot reach the attestation signing key, another guest's keys, or the trusted rollback, replay-counter, and storage objects. | A guest that forges a client identity to sign with the attestation key, or issues an NVM-group request against a trusted object, is refused with no result and no fault. | SRC-FFM 3.3.3; WT-FFM-0016, WT-FFM-0054; WT-SYS-0014 | Mediated relay caller-isolation negatives (`hsmattackneg`) | |
