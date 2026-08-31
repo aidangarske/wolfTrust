@@ -36,9 +36,12 @@
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
 #include "wolftrust/services/attestation_service.h"
 #endif
+#include "wolfhsm/wh_flash.h"
+#include "wolftrust/guest_verify.h"
 #include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/hsm_relay.h"
+#include "wolftrust/sync/mutex.h"
 #include "wolftrust/services/storage_service.h"
 #include "wolftrust/services/vault_service.h"
 #if defined(CONFIG_VNET)
@@ -107,6 +110,14 @@ void wt_conf_uart_irq_set(int on);
 /* Port flash staging backend (WT-FWU-0002); the SVC dispatcher runs its ops
  * privileged on behalf of the confined FWU partition. */
 extern const wt_fwu_backend_t wt_fwu_flash_backend;
+
+/* Port seams the SVC dispatcher runs privileged on behalf of the confined
+ * keystore partitions: the shared NVM flash callback set and its context
+ * singleton (hsm_flash.c) and the TRNG entropy source (rng_entropy.c). */
+extern const whFlashCb g_wt_hsm_flash_cb;
+void *wt_hsm_flash_context(void);
+int wolftrust_rng_generate_block_direct(unsigned char *output,
+                                        unsigned int sz);
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 /* Conformance-only hang tripwires: silent stalls on target are undebuggable,
@@ -363,7 +374,10 @@ void wt_spm_svc_entry(uint32_t* frame)
 
     /* SERVICE_FWU staging (WT-FWU-0002): the confined FWU partition cannot
      * touch the flash controller, so its backend ops trap here for the
-     * privileged program/erase, pinned to the FWU partition identity. */
+     * privileged program/erase, pinned to the FWU partition identity. The
+     * conformance manifest schedules no FWU partition, so the op falls
+     * through to the gate's argument rejection there. */
+#if defined(PARTITION_FWU_ID)
     if (call->op == WT_SPM_OP_FWU_BACKEND) {
         int fwu_ret = -1;
 
@@ -392,6 +406,112 @@ void wt_spm_svc_entry(uint32_t* frame)
             fwu_ret = wt_fwu_flash_backend.disarm(NULL);
         }
         call->ret_int = fwu_ret;
+        frame[0] = (uint32_t)WT_FFM_SUCCESS;
+        return;
+    }
+#endif /* PARTITION_FWU_ID */
+
+    /* Keystore platform services (WT-FFM-0011): the confined keystore
+     * partitions cannot touch the flash controller, the TRNG, or the
+     * scheduler state the NVM lock needs, so those ops trap here, pinned to
+     * the keystore partition identities. The flash context is always the
+     * shared NVM singleton — never a caller-supplied pointer. */
+    if (call->op == WT_SPM_OP_KEYSTORE_FLASH ||
+            call->op == WT_SPM_OP_KEYSTORE_ENTROPY ||
+            call->op == WT_SPM_OP_KEYSTORE_LOCK) {
+        void* flash_ctx;
+        wt_mutex_t* nvm_mutex;
+        int ks_ret = -1;
+
+        if (slot->partition_id != PARTITION_ATTEST_ID &&
+                slot->partition_id != PARTITION_HSM_ID &&
+                slot->partition_id != PARTITION_VAULT_ID) {
+            frame[0] = (uint32_t)WT_FFM_ERROR_ARGUMENT;
+            return;
+        }
+        if (call->op == WT_SPM_OP_KEYSTORE_FLASH) {
+            flash_ctx = wt_hsm_flash_context();
+            if (call->call_type == WT_SPM_KS_FLASH_READ &&
+                    wt_secure_domain_contains(&slot->table,
+                        (uintptr_t)call->buffer, call->num_bytes, 1) != 0) {
+                ks_ret = g_wt_hsm_flash_cb.Read(flash_ctx, call->vec_idx,
+                    (uint32_t)call->num_bytes, (uint8_t*)call->buffer);
+            }
+            else if (call->call_type == WT_SPM_KS_FLASH_PROGRAM &&
+                    wt_secure_domain_contains(&slot->table,
+                        (uintptr_t)call->buffer, call->num_bytes, 0) != 0) {
+                ks_ret = g_wt_hsm_flash_cb.Program(flash_ctx, call->vec_idx,
+                    (uint32_t)call->num_bytes, (const uint8_t*)call->buffer);
+            }
+            else if (call->call_type == WT_SPM_KS_FLASH_ERASE) {
+                ks_ret = g_wt_hsm_flash_cb.Erase(flash_ctx, call->vec_idx,
+                    (uint32_t)call->num_bytes);
+            }
+            else if (call->call_type == WT_SPM_KS_FLASH_VERIFY &&
+                    wt_secure_domain_contains(&slot->table,
+                        (uintptr_t)call->buffer, call->num_bytes, 0) != 0) {
+                ks_ret = g_wt_hsm_flash_cb.Verify(flash_ctx, call->vec_idx,
+                    (uint32_t)call->num_bytes, (const uint8_t*)call->buffer);
+            }
+            else if (call->call_type == WT_SPM_KS_FLASH_BLANKCHECK) {
+                ks_ret = g_wt_hsm_flash_cb.BlankCheck(flash_ctx,
+                    call->vec_idx, (uint32_t)call->num_bytes);
+            }
+            else if (call->call_type == WT_SPM_KS_FLASH_CLEANUP) {
+                ks_ret = g_wt_hsm_flash_cb.Cleanup(flash_ctx);
+            }
+        }
+        else if (call->op == WT_SPM_OP_KEYSTORE_ENTROPY) {
+            if (wt_secure_domain_contains(&slot->table,
+                    (uintptr_t)call->buffer, call->num_bytes, 1) != 0) {
+                ks_ret = wolftrust_rng_generate_block_direct(
+                    (unsigned char*)call->buffer,
+                    (unsigned int)call->num_bytes);
+            }
+        }
+        else {
+            nvm_mutex = (wt_mutex_t*)(void*)wt_hsm_nvm_lock_mutex();
+            if (call->call_type == WT_SPM_KS_LOCK_ACQUIRE) {
+                ks_ret = wt_mutex_acquire_queued(nvm_mutex, wt_co_current());
+                if (ks_ret == 1) {
+                    /* Enqueued behind the holder: block on exception return
+                     * and report retry; the release hands the mutex over
+                     * before waking, so the re-issue observes ownership. */
+                    wt_co_block();
+                }
+            }
+            else if (call->call_type == WT_SPM_KS_LOCK_RELEASE) {
+                ks_ret = wt_mutex_release(nvm_mutex);
+            }
+        }
+        call->ret_int = ks_ret;
+        frame[0] = (uint32_t)WT_FFM_SUCCESS;
+        return;
+    }
+
+    /* Read-only measurement snapshot (WT-FFM-0049/0062): the confined attest
+     * partition embeds the launch-verified guest measurements in its token
+     * but must not reach the monitor's table directly; copy on its behalf. */
+    if (call->op == WT_SPM_OP_MEASURE_READ) {
+        const wt_guest_measurement_t* rec;
+        int m_ret = 0;
+
+        if (slot->partition_id != PARTITION_ATTEST_ID) {
+            frame[0] = (uint32_t)WT_FFM_ERROR_ARGUMENT;
+            return;
+        }
+        call->ret_size = wt_guest_measurement_count();
+        if (call->buffer != NULL) {
+            m_ret = -1;
+            rec = wt_guest_measurement_get(call->vec_idx, NULL);
+            if (rec != NULL && call->num_bytes == sizeof(*rec) &&
+                    wt_secure_domain_contains(&slot->table,
+                        (uintptr_t)call->buffer, call->num_bytes, 1) != 0) {
+                (void)memcpy(call->buffer, rec, sizeof(*rec));
+                m_ret = 0;
+            }
+        }
+        call->ret_int = m_ret;
         frame[0] = (uint32_t)WT_FFM_SUCCESS;
         return;
     }
@@ -494,6 +614,45 @@ static int wt_spm_svc_transport(wt_ffm_runtime_t* runtime, wt_spm_call_t* call)
 int wt_spm_sp_call(struct wt_spm_call* call)
 {
     return wt_spm_svc_transport(NULL, call);
+}
+
+int wt_spm_measure_read_call(unsigned int index, void* record,
+                             unsigned int record_len, unsigned int* count)
+{
+    wt_spm_call_t call;
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_MEASURE_READ;
+    call.vec_idx = index;
+    call.buffer = record;
+    call.num_bytes = record_len;
+    if (wt_spm_svc_raw(&call) != WT_FFM_SUCCESS) {
+        return -1;
+    }
+    if (count != NULL) {
+        *count = (unsigned int)call.ret_size;
+    }
+    return call.ret_int;
+}
+
+int wt_spm_keystore_lock_call(int sub_op)
+{
+    wt_spm_call_t call;
+
+    for (;;) {
+        (void)memset(&call, 0, sizeof(call));
+        call.op = WT_SPM_OP_KEYSTORE_LOCK;
+        call.call_type = sub_op;
+        if (wt_spm_svc_raw(&call) != WT_FFM_SUCCESS) {
+            return -1;
+        }
+        if (call.ret_int != 1) {
+            return call.ret_int;
+        }
+        /* Enqueued: the dispatcher blocked this coroutine on exception
+         * return; the release hands ownership over before waking, so the
+         * re-issue observes it and returns acquired. */
+    }
 }
 
 /* True when a suspended partition's wake condition holds: its awaited signal
@@ -757,14 +916,17 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
         return WT_FFM_ERROR_STATE;
     }
 
-    /* The SP's execution stack is the manifest domain's writable resource;
-     * fail closed if the manifest stops declaring one. */
+    /* The SP's execution stack is the manifest domain's PRIVATE writable
+     * resource — a shared band (the keystore) is never a stack; fail closed
+     * if the manifest stops declaring one. */
     stack_region = NULL;
     for (i = 0u; i < g_spm_sp_domain.region_count; i++) {
         if ((g_spm_sp_domain.regions[i].attributes & WT_MEM_ATTR_WRITE) !=
                 0u &&
                 (g_spm_sp_domain.regions[i].attributes &
-                 WT_MEM_ATTR_DEVICE) == 0u) {
+                 WT_MEM_ATTR_DEVICE) == 0u &&
+                (g_spm_sp_domain.regions[i].attributes &
+                 WT_MEMORY_ATTR_SHARED) == 0u) {
             stack_region = &g_spm_sp_domain.regions[i];
         }
     }
@@ -902,9 +1064,9 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
     return wt_spm_sched_add_common(runtime, partition_id, entry, arg, 0u);
 }
 
-/* SERVICE_HSM's relay loop: privileged like the vault, because the submit
- * pump reaches the monitor's wolfHSM server state and may block on the
- * shared NVM mutex — neither is possible from a narrowed thread domain. */
+/* SERVICE_HSM's relay loop: a confined scheduled SP. The submit pump reaches
+ * the wolfHSM server state through the shared keystore band its manifest
+ * domain grants; flash, entropy, and the NVM lock trap to the SVC gate. */
 static void wt_spm_hsm_entry(void* arg)
 {
     int32_t partition_id = (int32_t)(intptr_t)arg;
@@ -933,15 +1095,14 @@ int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
     wt_hsm_relay_set_submit(wt_hsm_relay_submit, NULL);
 #endif
     g_spm_hsm_partition_id = partition_id;
-    return wt_spm_sched_add_common(runtime, partition_id, wt_spm_hsm_entry,
-                                   (void*)(intptr_t)partition_id, 1u);
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_hsm_entry,
+                            (void*)(intptr_t)partition_id);
 }
 
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
-/* SERVICE_ATTEST's dispatch loop as a scheduled coroutine SP. Privileged for
- * now like the HSM relay: the sign path reaches the secure attestation server
- * state in SPM RAM; a later slice routes that through a gate and narrows this
- * partition to its manifest MPU domain. Context lives on its own stack. */
+/* SERVICE_ATTEST's dispatch loop: a confined scheduled SP. The sign path
+ * reaches the attestation wolfHSM server through the shared keystore band;
+ * flash, entropy, and the NVM lock trap to the SVC gate. */
 static void wt_spm_attest_entry(void* arg)
 {
     int32_t partition_id = (int32_t)(intptr_t)arg;
@@ -954,13 +1115,14 @@ static void wt_spm_attest_entry(void* arg)
 int wt_spm_attest_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
     wt_attestation_service_set_transport(wt_spm_svc_transport);
-    return wt_spm_sched_add_common(runtime, partition_id, wt_spm_attest_entry,
-                                   (void*)(intptr_t)partition_id, 1u);
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_attest_entry,
+                            (void*)(intptr_t)partition_id);
 }
 #endif /* WT_ATTEST_COSE */
 
-/* The vault partition's service loop: privileged, so reading the service's
- * file-scope backend/transport seams is legal — no per-call context needed. */
+/* The vault partition's service loop: a confined scheduled SP. Its file-scope
+ * backend/transport seams live in the shared keystore band its manifest
+ * domain grants; flash, entropy, and the NVM lock trap to the SVC gate. */
 static void wt_spm_vault_entry(void* arg)
 {
     int32_t partition_id = (int32_t)(intptr_t)arg;
@@ -975,8 +1137,8 @@ int wt_spm_vault_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
     /* The vault must run as a scheduled coroutine: every op takes the shared
      * NVM path, whose mutex cannot be held from the bootstrap context. */
     wt_vault_service_set_transport(wt_spm_svc_transport);
-    return wt_spm_sched_add_common(runtime, partition_id, wt_spm_vault_entry,
-                                   (void*)(intptr_t)partition_id, 1u);
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_vault_entry,
+                            (void*)(intptr_t)partition_id);
 }
 
 /* The ITS partition's service loop: a normal UNPRIVILEGED scheduled SP.
@@ -995,6 +1157,17 @@ static void wt_spm_its_entry(void* arg)
     ctx.caps = 0U;
 
     for (;;) {
+#if defined(WT_KEYSTORE_NEG_PROBE) && (WT_KEYSTORE_NEG_PROBE == 1)
+        /* Keystore-band isolation proof (WT-FFM-0062): the ITS partition is a
+         * non-keystore SP whose domain does not grant the shared keystore
+         * band, so this read must MemManage-fault. Placed in ITS (which runs
+         * on every guest storage op) rather than FWU (which never runs without
+         * a client). Its own build so it never races the crossdomain probe.
+         * Never built into production images. */
+        volatile uint32_t ks_probe;
+        ks_probe = *(const volatile uint32_t*)(uintptr_t)WT_KEYSTORE_BASE;
+        (void)ks_probe;
+#endif
 #if defined(WT_FFM_NEGATIVE_PROBE) && (WT_FFM_NEGATIVE_PROBE == 1)
         /* Negative isolation proof (WT-FFM-0011): an unprivileged read of
          * SPM-private RAM from inside the SP domain must MemManage-fault.
@@ -1002,16 +1175,22 @@ static void wt_spm_its_entry(void* arg)
         wt_spm_call_t pin;
         volatile uint32_t probe;
 
-        /* Gate-pin proof (WT-FFM-0061): a staging-backend request from a
-         * non-FWU partition must be refused at the SVC; reaching the flash
-         * backend from here would be a privilege escape, so trap hard
-         * (unexpected extra fault fails the scenario) instead of continuing
-         * to the expected MPU probe below. */
+        /* Gate-pin proof (WT-FFM-0061/0062): a staging-backend or keystore
+         * request from a non-owning partition must be refused at the SVC;
+         * reaching either privileged backend from here would be a privilege
+         * escape, so trap hard (unexpected extra fault fails the scenario)
+         * instead of continuing to the expected MPU probe below. */
         (void)memset(&pin, 0, sizeof(pin));
         pin.op = WT_SPM_OP_FWU_BACKEND;
         pin.call_type = WT_SPM_FWU_BEGIN;
         if (wt_spm_svc_raw(&pin) != WT_FFM_ERROR_ARGUMENT) {
             __asm volatile("udf #1");
+        }
+        (void)memset(&pin, 0, sizeof(pin));
+        pin.op = WT_SPM_OP_KEYSTORE_FLASH;
+        pin.call_type = WT_SPM_KS_FLASH_ERASE;
+        if (wt_spm_svc_raw(&pin) != WT_FFM_ERROR_ARGUMENT) {
+            __asm volatile("udf #2");
         }
         probe = *(const volatile uint32_t*)(uintptr_t)WT_RAM_S_BASE;
         (void)probe;

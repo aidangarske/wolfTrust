@@ -27,7 +27,12 @@ MEMORY {
   /* SRAM1 has Secure and Non-secure aliases to the same physical memory.
    * The first 32 KiB are assigned to the two guests through the 0x20000000
    * Non-secure alias, so keep secure .data/.bss above that physical window. */
-  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 388K
+  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 308K
+  /* wolfHSM keystore trust band (WT-FFM-0011 Level 3): the shared wolfHSM
+   * server, NVM, lock, and per-guest tasklet state, relocated out of general
+   * SPM RAM into one MPU-alignable region so the keystore partitions can be
+   * granted exactly it while running unprivileged. Top of the general window. */
+  KEYSTORE (rw): ORIGIN = 0x30075000, LENGTH = 80K
   /* FWU partition stack: the PSA Firmware Update SP's execution stack
    * (WT_SP_FWU_STACK_* in memory_map.h). Privileged coroutine that programs
    * the wolfBoot update partition flash. Lowest SP band. */
@@ -129,6 +134,55 @@ SECTIONS {
     _econfbss = .;
   } > CONFDATA
 
+  /* wolfHSM keystore state (WT-FFM-0011): every RAM object the keystore
+   * partitions (attest, relay, vault) write in-thread — the wt_hsm core, its
+   * service faces, the wolfCOSE signer, and the wolfHSM/wolfCrypt library
+   * state — pulled out of shared SPM RAM into one contiguous MPU-grantable
+   * band. These claims precede .data/.bss, so first-claim ordering keeps the
+   * general sections clean. _s_keystore.._e_keystore span loaded data and
+   * zero-init bss so a single MPU region covers the whole trust unit. */
+  .keystore_data : {
+    . = ALIGN(32);
+    _s_keystore = .;
+    *wt_hsm.o(.data .data.*)
+    *wt_hsm_lock.o(.data .data.*)
+    *wt_hsm_seal.o(.data .data.*)
+    *wt_hsm_vault.o(.data .data.*)
+    *hsm_relay_service.o(.data .data.*)
+    *vault_service.o(.data .data.*)
+    *attestation_service.o(.data .data.*)
+    *initial_attestation.o(.data .data.*)
+    *attestation_cose.o(.data .data.*)
+    *hsm_flash.o(.data .data.*)
+    *wolfcose.o(.data .data.*)
+    *wolfcose_cbor.o(.data .data.*)
+    *wh_sec_*.o(.data .data.*)
+    *wc_sec_*.o(.data .data.*)
+    . = ALIGN(4);
+    _e_keystore_data = .;
+  } > KEYSTORE AT > FLASH
+  _si_keystore = LOADADDR(.keystore_data);
+
+  .keystore_bss (NOLOAD) : {
+    _s_keystore_bss = .;
+    *wt_hsm.o(.bss .bss.* COMMON)
+    *wt_hsm_lock.o(.bss .bss.* COMMON)
+    *wt_hsm_seal.o(.bss .bss.* COMMON)
+    *wt_hsm_vault.o(.bss .bss.* COMMON)
+    *hsm_relay_service.o(.bss .bss.* COMMON)
+    *vault_service.o(.bss .bss.* COMMON)
+    *attestation_service.o(.bss .bss.* COMMON)
+    *initial_attestation.o(.bss .bss.* COMMON)
+    *attestation_cose.o(.bss .bss.* COMMON)
+    *hsm_flash.o(.bss .bss.* COMMON)
+    *wolfcose.o(.bss .bss.* COMMON)
+    *wolfcose_cbor.o(.bss .bss.* COMMON)
+    *wh_sec_*.o(.bss .bss.* COMMON)
+    *wc_sec_*.o(.bss .bss.* COMMON)
+    . = ALIGN(32);
+    _e_keystore = .;
+  } > KEYSTORE
+
   .data : {
     _sdata = .;
     *(.data*)
@@ -146,8 +200,12 @@ SECTIONS {
     KEEP(*(.sp_stacks*))
   } > SPSTACKS
 
-  ASSERT(ORIGIN(FWUSTACK) == (ORIGIN(RAM) + LENGTH(RAM)),
-         "FWU stack must sit directly above the secure RAM window")
+  ASSERT(ORIGIN(KEYSTORE) == (ORIGIN(RAM) + LENGTH(RAM)),
+         "keystore band must sit directly above the secure RAM window")
+  ASSERT(ORIGIN(FWUSTACK) == (ORIGIN(KEYSTORE) + LENGTH(KEYSTORE)),
+         "FWU stack must sit directly above the keystore band")
+  ASSERT(_e_keystore <= (ORIGIN(KEYSTORE) + LENGTH(KEYSTORE)),
+         "keystore band overflow")
   ASSERT(ORIGIN(PSSTACK) == (ORIGIN(FWUSTACK) + LENGTH(FWUSTACK)),
          "PS stack must sit directly above the FWU stack")
   ASSERT(ORIGIN(ITSSTACK) == (ORIGIN(PSSTACK) + LENGTH(PSSTACK)),

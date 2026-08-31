@@ -3636,3 +3636,50 @@ Proof:
   backend), then the pre-existing SPM-RAM read faults as designed; the added
   gate-pin probe raises no extra fault, proving the FWU gate cannot be abused
   as a cross-partition privilege escalation.
+
+## wolfHSM keystore partition confinement evidence
+
+Commit: `wolftfm-l3` HEAD after this change.
+
+The wolfHSM keystore partitions - attestation (domain 3), the HSM relay
+(domain 4), and the vault (domain 5) - no longer run privileged. They now run
+as unprivileged scheduled Secure Partitions whose manifest domains grant only
+their own stacks plus one shared keystore band. The shared wolfHSM server, NVM,
+lock, and per-guest tasklet state are relocated out of general SPM RAM into that
+band (`KEYSTORE` region in secure.ld, `WT_KEYSTORE_*` in memory_map.h; declared
+as a shared resource, share_id 1, in all three manifests). Their privileged
+platform needs run only through SPM gate operations the SVC dispatcher pins to
+the keystore partition identities: `WT_SPM_OP_KEYSTORE_FLASH` (the wolfHSM flash
+callback set), `WT_SPM_OP_KEYSTORE_ENTROPY` (the TRNG), `WT_SPM_OP_KEYSTORE_LOCK`
+(the shared NVM mutex, whose block must be pended from handler mode), and
+`WT_SPM_OP_MEASURE_READ` (a read-only copy of the monitor's guest-measurement
+table for the attestation token). This satisfies `WT-FFM-0062` and brings the
+keystore partitions under the Level 3 model of `WT-FFM-0011`; only the SPM and
+this one shared keystore trust unit remain privileged, matching the TF-M Level 3
+split where the trusted services run unprivileged over a small privileged core.
+
+Proof (host):
+- `tests/host/wolfhsm_relay` PASS (20), `tests/host/vault_service` PASS (22),
+  `tests/host/attestation_service` PASS (4), `tests/host/storage_service`
+  PASS (19).
+
+Proof (M33MU, one fully-confined build):
+- `positive` PASS, `bothpsa` PASS, `restart` PASS - full lifecycle, both OS
+  clients, no regression.
+- `devcrypto` PASS - 78 Arm crypto tests (RNG, keygen, ECDSA, NVM, lock
+  contention) served by the unprivileged keystore through the gates.
+- `devstorage` PASS - ITS/PS storage into the gated vault NVM.
+- `devattest` PASS - Initial Attestation sign plus the measurement read gate.
+- `confboot` PASS 85/0 - the full Arm FF-M conformance suite, including the
+  SAU/MPU isolation tests, on the confined build.
+- `spfaultneg` PASS - the relay SP still faults once and recovers in place while
+  unprivileged.
+- `hsmattackneg` PASS - a guest forging the wolfHSM identity is still refused
+  (IAK sign rc=-2104, NVM group rc=-2002) with the relay now unprivileged.
+- `fwustage` + `bootupdate` PASS - FWU staging and the full v1->v2 swap through
+  the confined FWU plus keystore rollback NVM.
+- `crossdomain` PASS - a non-keystore SP reading SPM-private RAM MemManage-faults
+  at `0x30028000`.
+- `keystoreneg` PASS - a non-keystore SP (ITS) reading the shared keystore band
+  MemManage-faults at `0x30075000`, proving the band is denied outside the
+  keystore trust unit.

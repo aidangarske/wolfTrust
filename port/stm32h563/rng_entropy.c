@@ -22,6 +22,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <wolfHAL/error.h>
 #include <wolfHAL/rng/rng.h>
@@ -30,8 +31,14 @@
 
 #include "board.h"
 
+#include "wolftrust/arch/armv8m/spm_svc.h"
+#include "wolftrust/spm_gate.h"
+
 /* Prototype matches the declaration in user_settings.h (CUSTOM_RAND_GENERATE_BLOCK). */
 int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
+/* Privileged half, invoked by the SVC dispatcher for confined callers. */
+int wolftrust_rng_generate_block_direct(unsigned char *output,
+                                        unsigned int sz);
 
 static bool s_rng_ready;
 static uint32_t s_rng_timeout_tick;
@@ -47,7 +54,7 @@ whal_Timeout g_whalTimeout = {
     .GetTick = wt_rng_timeout_tick,
 };
 
-int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz)
+int wolftrust_rng_generate_block_direct(unsigned char *output, unsigned int sz)
 {
     if (output == NULL && sz != 0u) {
         return -1;
@@ -69,4 +76,23 @@ int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz)
     }
 
     return -1;
+}
+
+int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz)
+{
+    /* A confined keystore partition cannot touch the RNG peripheral or its
+     * clock; the SVC dispatcher runs the direct half privileged. */
+    if (wt_spm_thread_unprivileged()) {
+        wt_spm_call_t call;
+
+        (void)memset(&call, 0, sizeof(call));
+        call.op = WT_SPM_OP_KEYSTORE_ENTROPY;
+        call.buffer = output;
+        call.num_bytes = sz;
+        if (wt_spm_sp_call(&call) != WT_FFM_SUCCESS) {
+            return -1;
+        }
+        return call.ret_int;
+    }
+    return wolftrust_rng_generate_block_direct(output, sz);
 }

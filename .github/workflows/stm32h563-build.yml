@@ -155,7 +155,7 @@ jobs:
         run: |
           make build/wolftrust.bin build/secure_cmse_implib.o
 
-      - name: Build Zephyr PSA and FreeRTOS PKCS11 guests
+      - name: Build Zephyr and FreeRTOS PSA guests
         run: |
           make -C tests/firmware/zephyr-stm32h5 \
             WT_REUSE_SECURE_BUILD=1 \
@@ -276,6 +276,7 @@ jobs:
           - { key: bothiso,         name: "Both-OS FF-M isolation negatives" }
           - { key: restart,         name: "Guest restart recovery" }
           - { key: crossdomain,     name: "Cross-domain isolation (L3)" }
+          - { key: keystoreneg,     name: "Keystore-band isolation (L3)" }
           - { key: spfaultneg,      name: "Graceful SP fault recovery" }
           - { key: confboot,        name: "FF-M IPC conformance (85/4)" }
           - { key: devstorage,      name: "dev_apis Storage (s001-s017)" }

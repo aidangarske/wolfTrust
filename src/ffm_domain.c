@@ -69,9 +69,11 @@ int wt_ffm_resolve_secure_domain(const wt_system_manifest_t* manifest,
 
         out_domain->regions[i].base = resource->base;
         out_domain->regions[i].size = resource->size;
+        /* SHARED must survive resolution: the scheduler uses it to keep a
+         * shared band (the keystore) from being picked as a partition stack. */
         out_domain->regions[i].attributes = resource->attributes &
             (WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_EXEC |
-             WT_MEM_ATTR_DEVICE);
+             WT_MEM_ATTR_DEVICE | WT_MEMORY_ATTR_SHARED);
     }
     out_domain->region_count = domain->memory_resource_count;
     out_domain->domain_id = domain_id;

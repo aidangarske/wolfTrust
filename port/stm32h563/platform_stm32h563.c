@@ -1581,6 +1581,11 @@ void Reset_Handler(void)
     extern uint32_t _econfdata;
     extern uint32_t _sconfbss;
     extern uint32_t _econfbss;
+    extern uint32_t _si_keystore;
+    extern uint32_t _s_keystore;
+    extern uint32_t _e_keystore_data;
+    extern uint32_t _s_keystore_bss;
+    extern uint32_t _e_keystore;
     uint32_t* src = &_sidata;
     uint32_t* dst = &_sdata;
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
@@ -1603,6 +1608,16 @@ void Reset_Handler(void)
         *dst = *src++;
     }
     for (dst = &_sconfbss; dst < &_econfbss; ++dst) {
+        *dst = 0u;
+    }
+
+    /* wolfHSM keystore band lives outside the general .data/.bss window, so the
+     * loops above skip it; initialize its loaded .data and zero its .bss here. */
+    src = &_si_keystore;
+    for (dst = &_s_keystore; dst < &_e_keystore_data; ++dst) {
+        *dst = *src++;
+    }
+    for (dst = &_s_keystore_bss; dst < &_e_keystore; ++dst) {
         *dst = 0u;
     }
 

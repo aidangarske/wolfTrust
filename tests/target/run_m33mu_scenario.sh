@@ -51,8 +51,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|bothpsa|bothiso|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet) ;;
-  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet" >&2; exit 2 ;;
+  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet) ;;
+  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -145,6 +145,8 @@ cd "$repo"
 secure_flags=""
 if [ "$scenario" = "crossdomain" ]; then
   secure_flags="WT_FFM_NEGATIVE_PROBE=1"
+elif [ "$scenario" = "keystoreneg" ]; then
+  secure_flags="WT_KEYSTORE_NEG_PROBE=1"
 elif [ "$scenario" = "spfaultneg" ]; then
   secure_flags="WT_SP_FAULT_PROBE=1"
 elif [ "$scenario" = "confboot" ] || [ "$scenario" = "devstorage" ] || \
@@ -637,6 +639,17 @@ case "$scenario" in
       exit 0
     fi
     check_fail "cross-domain isolation" "expected MEMFAULT at 0x30028000, none seen"
+    ;;
+  keystoreneg)
+    # A non-keystore partition (FWU) reads the shared keystore band; its
+    # manifest domain does not grant the band, so the read must MemManage-fault
+    # inside the FWU domain (WT-FFM-0062).
+    if grep -Eq '\[MEMFAULT\].*addr=0x30075000' "$log"; then
+      check_pass "keystore-band read of 0x30075000 denied to a non-keystore SP (MEMFAULT)"
+      echo "PASS: target/keystoreneg"
+      exit 0
+    fi
+    check_fail "keystore-band isolation" "expected MEMFAULT at 0x30075000, none seen"
     ;;
   spfaultneg)
     # The SERVICE_HSM relay SP faults once on its first entry (udf #0 — the

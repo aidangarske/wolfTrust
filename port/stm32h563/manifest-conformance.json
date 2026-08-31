@@ -6,7 +6,7 @@
   "profile_capabilities": {
     "capabilities": 127,
     "max_domains": 11,
-    "max_memory_resources_per_domain": 2,
+    "max_memory_resources_per_domain": 3,
     "max_interrupts_per_domain": 1
   },
   "domains": [
@@ -137,6 +137,12 @@
           "size": 8192,
           "attributes": 19,
           "share_id": 0
+        },
+        {
+          "base": 805785600,
+          "size": 81920,
+          "attributes": 35,
+          "share_id": 1
         }
       ],
       "interrupt_resources": [],
@@ -172,6 +178,12 @@
           "size": 8192,
           "attributes": 19,
           "share_id": 0
+        },
+        {
+          "base": 805785600,
+          "size": 81920,
+          "attributes": 35,
+          "share_id": 1
         }
       ],
       "interrupt_resources": [],
@@ -207,6 +219,12 @@
           "size": 16384,
           "attributes": 19,
           "share_id": 0
+        },
+        {
+          "base": 805785600,
+          "size": 81920,
+          "attributes": 35,
+          "share_id": 1
         }
       ],
       "interrupt_resources": [],

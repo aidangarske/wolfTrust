@@ -24,7 +24,9 @@
 #include "memory_map.h"
 #include "stm32h563_regs.h"
 #include "wolfhsm/wh_error.h"
+#include "wolftrust/arch/armv8m/spm_svc.h"
 #include "wolftrust/services/fwu_service.h"
+#include "wolftrust/spm_gate.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -246,6 +248,31 @@ static void wt_flash_lock(void)
     }
 }
 
+/* Confined-keystore trap: the controller-touching callbacks below also run
+ * inside the unprivileged keystore partitions, whose MPU domain has no
+ * flash-controller access; hop to the privileged SVC dispatcher, which
+ * re-enters the same callback with privilege. Only the shared NVM context may
+ * take this path — the FWU staging context has its own pinned gate. */
+static int wt_hsm_flash_gate(void *context, int sub_op, uint32_t offset,
+                             uint32_t size, void *data)
+{
+    wt_spm_call_t call;
+
+    if (context != (void *)&g_hsm_flash_ctx) {
+        return WH_ERROR_BADARGS;
+    }
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_KEYSTORE_FLASH;
+    call.call_type = sub_op;
+    call.vec_idx = offset;
+    call.num_bytes = size;
+    call.buffer = data;
+    if (wt_spm_sp_call(&call) != WT_FFM_SUCCESS) {
+        return WH_ERROR_ABORTED;
+    }
+    return call.ret_int;
+}
+
 static int wt_hsm_flash_init(void *context, const void *config)
 {
     wt_hsm_flash_context_t *ctx = (wt_hsm_flash_context_t *)context;
@@ -272,6 +299,10 @@ static int wt_hsm_flash_cleanup(void *context)
 {
     if (context == NULL) {
         return WH_ERROR_BADARGS;
+    }
+    if (wt_spm_thread_unprivileged()) {
+        return wt_hsm_flash_gate(context, WT_SPM_KS_FLASH_CLEANUP, 0u, 0u,
+                                 NULL);
     }
     wt_flash_lock();
     return WH_ERROR_OK;
@@ -323,6 +354,10 @@ static int wt_hsm_flash_read(void *context, uint32_t offset, uint32_t size,
     if (data == NULL && size != 0u) {
         return WH_ERROR_BADARGS;
     }
+    if (wt_spm_thread_unprivileged()) {
+        return wt_hsm_flash_gate(context, WT_SPM_KS_FLASH_READ, offset, size,
+                                 data);
+    }
     if (!wt_flash_range_ok(ctx, offset, size)) {
         return WH_ERROR_BADARGS;
     }
@@ -342,6 +377,10 @@ static int wt_hsm_flash_program(void *context, uint32_t offset, uint32_t size,
 
     if (data == NULL && size != 0u) {
         return WH_ERROR_BADARGS;
+    }
+    if (wt_spm_thread_unprivileged()) {
+        return wt_hsm_flash_gate(context, WT_SPM_KS_FLASH_PROGRAM, offset,
+                                 size, (void *)(uintptr_t)data);
     }
     if (!wt_flash_range_ok(ctx, offset, size)) {
         return WH_ERROR_BADARGS;
@@ -398,6 +437,10 @@ static int wt_hsm_flash_erase(void *context, uint32_t offset, uint32_t size)
     uint32_t start;
     uint32_t end;
 
+    if (wt_spm_thread_unprivileged()) {
+        return wt_hsm_flash_gate(context, WT_SPM_KS_FLASH_ERASE, offset, size,
+                                 NULL);
+    }
     if (!wt_flash_range_ok(ctx, offset, size)) {
         return WH_ERROR_BADARGS;
     }
@@ -470,6 +513,10 @@ static int wt_hsm_flash_verify(void *context, uint32_t offset, uint32_t size,
     if (data == NULL && size != 0u) {
         return WH_ERROR_BADARGS;
     }
+    if (wt_spm_thread_unprivileged()) {
+        return wt_hsm_flash_gate(context, WT_SPM_KS_FLASH_VERIFY, offset,
+                                 size, (void *)(uintptr_t)data);
+    }
     if (!wt_flash_range_ok(ctx, offset, size)) {
         return WH_ERROR_BADARGS;
     }
@@ -502,6 +549,10 @@ static int wt_hsm_flash_blank_check(void *context, uint32_t offset,
     uint32_t i;
     int ret;
 
+    if (wt_spm_thread_unprivileged()) {
+        return wt_hsm_flash_gate(context, WT_SPM_KS_FLASH_BLANKCHECK, offset,
+                                 size, NULL);
+    }
     if (!wt_flash_range_ok(ctx, offset, size)) {
         return WH_ERROR_BADARGS;
     }

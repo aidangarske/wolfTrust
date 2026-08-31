@@ -134,6 +134,33 @@ struct wt_co *wt_mutex_holder(const wt_mutex_t *m)
     return m->holder;
 }
 
+int wt_mutex_acquire_queued(wt_mutex_t *m, struct wt_co *self)
+{
+    if (m == NULL || self == NULL) {
+        return -1;
+    }
+    if (m->holder == NULL) {
+        m->holder = self;
+        m->acquire_count++;
+        return 0;
+    }
+    /* Includes the gated re-issue after release handed the mutex over. */
+    if (m->holder == self) {
+        return 0;
+    }
+
+    m->contend_count++;
+    self->next_wait = NULL;
+    if (m->wait_head == NULL) {
+        m->wait_head = self;
+        m->wait_tail = self;
+    } else {
+        m->wait_tail->next_wait = self;
+        m->wait_tail = self;
+    }
+    return 1;
+}
+
 void wt_mutex_release_if_holder(wt_mutex_t *m, struct wt_co *co)
 {
     wt_co_t *next;

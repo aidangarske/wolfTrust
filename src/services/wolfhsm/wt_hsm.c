@@ -839,6 +839,11 @@ void wt_hsm_release_locks(struct wt_co *co)
     }
 }
 
+wt_mutex_t *wt_hsm_nvm_lock_mutex(void)
+{
+    return &g_nvm_lock_mutex;
+}
+
 int wt_hsm_relay_reinit_servers(void)
 {
     int             rc = WH_ERROR_OK;

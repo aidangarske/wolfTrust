@@ -47,11 +47,16 @@ typedef enum wt_spm_op {
     WT_SPM_OP_CLOSE,
     WT_SPM_OP_EOI,
     WT_SPM_OP_IRQ_ENABLE
-    /* Production platform service, NOT an FF-M IPC op: the arch SVC layer
-     * intercepts it before this gate and pins it to the FWU partition. The
-     * confined staging loop traps here for the privileged flash backend;
-     * call_type selects the WT_SPM_FWU_* sub-operation. */
+    /* Production platform services, NOT FF-M IPC ops: the arch SVC layer
+     * intercepts them before this gate. FWU_BACKEND is pinned to the FWU
+     * partition; the KEYSTORE_* ops are pinned to the keystore partitions
+     * (attest, relay, vault) and carry their privileged flash, entropy, and
+     * NVM-lock needs. call_type selects the sub-operation. */
     , WT_SPM_OP_FWU_BACKEND = 0x40
+    , WT_SPM_OP_KEYSTORE_FLASH = 0x41
+    , WT_SPM_OP_KEYSTORE_ENTROPY = 0x42
+    , WT_SPM_OP_KEYSTORE_LOCK = 0x43
+    , WT_SPM_OP_MEASURE_READ = 0x44
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     /* Platform conformance services, NOT FF-M IPC ops: the arch SVC layer
      * intercepts them before this gate, so no case handles them here. Real
@@ -69,6 +74,50 @@ typedef enum wt_spm_op {
 #define WT_SPM_FWU_WRITE  1
 #define WT_SPM_FWU_ARM    2
 #define WT_SPM_FWU_DISARM 3
+
+/* WT_SPM_OP_KEYSTORE_FLASH sub-operations, carried in call_type. Only the
+ * callbacks that touch the flash controller trap; pure in-band bookkeeping
+ * (init, partition size, write lock/unlock) never needs the gate. */
+#define WT_SPM_KS_FLASH_READ       0
+#define WT_SPM_KS_FLASH_PROGRAM    1
+#define WT_SPM_KS_FLASH_ERASE      2
+#define WT_SPM_KS_FLASH_VERIFY     3
+#define WT_SPM_KS_FLASH_BLANKCHECK 4
+#define WT_SPM_KS_FLASH_CLEANUP    5
+
+/* WT_SPM_OP_KEYSTORE_LOCK sub-operations, carried in call_type. */
+#define WT_SPM_KS_LOCK_ACQUIRE 0
+#define WT_SPM_KS_LOCK_RELEASE 1
+
+/* True when executing as an unprivileged Secure thread (a confined
+ * partition); such code reaches privileged platform services only through
+ * the SVC gate. Handler mode is always privileged even when the interrupted
+ * thread's CONTROL.nPRIV is set, so the gate's own re-entry into these seams
+ * takes the direct path. Host builds are never unprivileged. */
+#if defined(__ARM_FEATURE_CMSE)
+static inline int wt_spm_thread_unprivileged(void)
+{
+    unsigned int control;
+    unsigned int ipsr;
+    __asm volatile("mrs %0, control" : "=r"(control));
+    __asm volatile("mrs %0, ipsr" : "=r"(ipsr));
+    return (int)(ipsr == 0u && (control & 1u) != 0u);
+}
+/* Gated NVM-lock hop for the keystore lock callback (defined in the arch SVC
+ * layer); loops internally until the lock is granted. Returns 0 on success. */
+int wt_spm_keystore_lock_call(int sub_op);
+/* Gated read-only measurement snapshot for the confined attest partition
+ * (defined in the arch SVC layer). Always reports the record count via
+ * count when non-NULL; copies record[index] into record when non-NULL.
+ * Returns 0 on success. */
+int wt_spm_measure_read_call(unsigned int index, void* record,
+                             unsigned int record_len, unsigned int* count);
+#else
+static inline int wt_spm_thread_unprivileged(void)
+{
+    return 0;
+}
+#endif
 
 /* SP-as-client iovec capacity per direction (i003 widens with the NS veneer). */
 #define WT_SPM_SP_IOVEC 4U

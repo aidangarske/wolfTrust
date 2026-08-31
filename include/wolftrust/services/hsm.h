@@ -115,6 +115,11 @@ int wt_hsm_signal_fault(wt_guest_id_t guest_id);
  * handler mode; a NULL coroutine or a non-holder is a no-op. */
 void wt_hsm_release_locks(struct wt_co *co);
 
+/* The shared NVM serialisation mutex, exposed so the SVC gate can run gated
+ * acquire/release on behalf of the confined keystore partitions. */
+struct wt_mutex;
+struct wt_mutex *wt_hsm_nvm_lock_mutex(void);
+
 /* Rebuild every ready per-guest server after a relay-partition fault: a
  * request may have been torn mid-flight, leaving the server DRBG or handler
  * state unusable. Fails closed — a guest whose re-init fails stays down. */

@@ -21,6 +21,7 @@
 #include "wolftrust/services/initial_attestation.h"
 
 #include "wolftrust/guest_verify.h"
+#include "wolftrust/spm_gate.h"
 
 #include "wolftrust/services/attestation_cose.h"
 #include "wolftrust/services/hsm.h"
@@ -127,6 +128,43 @@ static int wt_attest_prepare(void)
     return ret;
 }
 
+/* Measurement access seam: the confined attest partition cannot reach the
+ * monitor's table, so it snapshots records through the read-only SVC gate;
+ * privileged and host callers read the table directly. */
+static size_t wt_attest_measurement_count(void)
+{
+#if defined(__ARM_FEATURE_CMSE)
+    if (wt_spm_thread_unprivileged()) {
+        unsigned int count = 0u;
+
+        if (wt_spm_measure_read_call(0u, NULL, 0u, &count) != 0) {
+            return 0u;
+        }
+        return (size_t)count;
+    }
+#endif
+    return wt_guest_measurement_count();
+}
+
+static int wt_attest_measurement_get(size_t index,
+                                     wt_guest_measurement_t* record)
+{
+    const wt_guest_measurement_t* rec;
+
+#if defined(__ARM_FEATURE_CMSE)
+    if (wt_spm_thread_unprivileged()) {
+        return wt_spm_measure_read_call((unsigned int)index, record,
+                                        (unsigned int)sizeof(*record), NULL);
+    }
+#endif
+    rec = wt_guest_measurement_get(index, NULL);
+    if (rec == NULL) {
+        return -1;
+    }
+    (void)memcpy(record, rec, sizeof(*record));
+    return 0;
+}
+
 static int wt_attest_encode_payload(wt_guest_id_t guestId,
     const uint8_t* challenge, size_t challengeSize, uint8_t* payload,
     size_t payloadCapacity, size_t* payloadSize)
@@ -179,7 +217,7 @@ static int wt_attest_encode_payload(wt_guest_id_t guestId,
     }
     if (ret == 0) {
         ret = wc_CBOR_EncodeArrayStart(&cbor,
-                  1u + (unsigned int)wt_guest_measurement_count());
+                  1u + (unsigned int)wt_attest_measurement_count());
     }
     if (ret == 0) {
         ret = wc_CBOR_EncodeMapStart(&cbor, 4u);
@@ -219,12 +257,11 @@ static int wt_attest_encode_payload(wt_guest_id_t guestId,
         size_t component;
 
         for (component = 0u;
-             (ret == 0) && (component < wt_guest_measurement_count());
+             (ret == 0) && (component < wt_attest_measurement_count());
              component++) {
-            const wt_guest_measurement_t* guest =
-                wt_guest_measurement_get(component, NULL);
+            wt_guest_measurement_t guest;
 
-            if (guest == NULL) {
+            if (wt_attest_measurement_get(component, &guest) != 0) {
                 ret = -1;
                 break;
             }
@@ -233,8 +270,8 @@ static int wt_attest_encode_payload(wt_guest_id_t guestId,
                 ret = wc_CBOR_EncodeUint(&cbor, WT_PSA_SW_MEASUREMENT_VALUE);
             }
             if (ret == 0) {
-                ret = wc_CBOR_EncodeBstr(&cbor, guest->digest,
-                                         sizeof(guest->digest));
+                ret = wc_CBOR_EncodeBstr(&cbor, guest.digest,
+                                         sizeof(guest.digest));
             }
             if (ret == 0) {
                 ret = wc_CBOR_EncodeUint(&cbor,
