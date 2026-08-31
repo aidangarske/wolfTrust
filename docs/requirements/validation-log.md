@@ -3583,3 +3583,29 @@ the COMM_INIT, attempts the IAK sign, and issues a raw NVM-group request.
   traffic, which uses only comm, crypto, and key groups.
 The host `wolfhsm_relay` suite is unchanged and green. CI: `hsmattackneg` added to
 the M33MU matrix.
+
+## Attestation Secure Partition scheduling evidence
+
+Commit: `wolftfm-l3` HEAD after this change.
+
+SERVICE_ATTEST no longer dispatches inline on the SPM boot context. It now runs
+as a scheduled Secure Partition on its own coroutine stack (`wt_spm_attest_start`
+/ `wt_spm_attest_entry`), started from `wt_ffm_boot_start_sched` alongside the
+other service partitions and guarded by `WT_ATTEST_COSE`. The dispatch loop was
+refactored to drive every wait, get, read, write, and reply through the SPM
+transport seam (`wt_attestation_service_set_transport`), the same shape the vault
+and HSM partitions use: the direct transport on the host, the SVC transport when
+scheduled on target (`WT-FFM-0060`; satisfies the managed-thread model of
+`WT-FFM-0013`/`WT-FFM-0014`).
+
+Proof:
+- Host: `make -C tests/host/attestation_service run` PASS (4 checks) - a real
+  psa_connect/psa_call round trip carries the challenge in and the token out
+  through the transport seam, plus the token-size and IAK public-key queries.
+- M33MU: `devattest` PASS, 0 fault markers - the Non-secure Initial Attestation
+  suite (`test_a001`) runs against the scheduled SERVICE_ATTEST and val parses
+  the returned token.
+- M33MU: `positive` PASS 0 faults and `confboot` PASS 85/4/0 with a clean BKPT
+  exit - no regression. `confboot` does not gate on fault markers by design (its
+  isolation probes fault the Non-secure client on purpose); its PASSED/SKIPPED/
+  FAILED counts and clean exit are the correctness gate, and both are green.

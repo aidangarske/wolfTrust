@@ -235,6 +235,13 @@ int wt_ffm_boot_start_sched(void)
         ret = wt_spm_vnet_start(&g_ffm_runtime, PARTITION_VNET_ID);
     }
 #endif
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+    /* SERVICE_ATTEST now runs as a scheduled Secure Partition; the inline
+     * dispatch registered in wt_ffm_boot_init is replaced by this coroutine. */
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_attest_start(&g_ffm_runtime, PARTITION_ATTEST_ID);
+    }
+#endif
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_sched_add(&g_ffm_runtime, SERVER_PARTITION_ID,

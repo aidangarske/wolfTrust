@@ -22,6 +22,7 @@
 #define WOLFTRUST_SERVICES_ATTESTATION_SERVICE_H
 
 #include "wolftrust/ffm.h"
+#include "wolftrust/spm_gate.h"
 
 /* psa_call types SERVICE_ATTEST accepts. PSA_IPC_CALL (0) carries the
  * caller's challenge in the input vector and returns the Initial Attestation
@@ -37,5 +38,9 @@
  * produced by the existing wt_initial_attest_get_token backend. */
 int wt_attestation_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                     int32_t partition_id);
+
+/* Transport seam, mirroring vault_service: direct gate calls on the host,
+ * the SVC transport when scheduled on target. NULL restores the default. */
+void wt_attestation_service_set_transport(wt_spm_transport_fn fn);
 
 #endif /* WOLFTRUST_SERVICES_ATTESTATION_SERVICE_H */

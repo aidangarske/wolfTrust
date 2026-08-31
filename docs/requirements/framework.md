@@ -197,4 +197,14 @@ guest cannot reach privileged key material or the trusted store.
 
 | ID | Behavior | Failure | Source | Tests | Commit |
 | --- | --- | --- | --- | --- | --- |
-| WT-FFM-0059 | The relay binds every guest wolfHSM request to the SPM-stamped caller's client namespace and refuses NVM-group requests, so a guest cannot reach the attestation signing key, another guest's keys, or the trusted rollback, replay-counter, and storage objects. | A guest that forges a client identity to sign with the attestation key, or issues an NVM-group request against a trusted object, is refused with no result and no fault. | SRC-FFM 3.3.3; WT-FFM-0016, WT-FFM-0054; WT-SYS-0014 | Mediated relay caller-isolation negatives (`hsmattackneg`) | |
+| WT-FFM-0059 | The relay binds every guest wolfHSM request to the SPM-stamped caller's client namespace and refuses NVM-group requests, so a guest cannot reach the attestation signing key, another guest's keys, or the trusted rollback, replay-counter, and storage objects. | A guest that forges a client identity to sign with the attestation key, or issues an NVM-group request against a trusted object, is refused with no result and no fault. | SRC-FFM 3.3.3; WT-FFM-0016, WT-FFM-0054; WT-SYS-0014 | Mediated relay caller-isolation negatives (`hsmattackneg`) | c7d8054 |
+
+## Secure Partition confinement requirements
+
+Every trusted service runs as a scheduled Secure Partition on its own managed
+context, so no service body executes inline on the SPM. Later work narrows each
+partition to its manifest protection domain.
+
+| ID | Behavior | Failure | Source | Tests | Commit |
+| --- | --- | --- | --- | --- | --- |
+| WT-FFM-0060 | SERVICE_ATTEST executes as a scheduled Secure Partition with its own managed execution thread and stack, servicing every Initial Attestation request through the SPM transport rather than dispatching inline on the SPM boot context. | Attestation dispatch that runs on the SPM boot context instead of a scheduled partition thread, or that cannot serve a token request over the scheduled path, fails the gate. | SRC-FFM 3.2.3; WT-FFM-0013, WT-FFM-0014 | Host SERVICE_ATTEST transport dispatch suite (`tests/host/attestation_service`); M33MU `devattest` | |

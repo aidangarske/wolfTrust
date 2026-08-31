@@ -20,10 +20,13 @@
 
 /* Host proof that Initial Attestation is reachable through real FF-M IPC:
  * wt_attestation_service_dispatch carries a challenge in and a token out over
- * a genuine psa_connect/psa_call round trip. The token backend
- * (wt_initial_attest_get_token) is stubbed here -- its real HSM/COSE-backed
- * implementation is proven on M33MU -- so this suite isolates the IPC routing:
- * challenge delivery, caller-identity derivation, and token return. */
+ * a genuine psa_connect/psa_call round trip. The dispatch now drives every
+ * wait/get/read/write/reply through the SPM transport seam (the same code path
+ * the scheduled Secure Partition uses on target), exercised here with the
+ * default direct transport. The token backend (wt_initial_attest_get_token) is
+ * stubbed here -- its real HSM/COSE-backed implementation is proven on M33MU --
+ * so this suite isolates the IPC routing: challenge delivery, caller-identity
+ * derivation, and token return. */
 
 #include "wolftrust/ffm.h"
 #include "wolftrust/services/attestation_service.h"
@@ -177,6 +180,10 @@ int main(void)
         (void)fprintf(stderr, "wt_ffm_init failed\n");
         return 1;
     }
+
+    /* Pin the dispatch to the direct transport seam explicitly; NULL would
+     * restore the same default. On target this becomes the SVC transport. */
+    wt_attestation_service_set_transport(wt_spm_transport_direct);
 
     handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_ATTEST_SID, 1U);
     if (!PSA_HANDLE_IS_VALID(handle)) {

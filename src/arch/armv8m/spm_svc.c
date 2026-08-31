@@ -33,6 +33,9 @@
 #include "wolftrust/platform.h"
 #include "wolftrust/sched/coroutine.h"
 #include "wolftrust/sched/coroutine_internal.h"
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+#include "wolftrust/services/attestation_service.h"
+#endif
 #include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/hsm_relay.h"
@@ -894,6 +897,28 @@ int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
     return wt_spm_sched_add_common(runtime, partition_id, wt_spm_hsm_entry,
                                    (void*)(intptr_t)partition_id, 1u);
 }
+
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+/* SERVICE_ATTEST's dispatch loop as a scheduled coroutine SP. Privileged for
+ * now like the HSM relay: the sign path reaches the secure attestation server
+ * state in SPM RAM; a later slice routes that through a gate and narrows this
+ * partition to its manifest MPU domain. Context lives on its own stack. */
+static void wt_spm_attest_entry(void* arg)
+{
+    int32_t partition_id = (int32_t)(intptr_t)arg;
+
+    for (;;) {
+        (void)wt_attestation_service_dispatch(NULL, NULL, partition_id);
+    }
+}
+
+int wt_spm_attest_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    wt_attestation_service_set_transport(wt_spm_svc_transport);
+    return wt_spm_sched_add_common(runtime, partition_id, wt_spm_attest_entry,
+                                   (void*)(intptr_t)partition_id, 1u);
+}
+#endif /* WT_ATTEST_COSE */
 
 /* The vault partition's service loop: privileged, so reading the service's
  * file-scope backend/transport seams is legal — no per-call context needed. */

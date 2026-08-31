@@ -45,6 +45,12 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
  * the shared NVM mutex — the same privilege rationale as the vault. */
 int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 
+/* Start the SERVICE_ATTEST partition as a scheduled PRIVILEGED coroutine: its
+ * dispatch loop runs on its own stack and reaches the secure attestation
+ * server state, so it runs privileged like the HSM relay for now. Defined only
+ * in attestation-enabled builds. */
+int wt_spm_attest_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
+
 /* Start the vault partition (WT-FFM-0047) as a scheduled PRIVILEGED coroutine:
  * same slot machinery and SVC gate, but wt_co_set_domain is never called, so
  * the loop may reach the wolfHSM NVM state and block on its mutex. Clients

@@ -21,6 +21,68 @@
 #include "wolftrust/services/attestation_service.h"
 #include "wolftrust/services/initial_attestation.h"
 
+#include <string.h>
+
+static wt_spm_transport_fn g_attest_transport = wt_spm_transport_direct;
+
+void wt_attestation_service_set_transport(wt_spm_transport_fn fn)
+{
+    g_attest_transport = (fn != NULL) ? fn : wt_spm_transport_direct;
+}
+
+/* Drain invec[idx] into a bounded private buffer (WT-FFM-0041 copied
+ * transfers). Returns the byte count via out_len or a negative WT_FFM error. */
+static int wt_attest_read_vec(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                              psa_handle_t msg_handle, uint32_t idx,
+                              uint8_t* buffer, size_t capacity,
+                              size_t* out_len)
+{
+    wt_spm_call_t call;
+    size_t len = 0U;
+
+    for (;;) {
+        (void)memset(&call, 0, sizeof(call));
+        call.op = WT_SPM_OP_READ;
+        call.partition_id = partition_id;
+        call.msg_handle = msg_handle;
+        call.vec_idx = idx;
+        call.buffer = buffer + len;
+        call.num_bytes = capacity - len;
+        if (g_attest_transport(runtime, &call) != WT_FFM_SUCCESS) {
+            return WT_FFM_ERROR_STATE;
+        }
+        if (call.ret_size == 0U) {
+            break;
+        }
+        len += call.ret_size;
+        if (len >= capacity) {
+            break;
+        }
+    }
+    *out_len = len;
+    return WT_FFM_SUCCESS;
+}
+
+static int wt_attest_write_vec(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                               psa_handle_t msg_handle, uint32_t idx,
+                               const void* data, size_t len)
+{
+    wt_spm_call_t call;
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_WRITE;
+    call.partition_id = partition_id;
+    call.msg_handle = msg_handle;
+    call.vec_idx = idx;
+    call.buffer = (void*)(uintptr_t)data;
+    call.num_bytes = len;
+    if (g_attest_transport(runtime, &call) != WT_FFM_SUCCESS ||
+            call.ret_int != WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_STATE;
+    }
+    return WT_FFM_SUCCESS;
+}
+
 static int wt_attestation_service_token(wt_ffm_runtime_t* runtime,
                                         int32_t partition_id,
                                         const psa_msg_t* msg)
@@ -29,7 +91,6 @@ static int wt_attestation_service_token(wt_ffm_runtime_t* runtime,
     uint8_t token[WT_ATTEST_MAX_TOKEN_SIZE];
     size_t challenge_len = 0U;
     size_t token_len = 0U;
-    size_t got;
     wt_guest_id_t guest_id;
     int ret;
 
@@ -43,14 +104,10 @@ static int wt_attestation_service_token(wt_ffm_runtime_t* runtime,
     if (msg->in_size[0] > sizeof(challenge)) {
         return WT_FFM_ERROR_ARGUMENT;
     }
-    for (;;) {
-        got = wt_ffm_read(runtime, partition_id, msg->handle, 0U,
-                          challenge + challenge_len,
-                          sizeof(challenge) - challenge_len);
-        if (got == 0U) {
-            break;
-        }
-        challenge_len += got;
+    if (wt_attest_read_vec(runtime, partition_id, msg->handle, 0U, challenge,
+                           sizeof(challenge), &challenge_len) !=
+            WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_STATE;
     }
 
     ret = wt_initial_attest_get_token(guest_id, challenge, challenge_len,
@@ -58,8 +115,8 @@ static int wt_attestation_service_token(wt_ffm_runtime_t* runtime,
     if (ret != WT_ATTEST_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
-    if (wt_ffm_write(runtime, partition_id, msg->handle, 0U, token,
-                     token_len) != WT_FFM_SUCCESS) {
+    if (wt_attest_write_vec(runtime, partition_id, msg->handle, 0U, token,
+                            token_len) != WT_FFM_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
     return WT_FFM_SUCCESS;
@@ -98,16 +155,17 @@ static psa_status_t wt_attestation_service_token_size(
     uint32_t challenge_size = 0U;
     uint32_t token_size_out;
     size_t token_size = 0U;
-    size_t got;
+    size_t got_len = 0U;
     int ret;
 
     if (msg->in_size[0] != sizeof(challenge_size) ||
             msg->out_size[0] < sizeof(token_size_out)) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
-    got = wt_ffm_read(runtime, partition_id, msg->handle, 0U,
-                      &challenge_size, sizeof(challenge_size));
-    if (got != sizeof(challenge_size)) {
+    if (wt_attest_read_vec(runtime, partition_id, msg->handle, 0U,
+                           (uint8_t*)&challenge_size, sizeof(challenge_size),
+                           &got_len) != WT_FFM_SUCCESS ||
+            got_len != sizeof(challenge_size)) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
     ret = wt_initial_attest_get_token_size((size_t)challenge_size,
@@ -116,9 +174,9 @@ static psa_status_t wt_attestation_service_token_size(
         return wt_attestation_map_status(ret);
     }
     token_size_out = (uint32_t)token_size;
-    if (wt_ffm_write(runtime, partition_id, msg->handle, 0U,
-                     &token_size_out,
-                     sizeof(token_size_out)) != WT_FFM_SUCCESS) {
+    if (wt_attest_write_vec(runtime, partition_id, msg->handle, 0U,
+                            &token_size_out,
+                            sizeof(token_size_out)) != WT_FFM_SUCCESS) {
         return PSA_ERROR_GENERIC_ERROR;
     }
     return PSA_SUCCESS;
@@ -143,8 +201,8 @@ static psa_status_t wt_attestation_service_public_key(
     if (msg->out_size[0] < public_key_len) {
         return PSA_ERROR_BUFFER_TOO_SMALL;
     }
-    if (wt_ffm_write(runtime, partition_id, msg->handle, 0U, public_key,
-                     public_key_len) != WT_FFM_SUCCESS) {
+    if (wt_attest_write_vec(runtime, partition_id, msg->handle, 0U, public_key,
+                            public_key_len) != WT_FFM_SUCCESS) {
         return PSA_ERROR_GENERIC_ERROR;
     }
     return PSA_SUCCESS;
@@ -153,16 +211,30 @@ static psa_status_t wt_attestation_service_public_key(
 int wt_attestation_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                     int32_t partition_id)
 {
-    psa_signal_t asserted;
+    psa_signal_t asserted = 0U;
     psa_msg_t msg;
     psa_status_t reply_status;
+    wt_spm_call_t call;
 
     (void)context;
-    if (wt_ffm_wait(runtime, partition_id, PSA_WAIT_ANY, &asserted) !=
-            WT_FFM_SUCCESS) {
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_WAIT;
+    call.partition_id = partition_id;
+    call.signal_mask = PSA_WAIT_ANY;
+    call.timeout = PSA_BLOCK;
+    call.asserted = &asserted;
+    if (g_attest_transport(runtime, &call) != WT_FFM_SUCCESS ||
+            call.ret_int != WT_FFM_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
-    if (wt_ffm_get(runtime, partition_id, asserted, &msg) != PSA_SUCCESS) {
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_GET;
+    call.partition_id = partition_id;
+    call.signal = asserted;
+    call.msg = &msg;
+    if (g_attest_transport(runtime, &call) != WT_FFM_SUCCESS ||
+            call.ret_status != PSA_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
 
@@ -182,8 +254,13 @@ int wt_attestation_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
         reply_status = PSA_ERROR_NOT_SUPPORTED;
     }
 
-    if (wt_ffm_reply(runtime, partition_id, msg.handle, reply_status) !=
-            WT_FFM_SUCCESS) {
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_REPLY;
+    call.partition_id = partition_id;
+    call.msg_handle = msg.handle;
+    call.status = reply_status;
+    if (g_attest_transport(runtime, &call) != WT_FFM_SUCCESS ||
+            call.ret_int != WT_FFM_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
     return WT_FFM_SUCCESS;

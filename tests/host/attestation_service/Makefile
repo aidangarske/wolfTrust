@@ -38,6 +38,8 @@ CFLAGS += $(EXTRA_CFLAGS)
 _WT_SRCS := \
     $(ROOT)/src/ffm.c \
     $(ROOT)/src/ipc.c \
+    $(ROOT)/src/ffm_domain.c \
+    $(ROOT)/src/spm_gate.c \
     $(ROOT)/src/services/attestation_service.c
 
 _TEST_SRCS := main.c
