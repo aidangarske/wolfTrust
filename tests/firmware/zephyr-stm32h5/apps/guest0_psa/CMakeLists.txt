@@ -53,6 +53,10 @@ if(WT_GUEST_FAULT_PROBE)
     target_compile_definitions(app PRIVATE WT_GUEST_FAULT_PROBE=1)
 endif()
 
+if(WT_WRITE_ONCE_RESET_PROBE)
+    target_compile_definitions(app PRIVATE WT_WRITE_ONCE_RESET_PROBE=1)
+endif()
+
 if(WT_ATTEST_NEG_PROBE)
     target_compile_definitions(app PRIVATE WT_ATTEST_NEG_PROBE=1)
 endif()

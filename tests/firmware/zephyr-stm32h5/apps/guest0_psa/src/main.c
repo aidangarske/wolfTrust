@@ -373,6 +373,123 @@ static void exercise_ffm_ps(void)
 	(void)wt_tee_invoke(&arg, 1, param);
 }
 
+#if defined(WT_WRITE_ONCE_RESET_PROBE)
+/* WRITE_ONCE-across-reset probe (hardware two-boot, driven by the runner).
+ * The object's own existence is the boot-phase detector: the first boot on a
+ * blank vault seals a WRITE_ONCE object and latches stage 1; the runner then
+ * resets the board; the second boot reads the object back (survived the reset)
+ * and confirms it refuses a second set (NONMODIFIABLE) and a remove
+ * (NONDESTROYABLE), latching stage 2. The runner reads g_write_once_stage over
+ * SWD across both boots. */
+volatile uint32_t g_write_once_stage __attribute__((used));
+
+static void exercise_write_once_reset(void)
+{
+	static const uint8_t value[16] = {
+		0x57, 0x4F, 0x4E, 0x43, 0x45, 0x2D, 0x53, 0x55,
+		0x52, 0x56, 0x49, 0x56, 0x45, 0x2D, 0x30, 0x31
+	};
+	const struct device *tee = DEVICE_DT_GET_ANY(wolfssl_wolftrust_tee);
+	struct tee_invoke_func_arg arg;
+	struct tee_param param[2];
+	uint8_t setbuf[16 + sizeof(value)];
+	uint8_t getbuf[sizeof(value)];
+	uint64_t uid = 0x57574F4Eu; /* "WWON" */
+	uint32_t flags = 0x1u;      /* WT_VAULT_FLAG_WRITE_ONCE */
+	int32_t handle;
+	int32_t st;
+	int ok;
+	int rc;
+
+	if (tee == NULL || !device_is_ready(tee)) {
+		g_write_once_stage = 0xEu;
+		return;
+	}
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CONNECT;
+	param[0].a = WT_PS_SID;
+	param[0].b = 1u;
+	rc = wt_tee_invoke(&arg, 1, param);
+	handle = (int32_t)arg.ret;
+	if (rc != 0 || handle <= 0) {
+		g_write_once_stage = 0xEu;
+		return;
+	}
+
+	memset(setbuf, 0, sizeof(setbuf));
+	memcpy(setbuf, &uid, sizeof(uid));
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CALL;
+	param[0].a = (uint64_t)handle;
+	param[0].b = 2u; /* WT_ITS_OP_GET */
+	param[0].c = (uint64_t)(uintptr_t)setbuf;
+	param[1].a = 16u;
+	param[1].b = (uint64_t)(uintptr_t)getbuf;
+	param[1].c = sizeof(getbuf);
+	rc = wt_tee_invoke(&arg, 2, param);
+	st = (int32_t)arg.ret;
+
+	if (rc == 0 && st == 0) {
+		ok = (memcmp(getbuf, value, sizeof(value)) == 0);
+		memset(setbuf, 0, sizeof(setbuf));
+		memcpy(setbuf, &uid, sizeof(uid));
+		memcpy(setbuf + 8, &flags, sizeof(flags));
+		memcpy(setbuf + 16, value, sizeof(value));
+		memset(&arg, 0, sizeof(arg));
+		memset(param, 0, sizeof(param));
+		arg.func = WOLFTRUST_FN_FFM_CALL;
+		param[0].a = (uint64_t)handle;
+		param[0].b = 1u; /* WT_ITS_OP_SET must be refused */
+		param[0].c = (uint64_t)(uintptr_t)setbuf;
+		param[1].a = sizeof(setbuf);
+		(void)wt_tee_invoke(&arg, 2, param);
+		if ((int32_t)arg.ret == 0) {
+			ok = 0;
+		}
+		memset(setbuf, 0, sizeof(setbuf));
+		memcpy(setbuf, &uid, sizeof(uid));
+		memset(&arg, 0, sizeof(arg));
+		memset(param, 0, sizeof(param));
+		arg.func = WOLFTRUST_FN_FFM_CALL;
+		param[0].a = (uint64_t)handle;
+		param[0].b = 4u; /* WT_ITS_OP_REMOVE must be refused */
+		param[0].c = (uint64_t)(uintptr_t)setbuf;
+		param[1].a = 16u;
+		(void)wt_tee_invoke(&arg, 2, param);
+		if ((int32_t)arg.ret == 0) {
+			ok = 0;
+		}
+		g_write_once_stage = ok ? 2u : 0xEu;
+		LOG_INF("wolfTrust WRITE_ONCE reset survival %s",
+			ok ? "verified" : "FAILED");
+	} else {
+		memset(setbuf, 0, sizeof(setbuf));
+		memcpy(setbuf, &uid, sizeof(uid));
+		memcpy(setbuf + 8, &flags, sizeof(flags));
+		memcpy(setbuf + 16, value, sizeof(value));
+		memset(&arg, 0, sizeof(arg));
+		memset(param, 0, sizeof(param));
+		arg.func = WOLFTRUST_FN_FFM_CALL;
+		param[0].a = (uint64_t)handle;
+		param[0].b = 1u; /* WT_ITS_OP_SET */
+		param[0].c = (uint64_t)(uintptr_t)setbuf;
+		param[1].a = sizeof(setbuf);
+		rc = wt_tee_invoke(&arg, 2, param);
+		st = (int32_t)arg.ret;
+		g_write_once_stage = (rc == 0 && st == 0) ? 1u : 0xEu;
+		LOG_INF("wolfTrust WRITE_ONCE seeded st=%d", (int)st);
+	}
+
+	memset(&arg, 0, sizeof(arg));
+	memset(param, 0, sizeof(param));
+	arg.func = WOLFTRUST_FN_FFM_CLOSE;
+	param[0].a = (uint64_t)handle;
+	(void)wt_tee_invoke(&arg, 1, param);
+}
+#endif /* WT_WRITE_ONCE_RESET_PROBE */
+
 /* Key-ops now ride the single mediated path: wolfPSA generates a volatile
  * P-256 key pair whose private part lives only inside the wolfHSM server, signs
  * a digest, verifies it, and refuses a tampered digest. Same marker as the
@@ -1046,6 +1163,9 @@ int main(void)
 			wt_zephyr_client_status_string(rc));
 	}
 
+#if defined(WT_WRITE_ONCE_RESET_PROBE)
+	exercise_write_once_reset();
+#endif
 	exercise_tee_driver();
 	exercise_ffm_crypto();
 	exercise_ffm_its();
