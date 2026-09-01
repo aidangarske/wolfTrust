@@ -3896,6 +3896,40 @@ this is a tracked pending bump, not a papered-over gap. The Initial Attestation
 baseline was corrected from "2.0 with 1.0 compatibility" to 1.0 to match the
 shipped wolfPSA client.
 
+## Standard attestation claims at the registered PSA profile-2 keys (2026-09-01)
+
+The Initial Attestation token now carries the full standard claim set
+(WT-FFM-0064). Two claims join the map unconditionally: the EAT profile
+(key 265, `"http://arm.com/psa/2.0.0"`, identifying the registered-key claim
+format) and the boot seed (key 268, 32 bytes). The boot seed hashes the boot
+measurement with the device instance id, so it is stable across one measured
+boot and reproducible for the golden vector. The certification-reference (2398)
+and verification-service (2400) claims are encode-capable but emitted only when
+a deployment defines `WT_ATTEST_CERT_REFERENCE` / `WT_ATTEST_VERIFICATION_SERVICE`
+with real values — wolfTrust is not PSA-certified and ships no verifier URL, and
+a signed token must not carry fabricated values. The claim keys were verified
+against the IANA CWT registry and match the upstream conformance suite's
+profile-2 constant table exactly.
+
+The first on-target run exposed a real sizing defect, not a claim defect: the
+upstream attestation conformance suite verifies with 512-byte token buffers,
+and the on-target token (three software components: runtime plus two verified
+guests) plus the two new claims exceeded 512 bytes at the 48-byte challenge, so
+`psa_initial_attest_get_token` could no longer satisfy the published maximum.
+The ceiling is an implementation constant and was raised coherently:
+`WT_ATTEST_MAX_TOKEN_SIZE` and the conformance build's
+`PSA_INITIAL_ATTEST_MAX_TOKEN_SIZE` to 640, the token scratch to 768, and the
+guest0 client buffers to match. The upstream verifier itself parses the added
+claims cleanly (profile is type-checked as text, boot seed as bytes; neither
+changes the profile-2 mandatory-claim count).
+
+Evidence:
+- Host: `make test` unit/all PASS; `tests/host/attestation_golden` regenerated
+  282-byte claim vector (map of 8) with profile and boot-seed presence pinned.
+- M33MU: `devattest` (upstream attestation suite) and `positive` (guest0
+  verifier requires all eight claims) PASS.
+- H563 silicon: `devattest` and `positive` PASS.
+
 The committed-install firmware-update deviation (TRIAL/accept not offered, from
 the PSA Firmware Update parity work) and the stateless-service narrow (from the
 framework-version discovery work) are both recorded in the deviation register.
