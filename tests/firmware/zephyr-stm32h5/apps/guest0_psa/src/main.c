@@ -1101,7 +1101,12 @@ static void wt_guest_fault_probe(void)
 #define WT_FWU_OP_WRITE   3u
 #define WT_FWU_OP_FINISH  4u
 #define WT_FWU_OP_INSTALL 5u
+#define WT_FWU_OP_CANCEL  6u
+#define WT_FWU_OP_CLEAN   7u
+#define WT_FWU_OP_REJECT  8u
+#define WT_FWU_READY      0u
 #define WT_FWU_STAGED     3u
+#define WT_FWU_FAILED     4u
 
 struct wt_fwu_probe_req {
 	uint32_t component;
@@ -1143,7 +1148,7 @@ static void exercise_ffm_fwu(void)
 	struct tee_param param[2];
 	struct wt_fwu_probe_req req;
 	uint8_t writebuf[16 + 32];
-	uint32_t info[4];
+	uint32_t info[8];
 	int ok = 1;
 	int32_t handle;
 	int32_t st;
@@ -1241,6 +1246,45 @@ static void exercise_ffm_fwu(void)
 	if (ok) {
 		LOG_INF("wolfTrust FWU staged 64 bytes to update partition, "
 			"armed, verified");
+	}
+
+	/* PSA FWU 1.0 lifecycle tail: reject disarms the staged swap and
+	 * records the error, clean restores READY on target. */
+	memset(&req, 0, sizeof(req));
+	req.version = (uint32_t)-132; /* PSA_ERROR_GENERIC_ERROR rides version */
+	st = wt_fwu_probe_call(tee, handle, WT_FWU_OP_REJECT, &req, sizeof(req),
+			       NULL, 0u);
+	if (st != 0) {
+		LOG_ERR("wolfTrust FWU reject failed st=%d", st);
+		ok = 0;
+	}
+	memset(&req, 0, sizeof(req));
+	memset(info, 0, sizeof(info));
+	st = wt_fwu_probe_call(tee, handle, WT_FWU_OP_QUERY, &req, sizeof(req),
+			       info, sizeof(info));
+	if (st != 0 || (info[0] & 0xFFu) != WT_FWU_FAILED) {
+		LOG_ERR("wolfTrust FWU post-reject query st=%d state=%u", st,
+			info[0]);
+		ok = 0;
+	}
+	memset(&req, 0, sizeof(req));
+	st = wt_fwu_probe_call(tee, handle, WT_FWU_OP_CLEAN, &req, sizeof(req),
+			       NULL, 0u);
+	if (st != 0) {
+		LOG_ERR("wolfTrust FWU clean failed st=%d", st);
+		ok = 0;
+	}
+	memset(&req, 0, sizeof(req));
+	memset(info, 0, sizeof(info));
+	st = wt_fwu_probe_call(tee, handle, WT_FWU_OP_QUERY, &req, sizeof(req),
+			       info, sizeof(info));
+	if (st != 0 || (info[0] & 0xFFu) != WT_FWU_READY) {
+		LOG_ERR("wolfTrust FWU post-clean query st=%d state=%u", st,
+			info[0]);
+		ok = 0;
+	}
+	if (ok) {
+		LOG_INF("wolfTrust FWU reject disarmed and clean restored READY");
 	}
 
 	memset(&arg, 0, sizeof(arg));
