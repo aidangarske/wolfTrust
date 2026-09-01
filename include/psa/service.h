@@ -30,8 +30,8 @@ typedef int32_t psa_client_id_t;
 typedef uint32_t psa_signal_t;
 
 typedef struct psa_msg_t {
-    psa_handle_t handle;
     int32_t type;
+    psa_handle_t handle;
     psa_client_id_t client_id;
     void* rhandle;
     size_t in_size[PSA_MAX_IOVEC];
