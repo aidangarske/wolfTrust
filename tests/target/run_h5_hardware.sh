@@ -297,6 +297,38 @@ if [ "$mode" != "build" ]; then
   cap_pid=$!
   sleep 1
 
+  # pyocd erase flakily dies with "flash init timed out" (usually the first
+  # invocation after a reset-halt) without reporting it; read back and retry.
+  # Check the sector tail too: wolfBoot trailer state lives in the last bytes,
+  # so a head-only check false-passes a sector whose front was already blank.
+  erase_verified() {
+    local addr tail lowh lowt out wh wt attempt
+    addr="$1"
+    tail=$(printf '0x%08X' $(( addr + 0x1FFC )))
+    lowh=$(printf '%s' "${addr#0x}" | tr 'A-F' 'a-f')
+    lowt=$(printf '%s' "${tail#0x}" | tr 'A-F' 'a-f')
+    for attempt in 1 2 3; do
+      pyocd erase -t "$PYOCD_TARGET" -s "$addr" >> "$LOGFILE" 2>&1 || true
+      out=$(pyocd cmd -t "$PYOCD_TARGET" -c halt -c "read32 $addr 4" \
+        -c "read32 $tail 4" 2>/dev/null)
+      wh=$(printf '%s\n' "$out" | awk -v a="$lowh" 'tolower($1)==a":"{print $2}')
+      wt=$(printf '%s\n' "$out" | awk -v a="$lowt" 'tolower($1)==a":"{print $2}')
+      [ "$wh" = "ffffffff" ] && [ "$wt" = "ffffffff" ] && return 0
+    done
+    echo "FAIL: sector $addr did not erase (head=${wh:-none} tail=${wt:-none})" >&2
+    return 1
+  }
+
+  # Scenario images cover only the front of each partition, so wolfBoot's
+  # BOOT/UPDATE trailer and SWAP sectors survive reflashes; a bootupdate run
+  # leaves its trigger armed there and every later boot then swaps stale
+  # update content over the fresh image and halts. Blank them before flashing.
+  stage "erasing wolfBoot trailer + swap sectors (halted, verified)"
+  pyocd cmd -t "$PYOCD_TARGET" -c "reset halt" >> "$LOGFILE" 2>&1 || true
+  erase_verified 0x0C09E000
+  erase_verified 0x0C13E000
+  erase_verified 0x0C140000
+
   stage "flashing wolfTrust chain via STM32CubeProgrammer"
   # CubeProgrammer exits nonzero after -hardRst even on success; gate on the
   # verify text instead so set -e does not kill the marker checks below.
@@ -327,11 +359,20 @@ if [ "$mode" != "build" ]; then
   # (SIM ERROR reboot). So: park the core at the reset vector, erase while
   # halted, then boot exactly once.
   if [ "$scenario" = "devstorage" ] || [ "$scenario" = "devcrypto" ] || [ "$scenario" = "devattest" ] || [ "$scenario" = "devattestqcbor" ] || [ "$scenario" = "vaultrecover" ] || [ "$scenario" = "vaultrecoversec" ]; then
-    stage "reset-halt, erase vault NVM + boot-flag while halted, single boot"
+    stage "reset-halt, erase vault NVM + boot-flag (verified), single boot"
     pyocd cmd -t "$PYOCD_TARGET" -c "reset halt" >> "$LOGFILE" 2>&1 || true
-    pyocd erase -t "$PYOCD_TARGET" -s 0x0C1FC000 >> "$LOGFILE" 2>&1 || true
-    pyocd erase -t "$PYOCD_TARGET" -s 0x0C1FE000 >> "$LOGFILE" 2>&1 || true
-    pyocd erase -t "$PYOCD_TARGET" -s 0x0C1FA000 >> "$LOGFILE" 2>&1 || true
+    erase_verified 0x0C1FC000
+    erase_verified 0x0C1FE000
+    erase_verified 0x0C1FA000
+    pyocd cmd -t "$PYOCD_TARGET" -c reset >/dev/null 2>&1 || true
+  elif [ "$scenario" = "positive" ] || [ "$scenario" = "bothpsa" ] || [ "$scenario" = "crossdomain" ] || [ "$scenario" = "keystoreneg" ]; then
+    # Guest0's ITS+PS lifecycle persists vault objects across runs on silicon
+    # (the emulator starts on fresh flash); blank the vault like the dev
+    # scenarios do so the pool stays emulator-equivalent.
+    stage "reset-halt, erase vault NVM (verified), single boot"
+    pyocd cmd -t "$PYOCD_TARGET" -c "reset halt" >> "$LOGFILE" 2>&1 || true
+    erase_verified 0x0C1FC000
+    erase_verified 0x0C1FE000
     pyocd cmd -t "$PYOCD_TARGET" -c reset >/dev/null 2>&1 || true
   elif [ "$scenario" = "writeonce" ]; then
     # First boot on a blank vault: guest0 seals a WRITE_ONCE object and latches
