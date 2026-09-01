@@ -15,6 +15,11 @@ tests/host/build/
 tests/host/*/build/
 tests/host/vnet/test_vnet
 tests/host/wolfcose/test_wolfcose_integration
+tests/fuzz/build/
+tests/fuzz/corpus/
+tests/fuzz/crash-*
+tests/fuzz/oom-*
+tests/fuzz/timeout-*
 
 # Stray duplicate at repo root
 /stm32h563_OTP.bin

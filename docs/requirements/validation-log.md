@@ -4013,6 +4013,42 @@ Evidence:
   `confboot` silicon gate is not yet deterministic (the suite itself passes
   85/4 repeatedly). This is a gate-automation issue, not a conformance gap.
 
+## Non-secure to SPM fuzz suite and threat model (2026-09-01)
+
+A continuous-fuzzing target now drives the primary Non-secure-to-SPM boundary.
+`tests/fuzz/wt_spm_fuzz.c` is a libFuzzer harness that reinterprets each input
+as a stream of client operations against the production FF-M runtime
+(`src/ffm.c`, `src/ipc.c`) under AddressSanitizer: `wt_ffm_connect` /
+`wt_ffm_call` / `wt_ffm_close` with a mix of held and forged handles, real and
+fuzzed service ids, arbitrary call types, and adversarial input/output vector
+counts, lengths, and contents, plus version and framework-version probes. The
+serving partition drains every input vector and writes to every output vector,
+so the read, skip, and write transfer math is exercised on attacker-shaped
+sizes. The runtime is re-initialized on a fixed interval to keep findings
+reproducible.
+
+`.github/workflows/fuzz.yml` follows the wolfTPM model: a 60-second smoke on
+every non-draft pull request and every merge to a tracked branch, and a
+600-second soak nightly (04:00 UTC) and on manual dispatch, with a `select`
+job routing the matrix by event type and crash/OOM/timeout artifacts uploaded
+on a finding. A seed corpus generator (`gen_corpus.py`) and a token dictionary
+(`wt_spm.dict`) start the fuzzer from valid coverage of connect, call, close,
+forged handles, and vector edges.
+
+The threat model is published in `docs/threat-model.md`: assets, the three
+trust boundaries, the malicious-guest and fault/power-loss adversaries, and a
+table mapping each attack surface to its assurance activity. It records two
+residual risks carried to release qualification: the NVM pool wedge on an
+interrupted keystore `AddObject` (a flash-transaction fault-injection concern
+the SPM-boundary fuzzer does not reach), and cross-guest availability under
+resource exhaustion (not a first-profile claim).
+
+Evidence:
+- The libFuzzer runtime is a Linux-toolchain build (CI runner); locally the
+  harness builds and replays clean under a plain AddressSanitizer driver over
+  the seed corpus and 200k synthetic inputs with zero findings, confirming the
+  harness itself is sound. The soak coverage accrues in CI.
+
 The committed-install firmware-update deviation (TRIAL/accept not offered, from
 the PSA Firmware Update parity work) and the stateless-service narrow (from the
 framework-version discovery work) are both recorded in the deviation register.

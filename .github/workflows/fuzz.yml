@@ -1,0 +1,90 @@
+name: Fuzz Testing
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # Nightly 04:00 UTC
+  workflow_dispatch:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  push:
+    branches: [master, main, wolftfm-l3, wolfTrust-dev]
+
+permissions:
+  contents: read
+
+jobs:
+  # The matrix context is not available in a job-level if:, so route by run
+  # type here: schedule / manual dispatch get the full 600s soak; PR pushes and
+  # merges get the 60s smoke that keeps the required checks fast.
+  select:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - name: Pick fuzz matrix for ${{ github.event_name }}
+        id: pick
+        run: |
+          case "${{ github.event_name }}" in
+            schedule|workflow_dispatch) WANT=false ;;
+            *)                          WANT=true  ;;
+          esac
+          MATRIX=$(jq -nc --argjson want "$WANT" '{
+            include: [
+              {name:"spm-full",  target:"wt_spm_fuzz", fuzz_time:600, smoke_only:false, max_len:4096},
+              {name:"spm-smoke", target:"wt_spm_fuzz", fuzz_time:60,  smoke_only:true,  max_len:4096}
+            ] | map(select(.smoke_only == $want))
+          }')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  fuzz:
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.select.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ASLR workaround for libFuzzer under recent kernels
+        run: sudo sysctl vm.mmap_rnd_bits=28
+
+      - name: Build ${{ matrix.target }}
+        run: make -C tests/fuzz CC=clang
+
+      - name: Generate seed corpus
+        run: make -C tests/fuzz corpus
+
+      - name: Run ${{ matrix.target }} for ${{ matrix.fuzz_time }}s
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1:symbolize=1
+        run: |
+          cd tests/fuzz
+          ./build/${{ matrix.target }} corpus/ \
+            -dict=wt_spm.dict \
+            -max_len=${{ matrix.max_len }} \
+            -timeout=30 \
+            -rss_limit_mb=2048 \
+            -max_total_time=${{ matrix.fuzz_time }} \
+            -print_final_stats=1 \
+            || FUZZ_RC=$?
+          if [ "${FUZZ_RC:-0}" -eq 0 ]; then
+            echo "Fuzzer completed with no findings"
+          else
+            echo "Fuzzer reported a finding (exit $FUZZ_RC)"
+            ls -la crash-* oom-* timeout-* 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: Upload finding artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings-${{ matrix.name }}
+          path: |
+            tests/fuzz/crash-*
+            tests/fuzz/oom-*
+            tests/fuzz/timeout-*
+          retention-days: 30
+          if-no-files-found: ignore
