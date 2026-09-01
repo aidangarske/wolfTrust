@@ -204,7 +204,9 @@ static int wt_attest_encode_payload(wt_guest_id_t guestId,
         ret = wc_CBOR_EncodeInt(&cbor, WT_PSA_CLAIM_CLIENT_ID);
     }
     if (ret == 0) {
-        ret = wc_CBOR_EncodeInt(&cbor, (int64_t)guestId + 1);
+        /* The claim carries the caller's PSA client id; NSPE callers are
+         * negative (guest N maps to -(N + 1)), never a positive value. */
+        ret = wc_CBOR_EncodeInt(&cbor, -((int64_t)guestId + 1));
     }
     if (ret == 0) {
         ret = wc_CBOR_EncodeInt(&cbor, WT_PSA_CLAIM_LIFECYCLE);

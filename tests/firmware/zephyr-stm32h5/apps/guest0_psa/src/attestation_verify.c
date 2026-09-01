@@ -209,7 +209,9 @@ static int wt_verify_claims(const uint8_t* payload, size_t payloadSize,
         }
         else if ((ret == 0) && (label == WT_PSA_CLAIM_CLIENT_ID)) {
             ret = wc_CBOR_DecodeInt(&cbor, &signedValue);
-            if ((ret == 0) && (signedValue == 1)) {
+            /* guest0 is the first NSPE client: its PSA client id is -1, and
+             * any nonnegative id in the claim is a spoofed secure caller. */
+            if ((ret == 0) && (signedValue == -1)) {
                 claims |= 4u;
             }
             else {
