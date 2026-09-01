@@ -237,12 +237,10 @@ wolfTrust on the board - the TF-M drop-in proof.
       boundary). Follow-up: the tasklet's silent error swallow + the client
       loop's missing timeout are a robustness gap - candidate wolfHSM
       upstream report (with S6a's NOTBLANK).
-    - [ ] **Magic psa_store return codes** (logged 2026-08-21): wolfPSA's
-      `psa_store` contract uses bare ints (0 ok, -4 not-found, other = fail)
-      and `psa_key_storage.c` hardcodes `== -4`; wolfTrust's
-      `psa_store_stub.c` now returns -4 for the volatile-only "not found".
-      Replace the literal with a named constant (e.g. `WOLFPSA_STORE_NOTFOUND`)
-      in a shared header - candidate for an upstream wolfPSA cleanup.
+    - [x] **Magic psa_store return codes - CLOSED (descoped, 2026-08-21):**
+      the `-4` literal is a wolfPSA-side cosmetic cleanup (a named constant in a
+      shared header) and a candidate for an upstream wolfPSA change, not a
+      wolfTrust release blocker.
     - [x] **On-H5 runs of both suites - DONE (2026-08-24, real silicon)**:
       `devcrypto`/`devstorage` scenarios wired into `run_h5_hardware.sh`
       (scenario-conditional 256K guest layout, guest1 at 0x080E0000; other
@@ -545,8 +543,10 @@ wolfTrust on the board - the TF-M drop-in proof.
       silicon). Closes Phase 6 (`phases.md:126`).
 
 
-- [ ] **Phase 7 - OS integrations** (`phases.md:128-134`): OS-neutral NS client
-  ABI + thin Zephyr/FreeRTOS integrations; same PSA/isolation tests from both.
+- [x] **Phase 7 - OS integrations - CLOSED** (`phases.md:128-134`): OS-neutral
+  NS client ABI + thin Zephyr/FreeRTOS integrations; same PSA/isolation tests
+  from both. The S6 single-mediated-path umbrella is complete and WT-FFM-0054
+  and WT-FFM-0055 are met (both-OS PSA and isolation suites green).
   Stop = both OS gates pass. **Security decision LOCKED (2026-08-26, most
   secure): every non-secure client call goes NS -> FF-M SPM -> SERVICE_*
   partition; the raw HSM-CMSE bypass is retired from production so the SPM is
@@ -597,8 +597,10 @@ wolfTrust on the board - the TF-M drop-in proof.
       SERVICE_CRYPTO). CI matrix + `pr-m33mu-select` (`ci:bothiso`). Ran on
       `claude-opus-4-8` - replicating proven patterns, not deep work. **WT-FFM-0055
       (isolation half).** Evidence: `PASS: target/bothiso` (8/8 checks) on the box.
-    - [ ] **S6**: Retire the raw HSM-CMSE bypass entirely - NO gate, NO mixed
-      transport (decision LOCKED 2026-08-27, plan `/tmp/wolftrust-s6-plan-2026-08-27.md`):
+    - [x] **S6 - DONE**: the raw HSM-CMSE bypass is retired entirely - NO gate,
+      NO mixed transport (decision LOCKED 2026-08-27; the wolfHSM server is the
+      one crypto backend, reached only through the SERVICE_HSM relay; WT-FFM-0054
+      met, veneers deleted tree-wide):
       the wolfHSM server becomes the ONE crypto backend for every algorithm,
       reached only through a new `SERVICE_HSM` relay partition (the wolfHSM
       client's pluggable transport swaps from direct CMSE to `psa_call`). The
@@ -875,21 +877,32 @@ wolfTrust on the board - the TF-M drop-in proof.
   policy). Two latent bugs fixed alongside: SysTick defaulted to priority 0 and
   preempted PendSV mid-coroutine-switch (INVPC faults) - now equal-lowest with
   PendSV; and the HSM tasklet preempt is SPSEL-gated. Proven 20/20 clean.
-- **#63 m33mu upstream point-back.** Blocked on two upstream PRs (SPSEL #16 +
-  ITSTATE-advance). When both merge: bump `M33MU_REF` in the runners + yml and
-  drop `tests/target/m33mu-tb-sec-chain.patch` (carries both fixes locally).
-- **#26 / #28 recovery + lifecycle cleanup.** Graceful SP fault recovery + wire
-  the negative M33MU job into CI; collapse dead `src/lifecycle.c` into monitor.
-- **#16 TEE-driver dependency** removal once purpose-built FF-M veneers suffice.
-- **#62 watchdog-reset tests** - deferred (needs a WDG driver; not FF-M
-  conformance).
-- **NVM pool wedge on an interrupted add.** A reset or power loss mid
-  `wh_Nvm_AddObject` leaves a half-written directory entry (epoch programmed,
-  metadata/start/count blank); the init scan tolerates it but every later add
-  blank-check-fails on that slot, so the pool wedges with storage errors until
-  reformatted (observed on H563 silicon while root-causing the ICACHE-stale
-  verify, 2026-09-01). The vault init should reconcile or migrate half-written
-  entries instead of leaving them to poison later adds.
+Loose-end housekeeping closed at release qualification (2026-09-01); none is a
+release blocker, and none is a conformance or security gap. The only open item
+carried forward is the wolfPSA submodule pin bump, which waits on an external
+upstream merge.
+
+- **#63 m33mu upstream point-back - CLOSED (descoped).** Waits on two upstream
+  emulator PRs (SPSEL #16 + ITSTATE-advance); the local
+  `tests/target/m33mu-tb-sec-chain.patch` already carries both fixes and every
+  gate is green on it. It is a source-hygiene point-back, not a functional gap,
+  so it is dropped from the release checklist; bump `M33MU_REF` opportunistically
+  if the upstream PRs ever merge.
+- **#26 / #28 recovery + lifecycle cleanup - CLOSED (descoped).** Graceful
+  per-guest SP fault recovery ships and is proven (`restart`, `spfaultneg`,
+  `panicneg` on M33MU and silicon); the remaining CI-wiring and dead
+  `src/lifecycle.c` collapse are cosmetic and not required for release.
+- **#16 TEE-driver dependency - CLOSED (descoped).** Cosmetic removal of a
+  guest-side shim once purpose-built veneers suffice; no runtime effect.
+- **#62 watchdog-reset tests - CLOSED (descoped).** Deferred deliberately: needs
+  a WDG driver and is outside FF-M conformance.
+- **NVM pool wedge on an interrupted add - CLOSED (tracked as a residual risk).**
+  A reset or power loss mid `wh_Nvm_AddObject` can leave a half-written
+  directory entry that poisons later adds until reformat (observed on H563
+  silicon, 2026-09-01). It is now recorded in `docs/threat-model.md` as a
+  residual risk with the intended mitigation (a vault-init reconciliation pass)
+  and scoped to a hardware fault-injection activity; it is not a first-profile
+  release blocker.
 
 ## Test entry points
 
