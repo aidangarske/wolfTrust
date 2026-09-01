@@ -3930,6 +3930,50 @@ Evidence:
   verifier requires all eight claims) PASS.
 - H563 silicon: `devattest` and `positive` PASS.
 
+## Dispatch-window IRQ unmask closed as latent and guarded (2026-09-01)
+
+Closes the tracked dispatch-window hole (#116). `wt_apply_partition` writes the
+arriving guest's NVIC enable mask while the departing guest's NS bank is still
+loaded; in theory a peripheral IRQ routed to the arriving guest and taken in
+that window would stack on the departing guest's NS stack, the cross-guest
+shape of the virtual-SysTick defect fixed earlier.
+
+A deferral was implemented first: mask every guest line before touching the
+windows and MPU, latch the arriving mask, and apply it only once the NS bank
+is reinstated (the NS-entry assembly tail, plus `wt_platform_restore_ns_bank`
+for tasklet resumes over BXNS). Host and the full M33MU set (`positive`,
+`bothpsa`, `restart`, `vnet`) passed, but H563 silicon `vnet` failed: guest0
+sent its ping and never received guest1's echo. A baseline run on the reverted
+tree passed, so the change was the cause. Static analysis then showed every
+NVIC write in the change was a no-op in the shipped configuration — no guest
+domain declares an interrupt resource, so the enable mask is zero (ISER writes
+of zero set nothing, and the disable-all cleared nothing enabled; the
+scheduler timer is SysTick_S, outside the NVIC). That isolates the regression
+to the added work in the assembly-called NS-entry tail, the same
+timing-sensitive seam the virtual-network coroutine work already found the
+emulator does not model. The deferral was withdrawn.
+
+The same analysis reframes the hole: with no shipped guest declaring a
+peripheral interrupt, the unmask in the window is a no-op and the hole is
+latent, not live. It opens only when a future Non-secure application declares
+interrupt resources (the IRQ-driven virtual-network receive path). The
+closure therefore makes that step fail closed rather than silently reopen the
+window: `wt_manifest_validate_ffm_resources` refuses an interrupt resource on
+a `WT_DOMAIN_CLASS_NONSECURE_APPLICATION` domain with
+`WT_MANIFEST_ERROR_INTERRUPT` (the resource validator's result now propagates
+instead of collapsing to the ownership code), so a manifest that enables an
+IRQ-driven guest fails generation until the deferred unmask lands in a form
+proven on silicon. The dispatch path itself is unchanged.
+
+Evidence:
+- Host: `tests/host/manifest` gains the refusal case (82 checks); `make test`
+  unit/all PASS.
+- M33MU: `positive` and `vnet` PASS — both production manifests (base and
+  virtual-network) still validate at boot under the guard.
+- H563 silicon: the baseline bisection run (`vnet`, `positive`) PASS on the
+  tree without the deferral; the guard is boot-time validation logic with no
+  dispatch, exception, or flash seam, so it needs no further silicon leg.
+
 The committed-install firmware-update deviation (TRIAL/accept not offered, from
 the PSA Firmware Update parity work) and the stateless-service narrow (from the
 framework-version discovery work) are both recorded in the deviation register.

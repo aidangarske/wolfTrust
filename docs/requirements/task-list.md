@@ -491,7 +491,11 @@ wolfTrust on the board - the TF-M drop-in proof.
       MSP/PSP/CONTROL_NS are restored. Evidence: `PASS: target/restart`
       (4/4 banners, 3 restarts then FAULTED) + regressions
       positive/spfaultneg/confboot all green on the same tree. The
-      same-window peripheral-IRQ unmask hole is tracked as #116.
+      same-window peripheral-IRQ unmask hole was tracked as #116 and is
+      closed as latent-and-guarded: no shipped guest declares a peripheral
+      interrupt, so the unmask is a no-op, and the manifest validator now
+      refuses an IRQ-driven Non-secure application until the unmask is
+      deferred out of the window (see the validation log).
     - [x] **S4 (Fable, deepest): PSA Firmware Update service (WT-FWU-0001..0003).**
       Neutral state machine `src/services/fwu_service.c` + client API
       `include/psa/update.h` (`psa_fwu_query/start/write/finish/install/abort`),
