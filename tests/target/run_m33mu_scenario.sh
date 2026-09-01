@@ -51,8 +51,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet) ;;
-  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet" >&2; exit 2 ;;
+  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet) ;;
+  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -149,6 +149,8 @@ elif [ "$scenario" = "keystoreneg" ]; then
   secure_flags="WT_KEYSTORE_NEG_PROBE=1"
 elif [ "$scenario" = "spfaultneg" ]; then
   secure_flags="WT_SP_FAULT_PROBE=1"
+elif [ "$scenario" = "panicneg" ]; then
+  secure_flags="WT_PANIC_NEG_PROBE=1"
 elif [ "$scenario" = "confboot" ] || [ "$scenario" = "devstorage" ] || \
      [ "$scenario" = "devcrypto" ] || [ "$scenario" = "devattest" ] || \
      [ "$scenario" = "devattestqcbor" ]; then
@@ -280,11 +282,11 @@ timeout_s=60
 if [ "$scenario" = "restart" ]; then
   quit_flag=""
   timeout_s=40
-elif [ "$scenario" = "spfaultneg" ]; then
-  # The crypto SP faults once on purpose; wolfTrust catches the MemManage and
-  # restarts the partition in place, so halting on the fault would defeat the
+elif [ "$scenario" = "spfaultneg" ] || [ "$scenario" = "panicneg" ]; then
+  # The SP faults once on purpose; wolfTrust catches the fault and restarts
+  # the partition in place, so halting on the fault would defeat the
   # recovery. The rest of the lifecycle then completes normally through the
-  # clean BKPT exit — the restarted SP serves the later crypto KAT.
+  # clean BKPT exit — the restarted SP serves the later requests.
   quit_flag=""
 elif [ "$scenario" = "authneg" ]; then
   # Guest0 is refused at launch so the BKPT scenario end never fires; the run
@@ -679,6 +681,32 @@ case "$scenario" in
       "freertos_guest1: ffm sha256 ok"
     expect "full lifecycle completed after recovery" "[EXPECT BKPT] Success"
     echo "PASS: target/spfaultneg"
+    ;;
+
+  panicneg)
+    # Secure-caller misuse (FF-M PROGRAMMER ERROR, WT-FFM-0063): the ITS SP
+    # closes an error-status handle on its first entry, so the production SPM
+    # must panic the partition (resume PC landed on udf #0x50 -> Secure-Thread
+    # UNDEFINSTR UsageFault) and unblock the pinned client with
+    # PSA_ERROR_COMMUNICATION_FAILURE. guest0 runs one lifecycle per boot, so
+    # its ITS connect eats the -145; the restarted-SP-serves property is
+    # spfaultneg's ground. A missed panic instead executes the probe's udf #3,
+    # which fails the contained-fault checks below.
+    if grep -Eq '\[USGFLT\].*CFSR=0x00010000' "$log"; then
+      check_pass "ITS SP panicked once (Secure-Thread UNDEFINSTR UsageFault)"
+    else
+      check_fail "SP panic" "expected UNDEFINSTR UsageFault, none seen"
+    fi
+    refute_re "panic was contained, not escalated" \
+      '(\[HARDFLT\]|HardFault|SecureFault)'
+    expect "pinned client unblocked with COMMUNICATION_FAILURE" \
+      "psa_connect(SERVICE_ITS) failed rc=0 handle=-145"
+    expect "sealed storage path unaffected" \
+      "wolfTrust PS sealed set/get verified"
+    expect "unrelated guest booted and ran through the panic" \
+      "freertos_guest1: alive"
+    expect "full lifecycle completed after recovery" "[EXPECT BKPT] Success"
+    echo "PASS: target/panicneg"
     ;;
 
   fwustage)

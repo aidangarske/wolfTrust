@@ -42,7 +42,7 @@ set -o pipefail
 mode="${1:-all}"
 scenario="${2:-positive}"
 case "$mode" in build|flash|all) ;; *) echo "usage: $0 build|flash|all [scenario]" >&2; exit 2 ;; esac
-case "$scenario" in positive|restart|crossdomain|keystoreneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|keystoreneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet" >&2; exit 2 ;; esac
+case "$scenario" in positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -165,6 +165,7 @@ if [ "$mode" != "flash" ]; then
   secure_flags=""; guest_flags=""
   [ "$scenario" = "crossdomain" ] && secure_flags="WT_FFM_NEGATIVE_PROBE=1"
   [ "$scenario" = "keystoreneg" ] && secure_flags="WT_KEYSTORE_NEG_PROBE=1"
+  [ "$scenario" = "panicneg" ] && secure_flags="WT_PANIC_NEG_PROBE=1"
   [ "$scenario" = "restart" ] && guest_flags="WT_GUEST_FAULT_PROBE=1"
   [ "$scenario" = "writeonce" ] && guest_flags="WT_WRITE_ONCE_RESET_PROBE=1"
   [ "$scenario" = "hsmattackneg" ] && guest_flags="WT_HSM_ATTACK_PROBE=1"
@@ -365,7 +366,7 @@ if [ "$mode" != "build" ]; then
     erase_verified 0x0C1FE000
     erase_verified 0x0C1FA000
     pyocd cmd -t "$PYOCD_TARGET" -c reset >/dev/null 2>&1 || true
-  elif [ "$scenario" = "positive" ] || [ "$scenario" = "bothpsa" ] || [ "$scenario" = "crossdomain" ] || [ "$scenario" = "keystoreneg" ]; then
+  elif [ "$scenario" = "positive" ] || [ "$scenario" = "bothpsa" ] || [ "$scenario" = "crossdomain" ] || [ "$scenario" = "keystoreneg" ] || [ "$scenario" = "panicneg" ]; then
     # Guest0's ITS+PS lifecycle persists vault objects across runs on silicon
     # (the emulator starts on fresh flash); blank the vault like the dev
     # scenarios do so the pool stays emulator-equivalent.
@@ -585,6 +586,35 @@ if [ "$mode" != "build" ]; then
         check_fail "keystore-band isolation" "fault addr 0x$fault_addr not in the keystore band"
       fi
       expect "guest1 alive after SP quarantined" "freertos_guest1: heartbeat"
+      ;;
+    panicneg)
+      # Secure-caller misuse: the ITS SP closes an error-status handle on its
+      # first entry, so the production SPM panics it (resume PC landed on an
+      # undefined instruction -> UsageFault UNDEFINSTR in the CFSR latch), the
+      # graceful recovery restarts it, and the RESTARTED partition must then
+      # serve the full guest lifecycle including ITS/PS storage.
+      refute_re "panic did not escalate to HardFault" \
+        '^(\[HARDFLT\]|HardFault|SecureFault)'
+      fault_cnt=$(read_secure_u32 g_tasklet_fault_count)
+      fault_cfsr=$(read_secure_u32 g_tasklet_fault_cfsr)
+      if [ -n "$fault_cnt" ] && [ $((0x$fault_cnt)) -ge 1 ]; then
+        check_pass "ITS SP panicked on the bad close (count=0x$fault_cnt)"
+      else
+        check_fail "SP panic" "SP fault count not captured (count=${fault_cnt:-none})"
+      fi
+      if [ -n "$fault_cfsr" ] && \
+         [ $(( (0x$fault_cfsr >> 16) & 0x1 )) -eq 1 ]; then
+        check_pass "panic took the UNDEFINSTR trap (CFSR=0x$fault_cfsr)"
+      else
+        check_fail "panic trap" "CFSR 0x${fault_cfsr:-none} lacks UNDEFINSTR"
+      fi
+      lc=$(read_guest0_u32 g_guest0_lifecycle)
+      if [ -n "$lc" ] && [ $((0x$lc & 0xFF)) -eq 255 ]; then
+        check_pass "restarted ITS served the full lifecycle (0x$lc)"
+      else
+        check_fail "recovery" "lifecycle 0x${lc:-none} after the panic, expected 0xFF"
+      fi
+      expect "guest1 alive through the panic" "freertos_guest1: heartbeat"
       ;;
     confboot)
       # The unmodified Arm val NSPE drives the FF-M IPC suite against wolfTrust
