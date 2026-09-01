@@ -3739,3 +3739,34 @@ Host `make test` `unit/all` PASS on the same tree. Follow-up tracked: the NVM
 pool permanently wedges when a power loss or reset interrupts an object add
 mid-sequence (half-written directory entries fail later blank-checks); the
 vault should reconcile or migrate such entries at init.
+
+## Production must-panic for Secure-caller programmer errors (2026-09-01)
+
+The production SPM now panics a Secure Partition that commits an FF-M
+PROGRAMMER ERROR instead of returning it a recoverable status (WT-FFM-0063).
+The SVC dispatcher lands the erring partition's resume PC on a permanently
+undefined instruction (EPSR ICI/IT cleared), so the UsageFault takes the
+existing graceful quarantine path: restart under the manifest policy, pinned
+clients completed with PSA_ERROR_COMMUNICATION_FAILURE. The conformance image
+keeps its reset semantics for the val panic tests. psa_close now treats only
+PSA_NULL_HANDLE as a no-op; closing an error-status handle takes the same
+must-panic path.
+
+Evidence:
+- Host: `tests/host/spm_gate` prints WT-FFM-0063 (close of an error-status
+  handle classifies must-panic; PSA_NULL_HANDLE stays a no-op); `make test`
+  unit/all PASS.
+- M33MU `panicneg`: the ITS SP's bad close resumes onto the trap
+  (`mem16[pc]=0xde50`, CFSR=0x00010000 UNDEFINSTR), no HardFault/SecureFault
+  escalation, and the pinned client unblocks with
+  `psa_connect(SERVICE_ITS) failed rc=0 handle=-145`; PS and the rest of the
+  lifecycle complete to the clean BKPT.
+- M33MU `positive` PASS and `confboot` PASS 85/0/4 with the narrowed
+  psa_close.
+- H563 silicon: `panicneg` PASS (fault count 1, CFSR UNDEFINSTR, no
+  HardFault; lifecycle latched 0xFB = every milestone except the panicked
+  ITS leg, so the unblock let the client complete), `positive` PASS (0xFF),
+  `confboot` PASS 85/0/4.
+
+Commits: `492bb1f` (production panic + psa_close), `13a7ad6` (panicneg
+scenario in the M33MU and H5 suites and the CI matrix).
