@@ -3974,6 +3974,45 @@ Evidence:
   tree without the deferral; the guard is boot-time validation logic with no
   dispatch, exception, or flash seam, so it needs no further silicon leg.
 
+## Full applicable PSA architecture suite re-confirmed at the phase HEAD (2026-09-01)
+
+The complete set of PSA architecture tests applicable to wolfTrust's implemented
+surface runs through the production Armv8-M SPM and isolation path, beyond the
+curated host subset (`tests/host/psa_ff_upstream`). Every suite was re-run at
+the current phase HEAD to confirm the framework-version, PSA-message-layout,
+attestation-claim, and interrupt-guard changes introduced no conformance
+regression. The pinned suite revision is
+`e17d294fa89dab56bbbcbb6e7751d2521f871577`.
+
+Applicable suites and results (skips are configuration- or
+schedule-skipped, never failures):
+- FF-M IPC (`confboot`, the unmodified Arm val NSPE suite through both scheduled
+  Arm test partitions): 85 passed, 0 failed, 4 skipped.
+- Crypto dev_apis (`devcrypto`, test_c001-c080): 64 passed, 0 failed, 13 skipped
+  (c047 CMAC config-skipped).
+- Secure storage dev_apis (`devstorage`, ITS + PS, test_s001-s017): 11 passed,
+  0 failed, 6 skipped.
+- Initial Attestation dev_apis (`devattest`, test_a001): 1 passed, 0 failed
+  (re-run with the standard claim set, above).
+
+The remaining pinned `ff/ipc` cases are not applicable to this configuration:
+`i048`-`i053` need a caller vector into another partition's MMIO (exercised by
+the isolation negatives), `i058` needs a client compiled as a Secure Partition,
+and the server-side halves of `i002`/`i063` are covered by the scheduled Arm
+partitions in `confboot`. No implemented-surface suite is unrun.
+
+Evidence:
+- M33MU (wolf-prec5560, v1.15 container) at HEAD: `confboot` 85/0/4,
+  `devcrypto` 64/0/13, `devstorage` 11/0/6, `devattest` 1/0 all PASS.
+- H563 silicon: `devcrypto` 64/13/0, `devstorage` 11/6/0, and `devattest` 1/0
+  recorded above stand (the only conformance-runtime change since is the
+  layout-only PSA message reorder, confirmed green across every M33MU suite);
+  `confboot` re-run on silicon as the post-reorder FF-M IPC confirmation -
+  `PASS: hardware/confboot`, TOTAL 89 / PASSED 85 / FAILED 0 / SKIPPED 4.
+- Known harness caveat carried to release qualification: the automated
+  `confboot` silicon gate is not yet deterministic (the suite itself passes
+  85/4 repeatedly). This is a gate-automation issue, not a conformance gap.
+
 The committed-install firmware-update deviation (TRIAL/accept not offered, from
 the PSA Firmware Update parity work) and the stateless-service narrow (from the
 framework-version discovery work) are both recorded in the deviation register.
