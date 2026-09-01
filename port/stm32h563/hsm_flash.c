@@ -100,6 +100,16 @@ static const wt_hsm_flash_config_t g_hsm_flash_cfg = {
 };
 
 static wt_hsm_flash_context_t g_hsm_flash_ctx;
+/* Direct-path forensics (SWD-readable): count every program/erase attempt on
+ * the NVM context and latch the first failure's sub-op, offset, and the raw
+ * FLASH_SR error bits before they are cleared. */
+volatile uint32_t g_wt_flash_prog_calls __attribute__((used));
+volatile uint32_t g_wt_flash_erase_calls __attribute__((used));
+volatile uint32_t g_wt_flash_first_err __attribute__((used));
+volatile uint32_t g_wt_flash_first_err_off __attribute__((used));
+volatile uint32_t g_wt_flash_first_err_sr __attribute__((used));
+volatile uint32_t g_wt_flash_gate_aborts __attribute__((used));
+volatile uint32_t g_wt_flash_gate_abort_info __attribute__((used));
 static volatile uint32_t g_flash_ecc_active;
 static volatile uint32_t g_flash_ecc_detected;
 static volatile uint32_t g_flash_ecc_bank;
@@ -257,6 +267,7 @@ static int wt_hsm_flash_gate(void *context, int sub_op, uint32_t offset,
                              uint32_t size, void *data)
 {
     wt_spm_call_t call;
+    int rc;
 
     if (context != (void *)&g_hsm_flash_ctx) {
         return WH_ERROR_BADARGS;
@@ -267,7 +278,13 @@ static int wt_hsm_flash_gate(void *context, int sub_op, uint32_t offset,
     call.vec_idx = offset;
     call.num_bytes = size;
     call.buffer = data;
-    if (wt_spm_sp_call(&call) != WT_FFM_SUCCESS) {
+    rc = wt_spm_sp_call(&call);
+    if (rc != WT_FFM_SUCCESS) {
+        g_wt_flash_gate_aborts++;
+        if (g_wt_flash_gate_abort_info == 0u) {
+            g_wt_flash_gate_abort_info = ((uint32_t)sub_op << 24) |
+                                         ((uint32_t)rc & 0x00FFFFFFu);
+        }
         return WH_ERROR_ABORTED;
     }
     return call.ret_int;
@@ -382,14 +399,29 @@ static int wt_hsm_flash_program(void *context, uint32_t offset, uint32_t size,
         return wt_hsm_flash_gate(context, WT_SPM_KS_FLASH_PROGRAM, offset,
                                  size, (void *)(uintptr_t)data);
     }
+    if (ctx == &g_hsm_flash_ctx) {
+        g_wt_flash_prog_calls++;
+    }
     if (!wt_flash_range_ok(ctx, offset, size)) {
+        if (g_wt_flash_first_err == 0u) {
+            g_wt_flash_first_err = 0x01000000u | (uint32_t)(-WH_ERROR_BADARGS);
+            g_wt_flash_first_err_off = offset;
+        }
         return WH_ERROR_BADARGS;
     }
     if ((offset % ctx->program_unit) != 0u ||
         (size % ctx->program_unit) != 0u) {
+        if (g_wt_flash_first_err == 0u) {
+            g_wt_flash_first_err = 0x02000000u | (uint32_t)(-WH_ERROR_BADARGS);
+            g_wt_flash_first_err_off = offset;
+        }
         return WH_ERROR_BADARGS;
     }
     if (size != 0u && ctx->write_locked) {
+        if (g_wt_flash_first_err == 0u) {
+            g_wt_flash_first_err = 0x03000000u | (uint32_t)(-WH_ERROR_LOCKED);
+            g_wt_flash_first_err_off = offset;
+        }
         return WH_ERROR_LOCKED;
     }
 
@@ -419,6 +451,12 @@ static int wt_hsm_flash_program(void *context, uint32_t offset, uint32_t size,
         }
         WT_FLASH_CR &= ~WT_FLASH_CR_PG;
 
+        if ((WT_FLASH_SR & WT_FLASH_SR_ALL_ERR) != 0u &&
+                g_wt_flash_first_err == 0u) {
+            g_wt_flash_first_err = 0x04000000u;
+            g_wt_flash_first_err_off = offset + written;
+            g_wt_flash_first_err_sr = WT_FLASH_SR;
+        }
         ret = wt_flash_check_errors();
         if (ret != WH_ERROR_OK) {
             break;
@@ -440,6 +478,9 @@ static int wt_hsm_flash_erase(void *context, uint32_t offset, uint32_t size)
     if (wt_spm_thread_unprivileged()) {
         return wt_hsm_flash_gate(context, WT_SPM_KS_FLASH_ERASE, offset, size,
                                  NULL);
+    }
+    if (ctx == &g_hsm_flash_ctx) {
+        g_wt_flash_erase_calls++;
     }
     if (!wt_flash_range_ok(ctx, offset, size)) {
         return WH_ERROR_BADARGS;

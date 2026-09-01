@@ -119,6 +119,24 @@ void *wt_hsm_flash_context(void);
 int wolftrust_rng_generate_block_direct(unsigned char *output,
                                         unsigned int sz);
 
+/* Keystore-gate forensics, SWD-readable on target: silent -146 storage
+ * failures on silicon are undebuggable from the interleaved console, so latch
+ * the last pid-pin rejection and the last flash/lock op result here. */
+volatile uint32_t g_wt_ks_reject_pid __attribute__((used));
+volatile uint32_t g_wt_ks_reject_count __attribute__((used));
+volatile uint32_t g_wt_ks_last_flash __attribute__((used));
+volatile uint32_t g_wt_ks_last_flash_off __attribute__((used));
+volatile uint32_t g_wt_ks_flash_ops __attribute__((used));
+volatile uint32_t g_wt_ks_last_lock __attribute__((used));
+volatile uint32_t g_wt_ks_dom_reject_count __attribute__((used));
+volatile uint32_t g_wt_ks_dom_reject_subop __attribute__((used));
+volatile uint32_t g_wt_ks_dom_reject_buf __attribute__((used));
+volatile uint32_t g_wt_ks_dom_reject_len __attribute__((used));
+volatile uint32_t g_wt_svc_entry_rej_count __attribute__((used));
+volatile uint32_t g_wt_svc_entry_rej_call __attribute__((used));
+volatile uint32_t g_wt_svc_entry_rej_psp __attribute__((used));
+volatile uint32_t g_wt_svc_entry_rej_why __attribute__((used));
+
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 /* Conformance-only hang tripwires: silent stalls on target are undebuggable,
  * so convert them into diag-trap register dumps. Activity is any SVC or
@@ -338,6 +356,15 @@ void wt_spm_svc_entry(uint32_t* frame)
     if (g_spm_svc_runtime == NULL || slot == NULL ||
             wt_secure_domain_contains(&slot->table, (uintptr_t)call,
                                       sizeof(*call), 1) == 0) {
+        g_wt_svc_entry_rej_count++;
+        if (g_wt_svc_entry_rej_call == 0u) {
+            uint32_t psp_now;
+            __asm volatile("mrs %0, psp" : "=r"(psp_now));
+            g_wt_svc_entry_rej_call = (uint32_t)(uintptr_t)call;
+            g_wt_svc_entry_rej_psp = psp_now;
+            g_wt_svc_entry_rej_why = (g_spm_svc_runtime == NULL) ? 1u :
+                                     (slot == NULL) ? 2u : 3u;
+        }
         frame[0] = (uint32_t)WT_FFM_ERROR_ARGUMENT;
         return;
     }
@@ -426,6 +453,8 @@ void wt_spm_svc_entry(uint32_t* frame)
         if (slot->partition_id != PARTITION_ATTEST_ID &&
                 slot->partition_id != PARTITION_HSM_ID &&
                 slot->partition_id != PARTITION_VAULT_ID) {
+            g_wt_ks_reject_pid = (uint32_t)slot->partition_id;
+            g_wt_ks_reject_count++;
             frame[0] = (uint32_t)WT_FFM_ERROR_ARGUMENT;
             return;
         }
@@ -482,6 +511,31 @@ void wt_spm_svc_entry(uint32_t* frame)
             }
             else if (call->call_type == WT_SPM_KS_LOCK_RELEASE) {
                 ks_ret = wt_mutex_release(nvm_mutex);
+            }
+        }
+        if (call->op == WT_SPM_OP_KEYSTORE_FLASH) {
+            g_wt_ks_flash_ops++;
+            /* ks_ret untouched by the else-if chain = the buffer failed the
+             * caller-domain bounds check (or an unknown sub-op). */
+            if (ks_ret == -1) {
+                g_wt_ks_dom_reject_count++;
+                g_wt_ks_dom_reject_subop = (uint32_t)call->call_type;
+                g_wt_ks_dom_reject_buf = (uint32_t)(uintptr_t)call->buffer;
+                g_wt_ks_dom_reject_len = (uint32_t)call->num_bytes;
+            }
+        }
+        /* First-wins failure latch (lock ret 1 = enqueued, not an error). */
+        if (ks_ret != 0 && ks_ret != 1) {
+            if (call->op == WT_SPM_OP_KEYSTORE_LOCK &&
+                    g_wt_ks_last_lock == 0u) {
+                g_wt_ks_last_lock = ((uint32_t)call->call_type << 24) |
+                                    ((uint32_t)ks_ret & 0x00FFFFFFu);
+            }
+            else if (call->op != WT_SPM_OP_KEYSTORE_LOCK &&
+                    g_wt_ks_last_flash == 0u) {
+                g_wt_ks_last_flash = ((uint32_t)call->call_type << 24) |
+                                     ((uint32_t)ks_ret & 0x00FFFFFFu);
+                g_wt_ks_last_flash_off = call->vec_idx;
             }
         }
         call->ret_int = ks_ret;
