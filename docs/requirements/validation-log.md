@@ -3889,13 +3889,12 @@ application. It reports the versions the tree actually ships rather than the
 requirement-level baseline.
 
 Two version gaps between the stated baseline (`compatibility.md`) and the
-vendored client headers were surfaced and recorded as open reconciliation items
-rather than papered over: PSA Crypto is claimed at 1.5 but
-`lib/wolfPSA/wolfpsa/psa/crypto.h` declares 1.4, and Initial Attestation is
-claimed at "2.0 with 1.0 compatibility" but the wolfPSA header declares 1.0
-only with no 2.0 surface in the tree. Each resolves by advancing the
-implementation or correcting the baseline; the decision is deferred to the
-maintainer.
+vendored client headers were surfaced. The PSA Crypto 1.5 baseline holds as the
+target; the wolfPSA client is temporarily pinned at 1.4 on the minimal branch
+and the pin bumps once the upstream fix merges (tracked in `task-list.md`), so
+this is a tracked pending bump, not a papered-over gap. The Initial Attestation
+baseline was corrected from "2.0 with 1.0 compatibility" to 1.0 to match the
+shipped wolfPSA client.
 
 The committed-install firmware-update deviation (TRIAL/accept not offered, from
 the PSA Firmware Update parity work) and the stateless-service narrow (from the

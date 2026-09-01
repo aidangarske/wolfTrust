@@ -130,21 +130,18 @@ rather than a full mirror.
 
 ## Open reconciliation items
 
-These are gaps between the stated baseline in
-`docs/requirements/compatibility.md` and the versions the tree actually ships.
-They are recorded here for resolution before release — each is resolved either
-by advancing the implementation or by correcting the stated baseline.
+- **PSA Crypto version — tracked pending pin bump.** The PSA Crypto API 1.5
+  baseline is the target. The vendored client is temporarily held at API
+  version 1.4 (`lib/wolfPSA/wolfpsa/psa/crypto.h:25-26`) on the minimal wolfPSA
+  branch `wolftrust-v5.9.1-minimal` (pin `dd557dc`); the pin bumps once the
+  upstream wolfPSA fix merges, tracked in `docs/requirements/task-list.md`
+  ("bump the wolfPSA submodule pin after the upstream PR merges"). No action is
+  needed beyond that tracked bump and re-qualification.
 
-- **PSA Crypto version.** `compatibility.md:19` states a PSA Crypto API 1.5
-  baseline, but the vendored client header
-  `lib/wolfPSA/wolfpsa/psa/crypto.h:25-26` declares API version 1.4. Resolve by
-  advancing the wolfPSA pin to a 1.5 client or by correcting the baseline to the
-  version actually shipped.
-- **Initial Attestation version.** `compatibility.md:21` states "PSA Attestation
-  API 2.0 with 1.0 compatibility", but
-  `lib/wolfPSA/wolfpsa/psa/initial_attestation.h:32-33` declares 1.0 only, and no
-  2.0-specific surface was found in the tree. Resolve by adding the 2.0 surface
-  or by correcting the baseline to 1.0.
+The Initial Attestation baseline was corrected to 1.0
+(`docs/requirements/compatibility.md`) to match the shipped wolfPSA client
+(`lib/wolfPSA/wolfpsa/psa/initial_attestation.h:32-33`); it is no longer an open
+item.
 
 ## Migration from TF-M
 

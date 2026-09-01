@@ -18,7 +18,7 @@ be rewritten.
 | Framework | FF-M 1.0 IPC plus the selected FF-M 1.1 features recorded in `framework.md`, with Level 3 isolation |
 | Crypto | PSA Crypto API 1.5 |
 | Storage | PSA Secure Storage API 1.0 |
-| Attestation | PSA Attestation API 2.0 with 1.0 compatibility |
+| Attestation | PSA Initial Attestation API 1.0 |
 | Firmware update | PSA Firmware Update API 1.0 |
 | Status | PSA Status Code API 1.0 |
 | Boot | wolfBoot authenticates wolfTrust; wolfTrust authenticates external domains |
