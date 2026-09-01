@@ -3770,3 +3770,31 @@ Evidence:
 
 Commits: `492bb1f` (production panic + psa_close), `13a7ad6` (panicneg
 scenario in the M33MU and H5 suites and the CI matrix).
+
+## Attestation client-id claim sign and conformance server derivation (2026-09-01)
+
+Two corrections from the compatibility review:
+
+1. **Negative NSPE client id in the attestation token.** The PSA client-id
+   claim (2394) carried `guestId + 1` (positive), but NSPE callers have
+   negative PSA client ids; the encoder now writes `-(guestId + 1)` (guest0 =
+   -1) and guest0's verifier accepts exactly its own id, rejecting any
+   nonnegative (spoofed secure caller) value. The golden claim-set vector was
+   regenerated (a one-byte CBOR diff, `0x01` -> `0x20`).
+   Evidence: host `attestation_golden` (12 checks), `attestation_service`,
+   unit/all PASS; M33MU `devattest` (dev_apis initial_attestation 1/0) and
+   `positive` PASS; H563 silicon `devattest` (1/0) and `positive` (lifecycle
+   `0xFF`, token measurement equals the signed image) PASS.
+2. **Independently derived conformance servers.** The host FF-M conformance
+   adapter's per-test servers are now derived solely from the compiled Arm
+   client test sources' visible assertions plus the pinned FF-M specification;
+   the upstream suite's partition-side (`test_supp_*`) sources are not
+   consulted. The i003 data-plane server runs wolfTrust's own
+   `psa_read`/`psa_skip` exercise sequence over the client's documented input
+   bytes (previously it mirrored an upstream byte-level sequence), and every
+   remaining per-test behavior was audited back to a client-source assertion
+   (the i002 status list is the client's own `expected_status_code[]`; i027
+   and i063 replies are asserted directly by their clients). The derivation
+   rule is recorded in the adapter and its README.
+   Evidence: `make test-conformance` host subset PASS against the re-derived
+   servers (the unmodified Arm clients are the oracle).
