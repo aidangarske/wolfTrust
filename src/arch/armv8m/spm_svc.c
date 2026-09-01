@@ -222,7 +222,8 @@ static int wt_spm_fault_restart(void* ctx)
     wt_spm_sp_t* slot = c->slot;
     void* arg = slot->arg;
 
-#if defined(WT_SP_FAULT_PROBE) && (WT_SP_FAULT_PROBE == 1)
+#if (defined(WT_SP_FAULT_PROBE) && (WT_SP_FAULT_PROBE == 1)) || \
+    (defined(WT_PANIC_NEG_PROBE) && (WT_PANIC_NEG_PROBE == 1))
     arg = (void*)((intptr_t)slot->arg | WT_SP_FAULT_PROBE_RESTARTED);
 #endif
     if (wt_co_reinit(slot->co, slot->entry, arg) != 0) {
@@ -336,6 +337,15 @@ void wt_spm_recover_faulted(void)
                                  ticks, &slot->restart_count,
                                  &slot->first_restart_tick);
     }
+}
+
+/* Production landing pad for an FF-M PROGRAMMER ERROR: the SVC dispatcher
+ * points the erring partition's resume PC here so it faults on an undefined
+ * instruction and takes the graceful quarantine path (WT-SYS-0008). */
+__attribute__((naked, used))
+static void wt_spm_sp_panic_trap(void)
+{
+    __asm volatile("udf #0x50");
 }
 
 /* Privileged SVC #1 dispatcher, tail-called from SVC_Handler with r0 = the
@@ -581,14 +591,21 @@ void wt_spm_svc_entry(uint32_t* frame)
      * here where NVIC access is legal. */
     if (call->op == WT_SPM_OP_IRQ_ENABLE && call->ret_int == WT_FFM_SUCCESS)
         wt_platform_secure_irq_enable(call->ret_version);
-#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
-    /* FF-M PROGRAMMER ERROR the SPM must panic the caller for (P5 K3). val has
-     * already written its BOOT_EXPECTED_NS flag to flash NVM (K2), so the reset
-     * is the recovery: on reboot val reads that flag and marks the test passed.
-     * Production keeps the fail-closed quarantine instead (task #26). */
+    /* FF-M PROGRAMMER ERROR the SPM must panic the caller for. Conformance
+     * resets (val resumes off its flash boot flag, P5 K3); production lands
+     * the partition's resume PC on an undefined instruction so the UsageFault
+     * takes the graceful quarantine path and pinned clients unblock with
+     * PSA_ERROR_COMMUNICATION_FAILURE. */
     if (call->must_panic) {
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
         wt_platform_system_reset();
+#else
+        frame[6] = (uint32_t)(uintptr_t)&wt_spm_sp_panic_trap & ~1u;
+        /* Clear EPSR ICI/IT so the redirected resume executes the trap. */
+        frame[7] &= ~0x0600FC00u;
+#endif
     }
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     g_spm_conf_activity++;
     /* A service loop interleaves psa_wait with get/reply; an unbounded run of
      * consecutive waits — polling misses or successes nobody consumes — is a
@@ -1212,6 +1229,25 @@ static void wt_spm_its_entry(void* arg)
     int32_t partition_id = (int32_t)(intptr_t)arg;
     wt_storage_service_ctx_t ctx;
 
+#if defined(WT_PANIC_NEG_PROBE) && (WT_PANIC_NEG_PROBE == 1)
+    /* Secure-caller-misuse proof (target/panicneg): closing an error-status
+     * handle is an FF-M PROGRAMMER ERROR the production SPM must panic this
+     * partition for; the graceful recovery restarts it with the marker set
+     * and the re-run serves storage normally. Reaching the udf below means
+     * the SPM failed to panic the caller, which fails the scenario with a
+     * distinct fault. Never built into production images. */
+    partition_id = (int32_t)((intptr_t)arg &
+                             ~(intptr_t)WT_SP_FAULT_PROBE_RESTARTED);
+    if (((intptr_t)arg & WT_SP_FAULT_PROBE_RESTARTED) == 0) {
+        wt_spm_call_t bad;
+
+        (void)memset(&bad, 0, sizeof(bad));
+        bad.op = WT_SPM_OP_CLOSE;
+        bad.msg_handle = (psa_handle_t)-135;
+        (void)wt_spm_svc_raw(&bad);
+        __asm volatile("udf #3");
+    }
+#endif
     ctx.transport = wt_spm_svc_transport;
     ctx.vault_sid = SERVICE_VAULT_SID;
     ctx.vault_handle = 0;

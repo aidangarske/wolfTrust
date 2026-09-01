@@ -303,9 +303,10 @@ void psa_close(psa_handle_t handle)
 {
     wt_spm_call_t call;
 
-    /* NULL and error handles close as a no-op: the upstream val framework
-     * passes a refused connect's status straight back into psa_close. */
-    if (handle <= 0) {
+    /* Only PSA_NULL_HANDLE closes as a no-op (FF-M); any other invalid
+     * handle, error statuses included, is a PROGRAMMER ERROR the SPM panics
+     * this partition for through the gate's must_panic classification. */
+    if (handle == PSA_NULL_HANDLE) {
         return;
     }
     (void)memset(&call, 0, sizeof(call));

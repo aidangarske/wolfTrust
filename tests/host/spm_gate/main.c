@@ -811,6 +811,19 @@ static void test_gate_connect_close_panic_class(void)
     EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
     EXPECT_INT((int)call.must_panic, 0);
 
+    /* psa_close on an error-status handle (a refused connect's status fed
+     * straight back in) is a PROGRAMMER ERROR, not a no-op: only the null
+     * handle closes silently. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_CLOSE;
+    call.partition_id = I063_CLIENT_ID;
+    call.msg_handle = (psa_handle_t)PSA_ERROR_CONNECTION_REFUSED;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_TRUE(call.ret_int != WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.must_panic, 1);
+    (void)printf("PASS: WT-FFM-0063 close of an error-status handle is a "
+                 "must-panic programmer error\n");
+
     (void)printf("PASS: WT-FFM-0014 gate panics connect policy refusal and "
                  "bad close (i004-i012)\n");
 }
