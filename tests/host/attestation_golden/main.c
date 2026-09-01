@@ -45,6 +45,7 @@
 #define IAK_PUB_SIZE 65u
 #define ES256_RAW_SIG_SIZE 64u
 #define WT_EAT_CLAIM_BOOT_SEED 268
+#define WT_EAT_CLAIM_PROFILE 265
 
 /* RFC 6979 A.2.5 P-256 test key: deterministic IAK for the golden vector. */
 static const char* kIakQx =
@@ -269,8 +270,10 @@ int main(void)
 
     check(has_claim_label(payloadA, payloadLenA, 10) == 1,
           "nonce claim (10) present");
-    check(has_claim_label(payloadA, payloadLenA, WT_EAT_CLAIM_BOOT_SEED) == 0,
-          "no boot-seed claim (268): profile-2 shape pinned");
+    check(has_claim_label(payloadA, payloadLenA, WT_EAT_CLAIM_PROFILE) == 1,
+          "profile claim (265) present");
+    check(has_claim_label(payloadA, payloadLenA, WT_EAT_CLAIM_BOOT_SEED) == 1,
+          "boot-seed claim (268) present");
 
     wc_ecc_free(&g_iak);
     wc_FreeRng(&g_rng);

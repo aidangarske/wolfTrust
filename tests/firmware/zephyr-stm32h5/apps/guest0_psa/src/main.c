@@ -898,7 +898,7 @@ static void exercise_psa_cipher(void)
 static void exercise_psa_initial_attestation(void)
 {
     uint8_t challenge[PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32];
-    uint8_t token[512];
+    uint8_t token[640];
     uint8_t undersizedToken[1];
     uint8_t publicKey[65];
     uint8_t tokenMeasurement[32];
@@ -1005,7 +1005,7 @@ static void exercise_psa_initial_attestation(void)
 static void exercise_attestation_negatives(void)
 {
     uint8_t challenge[PSA_INITIAL_ATTEST_CHALLENGE_SIZE_64 + 1u];
-    uint8_t token[512];
+    uint8_t token[640];
     uint8_t publicKey[65];
     size_t tokenSize = 0u;
     size_t publicKeySize = 0u;

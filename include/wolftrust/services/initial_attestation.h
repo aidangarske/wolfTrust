@@ -37,7 +37,7 @@
 #define WT_ATTEST_CHALLENGE_SIZE_48 48u
 #define WT_ATTEST_CHALLENGE_SIZE_64 64u
 #define WT_ATTEST_IAK_PUBLIC_KEY_SIZE 65u
-#define WT_ATTEST_MAX_TOKEN_SIZE 512u
+#define WT_ATTEST_MAX_TOKEN_SIZE 640u
 
 int wt_initial_attest_init(const wt_boot_handoff_t* handoff);
 

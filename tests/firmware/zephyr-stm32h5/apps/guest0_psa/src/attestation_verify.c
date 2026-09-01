@@ -27,6 +27,8 @@
 
 #define WT_EAT_CLAIM_NONCE 10
 #define WT_EAT_CLAIM_UEID 256
+#define WT_EAT_CLAIM_PROFILE 265
+#define WT_EAT_CLAIM_BOOT_SEED 268
 #define WT_PSA_CLAIM_CLIENT_ID 2394
 #define WT_PSA_CLAIM_LIFECYCLE 2395
 #define WT_PSA_CLAIM_IMPLEMENTATION_ID 2396
@@ -34,7 +36,8 @@
 #define WT_PSA_SW_MEASUREMENT_TYPE 1
 #define WT_PSA_SW_MEASUREMENT_VALUE 2
 #define WT_PSA_SW_MEASUREMENT_DESCRIPTION 6
-#define WT_REQUIRED_CLAIMS 0x3Fu
+#define WT_REQUIRED_CLAIMS 0xFFu
+static const char g_expected_profile[] = "http://arm.com/psa/2.0.0";
 
 static int wt_hex_nibble(char value)
 {
@@ -202,6 +205,25 @@ static int wt_verify_claims(const uint8_t* payload, size_t payloadSize,
             ret = wc_CBOR_DecodeBstr(&cbor, &data, &dataSize);
             if ((ret == 0) && (dataSize == 33u) && (data[0] == 0x01u)) {
                 claims |= 2u;
+            }
+            else {
+                ret = -1;
+            }
+        }
+        else if ((ret == 0) && (label == WT_EAT_CLAIM_PROFILE)) {
+            ret = wc_CBOR_DecodeTstr(&cbor, &data, &dataSize);
+            if ((ret == 0) && (dataSize == sizeof(g_expected_profile) - 1u) &&
+                (memcmp(data, g_expected_profile, dataSize) == 0)) {
+                claims |= 64u;
+            }
+            else {
+                ret = -1;
+            }
+        }
+        else if ((ret == 0) && (label == WT_EAT_CLAIM_BOOT_SEED)) {
+            ret = wc_CBOR_DecodeBstr(&cbor, &data, &dataSize);
+            if ((ret == 0) && (dataSize == 32u)) {
+                claims |= 128u;
             }
             else {
                 ret = -1;

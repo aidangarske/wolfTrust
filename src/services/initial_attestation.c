@@ -38,23 +38,37 @@
 
 #define WT_EAT_CLAIM_NONCE 10
 #define WT_EAT_CLAIM_UEID 256
+#define WT_EAT_CLAIM_PROFILE 265
+#define WT_EAT_CLAIM_BOOT_SEED 268
 #define WT_PSA_CLAIM_CLIENT_ID 2394
 #define WT_PSA_CLAIM_LIFECYCLE 2395
 #define WT_PSA_CLAIM_IMPLEMENTATION_ID 2396
+#define WT_PSA_CLAIM_CERT_REFERENCE 2398
 #define WT_PSA_CLAIM_SW_COMPONENTS 2399
+#define WT_PSA_CLAIM_VERIFICATION_SERVICE 2400
 #define WT_PSA_SW_MEASUREMENT_TYPE 1
 #define WT_PSA_SW_MEASUREMENT_VALUE 2
 #define WT_PSA_SW_MEASUREMENT_SIGNER_ID 5
 #define WT_PSA_SW_MEASUREMENT_DESCRIPTION 6
 #define WT_UEID_TYPE_RANDOM 0x01u
-/* Sized for the base claim set plus one lean measurement+signer component per
- * verified guest (WT-FFM-0049); the signed token stays under the 512-byte
- * PSA_INITIAL_ATTEST_MAX_TOKEN_SIZE the conformance suite compiles with. */
+/* Sized for the standard claim set plus one lean measurement+signer component
+ * per verified guest (WT-FFM-0049); the signed token stays under the 640-byte
+ * WT_ATTEST_MAX_TOKEN_SIZE / PSA_INITIAL_ATTEST_MAX_TOKEN_SIZE ceiling the
+ * conformance suite compiles with. */
 #define WT_ATTEST_PAYLOAD_SIZE 512u
-#define WT_ATTEST_SCRATCH_SIZE 640u
+#define WT_ATTEST_SCRATCH_SIZE 768u
 
 static const uint8_t g_measurement_type[] = "sha-256";
 static const uint8_t g_measurement_description[] = "wolftrust";
+/* Identifies the PSA 2.0 claim profile this token follows (registered CBOR
+ * keys 2394-2400 plus the EAT nonce, UEID, profile, and boot-seed claims). */
+static const uint8_t g_profile_definition[] = "http://arm.com/psa/2.0.0";
+#ifdef WT_ATTEST_CERT_REFERENCE
+static const uint8_t g_cert_reference[] = WT_ATTEST_CERT_REFERENCE;
+#endif
+#ifdef WT_ATTEST_VERIFICATION_SERVICE
+static const uint8_t g_verification_service[] = WT_ATTEST_VERIFICATION_SERVICE;
+#endif
 static const uint8_t g_implementation_name[] = "wolfTrust Cortex-M runtime";
 /* Identifies the wolfBoot signing authority that measured the component; the
  * signing key itself is not carried in the handoff, so hash its name. */
@@ -62,6 +76,7 @@ static const uint8_t g_signer_name[] = "wolfBoot";
 
 static wt_boot_handoff_t g_boot_handoff;
 static uint8_t g_ueid[33];
+static uint8_t g_boot_seed[WC_SHA256_DIGEST_SIZE];
 static uint8_t g_implementation_id[WC_SHA256_DIGEST_SIZE];
 static uint8_t g_signer_id[WC_SHA256_DIGEST_SIZE];
 static bool g_handoff_ready;
@@ -91,6 +106,7 @@ static int wt_attest_prepare(void)
     uint8_t publicKey[WT_ATTEST_IAK_PUBLIC_KEY_SIZE];
     uint8_t digest[WC_SHA256_DIGEST_SIZE];
     size_t publicKeySize = sizeof(publicKey);
+    wc_Sha256 sha;
     int ret;
 
     if (g_attest_ready) {
@@ -120,6 +136,28 @@ static int wt_attest_prepare(void)
     if (ret == 0) {
         g_ueid[0] = WT_UEID_TYPE_RANDOM;
         (void)memcpy(&g_ueid[1], digest, sizeof(digest));
+    }
+    /* Boot-seed binds the token to this measured boot of this device: it hashes
+     * the boot measurement with the device instance id, so it is stable across
+     * a boot cycle and reproducible for the golden conformance vector. */
+    if (ret == 0) {
+        ret = wc_InitSha256(&sha);
+    }
+    if (ret == 0) {
+        ret = wc_Sha256Update(&sha, g_boot_handoff.measurement,
+                              (word32)g_boot_handoff.measurement_size);
+        if (ret == 0) {
+            ret = wc_Sha256Update(&sha, g_ueid, sizeof(g_ueid));
+        }
+        if (ret == 0) {
+            ret = wc_Sha256Final(&sha, g_boot_seed);
+        }
+        wc_Sha256Free(&sha);
+        if (ret != 0) {
+            ret = WT_ATTEST_ERROR_CRYPTO;
+        }
+    }
+    if (ret == 0) {
         g_attest_ready = true;
     }
 
@@ -170,6 +208,7 @@ static int wt_attest_encode_payload(wt_guest_id_t guestId,
     size_t payloadCapacity, size_t* payloadSize)
 {
     WOLFCOSE_CBOR_CTX cbor;
+    unsigned int claimCount;
     int ret;
 
     if ((challenge == NULL) || (payload == NULL) || (payloadSize == NULL)) {
@@ -180,7 +219,17 @@ static int wt_attest_encode_payload(wt_guest_id_t guestId,
     cbor.buf = payload;
     cbor.bufSz = payloadCapacity;
 
-    ret = wc_CBOR_EncodeMapStart(&cbor, 6u);
+    /* nonce, ueid, profile, boot-seed, implementation-id, client-id,
+     * lifecycle, software-components, plus any build-configured claims. */
+    claimCount = 8u;
+#ifdef WT_ATTEST_CERT_REFERENCE
+    claimCount += 1u;
+#endif
+#ifdef WT_ATTEST_VERIFICATION_SERVICE
+    claimCount += 1u;
+#endif
+
+    ret = wc_CBOR_EncodeMapStart(&cbor, claimCount);
     if (ret == 0) {
         ret = wc_CBOR_EncodeInt(&cbor, WT_EAT_CLAIM_NONCE);
     }
@@ -192,6 +241,19 @@ static int wt_attest_encode_payload(wt_guest_id_t guestId,
     }
     if (ret == 0) {
         ret = wc_CBOR_EncodeBstr(&cbor, g_ueid, sizeof(g_ueid));
+    }
+    if (ret == 0) {
+        ret = wc_CBOR_EncodeInt(&cbor, WT_EAT_CLAIM_PROFILE);
+    }
+    if (ret == 0) {
+        ret = wc_CBOR_EncodeTstr(&cbor, g_profile_definition,
+                                 sizeof(g_profile_definition) - 1u);
+    }
+    if (ret == 0) {
+        ret = wc_CBOR_EncodeInt(&cbor, WT_EAT_CLAIM_BOOT_SEED);
+    }
+    if (ret == 0) {
+        ret = wc_CBOR_EncodeBstr(&cbor, g_boot_seed, sizeof(g_boot_seed));
     }
     if (ret == 0) {
         ret = wc_CBOR_EncodeInt(&cbor, WT_PSA_CLAIM_IMPLEMENTATION_ID);
@@ -214,6 +276,24 @@ static int wt_attest_encode_payload(wt_guest_id_t guestId,
     if (ret == 0) {
         ret = wc_CBOR_EncodeUint(&cbor, g_boot_handoff.lifecycle);
     }
+#ifdef WT_ATTEST_CERT_REFERENCE
+    if (ret == 0) {
+        ret = wc_CBOR_EncodeInt(&cbor, WT_PSA_CLAIM_CERT_REFERENCE);
+    }
+    if (ret == 0) {
+        ret = wc_CBOR_EncodeTstr(&cbor, g_cert_reference,
+                                 sizeof(g_cert_reference) - 1u);
+    }
+#endif
+#ifdef WT_ATTEST_VERIFICATION_SERVICE
+    if (ret == 0) {
+        ret = wc_CBOR_EncodeInt(&cbor, WT_PSA_CLAIM_VERIFICATION_SERVICE);
+    }
+    if (ret == 0) {
+        ret = wc_CBOR_EncodeTstr(&cbor, g_verification_service,
+                                 sizeof(g_verification_service) - 1u);
+    }
+#endif
     if (ret == 0) {
         ret = wc_CBOR_EncodeInt(&cbor, WT_PSA_CLAIM_SW_COMPONENTS);
     }

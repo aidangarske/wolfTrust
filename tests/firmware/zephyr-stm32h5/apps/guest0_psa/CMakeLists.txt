@@ -740,7 +740,7 @@ if(WT_RUN_CONFORMANCE)
     target_compile_definitions(app PRIVATE
       WT_RUN_CONFORMANCE VAL_NSPE_BUILD NONSECURE_TEST_BUILD
       INITIAL_ATTESTATION PSA_ATTESTATION_PROFILE_2
-      PSA_INITIAL_ATTEST_MAX_TOKEN_SIZE=512 VERBOSITY=3)
+      PSA_INITIAL_ATTEST_MAX_TOKEN_SIZE=640 VERBOSITY=3)
     set_source_files_properties(${WT_ATTEST_SRCS} PROPERTIES COMPILE_OPTIONS
       "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter")
   endif()
