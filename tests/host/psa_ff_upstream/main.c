@@ -38,9 +38,12 @@ typedef struct test_context {
 static wt_ffm_runtime_t g_runtime;
 static test_context_t g_context;
 
-/* Selects which test's server behavior test_dispatch() replicates (0 =
+/* Selects which test's server behavior test_dispatch() provides (0 =
  * generic reply-success). The upstream tests reuse SIDs with different
- * server logic, so dispatch keys on the active test, not the SID. */
+ * server expectations, so dispatch keys on the active test, not the SID.
+ * Every per-test behavior below is derived solely from the compiled client
+ * sources' visible assertions plus the pinned FF-M specification; the
+ * upstream suite's own partition-side sources are not consulted. */
 static int g_active_test;
 static int g_i002_check;
 static int g_i002_connect_seq;
@@ -259,11 +262,15 @@ static int test_check_write(void* context, psa_client_id_t caller,
     return size == 0U || address != NULL;
 }
 
-/* i003 check 3 server: exercise the full psa_read/psa_skip semantics of the
- * FF-M data plane (partial reads, outbound read returns remaining then 0,
- * zero-byte read/skip). A single reused accumulator `a` mirrors the upstream
- * server so the byte-level expectations match. Returns a negative status on
- * any mismatch, which fails the client call. */
+/* i003 check 3 server. The client (test_i003.c client_test_call_read_and_skip)
+ * sends four all-input vectors — two ints (0xaa, 0xbb) and the little-endian
+ * u64s 0x1122334455667788 and 0x1020304050607080 — and requires only a
+ * nonnegative reply, asking the server to exercise inbound/outbound read and
+ * skip. The sequence below is wolfTrust's own: partial read, skip advancing
+ * then clamping at the vector end, a truncated read, and zero-length
+ * read/skip, with every expected value the little-endian slice of the
+ * client's documented data at the current cursor. A mismatch replies a
+ * negative status, which fails the client call. */
 static psa_status_t dispatch_i003_read_skip(wt_ffm_runtime_t* runtime,
                                             int32_t partition_id,
                                             psa_handle_t handle)
@@ -276,31 +283,35 @@ static psa_status_t dispatch_i003_read_skip(wt_ffm_runtime_t* runtime,
     if (wt_ffm_read(runtime, partition_id, handle, 1, &a, sizeof(int)) !=
             sizeof(int) || a != 0xbb)
         return -4;
-    if (wt_ffm_read(runtime, partition_id, handle, 2, &a, 2U) != 2U ||
-            a != 0x7788)
+    /* invec 2, cursor 0: the first four LE bytes of 0x1122334455667788. */
+    if (wt_ffm_read(runtime, partition_id, handle, 2, &a, 4U) != 4U ||
+            a != 0x55667788)
         return -5;
-    if (wt_ffm_skip(runtime, partition_id, handle, 2, 3U) != 3U)
+    /* Skip two, then a three-byte read truncates to the two remaining. */
+    if (wt_ffm_skip(runtime, partition_id, handle, 2, 2U) != 2U)
         return -6;
-    if (wt_ffm_read(runtime, partition_id, handle, 2, &a, 2U) != 2U ||
-            a != 0x2233)
+    a = 0;
+    if (wt_ffm_read(runtime, partition_id, handle, 2, &a, 3U) != 2U ||
+            a != 0x1122)
         return -7;
-    if (wt_ffm_read(runtime, partition_id, handle, 2, &a, 3U) != 1U ||
-            a != 0x2211)
+    /* Exhausted: skip clamps to zero and a zero-length read reads nothing. */
+    if (wt_ffm_skip(runtime, partition_id, handle, 2, 5U) != 0U)
         return -8;
-    a = 0xaa;
-    if (wt_ffm_read(runtime, partition_id, handle, 2, &a, 3U) != 0U ||
-            wt_ffm_skip(runtime, partition_id, handle, 2, 3U) != 0U ||
-            a != 0xaa)
+    if (wt_ffm_read(runtime, partition_id, handle, 2, &a, 0U) != 0U ||
+            a != 0x1122)
         return -9;
-    if (wt_ffm_read(runtime, partition_id, handle, 3, &a, 0U) != 0U ||
-            a != 0xaa)
-        return -10;
+    /* invec 3: a zero-length skip moves nothing. */
     if (wt_ffm_skip(runtime, partition_id, handle, 3, 0U) != 0U)
+        return -10;
+    if (wt_ffm_read(runtime, partition_id, handle, 3, &a, 4U) != 4U ||
+            a != 0x50607080)
         return -11;
-    (void)wt_ffm_read(runtime, partition_id, handle, 3, &a, sizeof(int));
-    if (a != 0x50607080)
+    /* Skip one, then a four-byte read truncates to the three remaining. */
+    if (wt_ffm_skip(runtime, partition_id, handle, 3, 1U) != 1U)
         return -12;
-    if (wt_ffm_skip(runtime, partition_id, handle, 3, 5U) != 4U)
+    a = 0;
+    if (wt_ffm_read(runtime, partition_id, handle, 3, &a, 4U) != 3U ||
+            a != 0x102030)
         return -13;
     if (wt_ffm_skip(runtime, partition_id, handle, 3, 5U) != 0U)
         return -14;
@@ -480,9 +491,9 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
                 message.type >= PSA_IPC_CALL ? PSA_ERROR_PROGRAMMER_ERROR :
                                                PSA_SUCCESS);
     else if (g_active_test == 63)
-        /* i063: the RoT service refuses both connects. This proves the
-         * client-visible refusal; the server-side signal-mask filtering the
-         * upstream supp exercises needs a real multi-signal scheduler (M33MU). */
+        /* i063: the RoT service refuses both connects (the client asserts
+         * CONNECTION_REFUSED on each). Server-side signal-mask semantics
+         * need a real multi-signal scheduler and ride the M33MU suite. */
         rc = wt_ffm_reply(runtime, partition_id, message.handle,
                           PSA_ERROR_CONNECTION_REFUSED);
     else

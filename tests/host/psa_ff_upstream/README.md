@@ -26,10 +26,14 @@ does not advertise.
 
 `i003` and `i027` need a real server, not the generic reply-success dispatch,
 so `main.c` carries a per-test dispatch: a `g_active_test` selector routes
-`test_dispatch()` to the matching per-test server. `dispatch_i003()` replicates
-the upstream server's byte-level `psa_read`/`psa_skip` sequence (partial reads,
-outbound read returns the remaining bytes then zero), write concatenation, and
-`psa_set_rhandle` persistence across calls. `i027` replies `PROGRAMMER_ERROR`
+`test_dispatch()` to the matching per-test server. Every per-test server
+behavior is derived independently from two published sources only: the
+compiled client test sources (whose data values and assertions define the
+observable contract) and the pinned FF-M specification. The upstream suite's
+partition-side (`test_supp_*`) sources are not consulted; where a client only
+requires a nonnegative reply (`i003` check 3), the server runs wolfTrust's own
+`psa_read`/`psa_skip` exercise sequence over the client's documented input
+bytes rather than any upstream sequence. `i027` replies `PROGRAMMER_ERROR`
 to the call to drop the connection; that also required a wolfTrust fix so a
 client may `psa_close` a dropped (`WT_IPC_CONNECTION_ERROR`) connection, not
 only an idle one. The harness `val` vtable gained `ipc_connect`/`ipc_close`.
@@ -45,7 +49,7 @@ Every remaining `ff/ipc` test in the pinned suite needs target hardware, not
 more host dispatch: real multi-partition memory isolation (`i048`-`i053`, which
 need the SPM to reject a caller vector pointing into another partition's MMIO —
 M33MU only) or a client that itself runs as a Secure Partition (`i058` doorbell,
-compiled out under `-DNONSECURE_TEST_BUILD`). The server-internal halves of
+compiled out under `-DNONSECURE_TEST_BUILD`). The server-side halves of
 `i063` (signal-mask filtering) and `i002`'s block/poll checks are likewise
 deferred to the M33MU slice. See task-list.md Phase 3 item 10.
 
