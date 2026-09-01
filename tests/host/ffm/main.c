@@ -134,6 +134,23 @@ static const wt_system_manifest_t g_manifest = {
     .partition_count = sizeof(g_partitions) / sizeof(g_partitions[0])
 };
 
+static const wt_partition_manifest_t g_partitions_v10[] = {
+    {
+        "v10_partition", TEST_PARTITION_ID, WT_FFM_VERSION_1_0,
+        WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
+        g_services, sizeof(g_services) / sizeof(g_services[0]),
+        NULL, 0U, NULL, 0U
+    }
+};
+
+static const wt_system_manifest_t g_manifest_v10 = {
+    .format_version = WT_MANIFEST_FORMAT_VERSION,
+    .generator_version = "host-test",
+    .features = WT_MANIFEST_FEATURE_IPC,
+    .partitions = g_partitions_v10,
+    .partition_count = sizeof(g_partitions_v10) / sizeof(g_partitions_v10[0])
+};
+
 static int test_check_read(void* context, psa_client_id_t caller,
                            const void* address, size_t size)
 {
@@ -248,11 +265,19 @@ static void test_init(wt_ffm_runtime_t* runtime, test_context_t* context)
 static void test_framework_and_policy(void)
 {
     wt_ffm_runtime_t runtime;
+    wt_ffm_runtime_t runtime_v10;
     test_context_t context;
     psa_handle_t handle;
 
     test_init(&runtime, &context);
-    EXPECT_INT(wt_ffm_framework_version(&runtime), PSA_FRAMEWORK_VERSION);
+    /* Discovery is derived from the manifest: this fixture declares a 1.1
+     * partition, so a 1.1 build reports 1.1; an all-1.0 manifest reports 1.0;
+     * a NULL runtime reports 0. */
+    EXPECT_INT(wt_ffm_framework_version(&runtime), WT_FFM_VERSION_1_1);
+    EXPECT_INT(wt_ffm_init(&runtime_v10, &g_manifest_v10, &g_port_ops,
+                           &context), WT_FFM_SUCCESS);
+    EXPECT_INT(wt_ffm_framework_version(&runtime_v10), WT_FFM_VERSION_1_0);
+    EXPECT_INT(wt_ffm_framework_version(NULL), 0U);
     EXPECT_INT(wt_ffm_service_version(&runtime, TEST_NS_CLIENT,
                                       TEST_SERVICE_SID), 3U);
     EXPECT_INT(wt_ffm_service_version(&runtime, TEST_CLIENT_PARTITION,

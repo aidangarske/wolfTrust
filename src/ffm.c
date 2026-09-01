@@ -497,9 +497,30 @@ int wt_ffm_register_partition(wt_ffm_runtime_t* runtime, int32_t partition_id,
 
 uint32_t wt_ffm_framework_version(const wt_ffm_runtime_t* runtime)
 {
+    const wt_system_manifest_t* manifest;
+    uint32_t version;
+    size_t i;
+
     if (runtime == NULL || runtime->manifest == NULL)
         return 0U;
-    return PSA_FRAMEWORK_VERSION;
+    /* Report the version the loaded manifest actually enforces, never a
+     * fixed constant, so discovery cannot advertise an unenforced 1.1
+     * capability. A 1.1-only feature or partition raises the report to 1.1. */
+    manifest = runtime->manifest;
+    version = WT_FFM_VERSION_1_0;
+    if ((manifest->features & (WT_MANIFEST_FEATURE_SFN |
+            WT_MANIFEST_FEATURE_STATELESS |
+            WT_MANIFEST_FEATURE_MM_IOVEC)) != 0U) {
+        version = WT_FFM_VERSION_1_1;
+    }
+    for (i = 0U; i < manifest->partition_count; i++) {
+        if (manifest->partitions[i].framework_version ==
+                WT_FFM_VERSION_1_1) {
+            version = WT_FFM_VERSION_1_1;
+            break;
+        }
+    }
+    return version;
 }
 
 uint32_t wt_ffm_service_version(const wt_ffm_runtime_t* runtime,
