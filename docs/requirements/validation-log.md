@@ -3798,3 +3798,36 @@ Two corrections from the compatibility review:
    rule is recorded in the adapter and its README.
    Evidence: `make test-conformance` host subset PASS against the re-derived
    servers (the unmodified Arm clients are the oracle).
+
+## PSA Firmware Update 1.0 public surface at parity (2026-09-01)
+
+`psa/update.h` now carries the published PSA FWU 1.0 surface exactly: the
+`uint8_t` component identifier, the spec state values (TRIAL 5, REJECTED 6,
+UPDATED 7), `psa_fwu_image_version_t`, the spec `psa_fwu_component_info_t`
+(state, error, version, max_size, flags, location, implementation info
+carrying the staged size), the FWU error and success codes, the write-align
+and max-write-size macros, and the full function set including the previously
+missing `psa_fwu_cancel`, `psa_fwu_clean`, `psa_fwu_reject`, and
+`psa_fwu_request_reboot`. The service state machine implements the pre-reboot
+model (cancel WRITING/CANDIDATE -> FAILED; clean FAILED -> READY releasing the
+staging and any armed trigger; reject STAGED -> FAILED recording the client's
+error and disarming the swap; request_reboot through a new FWU-pinned SVC gate
+platform op), with the FAILED detail reported through query. A real public
+client (`src/client/psa_fwu_client.c`) marshals the API onto the SERVICE_FWU
+wire over the OS-neutral FF-M core.
+
+Deviation (for the compatibility register): installation commits at the
+authenticated-launch + anti-rollback reboot, so the optional TRIAL flow is not
+offered — `psa_fwu_accept` returns PSA_ERROR_NOT_SUPPORTED and a component
+never persists TRIAL/REJECTED/UPDATED across the swap. The `psa_fwu_start`
+manifest is the candidate's 4-byte monotonic version word.
+
+Evidence:
+- Host: `tests/host/fwu_service` (state machine incl. the new transitions)
+  and `tests/host/psa_ffm_client` (+12 checks driving the public `psa_fwu_*`
+  API through the neutral client into the production dispatch and a RAM
+  backend); `make test` unit/all PASS.
+- M33MU: `fwustage` PASS including the new on-target reject/clean lifecycle
+  tail ("reject disarmed and clean restored READY"), `bootupdate` PASS (real
+  wolfBoot swap), `positive` PASS.
+- H563 silicon: `bootupdate` and `positive` PASS on the same tree.
