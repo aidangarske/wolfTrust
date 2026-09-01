@@ -617,6 +617,17 @@ static void wt_test_interrupt(void)
     fixture.partitions[0].interrupt_count = 0U;
     EXPECT_RESULT(wt_validate(&fixture),
                   WT_MANIFEST_ERROR_INTERRUPT);
+
+    /* A Non-secure application that declares a peripheral interrupt is
+     * refused: the dispatcher would unmask it before the guest's NS bank is
+     * reinstated. */
+    wt_fixture_init(&fixture);
+    fixture.domains[2].domain_class = WT_DOMAIN_CLASS_NONSECURE_APPLICATION;
+    fixture.domains[2].rot_role = WT_ROT_ROLE_NONE;
+    fixture.domains[2].security_state = WT_SECURITY_STATE_NONSECURE;
+    fixture.domains[2].privilege_state = WT_PRIVILEGE_STATE_UNPRIVILEGED;
+    EXPECT_RESULT(wt_validate(&fixture),
+                  WT_MANIFEST_ERROR_INTERRUPT);
 }
 
 static void wt_test_uniqueness(void)

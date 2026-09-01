@@ -260,6 +260,14 @@ static int wt_manifest_validate_ffm_resources(
     for (i = 0U; i < manifest->domain_count; i++) {
         const wt_domain_descriptor_t* domain = &manifest->domains[i];
 
+        /* The dispatcher unmasks a guest's peripheral lines before its NS
+         * bank is reinstated, so an IRQ-driven Non-secure application is
+         * refused until that unmask is deferred out of the dispatch window. */
+        if (domain->domain_class == WT_DOMAIN_CLASS_NONSECURE_APPLICATION &&
+                domain->interrupt_resource_count != 0U) {
+            return WT_MANIFEST_ERROR_INTERRUPT;
+        }
+
         if (domain->domain_class != WT_DOMAIN_CLASS_SECURE_PARTITION)
             continue;
 
@@ -288,6 +296,8 @@ static int wt_manifest_validate_header(const wt_system_manifest_t* manifest,
                                        uint32_t supported_features,
                                        const wt_profile_capabilities_t* platform)
 {
+    int ret;
+
     if (manifest->format_version != WT_MANIFEST_FORMAT_VERSION)
         return WT_MANIFEST_ERROR_FORMAT;
 
@@ -344,8 +354,9 @@ static int wt_manifest_validate_header(const wt_system_manifest_t* manifest,
         return WT_MANIFEST_ERROR_DOMAIN;
     }
 
-    if (wt_manifest_validate_ffm_resources(manifest) != WT_MANIFEST_VALID)
-        return WT_MANIFEST_ERROR_RESOURCE_OWNERSHIP;
+    ret = wt_manifest_validate_ffm_resources(manifest);
+    if (ret != WT_MANIFEST_VALID)
+        return ret;
 
     return WT_MANIFEST_VALID;
 }
