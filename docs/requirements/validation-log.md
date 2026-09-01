@@ -3877,3 +3877,30 @@ Evidence:
   every IPC suite).
 - M33MU (wolf-prec5560, v1.15 container): `positive` and `bothpsa` PASS (SP
   dispatch over the reordered message).
+
+## TF-M replacement compatibility and deviation record published (2026-09-01)
+
+`docs/tfm-replacement.md` is the outward-facing record for using wolfTrust in
+place of TF-M: a per-area compatibility register (specification, version,
+as-built status, in-tree evidence), a deviation register that marks each
+difference from a strict TF-M or PSA build as parity-or-better or a scoped
+roadmap item, and a seven-step migration guide for an existing PSA-Certified
+application. It reports the versions the tree actually ships rather than the
+requirement-level baseline.
+
+Two version gaps between the stated baseline (`compatibility.md`) and the
+vendored client headers were surfaced and recorded as open reconciliation items
+rather than papered over: PSA Crypto is claimed at 1.5 but
+`lib/wolfPSA/wolfpsa/psa/crypto.h` declares 1.4, and Initial Attestation is
+claimed at "2.0 with 1.0 compatibility" but the wolfPSA header declares 1.0
+only with no 2.0 surface in the tree. Each resolves by advancing the
+implementation or correcting the baseline; the decision is deferred to the
+maintainer.
+
+The committed-install firmware-update deviation (TRIAL/accept not offered, from
+the PSA Firmware Update parity work) and the stateless-service narrow (from the
+framework-version discovery work) are both recorded in the deviation register.
+
+Evidence: document review only; no code change. The register's cited
+behaviors carry their own host, M33MU, and silicon evidence in the entries
+above.

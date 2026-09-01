@@ -1,0 +1,187 @@
+# wolfTrust as a Trusted Firmware-M replacement
+
+This document is the outward-facing compatibility record for using wolfTrust in
+place of Trusted Firmware-M (TF-M). It states, per API area, the specification
+and version wolfTrust implements, the as-built status, and the in-tree evidence;
+it records every deliberate deviation from a strict TF-M or PSA implementation
+with a justification; and it gives a migration path for an existing
+PSA-Certified application. The requirement-level baseline lives in
+`docs/requirements/compatibility.md`; this document reports what the tree
+actually ships.
+
+## Product boundary
+
+The released product is wolfBoot, wolfTrust, the selected wolfSSL project
+dependencies, and the product application. It contains no TF-M runtime and no
+TF-M generated build product. An existing standards-compliant application
+replaces its TF-M provider with the wolfTrust client library and keeps its
+`psa_*` source calls; build and board configuration may change, application
+security behavior is not rewritten.
+
+## Compatibility register
+
+| Area | Specification and version | Status | Evidence |
+| --- | --- | --- | --- |
+| Framework model | Arm FF-M 1.0 IPC, with FF-M 1.1 framework and isolation discovery | 1.0 fully implemented; 1.1 exposed as discovery only (stateless, SFN, and memory-mapped IOVEC are reserved but unadvertised) | `port/stm32h563/manifest.json:5` (`isolation_profile: 3`); `docs/requirements/framework.md:41-46`; framework-version discovery derives from the loaded manifest (`src/ffm.c` `wt_ffm_framework_version`) |
+| Client IPC API | FF-M 1.0 | Full: `psa_framework_version`, `psa_version`, `psa_connect`, `psa_call`, `psa_close` | `include/psa/client.h` |
+| Secure Partition API | FF-M 1.0 | Full: `psa_wait`, `psa_get`, `psa_read`, `psa_skip`, `psa_write`, `psa_set_rhandle`, `psa_reply`, `psa_notify`, `psa_clear`, `psa_eoi`, `psa_irq_enable`, `psa_panic` | `include/psa/service.h` |
+| Crypto | PSA Crypto API, provided by the wolfPSA client over the mediated relay | Client-level API parity through the wolfPSA/wolfCrypt stack; wolfTrust serves crypto as an opaque wolfHSM wire-packet relay (`SERVICE_HSM`), not a per-function PSA Crypto IPC surface | `lib/wolfPSA/wolfpsa/psa/crypto.h:25-26` (declares 1.4); `include/wolftrust/services/hsm_relay.h:27-33`. Version reconciliation: see open items |
+| Internal Trusted Storage | PSA ITS 1.0 | Full core: `psa_its_set`, `psa_its_get`, `psa_its_get_info`, `psa_its_remove`; per-caller namespaced | `include/psa/internal_trusted_storage.h:31-32`; `src/services/storage_service.c` (`SERVICE_ITS`) |
+| Protected Storage | PSA PS 1.0 | Core `set`/`get`/`get_info`/`remove` full, AES-GCM sealed with rollback protection; optional `psa_ps_create`/`psa_ps_set_extended` return `NOT_SUPPORTED` (`psa_ps_get_support()` reports 0) | `include/psa/protected_storage.h:40-41`; `src/services/storage_service.c:189-194` |
+| Initial Attestation | PSA Initial Attestation 1.0, provided by the wolfPSA client | Full: `psa_initial_attest_get_token`, `psa_initial_attest_get_token_size`; EAT claims in a COSE_Sign1 token served by the scheduled `SERVICE_ATTEST` partition | `lib/wolfPSA/wolfpsa/psa/initial_attestation.h:32-33`; `src/services/attestation_service.c`, `attestation_cose.c`; `docs/requirements/framework.md:210` |
+| Firmware Update | PSA Firmware Update 1.0 | Full pre-reboot state machine (`query`/`start`/`write`/`finish`/`install`/`cancel`/`clean`/`reject`/`request_reboot`); the optional TRIAL/accept flow is not offered (deviation) | `include/psa/update.h:37-38`; `src/services/fwu_service.c` |
+| Status codes | PSA Status Code API 1.0 | Maintained subset of the PSA status namespace, by design | `include/psa/error.h` |
+| Security lifecycle | FF-M 1.0 chapter 5 | `psa_rot_lifecycle_state` reports the platform lifecycle; state and implementation-substate masks are spec-accurate (`0xff00` / `0x00ff`) | `include/psa/lifecycle.h`; `src/arch/armv8m/spm_sp_api.c:227` |
+| Isolation | FF-M Level 3 | Full: every Secure Partition is isolated from every other partition, and the privileged SPM from all partitions and Non-secure domains | `port/stm32h563/manifest.json:5`; `include/wolftrust/ffm_domain.h` |
+| Boot and authentication | wolfBoot authenticates wolfTrust; wolfTrust measures and authenticates each guest | Full measured chain with anti-rollback; runtime re-verification available | `include/wolftrust/boot_handoff.h`, `include/wolftrust/guest_verify.h`; `docs/requirements/framework.md:127` |
+| Reference platform | STM32H563 (NUCLEO-H563ZI), emulator and silicon | Qualified on both the M33MU emulator and hardware | `docs/requirements/validation-log.md` |
+
+## Deviation register
+
+Each entry is either **parity-or-better** (wolfTrust is at least as strict as a
+conforming TF-M build, called out so a migrating application is not surprised)
+or a **scoped roadmap** item (a specification feature not exposed in the first
+production profile, gated for a later release), not a silent gap.
+
+### Committed-install firmware update — no TRIAL/accept (scoped roadmap)
+
+wolfTrust installs an update at the next authenticated-launch and anti-rollback
+reboot instead of offering the optional PSA Firmware Update TRIAL state.
+`psa_fwu_accept` returns `PSA_ERROR_NOT_SUPPORTED`, and no component persists
+`TRIAL`/`REJECTED`/`UPDATED` across the swap. The wolfBoot authenticated-launch
+and anti-rollback path is the trust anchor, so the update is live only after it
+re-authenticates the swapped image; a self-test-then-accept window would require
+a second mutable trust decision after launch. The pre-reboot state machine is
+complete. Evidence: `include/psa/update.h:26-27`, `src/services/fwu_service.c`
+(`WT_FWU_OP_ACCEPT` returns `NOT_SUPPORTED`), `docs/requirements/framework.md`
+(`WT-FWU-0002`).
+
+### Stateless services not exposed in the first profile (scoped roadmap)
+
+Every shipped service is connection-based. The manifest schema validates the
+FF-M 1.1 stateless fields for forward compatibility, but a 1.0 build rejects a
+stateless service (`WT_MANIFEST_ERROR_SERVICE` / `_FEATURE`), and `psa_connect`
+on a non-connection-based service returns `PSA_ERROR_NOT_SUPPORTED`.
+Framework-version discovery derives from the loaded manifest, so it reports 1.0
+and never advertises the unenforced stateless capability. No first-profile
+service needs the stateless model; exposing unused routing would only add attack
+surface. Evidence: every service entry in `port/stm32h563/manifest.json` and
+`manifest-vnet.json` (`"connection_based": true`),
+`docs/requirements/framework.md` (`WT-FFM-0042`, `WT-FFM-0043`),
+`docs/requirements/validation-log.md`.
+
+### Memory-mapped IOVEC disabled in Level 3 (parity-or-better)
+
+Services use SPM-mediated `psa_read`/`psa_skip`/`psa_write` copies; client memory
+is never mapped into a service partition. Direct mapping would weaken the Level 3
+guarantee, so a partition's MPU table needs only its own code and private
+regions and faults on any cross-partition or SPM data access. A future port may
+enable memory-mapped IOVEC only with an architecture-specific proof that the
+profile stays enforced. Evidence: `docs/requirements/compatibility.md:48-52`,
+`docs/requirements/framework.md:63` (`WT-FFM-0041`),
+`include/wolftrust/ffm_domain.h:64-71`.
+
+### SFN partition model reserved, not advertised (scoped roadmap)
+
+The manifest intermediate representation reserves the IPC and SFN model
+distinction, but only IPC is advertised; selecting SFN fails generation. Adding
+SFN later does not change the common SPM boundary. Evidence:
+`docs/requirements/framework.md:44` (`WT-FFM-0043`).
+
+### Single mediated path — raw wolfHSM transport retired (parity-or-better)
+
+Every non-secure client request reaches a secure service only through the SPM
+CMSE gateway; the raw non-secure-to-wolfHSM transport is retired from
+production. The default Secure build exports only the five `WolfTrust_FFM_*`
+veneers, and a build-time symbol check rejects any other non-secure-callable
+veneer. This is stricter than a typical TF-M deployment; it is recorded here so
+a migrating application knows the direct-transport shortcut is intentionally
+absent. Evidence: `docs/requirements/framework.md:156` (`WT-FFM-0054`),
+`docs/requirements/validation-log.md` (single-mediated-path milestone),
+`README.md:18-25`.
+
+### Crypto served as a mediated relay, not a PSA Crypto IPC partition (parity-or-better)
+
+TF-M ships a crypto partition with a per-function PSA Crypto IPC surface.
+wolfTrust instead mediates opaque wolfHSM wire packets through one service
+(`SERVICE_HSM`) and lets the wolfPSA/wolfCrypt client provide the PSA Crypto
+API shape above it, binding each request to the SPM-stamped caller so a guest
+cannot reach another guest's keys or the attestation signing key. The
+application still calls the `psa_*` crypto functions; the mediation boundary is
+different and tighter. Evidence: `include/wolftrust/services/hsm_relay.h:27-33`,
+`docs/requirements/framework.md` (`WT-FFM-0046`, `WT-FFM-0047`, `WT-FFM-0059`).
+
+### Vault is Secure-only; virtual network is off by default (parity-or-better)
+
+`SERVICE_VAULT`, the key/object/counter/entropy backend behind ITS, PS, and
+crypto, has no Non-secure access (`"nonsecure_clients": false`). The optional
+mediated virtual-network switch (`SERVICE_VNET`) is compile-time gated and absent
+from the base manifest; enabling it must not reintroduce any non-secure-callable
+entry point outside the FF-M client ABI. Evidence:
+`port/stm32h563/manifest.json` (`SERVICE_VAULT`),
+`docs/requirements/framework.md:101,171-173`.
+
+### PSA Crypto multi-part operations not implemented
+
+`PSA_OPERATION_INCOMPLETE` is deliberately omitted from `include/psa/error.h`:
+wolfTrust implements no PSA Crypto multi-part operation, so the constant has no
+consumer, and `error.h` is a maintained subset of the PSA status namespace
+rather than a full mirror.
+
+## Open reconciliation items
+
+These are gaps between the stated baseline in
+`docs/requirements/compatibility.md` and the versions the tree actually ships.
+They are recorded here for resolution before release — each is resolved either
+by advancing the implementation or by correcting the stated baseline.
+
+- **PSA Crypto version.** `compatibility.md:19` states a PSA Crypto API 1.5
+  baseline, but the vendored client header
+  `lib/wolfPSA/wolfpsa/psa/crypto.h:25-26` declares API version 1.4. Resolve by
+  advancing the wolfPSA pin to a 1.5 client or by correcting the baseline to the
+  version actually shipped.
+- **Initial Attestation version.** `compatibility.md:21` states "PSA Attestation
+  API 2.0 with 1.0 compatibility", but
+  `lib/wolfPSA/wolfpsa/psa/initial_attestation.h:32-33` declares 1.0 only, and no
+  2.0-specific surface was found in the tree. Resolve by adding the 2.0 surface
+  or by correcting the baseline to 1.0.
+
+## Migration from TF-M
+
+An existing PSA-Certified application swaps its TF-M provider for the wolfTrust
+client library and keeps its `psa_*` source calls. Security behavior is not
+rewritten; build and board configuration change.
+
+1. **Replace the provider, keep the calls.** Remove the TF-M secure build and its
+   generated interface, and link the wolfTrust client library. The client IPC,
+   crypto, storage, attestation, and firmware-update calls compile unchanged
+   against wolfTrust's `psa/*` headers and the wolfPSA client.
+2. **Confirm header parity.** wolfTrust's `psa_msg_t` member order (`type` before
+   `handle`) and lifecycle masks (`0xff00` / `0x00ff`) match the specification
+   and the published TF-M interface headers, so a partition ported from a TF-M
+   layout sees the same structures.
+3. **Map the manifests.** Translate each TF-M partition manifest into a wolfTrust
+   manifest entry: domain id, framework version (1.0, IPC), model (IPC),
+   services (SID, version, connection-based, Non-secure access), and
+   dependencies. The generator rejects an over-declared or unenforced feature, so
+   a mismatched manifest fails the build rather than degrading silently.
+4. **Select an enforceable isolation profile.** Choose the profile the platform
+   can enforce (Level 3 on the reference platform). A profile that exceeds the
+   platform's capability fails the build.
+5. **Adjust firmware-update expectations.** An application relying on the
+   TRIAL/accept flow moves to the committed-install model: the update is live
+   after the next authenticated reboot. Remove `psa_fwu_accept` handling — it
+   returns `NOT_SUPPORTED`.
+6. **Route any direct-transport code through the SPM.** Code that reached an HSM
+   or crypto backend outside the SPM must issue `psa_call` to the mediating
+   service; the raw transport is absent in production.
+7. **Validate.** Run the application's own PSA conformance and behavior tests
+   against the wolfTrust client. The compatibility register above lists the
+   surface wolfTrust verifies on the emulator and on silicon.
+
+## References
+
+The pinned specifications are recorded in `docs/requirements/sources.md`. The
+requirement-level baseline and profile policy are in
+`docs/requirements/compatibility.md` and `docs/requirements/framework.md`; the
+per-change evidence is in `docs/requirements/validation-log.md`.
