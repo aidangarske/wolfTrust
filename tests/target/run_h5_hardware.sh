@@ -608,11 +608,14 @@ if [ "$mode" != "build" ]; then
       else
         check_fail "panic trap" "CFSR 0x${fault_cfsr:-none} lacks UNDEFINSTR"
       fi
+      # 0xFB = every milestone except ITS (0x04): the panicked partition's leg
+      # alone is missing, so the -145 unblock let the client run the rest of
+      # the lifecycle to completion instead of hanging on the dead SP.
       lc=$(read_guest0_u32 g_guest0_lifecycle)
-      if [ -n "$lc" ] && [ $((0x$lc & 0xFF)) -eq 255 ]; then
-        check_pass "restarted ITS served the full lifecycle (0x$lc)"
+      if [ -n "$lc" ] && [ $((0x$lc & 0xFF)) -eq $((0xFB)) ]; then
+        check_pass "client unblocked; lifecycle completed minus the panicked leg (0x$lc)"
       else
-        check_fail "recovery" "lifecycle 0x${lc:-none} after the panic, expected 0xFF"
+        check_fail "unblock" "lifecycle 0x${lc:-none} after the panic, expected 0xFB"
       fi
       expect "guest1 alive through the panic" "freertos_guest1: heartbeat"
       ;;
