@@ -42,7 +42,7 @@ set -o pipefail
 mode="${1:-all}"
 scenario="${2:-positive}"
 case "$mode" in build|flash|all) ;; *) echo "usage: $0 build|flash|all [scenario]" >&2; exit 2 ;; esac
-case "$scenario" in positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet" >&2; exit 2 ;; esac
+case "$scenario" in positive|restart|crossdomain|keystoreneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|keystoreneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -164,6 +164,7 @@ if [ "$mode" != "flash" ]; then
   # probe; positive builds the production images. Mirrors run_m33mu_scenario.sh.
   secure_flags=""; guest_flags=""
   [ "$scenario" = "crossdomain" ] && secure_flags="WT_FFM_NEGATIVE_PROBE=1"
+  [ "$scenario" = "keystoreneg" ] && secure_flags="WT_KEYSTORE_NEG_PROBE=1"
   [ "$scenario" = "restart" ] && guest_flags="WT_GUEST_FAULT_PROBE=1"
   [ "$scenario" = "writeonce" ] && guest_flags="WT_WRITE_ONCE_RESET_PROBE=1"
   [ "$scenario" = "hsmattackneg" ] && guest_flags="WT_HSM_ATTACK_PROBE=1"
@@ -518,6 +519,29 @@ if [ "$mode" != "build" ]; then
         check_pass "denied read targeted SPM-private RAM (addr=0x$fault_addr)"
       else
         check_fail "cross-domain isolation" "fault addr 0x$fault_addr not in the SPM RAM band"
+      fi
+      expect "guest1 alive after SP quarantined" "freertos_guest1: heartbeat"
+      ;;
+    keystoreneg)
+      # The ITS partition (a non-keystore SP) reads the shared keystore band on
+      # entry; its MPU domain does not grant the band, so the read faults and is
+      # gracefully quarantined. Proof is the captured fault address inside the
+      # keystore band and guest1 surviving.
+      refute_re "keystore-band fault did not escalate to HardFault" \
+        '^(\[HARDFLT\]|HardFault|SecureFault)'
+      fault_cnt=$(read_secure_u32 g_tasklet_fault_count)
+      fault_addr=$(read_secure_u32 g_last_fault_address)
+      if [ -n "$fault_cnt" ] && [ $((0x$fault_cnt)) -ge 1 ]; then
+        check_pass "ITS SP faulted on the keystore-band read (count=0x$fault_cnt)"
+      else
+        check_fail "keystore-band fault" "SP fault count not captured (count=${fault_cnt:-none})"
+      fi
+      if [ -n "$fault_addr" ] && \
+         [ $((0x$fault_addr)) -ge $((0x30075000)) ] && \
+         [ $((0x$fault_addr)) -lt $((0x30089000)) ]; then
+        check_pass "denied read targeted the keystore band (addr=0x$fault_addr)"
+      else
+        check_fail "keystore-band isolation" "fault addr 0x$fault_addr not in the keystore band"
       fi
       expect "guest1 alive after SP quarantined" "freertos_guest1: heartbeat"
       ;;
