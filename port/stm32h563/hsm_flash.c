@@ -69,6 +69,15 @@
 
 #define WT_FLASH_KEY1          0x45670123u
 #define WT_FLASH_KEY2          0xCDEF89ABu
+
+/* The H563 ICACHE caches data reads from flash too, so a verify read-back of
+ * a just-programmed unit can hit the stale pre-program line; RM0481 requires
+ * an invalidate whenever flash content changes under an enabled ICACHE. */
+#define WT_ICACHE_CR           (*(volatile uint32_t *)0x50030400u)
+#define WT_ICACHE_SR           (*(volatile uint32_t *)0x50030404u)
+#define WT_ICACHE_CR_EN        (1u << 0)
+#define WT_ICACHE_CR_CACHEINV  (1u << 1)
+#define WT_ICACHE_SR_BUSYF     (1u << 0)
 #define WT_FLASH_BANK2_BASE_NS 0x08100000u
 #define WT_FLASH_TOP_NS        0x081FFFFFu
 #define WT_FLASH_BANK_SECTORS  128u
@@ -255,6 +264,16 @@ static void wt_flash_lock(void)
     wt_flash_wait_complete();
     if ((WT_FLASH_CR & WT_FLASH_CR_LOCK) == 0u) {
         WT_FLASH_CR |= WT_FLASH_CR_LOCK;
+    }
+}
+
+static void wt_flash_icache_invalidate(void)
+{
+    if ((WT_ICACHE_CR & WT_ICACHE_CR_EN) != 0u) {
+        WT_ICACHE_CR |= WT_ICACHE_CR_CACHEINV;
+        while ((WT_ICACHE_SR & WT_ICACHE_SR_BUSYF) != 0u) {
+        }
+        wt_flash_barrier();
     }
 }
 
@@ -466,6 +485,7 @@ static int wt_hsm_flash_program(void *context, uint32_t offset, uint32_t size,
 
     WT_FLASH_CR &= ~WT_FLASH_CR_PG;
     wt_flash_lock();
+    wt_flash_icache_invalidate();
     return ret;
 }
 
@@ -530,9 +550,16 @@ static int wt_hsm_flash_erase(void *context, uint32_t offset, uint32_t size)
         WT_FLASH_CR |= WT_FLASH_CR_STRT;
         wt_flash_wait_complete();
 
+        if ((WT_FLASH_SR & WT_FLASH_SR_ALL_ERR) != 0u &&
+                g_wt_flash_first_err == 0u) {
+            g_wt_flash_first_err = 0x05000000u;
+            g_wt_flash_first_err_off = start;
+            g_wt_flash_first_err_sr = WT_FLASH_SR;
+        }
         if (wt_flash_check_errors() != WH_ERROR_OK) {
             WT_FLASH_CR &= ~WT_FLASH_CR_SER;
             wt_flash_lock();
+            wt_flash_icache_invalidate();
             return WH_ERROR_ABORTED;
         }
         start += ctx->sector_size;
@@ -540,6 +567,7 @@ static int wt_hsm_flash_erase(void *context, uint32_t offset, uint32_t size)
 
     WT_FLASH_CR &= ~WT_FLASH_CR_SER;
     wt_flash_lock();
+    wt_flash_icache_invalidate();
     return WH_ERROR_OK;
 }
 
