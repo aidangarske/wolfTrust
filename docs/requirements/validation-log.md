@@ -3831,3 +3831,49 @@ Evidence:
   tail ("reject disarmed and clean restored READY"), `bootupdate` PASS (real
   wolfBoot swap), `positive` PASS.
 - H563 silicon: `bootupdate` and `positive` PASS on the same tree.
+
+## Framework version discovery derived from the loaded manifest (2026-09-01)
+
+`wt_ffm_framework_version` no longer returns a fixed constant. It derives the
+reported version from the loaded system manifest: 1.1 is reported only when the
+manifest selects a 1.1-only feature (SFN, stateless, or memory-mapped IOVEC) or
+a partition declares framework version 1.1; otherwise 1.0. The shipped Level 3
+profile (every partition 1.0, IPC-only features) still reports 1.0, but
+discovery is now tied to the enforced manifest instead of a hard-coded value, so
+it can never advertise an unenforced 1.1 capability (WT-FFM-0040, `5ecc631`).
+
+The first production profile ships no stateless service. Every service in both
+production manifests is connection-based; the manifest validator rejects a
+non-connection-based service under a 1.0 partition or without the stateless
+feature (`WT_MANIFEST_ERROR_SERVICE` / `_FEATURE`), and `wt_ffm_connect` refuses
+a non-connection-based service with `PSA_ERROR_NOT_SUPPORTED`. The stateless
+routing surface (WT-FFM-0042) is therefore validated but unexposed in this
+profile; the compatibility register carries the scope as a deviation rather than
+a met requirement.
+
+Evidence:
+- Host: `tests/host/ffm` framework-and-policy now asserts the derived version
+  (0x0101 for a manifest with a 1.1 partition, 0x0100 for an all-1.0 manifest, 0
+  for a null runtime); `tests/host/manifest` retains the stateless rejection
+  checks; `make test` unit/all PASS.
+- M33MU (wolf-prec5560, v1.15 container): `positive` and `bothpsa` PASS.
+
+## PSA message layout and lifecycle mask matched to the framework spec (2026-09-01)
+
+Two header values are corrected to the Arm framework spec and the published
+TF-M interface headers. `psa_msg_t` now orders `type` before `handle`, the
+spec-defined member order, so a partition ported from a TF-M layout sees the
+same structure; the SPM fills the message field-by-field by name, so the change
+is layout-only. `PSA_LIFECYCLE_IMP_STATE_MASK` becomes `0x00ff`, the low-byte
+implementation substate that tiles cleanly with the existing `0xff00` PSA state
+mask, replacing the incorrect `0xffff0000`.
+
+`PSA_OPERATION_INCOMPLETE` was left out deliberately: wolfTrust implements no PSA
+Crypto multi-part operation, the constant has no consumer, and `error.h` is a
+maintained subset of the PSA status namespace rather than a full mirror.
+
+Evidence:
+- Host: `make test` unit/all PASS (the reordered message struct is exercised by
+  every IPC suite).
+- M33MU (wolf-prec5560, v1.15 container): `positive` and `bothpsa` PASS (SP
+  dispatch over the reordered message).

@@ -59,7 +59,7 @@ describe or depend on a TF-M implementation.
 
 | ID | Behavior | Failure | Source | Tests | Commit |
 | --- | --- | --- | --- | --- | --- |
-| WT-FFM-0040 | A 1.1 build reports framework version 1.1, its actual isolation level, and whether memory-mapped IOVEC is available. | Feature discovery never advertises an unenforced capability. | SRC-FFM-EXT 2.1 | Feature-discovery tests | |
+| WT-FFM-0040 | A 1.1 build reports framework version 1.1, its actual isolation level, and whether memory-mapped IOVEC is available. | Feature discovery never advertises an unenforced capability. | SRC-FFM-EXT 2.1 | Feature-discovery tests | 5ecc631 |
 | WT-FFM-0041 | The initial Level 3 profile reports memory-mapped IOVEC unavailable and uses copied service transfers. | A manifest or service requiring unavailable direct mapping fails the build. | SRC-FFM-EXT 1.3.3, 2.1.2, 5 | Feature rejection and mapping-isolation tests | |
 | WT-FFM-0042 | A 1.1 service explicitly declares connection-based or stateless operation. A stateless service has a unique generated handle, receives request messages only, and has no reverse handle. | Connect, close, or reverse-handle use on a stateless service triggers programmer-error handling. | SRC-FFM-EXT 4.2, 4.5 | Stateless routing, version, and misuse tests | |
 | WT-FFM-0043 | The generator reserves IPC and SFN as distinct partition models. IPC is required for the first production gate; SFN is not advertised until its execution and API tests pass. | Selecting an unavailable SFN model fails generation. | SRC-FFM-EXT 2.2, 3 | Model capability and rejection tests | |
