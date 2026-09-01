@@ -879,6 +879,13 @@ wolfTrust on the board - the TF-M drop-in proof.
 - **#16 TEE-driver dependency** removal once purpose-built FF-M veneers suffice.
 - **#62 watchdog-reset tests** - deferred (needs a WDG driver; not FF-M
   conformance).
+- **NVM pool wedge on an interrupted add.** A reset or power loss mid
+  `wh_Nvm_AddObject` leaves a half-written directory entry (epoch programmed,
+  metadata/start/count blank); the init scan tolerates it but every later add
+  blank-check-fails on that slot, so the pool wedges with storage errors until
+  reformatted (observed on H563 silicon while root-causing the ICACHE-stale
+  verify, 2026-09-01). The vault init should reconcile or migrate half-written
+  entries instead of leaving them to poison later adds.
 
 ## Test entry points
 

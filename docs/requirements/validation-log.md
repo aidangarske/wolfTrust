@@ -3683,3 +3683,59 @@ Proof (M33MU, one fully-confined build):
 - `keystoreneg` PASS - a non-keystore SP (ITS) reading the shared keystore band
   MemManage-faults at `0x30075000`, proving the band is denied outside the
   keystore trust unit.
+
+## Keystore confinement silicon leg: ICACHE-stale NVM verify root-caused, H5 green (2026-09-01)
+
+The confined-keystore build's silicon validation initially failed three ways on
+the NUCLEO-H563ZI (`positive` latched `0xf3` with `psa_its_set st=-142` /
+`psa_ps_set st=-146`; `crossdomain`/`keystoreneg` read a zero SP-fault count),
+while the same images ran green on M33MU. On-target forensics (SWD-readable
+first-wins latches on the keystore gate and the NVM flash callbacks) separated
+three stacked causes:
+
+1. **Product defect - ICACHE-stale flash read-back.** The H563 ICACHE caches
+   data reads from flash. The NVM add's blank-check caches the erased line,
+   the program changes flash behind it, and the verify read-back then
+   miscompares against the stale line (`VERIFY` latched `WH_ERROR_NOTVERIFIED`
+   at the just-programmed directory unit whose flash bytes were provably
+   correct), aborting every confined runtime add and littering the pool with
+   half-written directory entries that wedge later adds
+   (`PSA_ERROR_STORAGE_FAILURE`). The emulator has no cache, so M33MU could
+   never reproduce it. Fix: `wt_flash_icache_invalidate()` after every NVM
+   program/erase (RM0481 requirement), in `port/stm32h563/hsm_flash.c`.
+2. **Harness defect - persistent wolfBoot state.** Scenario reflashes cover
+   only the front of each partition, so a `bootupdate` run's armed trigger
+   (state `0x70` + "BOOT" in the UPDATE trailer) survives and every later boot
+   swaps stale update content over the fresh image and halts before launching
+   guests (zero UART, residue lifecycle latch). Fix: erase the BOOT/UPDATE
+   trailer and SWAP sectors before every scenario flash.
+3. **Harness defect - unverified pyocd erases.** `pyocd erase` flakily dies
+   with "flash init timed out" without reporting failure, so vault-NVM and
+   trailer erases silently did not land; and a head-word-only blank check
+   false-passes a sector whose wolfBoot trailer tail is still programmed.
+   Fix: `erase_verified` (erase, halt, read head AND tail words, retry).
+
+The `positive`-family scenarios also now take the same blank-vault preamble as
+the dev scenarios so the silicon pool stays emulator-equivalent (stale pools
+otherwise fill and report `PSA_ERROR_INSUFFICIENT_STORAGE`).
+
+Proof - H563 silicon (real NUCLEO-H563ZI, wolf-prec5560), fully-confined build:
+- `positive` PASS twice, including immediately after `bootupdate`: guest0
+  lifecycle latched `0xFF` (TEE, mediated crypto, ITS, PS, key-ops, SHA-256
+  KAT, attestation COSE verify, completion), no fault markers, attestation
+  token measurement equals the signed image.
+- `crossdomain` PASS (first silicon pass): the ITS SP's read of SPM-private
+  RAM MemManage-faults (`count=1`, `addr=0x30028000`), is gracefully
+  quarantined with no HardFault, and guest1 survives.
+- `keystoreneg` PASS (first silicon pass): a non-keystore SP's read of the
+  shared keystore band MemManage-faults (`count=1`, `addr=0x30075000`), is
+  gracefully quarantined with no HardFault, and guest1 survives - the
+  WT-FFM-0062 band-isolation negative proven on silicon.
+- `devattest` PASS (dev_apis initial_attestation 1/1), `devstorage` PASS
+  (dev_apis storage suite), `bootupdate` PASS twice (v2 measurement in the
+  boot slot after the swap).
+
+Host `make test` `unit/all` PASS on the same tree. Follow-up tracked: the NVM
+pool permanently wedges when a power loss or reset interrupts an object add
+mid-sequence (half-written directory entries fail later blank-checks); the
+vault should reconcile or migrate such entries at init.
