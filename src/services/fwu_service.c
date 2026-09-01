@@ -108,6 +108,7 @@ psa_status_t wt_fwu_write(wt_fwu_service_ctx_t* ctx, uint32_t component,
             ctx->backend->write(ctx->backend_ctx, offset, data, size) != 0) {
         /* A partial program invalidates the candidate: never arm it. */
         ctx->state = PSA_FWU_FAILED;
+        ctx->error = PSA_ERROR_STORAGE_FAILURE;
         return PSA_ERROR_STORAGE_FAILURE;
     }
     if (end > ctx->write_high) {
@@ -132,6 +133,7 @@ psa_status_t wt_fwu_finish(wt_fwu_service_ctx_t* ctx, uint32_t component)
     }
     if (ctx->candidate_version < ctx->version_floor) {
         ctx->state = PSA_FWU_FAILED;
+        ctx->error = PSA_ERROR_NOT_PERMITTED;
         return PSA_ERROR_NOT_PERMITTED;
     }
     ctx->state = PSA_FWU_CANDIDATE;
@@ -149,6 +151,7 @@ psa_status_t wt_fwu_install(wt_fwu_service_ctx_t* ctx)
     /* Final anti-rollback guard immediately before the swap is armed. */
     if (ctx->candidate_version < ctx->version_floor) {
         ctx->state = PSA_FWU_FAILED;
+        ctx->error = PSA_ERROR_NOT_PERMITTED;
         return PSA_ERROR_NOT_PERMITTED;
     }
     if (ctx->backend->arm != NULL &&
@@ -162,7 +165,7 @@ psa_status_t wt_fwu_install(wt_fwu_service_ctx_t* ctx)
     return PSA_SUCCESS_REBOOT;
 }
 
-psa_status_t wt_fwu_abort(wt_fwu_service_ctx_t* ctx, uint32_t component)
+psa_status_t wt_fwu_cancel(wt_fwu_service_ctx_t* ctx, uint32_t component)
 {
     if (ctx == NULL || ctx->backend == NULL) {
         return PSA_ERROR_BAD_STATE;
@@ -170,10 +173,24 @@ psa_status_t wt_fwu_abort(wt_fwu_service_ctx_t* ctx, uint32_t component)
     if (!wt_fwu_component_ok(component)) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
-    if (ctx->state != PSA_FWU_WRITING &&
-            ctx->state != PSA_FWU_CANDIDATE &&
-            ctx->state != PSA_FWU_STAGED &&
-            ctx->state != PSA_FWU_FAILED) {
+    if (ctx->state != PSA_FWU_WRITING && ctx->state != PSA_FWU_CANDIDATE) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    /* Client-requested abandonment is not a fault: FAILED with no error. */
+    ctx->state = PSA_FWU_FAILED;
+    ctx->error = PSA_SUCCESS;
+    return PSA_SUCCESS;
+}
+
+psa_status_t wt_fwu_clean(wt_fwu_service_ctx_t* ctx, uint32_t component)
+{
+    if (ctx == NULL || ctx->backend == NULL) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    if (!wt_fwu_component_ok(component)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    if (ctx->state != PSA_FWU_FAILED && ctx->state != PSA_FWU_UPDATED) {
         return PSA_ERROR_BAD_STATE;
     }
     /* If a swap was already armed, clear the trigger so the prior image runs. */
@@ -185,7 +202,47 @@ psa_status_t wt_fwu_abort(wt_fwu_service_ctx_t* ctx, uint32_t component)
     ctx->write_high = 0u;
     ctx->candidate_version = 0u;
     ctx->armed = 0u;
+    ctx->error = PSA_SUCCESS;
     return PSA_SUCCESS;
+}
+
+psa_status_t wt_fwu_reject(wt_fwu_service_ctx_t* ctx, psa_status_t error)
+{
+    if (ctx == NULL || ctx->backend == NULL) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    /* Installation commits at the authenticated-launch reboot, so TRIAL never
+     * persists; reject applies to a STAGED (not yet rebooted) component. */
+    if (ctx->state != PSA_FWU_STAGED) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    if (ctx->armed != 0u && ctx->backend->disarm != NULL &&
+            ctx->backend->disarm(ctx->backend_ctx) != 0) {
+        return PSA_ERROR_STORAGE_FAILURE;
+    }
+    ctx->armed = 0u;
+    ctx->state = PSA_FWU_FAILED;
+    ctx->error = error;
+    return PSA_SUCCESS;
+}
+
+psa_status_t wt_fwu_request_reboot(wt_fwu_service_ctx_t* ctx)
+{
+    wt_spm_call_t call;
+
+    if (ctx == NULL || ctx->transport == NULL) {
+        return PSA_ERROR_BAD_STATE;
+    }
+    /* The reset is a privileged platform op: hop through the FWU-pinned SVC
+     * gate. On target a granted reboot does not return; anywhere the gate
+     * lacks the platform op (host), report it unsupported. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_FWU_BACKEND;
+    call.call_type = WT_SPM_FWU_REBOOT;
+    if (ctx->transport(NULL, &call) != WT_FFM_SUCCESS || call.ret_int != 0) {
+        return PSA_ERROR_NOT_SUPPORTED;
+    }
+    return PSA_SUCCESS_REBOOT;
 }
 
 psa_status_t wt_fwu_query(wt_fwu_service_ctx_t* ctx, uint32_t component,
@@ -200,10 +257,13 @@ psa_status_t wt_fwu_query(wt_fwu_service_ctx_t* ctx, uint32_t component,
     if (!wt_fwu_component_ok(component)) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
-    info->state = ctx->state;
-    info->version = ctx->candidate_version;
+    (void)memset(info, 0, sizeof(*info));
+    info->state = (uint8_t)ctx->state;
+    info->error = (ctx->state == PSA_FWU_FAILED) ? ctx->error : PSA_SUCCESS;
+    /* wolfBoot versions are one monotonic word; carried in build. */
+    info->version.build = ctx->candidate_version;
     info->max_size = ctx->backend->capacity;
-    info->staged_size = ctx->write_high;
+    info->impl.staged_size = ctx->write_high;
     return PSA_SUCCESS;
 }
 
@@ -310,8 +370,23 @@ static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
     case WT_FWU_OP_INSTALL:
         status = wt_fwu_install(ctx);
         break;
-    case WT_FWU_OP_ABORT:
-        status = wt_fwu_abort(ctx, req.component);
+    case WT_FWU_OP_CANCEL:
+        status = wt_fwu_cancel(ctx, req.component);
+        break;
+    case WT_FWU_OP_CLEAN:
+        status = wt_fwu_clean(ctx, req.component);
+        break;
+    case WT_FWU_OP_REJECT:
+        /* The client's error code rides the version field of the wire header. */
+        status = wt_fwu_reject(ctx, (psa_status_t)req.version);
+        break;
+    case WT_FWU_OP_REBOOT:
+        status = wt_fwu_request_reboot(ctx);
+        break;
+    case WT_FWU_OP_ACCEPT:
+        /* Installation commits at the authenticated-launch reboot; the TRIAL
+         * flow is not offered (recorded in the compatibility register). */
+        status = PSA_ERROR_NOT_SUPPORTED;
         break;
     default:
         status = PSA_ERROR_NOT_SUPPORTED;
@@ -355,7 +430,7 @@ int wt_fwu_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
 
     if (msg.type == PSA_IPC_CONNECT || msg.type == PSA_IPC_DISCONNECT) {
         reply_status = PSA_SUCCESS;
-    } else if (msg.type >= WT_FWU_OP_QUERY && msg.type <= WT_FWU_OP_ABORT) {
+    } else if (msg.type >= WT_FWU_OP_QUERY && msg.type <= WT_FWU_OP_ACCEPT) {
         reply_status = wt_fwu_service_call(ctx, runtime, partition_id, &msg);
     } else {
         reply_status = PSA_ERROR_NOT_SUPPORTED;

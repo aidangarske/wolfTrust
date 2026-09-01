@@ -42,11 +42,13 @@ _WT_SRCS := \
     $(ROOT)/src/ipc.c \
     $(ROOT)/src/spm_gate.c \
     $(ROOT)/src/services/hsm_relay_service.c \
+    $(ROOT)/src/services/fwu_service.c \
     $(ROOT)/src/services/storage_service.c \
     $(ROOT)/src/services/vault_service.c
 
 _CLIENT_SRCS := \
-    $(ROOT)/src/client/psa_ffm_client.c
+    $(ROOT)/src/client/psa_ffm_client.c \
+    $(ROOT)/src/client/psa_fwu_client.c
 
 _WC_SRCS := \
     $(WOLFSSL)/wolfcrypt/src/sha256.c   \

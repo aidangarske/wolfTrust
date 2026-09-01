@@ -163,8 +163,13 @@ static void test_state_machine(void)
           "WT-FWU-0003 finish before start is BAD_STATE");
     check(wt_fwu_install(&ctx) == PSA_ERROR_BAD_STATE,
           "WT-FWU-0003 install before a candidate is BAD_STATE");
-    check(wt_fwu_abort(&ctx, WT_FWU_COMPONENT_PRIMARY) == PSA_ERROR_BAD_STATE,
-          "WT-FWU-0003 abort from READY is BAD_STATE");
+    check(wt_fwu_cancel(&ctx, WT_FWU_COMPONENT_PRIMARY) ==
+              PSA_ERROR_BAD_STATE,
+          "WT-FWU-0003 cancel from READY is BAD_STATE");
+    check(wt_fwu_clean(&ctx, WT_FWU_COMPONENT_PRIMARY) == PSA_ERROR_BAD_STATE,
+          "WT-FWU-0003 clean from READY is BAD_STATE");
+    check(wt_fwu_reject(&ctx, PSA_ERROR_GENERIC_ERROR) == PSA_ERROR_BAD_STATE,
+          "WT-FWU-0003 reject from READY is BAD_STATE");
 
     /* Happy path: start erases, write stages, finish, install arms. */
     st = wt_fwu_start(&ctx, WT_FWU_COMPONENT_PRIMARY, 5u);
@@ -200,7 +205,8 @@ static void test_state_machine(void)
     check(st == PSA_SUCCESS && ctx.state == PSA_FWU_CANDIDATE,
           "WT-FWU-0002 finish moves the candidate to CANDIDATE");
     check(wt_fwu_query(&ctx, WT_FWU_COMPONENT_PRIMARY, &info) == PSA_SUCCESS &&
-              info.state == PSA_FWU_CANDIDATE && info.staged_size == 64u,
+              info.state == PSA_FWU_CANDIDATE &&
+              info.impl.staged_size == 64u && info.version.build == 5u,
           "WT-FWU-0001 query reports the CANDIDATE and staged size");
 
     st = wt_fwu_install(&ctx);
@@ -209,10 +215,29 @@ static void test_state_machine(void)
               mem.armed_version == 5u,
           "WT-FWU-0002 install arms the swap and asks for a reboot");
 
-    /* Abort after arming disarms the trigger and restores READY. */
-    st = wt_fwu_abort(&ctx, WT_FWU_COMPONENT_PRIMARY);
-    check(st == PSA_SUCCESS && ctx.state == PSA_FWU_READY && mem.armed == 0u,
-          "WT-FWU-0003 abort clears an armed swap and restores READY");
+    /* Reject after arming disarms the trigger and records the error;
+     * clean then restores READY (PSA FWU 1.0 STAGED -> FAILED -> READY). */
+    st = wt_fwu_reject(&ctx, PSA_ERROR_GENERIC_ERROR);
+    check(st == PSA_SUCCESS && ctx.state == PSA_FWU_FAILED && mem.armed == 0u,
+          "WT-FWU-0003 reject clears an armed swap and marks FAILED");
+    check(wt_fwu_query(&ctx, WT_FWU_COMPONENT_PRIMARY, &info) ==
+              PSA_SUCCESS && info.state == PSA_FWU_FAILED &&
+              info.error == PSA_ERROR_GENERIC_ERROR,
+          "WT-FWU-0001 query reports the rejected component error");
+    check(wt_fwu_clean(&ctx, WT_FWU_COMPONENT_PRIMARY) == PSA_SUCCESS &&
+              ctx.state == PSA_FWU_READY,
+          "WT-FWU-0003 clean restores a FAILED component to READY");
+    /* Cancel abandons an in-progress write; clean releases it. */
+    mock_backend_init(&backend, &mem);
+    ctx_init(&ctx, &backend, &mem, 3u);
+    (void)wt_fwu_start(&ctx, WT_FWU_COMPONENT_PRIMARY, 5u);
+    (void)wt_fwu_write(&ctx, WT_FWU_COMPONENT_PRIMARY, 0u, block, 16u);
+    check(wt_fwu_cancel(&ctx, WT_FWU_COMPONENT_PRIMARY) == PSA_SUCCESS &&
+              ctx.state == PSA_FWU_FAILED,
+          "WT-FWU-0003 cancel abandons the WRITING candidate to FAILED");
+    check(wt_fwu_clean(&ctx, WT_FWU_COMPONENT_PRIMARY) == PSA_SUCCESS &&
+              ctx.state == PSA_FWU_READY,
+          "WT-FWU-0003 clean after cancel restores READY");
 
     /* Anti-rollback: a candidate below the floor is refused at start. */
     mock_backend_init(&backend, &mem);
@@ -248,9 +273,9 @@ static void test_state_machine(void)
     check(wt_fwu_write(&ctx, WT_FWU_COMPONENT_PRIMARY, 0u, block, 16u) ==
               PSA_ERROR_STORAGE_FAILURE && ctx.state == PSA_FWU_FAILED,
           "WT-FWU-0003 a failed program marks the candidate FAILED");
-    check(wt_fwu_abort(&ctx, WT_FWU_COMPONENT_PRIMARY) == PSA_SUCCESS &&
+    check(wt_fwu_clean(&ctx, WT_FWU_COMPONENT_PRIMARY) == PSA_SUCCESS &&
               ctx.state == PSA_FWU_READY,
-          "WT-FWU-0003 abort recovers a FAILED candidate to READY");
+          "WT-FWU-0003 clean recovers a FAILED candidate to READY");
 
     /* An arm failure leaves the candidate un-armed, not staged. */
     mock_backend_init(&backend, &mem);

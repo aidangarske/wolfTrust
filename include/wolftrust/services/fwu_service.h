@@ -40,7 +40,11 @@
 #define WT_FWU_OP_WRITE   3
 #define WT_FWU_OP_FINISH  4
 #define WT_FWU_OP_INSTALL 5
-#define WT_FWU_OP_ABORT   6
+#define WT_FWU_OP_CANCEL  6
+#define WT_FWU_OP_CLEAN   7
+#define WT_FWU_OP_REJECT  8
+#define WT_FWU_OP_REBOOT  9
+#define WT_FWU_OP_ACCEPT  10
 
 /* wolfTrust exposes a single updatable component (the secure/application
  * image). A request naming any other component is refused. */
@@ -95,6 +99,7 @@ typedef struct wt_fwu_service_ctx {
     uint32_t write_high;
     uint32_t candidate_version;
     uint32_t armed;
+    psa_status_t error;     /* FAILED detail, cleared by clean (PSA FWU 1.0) */
 } wt_fwu_service_ctx_t;
 
 /* Neutral state-machine transitions, driven directly by the host test and by
@@ -106,7 +111,10 @@ psa_status_t wt_fwu_write(wt_fwu_service_ctx_t* ctx, uint32_t component,
                           uint32_t offset, const uint8_t* data, uint32_t size);
 psa_status_t wt_fwu_finish(wt_fwu_service_ctx_t* ctx, uint32_t component);
 psa_status_t wt_fwu_install(wt_fwu_service_ctx_t* ctx);
-psa_status_t wt_fwu_abort(wt_fwu_service_ctx_t* ctx, uint32_t component);
+psa_status_t wt_fwu_cancel(wt_fwu_service_ctx_t* ctx, uint32_t component);
+psa_status_t wt_fwu_clean(wt_fwu_service_ctx_t* ctx, uint32_t component);
+psa_status_t wt_fwu_reject(wt_fwu_service_ctx_t* ctx, psa_status_t error);
+psa_status_t wt_fwu_request_reboot(wt_fwu_service_ctx_t* ctx);
 psa_status_t wt_fwu_query(wt_fwu_service_ctx_t* ctx, uint32_t component,
                           psa_fwu_component_info_t* info);
 

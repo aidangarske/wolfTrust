@@ -442,6 +442,10 @@ void wt_spm_svc_entry(uint32_t* frame)
                 wt_fwu_flash_backend.disarm != NULL) {
             fwu_ret = wt_fwu_flash_backend.disarm(NULL);
         }
+        else if (call->call_type == WT_SPM_FWU_REBOOT) {
+            /* psa_fwu_request_reboot: the granted reset does not return. */
+            wt_platform_system_reset();
+        }
         call->ret_int = fwu_ret;
         frame[0] = (uint32_t)WT_FFM_SUCCESS;
         return;

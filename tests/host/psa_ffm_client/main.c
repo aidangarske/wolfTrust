@@ -31,9 +31,13 @@
 #include "wolftrust/ffm_boot.h"
 #include "wolftrust/spm_sched.h"
 #include "wolftrust/services/hsm_relay.h"
+#include "wolftrust/services/fwu_service.h"
+#include "psa/update.h"
+#include "psa_manifest/sid.h"
 #include "wolftrust/ffm_veneer.h"
 #include "psa/client.h"
 #include "psa_manifest/pid.h"
+#include "psa_manifest/sid.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -41,6 +45,7 @@
 #include <wolfssl/wolfcrypt/sha256.h>
 
 #define TEST_HSM_SID    4102U
+#define TEST_FWU_PARTITION 8
 #define TEST_NS_CLIENT  (-1)
 
 /* ---- platform + scheduler stubs the neutral boot core needs ---- */
@@ -181,14 +186,75 @@ static const wt_service_descriptor_t g_services[] = {
     }
 };
 
+static const wt_service_descriptor_t g_fwu_services[] = {
+    {
+        "SERVICE_FWU", SERVICE_FWU_SID, 1U, WT_SERVICE_VERSION_RELAXED,
+        0x20U, 0U, 1U, 1U
+    }
+};
+
 static const wt_partition_manifest_t g_partitions[] = {
     {
         "PARTITION_HSM", PARTITION_HSM_ID, WT_FFM_VERSION_1_0,
         WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
         g_services, sizeof(g_services) / sizeof(g_services[0]),
         NULL, 0U, NULL, 0U
+    },
+    {
+        "PARTITION_FWU", TEST_FWU_PARTITION, WT_FFM_VERSION_1_0,
+        WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
+        g_fwu_services, sizeof(g_fwu_services) / sizeof(g_fwu_services[0]),
+        NULL, 0U, NULL, 0U
     }
 };
+
+/* RAM staging backend for the public PSA FWU client round trip. */
+typedef struct fwu_mock {
+    uint8_t image[4096];
+    uint32_t armed;
+} fwu_mock_t;
+
+static fwu_mock_t g_fwu_mock;
+
+static int fwu_mock_begin(void* ctx)
+{
+    (void)memset(((fwu_mock_t*)ctx)->image, 0xFF,
+                 sizeof(((fwu_mock_t*)ctx)->image));
+    return 0;
+}
+
+static int fwu_mock_write(void* ctx, uint32_t offset, const uint8_t* data,
+                          uint32_t size)
+{
+    fwu_mock_t* m = (fwu_mock_t*)ctx;
+
+    if (offset + size > sizeof(m->image)) {
+        return -1;
+    }
+    (void)memcpy(m->image + offset, data, size);
+    return 0;
+}
+
+static int fwu_mock_arm(void* ctx, uint32_t image_size, uint32_t version)
+{
+    (void)image_size;
+    (void)version;
+    ((fwu_mock_t*)ctx)->armed = 1U;
+    return 0;
+}
+
+static int fwu_mock_disarm(void* ctx)
+{
+    ((fwu_mock_t*)ctx)->armed = 0U;
+    return 0;
+}
+
+static const wt_fwu_backend_t g_fwu_backend = {
+    fwu_mock_begin, fwu_mock_write, fwu_mock_arm, fwu_mock_disarm,
+    4096U, 16U
+};
+
+static wt_fwu_service_ctx_t g_fwu_ctx;
 
 static const wt_system_manifest_t g_manifest = {
     .format_version = WT_MANIFEST_FORMAT_VERSION,
@@ -223,6 +289,9 @@ int main(void)
         0x8e, 0x27, 0xa4, 0xb5, 0x0a, 0x49, 0x84, 0x66
     };
     uint8_t digest[32];
+    uint32_t fwu_manifest = 5U;
+    uint8_t fwu_block[32];
+    psa_fwu_component_info_t fwu_info;
     psa_handle_t handle;
     psa_invec in_vec;
     psa_outvec out_vec;
@@ -265,6 +334,49 @@ int main(void)
     status = psa_call(handle, PSA_IPC_CALL, &in_vec, 5U, &out_vec, 1U);
     check(status == PSA_ERROR_PROGRAMMER_ERROR,
           "P7-S1 psa_call rejects an over-count invec (PROGRAMMER_ERROR)");
+
+    /* ---- PSA FWU 1.0 through the public client (SRC-PSA-FWU) ---- */
+    (void)memset(&g_fwu_ctx, 0, sizeof(g_fwu_ctx));
+    g_fwu_ctx.transport = wt_spm_transport_direct;
+    g_fwu_ctx.backend = &g_fwu_backend;
+    g_fwu_ctx.backend_ctx = &g_fwu_mock;
+    g_fwu_ctx.version_floor = 3U;
+    check(wt_ffm_register_partition(wt_ffm_boot_runtime_mut(),
+                                    TEST_FWU_PARTITION,
+                                    wt_fwu_service_dispatch,
+                                    &g_fwu_ctx) == WT_FFM_SUCCESS,
+          "WT-FWU-0001 FWU partition registers its dispatch");
+    (void)memset(fwu_block, 0x5A, sizeof(fwu_block));
+    check(psa_fwu_query(0U, &fwu_info) == PSA_SUCCESS &&
+              fwu_info.state == PSA_FWU_READY,
+          "WT-FWU-0001 psa_fwu_query reports READY through the public API");
+    check(psa_fwu_start(0U, &fwu_manifest, 2U) == PSA_ERROR_INVALID_ARGUMENT,
+          "WT-FWU-0003 psa_fwu_start refuses a malformed manifest");
+    check(psa_fwu_start(0U, &fwu_manifest, sizeof(fwu_manifest)) ==
+              PSA_SUCCESS,
+          "WT-FWU-0002 psa_fwu_start opens the candidate (version manifest)");
+    check(psa_fwu_write(0U, 0U, fwu_block, sizeof(fwu_block)) == PSA_SUCCESS,
+          "WT-FWU-0002 psa_fwu_write stages a block through the public API");
+    check(psa_fwu_finish(0U) == PSA_SUCCESS,
+          "WT-FWU-0002 psa_fwu_finish completes the candidate");
+    check(psa_fwu_query(0U, &fwu_info) == PSA_SUCCESS &&
+              fwu_info.state == PSA_FWU_CANDIDATE &&
+              fwu_info.version.build == 5U &&
+              fwu_info.impl.staged_size == sizeof(fwu_block),
+          "WT-FWU-0001 query reports CANDIDATE, version, and staged size");
+    check(psa_fwu_install() == PSA_SUCCESS_REBOOT && g_fwu_mock.armed == 1U,
+          "WT-FWU-0002 psa_fwu_install arms the swap and asks for reboot");
+    check(psa_fwu_reject(PSA_ERROR_GENERIC_ERROR) == PSA_SUCCESS &&
+              g_fwu_mock.armed == 0U,
+          "WT-FWU-0003 psa_fwu_reject disarms the staged swap");
+    check(psa_fwu_query(0U, &fwu_info) == PSA_SUCCESS &&
+              fwu_info.state == PSA_FWU_FAILED &&
+              fwu_info.error == PSA_ERROR_GENERIC_ERROR,
+          "WT-FWU-0001 query reports the rejected component error");
+    check(psa_fwu_clean(0U) == PSA_SUCCESS,
+          "WT-FWU-0003 psa_fwu_clean restores READY");
+    check(psa_fwu_accept() == PSA_ERROR_NOT_SUPPORTED,
+          "WT-FWU-0002 psa_fwu_accept reports the committed-install deviation");
 
     /* Clearing the port memcheck seam fails closed. */
     wt_ffm_boot_set_memcheck(NULL, NULL);
