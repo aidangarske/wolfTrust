@@ -1694,6 +1694,9 @@ void Reset_Handler(void)
         }
     }
 #endif
+    if (handoffRet == 0) {
+        wt_ffm_set_lifecycle(wt_ffm_boot_runtime_mut(), bootHandoff.lifecycle);
+    }
     /* P1t: crypto SP becomes a scheduled unprivileged coroutine now that
      * the tasklet scheduler exists. Fail closed — guests depend on it. */
     if (wt_ffm_boot_start_sched() != WT_FFM_SUCCESS) {

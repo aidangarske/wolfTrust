@@ -226,7 +226,15 @@ void psa_panic(void)
 
 uint32_t psa_rot_lifecycle_state(void)
 {
-    return PSA_LIFECYCLE_UNKNOWN;
+    wt_spm_call_t call;
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_LIFECYCLE;
+    if (wt_spm_sp_call(&call) != WT_FFM_SUCCESS ||
+            call.ret_int != WT_FFM_SUCCESS) {
+        return PSA_LIFECYCLE_UNKNOWN;
+    }
+    return call.ret_version;
 }
 
 uint32_t psa_framework_version(void)

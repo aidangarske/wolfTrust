@@ -523,6 +523,12 @@ uint32_t wt_ffm_framework_version(const wt_ffm_runtime_t* runtime)
     return version;
 }
 
+void wt_ffm_set_lifecycle(wt_ffm_runtime_t* runtime, uint32_t lifecycle)
+{
+    if (runtime != NULL)
+        runtime->lifecycle = lifecycle;
+}
+
 uint32_t wt_ffm_service_version(const wt_ffm_runtime_t* runtime,
                                 psa_client_id_t caller, uint32_t sid)
 {

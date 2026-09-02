@@ -46,7 +46,8 @@ typedef enum wt_spm_op {
     WT_SPM_OP_CALL,
     WT_SPM_OP_CLOSE,
     WT_SPM_OP_EOI,
-    WT_SPM_OP_IRQ_ENABLE
+    WT_SPM_OP_IRQ_ENABLE,
+    WT_SPM_OP_LIFECYCLE
     /* Production platform services, NOT FF-M IPC ops: the arch SVC layer
      * intercepts them before this gate. FWU_BACKEND is pinned to the FWU
      * partition; the KEYSTORE_* ops are pinned to the keystore partitions

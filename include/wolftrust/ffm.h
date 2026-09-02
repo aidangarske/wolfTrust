@@ -109,6 +109,7 @@ struct wt_ffm_runtime {
     wt_ffm_message_runtime_t messages[WT_FFM_MAX_MESSAGES];
     size_t partition_count;
     size_t service_count;
+    uint32_t lifecycle;
 };
 
 typedef enum wt_ffm_result {
@@ -129,6 +130,7 @@ int wt_ffm_init(wt_ffm_runtime_t* runtime,
 int wt_ffm_register_partition(wt_ffm_runtime_t* runtime, int32_t partition_id,
                               wt_ffm_dispatch_fn dispatch, void* context);
 uint32_t wt_ffm_framework_version(const wt_ffm_runtime_t* runtime);
+void wt_ffm_set_lifecycle(wt_ffm_runtime_t* runtime, uint32_t lifecycle);
 uint32_t wt_ffm_service_version(const wt_ffm_runtime_t* runtime,
                                 psa_client_id_t caller, uint32_t sid);
 psa_handle_t wt_ffm_connect(wt_ffm_runtime_t* runtime,

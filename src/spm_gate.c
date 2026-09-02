@@ -244,6 +244,10 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
                                                    call->sid);
         call->ret_int = WT_FFM_SUCCESS;
         break;
+    case WT_SPM_OP_LIFECYCLE:
+        call->ret_version = runtime->lifecycle;
+        call->ret_int = WT_FFM_SUCCESS;
+        break;
     case WT_SPM_OP_CONNECT:
         if (call->pending_valid == 0U) {
             psa_handle_t handle = wt_ffm_connect_begin(runtime,

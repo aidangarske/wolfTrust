@@ -27,6 +27,7 @@
  * built for live on Armv8-M and are proven on M33MU (P1t-2). */
 
 #include "wolftrust/spm_gate.h"
+#include "psa/lifecycle.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -1056,10 +1057,35 @@ static void test_gate_server_misuse_panic_class(void)
                  "misuse (i013-i023)\n");
 }
 
+/* WT_SPM_OP_LIFECYCLE reports the boot-handoff lifecycle stamped on the runtime;
+ * a runtime with no lifecycle set reports PSA_LIFECYCLE_UNKNOWN. */
+static void test_gate_lifecycle(void)
+{
+    wt_ffm_runtime_t runtime;
+    wt_spm_call_t call;
+
+    EXPECT_INT(wt_ffm_init(&runtime, &g_manifest, &g_port_ops, NULL),
+               WT_FFM_SUCCESS);
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_LIFECYCLE;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.ret_version, (int)PSA_LIFECYCLE_UNKNOWN);
+
+    wt_ffm_set_lifecycle(&runtime, PSA_LIFECYCLE_SECURED);
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_LIFECYCLE;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+    EXPECT_INT((int)call.ret_version, (int)PSA_LIFECYCLE_SECURED);
+}
+
 int main(void)
 {
     test_gate_equivalence();
     test_gate_would_block();
+    test_gate_lifecycle();
     test_gate_doorbell_state_machine();
     test_doorbell_origination();
     test_gate_validates_buffers();
