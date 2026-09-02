@@ -51,8 +51,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg|gtzcneg) ;;
-  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg|gtzcneg" >&2; exit 2 ;;
+  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg|gtzcneg|spbudgetneg) ;;
+  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg|gtzcneg|spbudgetneg" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -214,6 +214,8 @@ elif [ "$scenario" = "fwustage" ]; then
   guest_flags="WT_FWU_PROBE=1"
 elif [ "$scenario" = "gtzcneg" ]; then
   guest_flags="WT_MPU_BYPASS_PROBE=1"
+elif [ "$scenario" = "spbudgetneg" ]; then
+  secure_flags="WT_SP_FAULT_ALWAYS_PROBE=1"
 fi
 
 # Guest images per scenario: the vnet scenario swaps the Zephyr/FreeRTOS pair
@@ -293,6 +295,11 @@ fi
 quit_flag="--quit-on-faults"
 timeout_s=60
 if [ "$scenario" = "restart" ]; then
+  quit_flag=""
+  timeout_s=40
+elif [ "$scenario" = "spbudgetneg" ]; then
+  # The relay faults on every entry until its budget is exhausted; the run
+  # ends on the fail-closed platform recovery marker, never a clean exit.
   quit_flag=""
   timeout_s=40
 elif [ "$scenario" = "gtzcneg" ]; then
@@ -851,5 +858,16 @@ case "$scenario" in
     expect "peer guest keeps running through the containment" \
       "freertos_guest1: heartbeat"
     echo "PASS: target/gtzcneg"
+    ;;
+  spbudgetneg)
+    # The relay partition faults on every entry: the declared restart budget
+    # is spent restarting it, then the limit-plus-one fault escalates to the
+    # registered fail-closed platform recovery (WT-FFM-0017/0051) instead of
+    # a silent quarantine that would run on without the mandatory service.
+    expect "restart budget exhaustion escalates to platform recovery" \
+      "[BKPT] imm=0x7d"
+    refute_re "no clean lifecycle exit after the mandatory service died" \
+      '\[BKPT\] imm=0x7f'
+    echo "PASS: target/spbudgetneg"
     ;;
 esac

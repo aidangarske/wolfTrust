@@ -257,18 +257,13 @@ static int wt_spm_fault_restart(void* ctx)
 
 static void wt_spm_fault_escalate(void* ctx, wt_restart_action_t action)
 {
-    wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
-
-    if (action == WT_RESTART_ACTION_PLATFORM) {
-        /* A platform-fatal service cannot be spared: fail the whole platform
-         * closed rather than run on without it (does not return). */
-        wt_platform_all_guests_faulted();
-    }
-    else {
-        /* Quarantine just this partition: FAULTED is terminal and the scheduler
-         * skips a non-BLOCKED slot, so unrelated partitions keep running. */
-        wt_co_mark_faulted(c->slot->co);
-    }
+    (void)ctx;
+    (void)action;
+    /* Reaching escalation means the restart budget is exhausted, restart
+     * itself failed, or the policy forbids restart; the registered behavior
+     * is fail-closed platform recovery regardless of the domain's per-fault
+     * action (WT-FFM-0017/0051). Does not return. */
+    wt_platform_all_guests_faulted();
 }
 
 static const wt_sp_recovery_ops_t g_spm_fault_ops = {
@@ -1227,6 +1222,12 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
 static void wt_spm_hsm_entry(void* arg)
 {
     int32_t partition_id = (int32_t)(intptr_t)arg;
+#if defined(WT_SP_FAULT_ALWAYS_PROBE) && (WT_SP_FAULT_ALWAYS_PROBE == 1)
+    /* Budget-exhaustion probe (target/spbudgetneg): fault on every entry so
+     * the limit-plus-one fault drives escalation into fail-closed platform
+     * recovery (WT-FFM-0017/0051). Never built into production images. */
+    __asm volatile("udf #0");
+#endif
 #if defined(WT_SP_FAULT_PROBE) && (WT_SP_FAULT_PROBE == 1)
     /* One-shot graceful-recovery probe (target/spfaultneg): the relay runs
      * privileged, so an out-of-domain read cannot MemManage-fault; an
