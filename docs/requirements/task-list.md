@@ -878,6 +878,19 @@ wolfTrust on the board - the TF-M drop-in proof.
     coexistence guard, generator version-policy tightening) except the
     entry-point Medium (documented deviation, by design) — see the
     validation-log sweep entry. Rescan both after validation.
+  - [x] **Second sweep (2026-09-02): rescan mediums + security review.** The
+    post-sweep rescans (TF-M 4M, FF-M 6M/2L) and a full `review-security`
+    run (1 Crit / 2 High / 1 Med) closed in one pass: RFC 9783 profile
+    identifier, pre-dispatch programmer-error connection drop, variant-aware
+    manifest stamp, policy-derived guest MPU tables (declared shared UART +
+    platform NSC object), persisted FWU anti-rollback floor + staged-header
+    binding behind new gate ops, restart-clear band scrub with VNET re-init,
+    update reboot gated on an armed STAGED candidate, the wolfBoot trailer
+    sector reserved from staging, and the GTZC curtain closing peer guest RAM
+    at the fabric on every dispatch (new `gtzcneg` negative, M33MU fault-loop
+    + H563 RAZ/WI proof). The zero-capacity attestation buffer status and the
+    transfer-cap status are recorded ACS-pinned deviations. See the
+    validation-log entry of the same date.
   - [x] **R1 (High): VNET confined to its manifest domain.** SERVICE_VNET runs
     unprivileged (WT-FFM-0065): its switch state moved into a dedicated 20K vnet
     data band (linker VNETDATA + manifest resource), the privileged wide-table

@@ -4266,3 +4266,73 @@ Evidence:
   `manifestneg` and the extended `bothiso` (cross-guest vector) PASS.
 - H563 silicon: `positive` (including the cross-guest vector refusal),
   `confboot`, `vnetneg` PASS with the split RX/XN flash regions live.
+
+## 2026-09-02 — Rescan mediums closed and the security review's findings fixed
+
+The post-sweep rescans (TF-M 0C/0H/4M, FF-M 0C/0H/6M/2L) and a full
+`review-security` run (1 Critical, 2 High, 1 Medium) were triaged; every
+genuine finding is fixed, the remainder are recorded deviations.
+
+- Attestation token profile claim (265) now carries the final RFC 9783
+  identifier `tag:psacertified.org,2023:psa#tfm` in the encoder, the guest
+  verifier, and the regenerated golden vector; the Arm attestation suite
+  passes with the new value. The zero-capacity token-buffer status stays
+  `PSA_ERROR_INVALID_ARGUMENT`: Arm's test_a001 check 8 pins -135 (proven on
+  M33MU when the change to BUFFER_TOO_SMALL failed the suite), recorded in the
+  deviation register with the ACS as the conformance authority.
+- Every pre-dispatch PROGRAMMER ERROR now drops the valid connection it
+  arrived on: `wt_ffm_call`/`wt_ffm_call_begin` resolve the handle before the
+  type/count validation, the NSC gateway and the NS client route refused calls
+  through the new `wt_ffm_call_refuse`, and the NS client marshals raw
+  over-counts through to the Secure side instead of returning locally.
+- The processed-manifest stamp records the selected variant
+  (input/CONFIG_VNET/WT_CONFORMANCE/generator options) and regenerates on any
+  mismatch, immune to same-second mtime ties; the build-mode stamp now covers
+  CONFIG_VNET and every probe flag. A host build-integration test switches all
+  three variants in one build directory.
+- The guest NS MPU tables are rebuilt entirely from generated policy: the
+  console UART is a declared shared device resource in all three manifests
+  (pinned to the compiled address at bind), the NSC veneer window is an
+  explicit platform policy object, and unused MPU slots are cleared.
+- The production FWU partition loads the persisted anti-rollback floor
+  through the new `WT_SPM_FWU_FLOOR` gate op (zero in unlocked lifecycles,
+  refuse-all when the table is unreadable), and `FINISH` binds the staged
+  bytes to the declared candidate: the new backend `verify` op parses the
+  staged wolfBoot header (magic, payload coverage, version TLV) privileged
+  behind `WT_SPM_FWU_VERIFY`, so junk or contradicting candidates fail before
+  the swap is armed. A dispatch-level check refuses a WRITE whose declared
+  size mismatches the vector tail, `psa_fwu_request_reboot` requires an armed
+  STAGED candidate, and the wolfBoot trailer sector is reserved out of public
+  staging capacity with a failed arm erasing it before returning.
+- Partition restart scrubs the domain's declared non-stack RESTART_CLEAR band
+  alongside the stack (more than one such band fails activation closed), and
+  the VNET entry rebuilds its switch state on every start so the scrubbed
+  band is re-initialized.
+- Security Critical (cross-guest reach from a privileged NS kernel): guests
+  legitimately run privileged, so the per-guest NS MPU is not a containment
+  boundary against a hostile kernel. Every dispatch now closes the whole
+  shared guest RAM extent in GTZC MPCBB and reopens only the arriving guest's
+  declared windows, so peer RAM rejects Non-secure transactions at the fabric
+  regardless of privilege. The new `gtzcneg` negative disables the guest's
+  own NS MPU and stores a sentinel into the peer window: on M33MU the store
+  faults the initiating guest deterministically on every restart attempt
+  while the peer guest's heartbeats continue; on H563 silicon the store is
+  silently discarded (RAZ/WI — the sentinel reads back 0x00000000) and the
+  guest completes its full lifecycle. The curtain contains even the
+  debugger: an SWD access is attributed by the alias it targets, so a
+  curtained guest word reads as zero at its Non-secure address exactly like
+  a hostile guest's access would (proven live: the same word read 0x0 at
+  0x2xxxxxxx and its real value at the Secure alias). The harness probes
+  both views for guest latches. Threat model boundary 4 records the design
+  and the peer-flash-read residual.
+
+Evidence:
+- Host: full `make test` unit/all PASS with every change, including the new
+  variant-stamp, latch, reboot-gating, size-mismatch, and header-binding
+  negatives; the production manifest bind accepts the declared UART policy.
+- M33MU: `positive`, `confboot` 85/0/4, `restart`, `vnet`, `vnetneg`,
+  `attestneg`, `devattest` (a001 green with the RFC 9783 profile),
+  `devstorage`, `panicneg`, `manifestneg`, `fwustage` (signed-header
+  staging), `bootupdate`, `bothiso`, and the new `gtzcneg` all PASS.
+- H563 silicon: `positive`, `confboot`, `vnetneg`, `devattest` PASS with the
+  mediums sweep; the curtain's silicon leg (`gtzcneg`) runs in the H5 suite.

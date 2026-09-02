@@ -111,6 +111,21 @@ and does not change the common SPM boundary. Evidence:
 `src/ffm_boot.c` (`wt_ffm_boot_start_sched`); `src/domain.c`
 (`wt_domain_validate_entry_and_stack`); `tools/manifest/generate.py:451`.
 
+### Shared image text in every SP thread domain (scoped deviation)
+
+The same monolithic image means every scheduled Secure Partition executes
+shared library code (libc, wolfCrypt, the SP API), so each SP thread MPU table
+grants the image text RX up to `_e_secure_text` and the image tail read-only
+XN, alongside the domain's declared non-executable resources
+(`wt_spm_sched_add_common`, `src/arch/armv8m/spm_svc.c`). The manifest's
+narrow per-SP executable window lies inside that shared text and is not
+separately enforced; code is immutable flash, never writable, and all private
+data stays confined to the declared domain resources, so the deviation is
+confined to execute/read visibility of shared code. Per-partition text
+narrowing is tracked (task #26) and lands with the multi-image port above.
+Evidence: `src/arch/armv8m/spm_svc.c` (SP table build); the cross-domain and
+`vnetneg` negatives in `docs/requirements/validation-log.md`.
+
 ### Single mediated path — raw wolfHSM transport retired (parity-or-better)
 
 Every non-secure client request reaches a secure service only through the SPM
@@ -160,7 +175,9 @@ a single-shot service never returns it. Evidence: `include/psa/error.h`;
 
 A single FF-M call's aggregate input, or aggregate output, is bounded to
 `WT_FFM_TRANSFER_BYTES` (1024) by the SPM copy buffer; a larger aggregate is
-refused with `PSA_ERROR_INVALID_ARGUMENT`. Level 3 copies client memory rather
+refused with `PSA_ERROR_INVALID_ARGUMENT` — the status the Arm ACS itself pins
+for an oversized vector set, which is why the framework does not substitute
+`PSA_ERROR_INSUFFICIENT_MEMORY`. Level 3 copies client memory rather
 than mapping it, so the budget is a fixed, deterministic SRAM allocation, not a
 dynamic one, which is a security property of the zero-allocation design. Every
 advertised public maximum is derived from this budget so it is actually
@@ -170,6 +187,16 @@ request header, pinned by a compile-time guard and a boundary round-trip in
 within the budget; a service needing more streams across successive calls. A
 future port may enlarge the budget where SRAM allows. Evidence: `include/wolftrust/ffm.h:36` (`WT_FFM_TRANSFER_BYTES`);
 `src/ffm.c` (vector preparation); the Arm ACS runs in
+`docs/requirements/validation-log.md`.
+
+### Zero-capacity attestation token buffer status (ACS-pinned)
+
+`psa_initial_attest_get_token` with a non-NULL token buffer of capacity zero
+returns `PSA_ERROR_INVALID_ARGUMENT`, not `PSA_ERROR_BUFFER_TOO_SMALL`: the Arm
+ACS attestation suite pins that status (test_a001 check 8, "zero as token
+size"), and the ACS run on M33MU and H563 silicon is the conformance
+authority. A nonzero-but-small capacity returns `PSA_ERROR_BUFFER_TOO_SMALL`
+as the API specifies. Evidence: the `devattest` runs in
 `docs/requirements/validation-log.md`.
 
 ### Conformance authority is the Arm ACS on hardware (methodology)
