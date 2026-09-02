@@ -1272,10 +1272,21 @@ $(BUILD_DIR):
 $(MANIFEST_DIR):
 	@mkdir -p $@
 
-$(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) | $(MANIFEST_DIR)
-	python3 $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
-		$(MANIFEST_DIR) --supported-features 0x1 --address-bits 32
-	touch $@
+# The stamp records the selected variant; a mismatch regenerates even when
+# mtimes tie within one second, so a stale variant can never be linked.
+MANIFEST_MODE := MANIFEST_INPUT=$(MANIFEST_INPUT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=--supported-features 0x1 --address-bits 32
+
+$(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
+		FORCE | $(MANIFEST_DIR)
+	@if test -f "$@" && test "$$(cat "$@" 2>/dev/null)" = '$(MANIFEST_MODE)' \
+			&& ! test $(MANIFEST_INPUT) -nt "$@" \
+			&& ! test $(ROOT)/tools/manifest/generate.py -nt "$@"; then \
+		:; \
+	else \
+		python3 $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
+			$(MANIFEST_DIR) --supported-features 0x1 --address-bits 32 \
+			&& printf '%s\n' '$(MANIFEST_MODE)' > "$@"; \
+	fi
 
 $(MANIFEST_GEN_C) $(MANIFEST_GEN_H): $(MANIFEST_STAMP)
 
@@ -1304,6 +1315,17 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		'WT_ENGINE_HSM=$(WT_ENGINE_HSM)' \
 		'WT_ATTEST_COSE=$(WT_ATTEST_COSE)' \
 		'WT_CONFORMANCE=$(WT_CONFORMANCE)' \
+		'CONFIG_VNET=$(CONFIG_VNET)' \
+		'WT_FFM_NEGATIVE_PROBE=$(WT_FFM_NEGATIVE_PROBE)' \
+		'WT_KEYSTORE_NEG_PROBE=$(WT_KEYSTORE_NEG_PROBE)' \
+		'WT_LAUNCH_DEBUG=$(WT_LAUNCH_DEBUG)' \
+		'WT_ROLLBACK_PROBE=$(WT_ROLLBACK_PROBE)' \
+		'WT_SP_FAULT_PROBE=$(WT_SP_FAULT_PROBE)' \
+		'WT_PANIC_NEG_PROBE=$(WT_PANIC_NEG_PROBE)' \
+		'WT_VNET_NEG_PROBE=$(WT_VNET_NEG_PROBE)' \
+		'WT_MANIFEST_NEG_PROBE=$(WT_MANIFEST_NEG_PROBE)' \
+		'WT_REMEASURE_PROBE=$(WT_REMEASURE_PROBE)' \
+		'WT_BOOTUPDATE_PROBE=$(WT_BOOTUPDATE_PROBE)' \
 		'WT_MAX_GUESTS=$(WT_MAX_GUESTS)' \
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
 		'WT_WOLFCRYPT_SP_ASM=$(WT_WOLFCRYPT_SP_ASM)' \
