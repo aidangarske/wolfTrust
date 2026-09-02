@@ -283,7 +283,9 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type,
     size_t i;
 
     if (in_len > WT_SPM_SP_IOVEC || out_len > WT_SPM_SP_IOVEC) {
-        return PSA_ERROR_PROGRAMMER_ERROR;
+        /* FF-M: a Secure caller exceeding PSA_MAX_IOVEC is a PROGRAMMER ERROR
+         * the framework must panic the partition for, never a status. */
+        wt_sp_api_panic(WT_SPM_OP_CALL, (uint32_t)in_len, (uint32_t)out_len);
     }
     (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_CALL;

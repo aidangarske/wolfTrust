@@ -276,10 +276,11 @@ static void test_framework_and_policy(void)
     psa_handle_t handle;
 
     test_init(&runtime, &context);
-    /* Discovery is derived from the manifest: this fixture declares a 1.1
-     * partition, so a 1.1 build reports 1.1; an all-1.0 manifest reports 1.0;
-     * a NULL runtime reports 0. */
-    EXPECT_INT(wt_ffm_framework_version(&runtime), WT_FFM_VERSION_1_1);
+    /* Discovery derives from the manifest but is clamped to the compiled
+     * public contract (PSA_FRAMEWORK_VERSION, 1.0): a 1.1 manifest on this
+     * build still reports 1.0 on every caller path, an all-1.0 manifest
+     * reports 1.0, and a NULL runtime reports 0. */
+    EXPECT_INT(wt_ffm_framework_version(&runtime), PSA_FRAMEWORK_VERSION);
     EXPECT_INT(wt_ffm_init(&runtime_v10, &g_manifest_v10, &g_port_ops,
                            &context), WT_FFM_SUCCESS);
     EXPECT_INT(wt_ffm_framework_version(&runtime_v10), WT_FFM_VERSION_1_0);
@@ -436,7 +437,7 @@ static void test_output_revalidation(void)
     context.deny_write_check = 2U;
     EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                            &input, 1U, &output, 1U),
-               PSA_ERROR_NOT_PERMITTED);
+               PSA_ERROR_PROGRAMMER_ERROR);
     EXPECT_INT(response[0], 0x5A);
     EXPECT_INT(response[1], 0x5A);
     EXPECT_INT(context.write_checks, 2U);
@@ -777,9 +778,61 @@ static void test_fault_unblock(void)
     (void)printf("PASS: WT-FFM-0017 pinned client unblock on partition fault\n");
 }
 
+/* FF-M Appendix A: a client PROGRAMMER ERROR against a connection latches it
+ * into the error state even when the in-flight request later completes
+ * normally, and it stays a PROGRAMMER ERROR until close. Also covers psa_write
+ * to an OMITTED output vector: zero bytes succeed (zero-sized entry through
+ * PSA_MAX_IOVEC), a payload exceeds its zero capacity. */
+static void test_error_latch_and_omitted_write(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    uint8_t request[3] = { 'a', 'b', 'c' };
+    psa_invec input = { request, sizeof(request) };
+    uint8_t response[2] = { 0U, 0U };
+    psa_outvec output = { response, sizeof(response) };
+    psa_handle_t handle;
+    uint16_t msg_index = 0U;
+    psa_msg_t message;
+
+    test_init(&runtime, &context);
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+
+    EXPECT_INT(wt_ffm_call_begin(&runtime, TEST_NS_CLIENT, handle,
+                                 PSA_IPC_CALL, &input, 1U, &output, 1U,
+                                 &msg_index), PSA_SUCCESS);
+
+    /* Client misuse while the request is in flight. */
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U),
+               PSA_ERROR_PROGRAMMER_ERROR);
+
+    /* The server completes the pinned request normally. */
+    EXPECT_INT(wt_ffm_get(&runtime, TEST_PARTITION_ID, TEST_SERVICE_SIGNAL,
+                          &message), PSA_SUCCESS);
+    EXPECT_INT(wt_ffm_write(&runtime, TEST_PARTITION_ID, message.handle, 1U,
+                            NULL, 0U), WT_FFM_SUCCESS);
+    EXPECT_INT(wt_ffm_write(&runtime, TEST_PARTITION_ID, message.handle, 1U,
+                            response, 1U), WT_FFM_ERROR_BUFFER);
+    EXPECT_INT(wt_ffm_reply(&runtime, TEST_PARTITION_ID, message.handle,
+                            PSA_SUCCESS), WT_FFM_SUCCESS);
+    EXPECT_INT(wt_ffm_call_finish(&runtime, msg_index, &output, 1U),
+               PSA_SUCCESS);
+
+    /* The latched misuse survives the successful completion. */
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U),
+               PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle), WT_FFM_SUCCESS);
+    (void)printf("PASS: WT-FFM-0022 client error latch and omitted-vector "
+                 "write\n");
+}
+
 int main(void)
 {
     test_arguments();
+    test_error_latch_and_omitted_write();
     test_doorbell_signal();
     test_eoi_signal();
     test_irq_route_and_assert();

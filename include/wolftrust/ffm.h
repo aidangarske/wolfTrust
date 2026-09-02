@@ -73,6 +73,9 @@ typedef struct wt_ffm_connection_runtime {
     uintptr_t rhandle;
     uint16_t service_index;
     uint8_t allocated;
+    uint8_t error_latch;   /* client programmer error: connection stays in
+                            * the error state once in-flight work completes,
+                            * until the client closes the handle (FF-M A) */
 } wt_ffm_connection_runtime_t;
 
 typedef struct wt_ffm_message_runtime {

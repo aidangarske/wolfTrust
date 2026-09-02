@@ -168,6 +168,7 @@ static int wt_ffm_alloc_connection(wt_ffm_runtime_t* runtime,
         if (runtime->connections[i].allocated == 0U) {
             runtime->connections[i].allocated = 1U;
             runtime->connections[i].state = WT_IPC_CONNECTION_FREE;
+            runtime->connections[i].error_latch = 0U;
             *connection_index = (uint16_t)i;
             return WT_FFM_SUCCESS;
         }
@@ -520,6 +521,11 @@ uint32_t wt_ffm_framework_version(const wt_ffm_runtime_t* runtime)
             break;
         }
     }
+    /* The compiled public contract (PSA_FRAMEWORK_VERSION in psa/client.h)
+     * is the ceiling: one build must never advertise 1.1 to Non-secure
+     * clients while its headers and Secure Partitions report 1.0. */
+    if (version > PSA_FRAMEWORK_VERSION)
+        version = PSA_FRAMEWORK_VERSION;
     return version;
 }
 
@@ -642,7 +648,9 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
         g_wt_ffm_call_trace |= 6UL << 28;
         /* FF-M: calling a connection that is already handling a request, or one
          * dropped by a prior PROGRAMMER ERROR, is itself a PROGRAMMER ERROR
-         * until the client closes the handle. */
+         * until the client closes the handle; the latch keeps the connection
+         * in the error state once the in-flight request completes. */
+        connection->error_latch = 1U;
         return PSA_ERROR_PROGRAMMER_ERROR;
     }
     if (wt_ffm_alloc_message(runtime, &message_index) != WT_FFM_SUCCESS) {
@@ -660,7 +668,10 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
     if (ret != WT_FFM_SUCCESS) {
         wt_ffm_release_message(runtime, message_index);
         /* FF-M: a vector referencing memory the caller cannot access is a
-         * PROGRAMMER ERROR, not a permission denial. */
+         * PROGRAMMER ERROR, not a permission denial; the connection stays in
+         * the error state until the client closes the handle. */
+        if (ret != WT_FFM_ERROR_BUFFER)
+            connection->state = WT_IPC_CONNECTION_ERROR;
         return ret == WT_FFM_ERROR_BUFFER ? PSA_ERROR_INVALID_ARGUMENT :
                                             PSA_ERROR_PROGRAMMER_ERROR;
     }
@@ -683,9 +694,12 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
                 runtime->ops->check_write(runtime->port_context,
                     message->caller, message->client_output[i],
                     message->out_position[i]) == 0) {
+            /* FF-M: an invalid caller output reference is a PROGRAMMER
+             * ERROR, never a permission denial; the connection stays in the
+             * error state until close, and nothing was written (two-phase). */
             connection->state = WT_IPC_CONNECTION_ERROR;
             wt_ffm_release_message(runtime, message_index);
-            return PSA_ERROR_NOT_PERMITTED;
+            return PSA_ERROR_PROGRAMMER_ERROR;
         }
     }
     for (i = 0U; i < message->out_count; i++) {
@@ -812,10 +826,13 @@ psa_status_t wt_ffm_call_begin(wt_ffm_runtime_t* runtime,
         /* FF-M: a forged, stale, or wrong-owner handle is a PROGRAMMER ERROR. */
         return PSA_ERROR_PROGRAMMER_ERROR;
     connection = &runtime->connections[connection_index];
-    if (connection->state != WT_IPC_CONNECTION_IDLE)
+    if (connection->state != WT_IPC_CONNECTION_IDLE) {
         /* FF-M: a busy or programmer-error-dropped connection is a PROGRAMMER
-         * ERROR until close. */
+         * ERROR until close; latch so it lands in the error state once the
+         * in-flight request completes. */
+        connection->error_latch = 1U;
         return PSA_ERROR_PROGRAMMER_ERROR;
+    }
     if (wt_ffm_alloc_message(runtime, &message_index) != WT_FFM_SUCCESS)
         return PSA_ERROR_INSUFFICIENT_MEMORY;
 
@@ -829,7 +846,10 @@ psa_status_t wt_ffm_call_begin(wt_ffm_runtime_t* runtime,
     if (ret != WT_FFM_SUCCESS) {
         wt_ffm_release_message(runtime, message_index);
         /* FF-M: a vector referencing memory the caller cannot access is a
-         * PROGRAMMER ERROR, not a permission denial. */
+         * PROGRAMMER ERROR, not a permission denial; the connection stays in
+         * the error state until close. */
+        if (ret != WT_FFM_ERROR_BUFFER)
+            connection->state = WT_IPC_CONNECTION_ERROR;
         return ret == WT_FFM_ERROR_BUFFER ? PSA_ERROR_INVALID_ARGUMENT :
                                             PSA_ERROR_PROGRAMMER_ERROR;
     }
@@ -997,9 +1017,11 @@ psa_status_t wt_ffm_call_finish(wt_ffm_runtime_t* runtime, uint16_t msg_index,
                 runtime->ops->check_write(runtime->port_context,
                     message->caller, message->client_output[i],
                     message->out_position[i]) == 0) {
+            /* FF-M: invalid caller output reference = PROGRAMMER ERROR (see
+             * the synchronous path above). */
             connection->state = WT_IPC_CONNECTION_ERROR;
             wt_ffm_release_message(runtime, msg_index);
-            return PSA_ERROR_NOT_PERMITTED;
+            return PSA_ERROR_PROGRAMMER_ERROR;
         }
     }
     for (i = 0U; i < message->out_count; i++) {
@@ -1358,8 +1380,13 @@ int wt_ffm_write(wt_ffm_runtime_t* runtime, int32_t partition_id,
         return WT_FFM_ERROR_ARGUMENT;
     }
     message = &runtime->messages[message_index];
-    if (message->type < PSA_IPC_CALL || outvec_idx >= message->out_count)
+    if (message->type < PSA_IPC_CALL)
         return WT_FFM_ERROR_STATE;
+    /* FF-M: an omitted output vector is a zero-sized entry through
+     * PSA_MAX_IOVEC; a zero-byte write to it succeeds, a payload exceeds its
+     * zero capacity and panics like any over-length write. */
+    if (outvec_idx >= message->out_count)
+        return num_bytes == 0U ? WT_FFM_SUCCESS : WT_FFM_ERROR_BUFFER;
     remaining = message->out_size[outvec_idx] -
                 message->out_position[outvec_idx];
     if (num_bytes > remaining)
@@ -1407,7 +1434,10 @@ int wt_ffm_reply(wt_ffm_runtime_t* runtime, int32_t partition_id,
                 status == PSA_ERROR_CONNECTION_BUSY) {
             return WT_FFM_ERROR_ARGUMENT;
         }
-        connection->state = status == PSA_ERROR_PROGRAMMER_ERROR ?
+        /* A client PROGRAMMER ERROR latched while this request was in flight
+         * (a call on the busy connection) drops it to the error state now. */
+        connection->state = (status == PSA_ERROR_PROGRAMMER_ERROR ||
+                             connection->error_latch != 0U) ?
             WT_IPC_CONNECTION_ERROR : WT_IPC_CONNECTION_IDLE;
     }
     else {
