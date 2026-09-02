@@ -49,5 +49,6 @@ typedef int32_t psa_status_t;
 #define PSA_ERROR_CORRUPTION_DETECTED ((psa_status_t)-151)
 #define PSA_ERROR_DATA_CORRUPT        ((psa_status_t)-152)
 #define PSA_ERROR_DATA_INVALID        ((psa_status_t)-153)
+#define PSA_OPERATION_INCOMPLETE      ((psa_status_t)-248)
 
 #endif /* PSA_ERROR_H */
