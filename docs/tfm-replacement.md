@@ -84,9 +84,16 @@ profile stays enforced. Evidence: `docs/requirements/compatibility.md:48-52`,
 ### SFN partition model reserved, not advertised (scoped roadmap)
 
 The manifest intermediate representation reserves the IPC and SFN model
-distinction, but only IPC is advertised; selecting SFN fails generation. Adding
-SFN later does not change the common SPM boundary. Evidence:
-`docs/requirements/framework.md:44` (`WT-FFM-0043`).
+distinction. The shipping STM32H563 build advertises only IPC
+(`--supported-features 0x1` in `mk/secure-armv8m-stm32h563.mk`), so its generation
+rejects an SFN partition, and the runtime fails closed regardless: `wt_ffm_init`
+(`src/ffm.c`) refuses any partition whose model is not IPC before the SPM starts.
+The generator itself remains a general FF-M tool and accepts an SFN partition for
+a target that advertises the SFN feature, so adding SFN later needs no generator
+change and does not change the common SPM boundary. Evidence:
+`docs/requirements/framework.md:44` (`WT-FFM-0043`);
+`tests/host/manifest/test_generator.py` (`test_sfn_zero_signal_is_accepted`,
+generation under an SFN-advertising target).
 
 ### Single mediated path — raw wolfHSM transport retired (parity-or-better)
 
