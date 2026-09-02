@@ -72,8 +72,10 @@ typedef struct psa_fwu_image_version_t {
 
 /* wolfBoot programs the H563 flash in 16-byte quadwords. */
 #define PSA_FWU_LOG2_WRITE_ALIGN 4u
-/* Largest single psa_fwu_write block SERVICE_FWU accepts. */
-#define PSA_FWU_MAX_WRITE_SIZE   1024u
+/* Largest single psa_fwu_write block SERVICE_FWU accepts: the 1024-byte IPC
+ * transfer budget minus the 16-byte marshalled request header, so a block of
+ * exactly this size is deliverable through psa_call. */
+#define PSA_FWU_MAX_WRITE_SIZE   1008u
 
 typedef struct psa_fwu_impl_info_t {
     uint32_t staged_size;

@@ -36,6 +36,12 @@
 #include "psa_manifest/sid.h"
 #include "wolftrust/ffm_veneer.h"
 #include "psa/client.h"
+
+/* The advertised public maximum must be deliverable: one marshalled request
+ * (header + block) fits the IPC transfer budget exactly at the boundary. */
+_Static_assert(sizeof(wt_fwu_req_t) + PSA_FWU_MAX_WRITE_SIZE <=
+               WT_FFM_TRANSFER_BYTES,
+               "PSA_FWU_MAX_WRITE_SIZE exceeds the IPC transfer budget");
 #include "psa_manifest/pid.h"
 #include "psa_manifest/sid.h"
 
@@ -291,6 +297,7 @@ int main(void)
     uint8_t digest[32];
     uint32_t fwu_manifest = 5U;
     uint8_t fwu_block[32];
+    static uint8_t fwu_max_block[PSA_FWU_MAX_WRITE_SIZE];
     psa_fwu_component_info_t fwu_info;
     psa_handle_t handle;
     psa_invec in_vec;
@@ -377,6 +384,22 @@ int main(void)
           "WT-FWU-0003 psa_fwu_clean restores READY");
     check(psa_fwu_accept() == PSA_ERROR_NOT_SUPPORTED,
           "WT-FWU-0002 psa_fwu_accept reports the committed-install deviation");
+
+    /* A block of exactly PSA_FWU_MAX_WRITE_SIZE traverses the IPC transfer
+     * (header + block == budget); one byte more is refused client-side. */
+    (void)memset(fwu_max_block, 0xA7, sizeof(fwu_max_block));
+    check(psa_fwu_start(0U, &fwu_manifest, sizeof(fwu_manifest)) ==
+              PSA_SUCCESS,
+          "WT-FWU-0002 psa_fwu_start reopens the candidate for the max write");
+    check(psa_fwu_write(0U, 0U, fwu_max_block, PSA_FWU_MAX_WRITE_SIZE) ==
+              PSA_SUCCESS,
+          "WT-FWU-0002 psa_fwu_write delivers the advertised maximum block");
+    check(psa_fwu_write(0U, PSA_FWU_MAX_WRITE_SIZE, fwu_max_block,
+                        PSA_FWU_MAX_WRITE_SIZE + 1U) ==
+              PSA_ERROR_INVALID_ARGUMENT,
+          "WT-FWU-0002 psa_fwu_write refuses a block above the maximum");
+    check(psa_fwu_cancel(0U) == PSA_SUCCESS && psa_fwu_clean(0U) == PSA_SUCCESS,
+          "WT-FWU-0003 max-write candidate cancels and cleans back to READY");
 
     /* Clearing the port memcheck seam fails closed. */
     wt_ffm_boot_set_memcheck(NULL, NULL);
