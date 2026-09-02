@@ -111,7 +111,7 @@ static const wt_manifest_interrupt_t g_interrupts[] = {
 
 static const wt_partition_manifest_t g_partitions[] = {
     {
-        "test_partition", TEST_PARTITION_ID, WT_FFM_VERSION_1_1,
+        "test_partition", TEST_PARTITION_ID, WT_FFM_VERSION_1_0,
         WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
         g_services, sizeof(g_services) / sizeof(g_services[0]),
         NULL, 0U, g_interrupts,
@@ -268,23 +268,43 @@ static void test_init(wt_ffm_runtime_t* runtime, test_context_t* context)
                WT_FFM_SUCCESS);
 }
 
+static const wt_partition_manifest_t g_v11_partitions[] = {
+    {
+        "v11_partition", TEST_PARTITION_ID, WT_FFM_VERSION_1_1,
+        WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
+        g_services, sizeof(g_services) / sizeof(g_services[0]),
+        NULL, 0U, NULL, 0U
+    }
+};
+
+static const wt_system_manifest_t g_v11_manifest = {
+    .format_version = WT_MANIFEST_FORMAT_VERSION,
+    .generator_version = "host-test",
+    .features = WT_MANIFEST_FEATURE_IPC,
+    .partitions = g_v11_partitions,
+    .partition_count = sizeof(g_v11_partitions) / sizeof(g_v11_partitions[0])
+};
+
 static void test_framework_and_policy(void)
 {
     wt_ffm_runtime_t runtime;
     wt_ffm_runtime_t runtime_v10;
+    wt_ffm_runtime_t runtime_v11;
     test_context_t context;
     psa_handle_t handle;
 
     test_init(&runtime, &context);
-    /* Discovery derives from the manifest but is clamped to the compiled
-     * public contract (PSA_FRAMEWORK_VERSION, 1.0): a 1.1 manifest on this
-     * build still reports 1.0 on every caller path, an all-1.0 manifest
-     * reports 1.0, and a NULL runtime reports 0. */
+    /* Discovery reports the compiled public contract (PSA_FRAMEWORK_VERSION,
+     * 1.0) and a NULL runtime reports 0. A partition declaring a framework
+     * newer than that contract must fail activation outright: the build
+     * cannot honor its ABI, so it never reaches a clamped report. */
     EXPECT_INT(wt_ffm_framework_version(&runtime), PSA_FRAMEWORK_VERSION);
     EXPECT_INT(wt_ffm_init(&runtime_v10, &g_manifest_v10, &g_port_ops,
                            &context), WT_FFM_SUCCESS);
     EXPECT_INT(wt_ffm_framework_version(&runtime_v10), WT_FFM_VERSION_1_0);
     EXPECT_INT(wt_ffm_framework_version(NULL), 0U);
+    EXPECT_INT(wt_ffm_init(&runtime_v11, &g_v11_manifest, &g_port_ops,
+                           &context), WT_FFM_ERROR_MANIFEST);
     EXPECT_INT(wt_ffm_service_version(&runtime, TEST_NS_CLIENT,
                                       TEST_SERVICE_SID), 3U);
     EXPECT_INT(wt_ffm_service_version(&runtime, TEST_CLIENT_PARTITION,

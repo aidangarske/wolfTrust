@@ -282,7 +282,8 @@ def policy_generated_symbols(manifest):
         policy_error("generated symbol is duplicated")
 
 
-def validate_policy(manifest, supported_features, word_max):
+def validate_policy(manifest, supported_features, word_max,
+                    supported_framework=0x101, mpu_granule=32):
     features = manifest["features"]
     if features & ~FEATURE_MASK or features & 1 == 0:
         policy_error("invalid required feature set")
@@ -395,6 +396,9 @@ def validate_policy(manifest, supported_features, word_max):
             policy_range_end(memory["base"], memory["size"], word_max,
                              "memory resource")
             attributes = memory["attributes"]
+            if mpu_granule > 1 and (memory["base"] % mpu_granule != 0 or
+                                    memory["size"] % mpu_granule != 0):
+                policy_error("memory resource is not MPU-granule aligned")
             if attributes & ~MEMORY_ATTR_MASK:
                 policy_error("memory attributes are invalid")
             if not attributes & 0x07:
@@ -509,6 +513,8 @@ def validate_policy(manifest, supported_features, word_max):
         model = partition["model"]
         if framework not in (0x100, 0x101):
             policy_error("unsupported framework version")
+        if framework > supported_framework:
+            policy_error("framework version exceeds the build contract")
         if model not in (0, 1) or (framework == 0x100 and model != 0):
             policy_error("partition model is invalid")
         if (model == 0 and not features & 1) or (model == 1 and not features & 2):
@@ -881,6 +887,10 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--supported-features", required=True,
                         type=lambda value: int(value, 0))
+    parser.add_argument("--supported-framework-version", default="0x101",
+                        type=lambda value: int(value, 0))
+    parser.add_argument("--mpu-granule", default="32",
+                        type=lambda value: int(value, 0))
     parser.add_argument("--address-bits", choices=("32", "64"), default="32")
     args = parser.parse_args()
 
@@ -890,7 +900,8 @@ def main():
                               object_pairs_hook=reject_duplicate_keys)
         word_max = (1 << int(args.address_bits)) - 1
         validate(manifest, MANIFEST_SCHEMA, "manifest", word_max)
-        validate_policy(manifest, args.supported_features, word_max)
+        validate_policy(manifest, args.supported_features, word_max,
+                        args.supported_framework_version, args.mpu_granule)
         source = generate_source(manifest, hashlib.sha256(input_bytes).digest())
         args.output.mkdir(parents=True, exist_ok=True)
         psa_manifest = args.output / "psa_manifest"

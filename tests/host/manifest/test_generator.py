@@ -191,6 +191,36 @@ class GeneratorTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("version policy", result.stderr)
 
+    def test_framework_above_build_contract_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "framework.json"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["partitions"][0]["framework_version"] = 0x101
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = subprocess.run(
+                [sys.executable, str(GENERATOR), str(source),
+                 str(root / "output"),
+                 "--supported-features", "0x5",
+                 "--supported-framework-version", "0x100",
+                 "--address-bits", "32"],
+                check=False, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("build contract", result.stderr)
+
+    def test_unaligned_memory_resource_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "unaligned.json"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["domains"][1]["memory_resources"][0]["size"] += 8
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_generator(source, root / "output")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("granule", result.stderr)
+
     def test_dependency_cycle_is_rejected_before_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

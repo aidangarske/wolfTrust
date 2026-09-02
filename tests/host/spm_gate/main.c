@@ -91,7 +91,7 @@ static const wt_manifest_interrupt_t g_interrupts[] = {
 
 static const wt_partition_manifest_t g_partitions[] = {
     {
-        "test_partition", TEST_PARTITION_ID, WT_FFM_VERSION_1_1,
+        "test_partition", TEST_PARTITION_ID, WT_FFM_VERSION_1_0,
         WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
         g_services, sizeof(g_services) / sizeof(g_services[0]),
         NULL, 0U, g_interrupts,
@@ -391,7 +391,7 @@ static const wt_service_descriptor_t g_i063_services[] = {
 static const uint32_t g_i063_client_deps[] = { I063_SVC_IRR_SID };
 
 static const wt_partition_manifest_t g_i063_partitions[] = {
-    { "i063_server", I063_SERVER_ID, WT_FFM_VERSION_1_1,
+    { "i063_server", I063_SERVER_ID, WT_FFM_VERSION_1_0,
       WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
       g_i063_services, sizeof(g_i063_services) / sizeof(g_i063_services[0]),
       NULL, 0U, NULL, 0U },

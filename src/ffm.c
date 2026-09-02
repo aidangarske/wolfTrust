@@ -443,6 +443,12 @@ int wt_ffm_init(wt_ffm_runtime_t* runtime,
     for (i = 0U; i < manifest->partition_count; i++) {
         if (manifest->partitions[i].model != WT_PARTITION_MODEL_IPC)
             return WT_FFM_ERROR_MANIFEST;
+        /* A partition declaring a framework newer than the compiled public
+         * contract must fail activation: the build cannot honor its ABI. */
+        if (manifest->partitions[i].framework_version >
+                (uint32_t)PSA_FRAMEWORK_VERSION) {
+            return WT_FFM_ERROR_MANIFEST;
+        }
         if (manifest->partitions[i].service_count >
                 WT_FFM_MAX_SERVICES - service_count) {
             return WT_FFM_ERROR_MANIFEST;

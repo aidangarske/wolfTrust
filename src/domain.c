@@ -178,6 +178,10 @@ static int wt_domain_validate_restart(const wt_domain_descriptor_t* domain)
     return WT_DOMAIN_VALID;
 }
 
+/* Armv8-M MPU regions are 32-byte granules; an unaligned resource would be
+ * silently broadened by the encoder, so it is rejected here instead. */
+#define WT_MPU_GRANULE 32U
+
 static int wt_memory_resource_validate(const wt_memory_resource_t* resource)
 {
     uintptr_t end;
@@ -186,6 +190,11 @@ static int wt_memory_resource_validate(const wt_memory_resource_t* resource)
     ret = wt_range_end(resource->base, resource->size, &end);
     if (ret != WT_DOMAIN_VALID)
         return ret;
+
+    if (((resource->base % WT_MPU_GRANULE) != 0U) ||
+            ((resource->size % WT_MPU_GRANULE) != 0U)) {
+        return WT_DOMAIN_ERROR_MEMORY_ATTRIBUTES;
+    }
 
     if ((resource->attributes & ~WT_MEMORY_ATTR_MASK) != 0U)
         return WT_DOMAIN_ERROR_MEMORY_ATTRIBUTES;
