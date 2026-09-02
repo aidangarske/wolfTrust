@@ -85,6 +85,8 @@ typedef struct wt_spm_sp {
     void* arg;
     uintptr_t scrub_base;
     uint32_t scrub_size;
+    uintptr_t scrub2_base;
+    uint32_t scrub2_size;
     uint32_t restart_count;
     uint32_t first_restart_tick;
     volatile uint8_t fault_pending;
@@ -219,6 +221,12 @@ static void wt_spm_fault_scrub(void* ctx)
     wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
 
     wt_platform_zero_guest_memory(c->slot->scrub_base, c->slot->scrub_size);
+    /* WT-FFM-0051: the domain's declared RESTART_CLEAR data band is private
+     * state too; the restarted entry re-initializes it from scratch. */
+    if (c->slot->scrub2_size != 0u) {
+        wt_platform_zero_guest_memory(c->slot->scrub2_base,
+                                      c->slot->scrub2_size);
+    }
 }
 
 static int wt_spm_fault_restart(void* ctx)
@@ -1132,6 +1140,27 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
     slot->arg = arg;
     slot->scrub_base = stack_region->base;
     slot->scrub_size = stack_region->size;
+    /* Record the domain's private non-stack RESTART_CLEAR band for the fault
+     * scrub; more than one is unsupported, so fail closed rather than leave
+     * a declared band unscrubbed. */
+    slot->scrub2_base = 0u;
+    slot->scrub2_size = 0u;
+    for (i = 0u; i < g_spm_sp_domain.region_count; i++) {
+        const wt_mpu_region_t* region = &g_spm_sp_domain.regions[i];
+
+        if (region == stack_region ||
+                (region->attributes & WT_MEMORY_ATTR_RESTART_CLEAR) == 0u ||
+                (region->attributes & WT_MEM_ATTR_WRITE) == 0u ||
+                (region->attributes & WT_MEM_ATTR_DEVICE) != 0u ||
+                (region->attributes & WT_MEMORY_ATTR_SHARED) != 0u) {
+            continue;
+        }
+        if (slot->scrub2_size != 0u) {
+            return WT_FFM_ERROR_STATE;
+        }
+        slot->scrub2_base = region->base;
+        slot->scrub2_size = (uint32_t)region->size;
+    }
     slot->restart_count = 0u;
     slot->first_restart_tick = 0u;
 
@@ -1480,6 +1509,10 @@ static void wt_spm_vnet_entry(void* arg)
         __asm volatile("udf #4");
     }
 #endif
+    /* The fault scrub zeroes the RESTART_CLEAR data band, so every entry
+     * (first schedule and each restart) rebuilds the switch state in place;
+     * the relay's switch pointer is unchanged by the in-place rebuild. */
+    wt_vnet_service_init_state();
     for (;;) {
         (void)wt_vnet_relay_dispatch(NULL, NULL, partition_id);
     }

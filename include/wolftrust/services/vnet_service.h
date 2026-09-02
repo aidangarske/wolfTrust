@@ -34,6 +34,10 @@
  * synthetic RX IRQ as NS-targeted in the NVIC's ITNS register
  * (enable bit comes from the per-guest partition irq_mask). */
 void wt_vnet_service_init(void);
+/* Band-local state rebuild (no privileged IRQ programming): safe from the
+ * confined partition, so the restarted entry re-initializes the scrubbed
+ * RESTART_CLEAR data band before serving (WT-FFM-0051). */
+void wt_vnet_service_init_state(void);
 
 /* Reflect the switch's per-vnic rx_irq_pending bit into the NS NVIC
  * for the guest about to resume. Called from wt_dispatch_guest just

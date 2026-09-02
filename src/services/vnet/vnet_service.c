@@ -38,7 +38,7 @@ static vnet_rx_desc_t   *g_rings[WT_MAX_GUESTS];
 static vnet_switch_t     g_switch;
 static bool              g_switch_ready;
 
-void wt_vnet_service_init(void)
+void wt_vnet_service_init_state(void)
 {
     uint32_t i;
     for (i = 0; i < (uint32_t)WT_MAX_GUESTS; ++i) {
@@ -51,6 +51,11 @@ void wt_vnet_service_init(void)
                          (bool)(WT_VNET_UNKNOWN_UCAST_FLOOD != 0)) == WT_VNET_OK) {
         g_switch_ready = true;
     }
+}
+
+void wt_vnet_service_init(void)
+{
+    wt_vnet_service_init_state();
     wt_platform_configure_ns_irq((uint32_t)WT_VNET_RX_IRQ);
 }
 
