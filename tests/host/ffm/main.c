@@ -231,6 +231,12 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                 response, sizeof(response)), WT_FFM_SUCCESS);
         EXPECT_INT(wt_ffm_write(runtime, partition_id, message.handle, 0U,
                                 response, 1U), WT_FFM_ERROR_BUFFER);
+        /* FF-M: a connection-only status (REFUSED/BUSY) on a request reply is a
+         * server PROGRAMMER ERROR the SPM rejects; the message stays active so
+         * the real reply below still completes it. */
+        EXPECT_INT(wt_ffm_reply(runtime, partition_id, message.handle,
+                                PSA_ERROR_CONNECTION_REFUSED),
+                   WT_FFM_ERROR_ARGUMENT);
         EXPECT_INT(wt_ffm_reply(runtime, partition_id, message.handle,
                                 PSA_SUCCESS), WT_FFM_SUCCESS);
         EXPECT_SIZE(wt_ffm_read(runtime, partition_id, message.handle, 0U,
@@ -323,9 +329,11 @@ static void test_connection_and_vectors(void)
     test_init(&runtime, &context);
     handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
     EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    /* A handle is valid only for its creating caller; another caller using it
+     * is invalid-handle use, a PROGRAMMER ERROR (FF-M 4.4.3). */
     EXPECT_INT(wt_ffm_call(&runtime, TEST_OTHER_NS_CLIENT, handle,
                            PSA_IPC_CALL, &input, 1U, &output, 1U),
-               PSA_ERROR_NOT_PERMITTED);
+               PSA_ERROR_PROGRAMMER_ERROR);
     EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle,
                            PSA_IPC_CALL, &input, 1U, &output, 1U),
                PSA_SUCCESS);
@@ -752,11 +760,16 @@ static void test_fault_unblock(void)
     EXPECT_INT(wt_ffm_call_finish(&runtime, msg_index, &output, 1U),
                PSA_ERROR_COMMUNICATION_FAILURE);
 
-    /* The connection is now unusable: an ERROR-state connection is no longer
-     * IDLE, so a fresh call is refused rather than silently reopening it. */
+    /* The connection is now unusable: a call on a connection dropped by an
+     * abnormal completion is a PROGRAMMER ERROR until the client closes it
+     * (FF-M 4.4.3), never a silently reopened or merely bad-state call. It
+     * stays a PROGRAMMER ERROR on a repeat before close. */
     EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                            &input, 1U, &output, 1U),
-               PSA_ERROR_BAD_STATE);
+               PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U),
+               PSA_ERROR_PROGRAMMER_ERROR);
 
     EXPECT_INT(wt_ffm_fail_partition_messages(NULL, TEST_PARTITION_ID,
                                               PSA_ERROR_COMMUNICATION_FAILURE),

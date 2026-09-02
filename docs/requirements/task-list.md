@@ -864,6 +864,53 @@ wolfTrust on the board - the TF-M drop-in proof.
 
 - [ ] **Phase 9+ - parity, security review, release qualification.**
 
+- [ ] **R-track: post-review compatibility + compliance hardening** (skoll
+  TF-M-compatibility and FF-M-compliance re-scan, 2026-09-01). Two Highs block
+  the master PR. Each fix lands with its host + M33MU (+ H5 where a silicon
+  seam) negative and updates the ledger; re-run both reviews to zero Crit/High
+  before the master PR.
+  - [ ] **R1 (High): confine VNET to its manifest domain.** `wt_spm_vnet_start`
+    passes `priv=1` to `wt_spm_sched_add_common`, mapping all Secure flash/RAM
+    and skipping `wt_co_set_domain`, so SERVICE_VNET reaches SPM and other
+    partitions' private memory; the privileged path also grants RX-to-all-Secure
+    flash with no XN. Run VNET unprivileged in its domain; add cross-domain and
+    XN/execute negatives on M33MU + H5. *(Compat H1 + Compl H1/M2 + INFO-11/12)*
+  - [~] **R2 (High): FF-M programmer-error taxonomy.** wrong-owner handle and
+    non-IDLE (busy / error-dropped) connection now return `PSA_ERROR_PROGRAMMER_ERROR`
+    (was NOT_PERMITTED / BAD_STATE) in `wt_ffm_call` and `wt_ffm_call_begin`, so
+    the gate panics a Secure caller; `wt_ffm_reply` rejects a connection-only
+    status on a request. Host green; M33MU confboot re-validation running. Add
+    the busy-concurrent negative (INFO-15). *(Compat H2 + Compl M5/M6/M7/M8 +
+    INFO-15/16/17)*
+  - [~] **R3: atomic output publication.** `wt_ffm_call` / `wt_ffm_call_finish`
+    now validate every output vector before copying any, so a late revalidation
+    failure leaves all client buffers and lengths unchanged. Add the two-output
+    atomicity negative (INFO-18). *(Compl M9 + INFO-18)*
+  - [ ] **R4: `psa_rot_lifecycle_state` returns the boot-handoff lifecycle**, not
+    an unconditional UNKNOWN; consistent with the attestation lifecycle claim.
+    Target test for DEVELOPMENT/SECURED. *(Compat M4)*
+  - [ ] **R5: activate the generated entry point.** Boot uses hard-coded
+    `wt_spm_*_start`, not `domain->entry_point`; bind + validate the generated
+    entry to the production symbol. Host + M33MU. *(Compl M3 + INFO-13)*
+  - [ ] **R6: returning SP entry faults the partition, not the platform.**
+    `wt_co_trampoline` calls `wt_platform_panic` (BKPT, halts all); route to the
+    per-partition fault/restart dispatcher. M33MU + H5. *(Compl M4 + INFO-14)*
+  - [ ] **R7: FF-M 1.1 discovery consistency.** Generator accepts
+    `framework_version 0x0101` while `PSA_FRAMEWORK_VERSION` is fixed `0x0100`
+    with no 1.1 discovery API. Reject `0x0101` at generation until the full 1.1
+    contract ships (or implement it). Host. *(Compl M10 + INFO-19)*
+  - [ ] **R8 (decide): 1024-byte aggregate vector limit** rejects valid buffers
+    as `INVALID_ARGUMENT`. Raise/stream, or document as a scoped deviation
+    returning the spec's resource-handling path. *(Compat M3)*
+  - [ ] **R9 (decide): clean-room fixture.** `psa_ff_upstream` dispatcher is
+    assertion-keyed (test-aware); replace with generic spec-derived fixtures or
+    run the suite as a sealed oracle. *(Compat M5)*
+  - [ ] **R10: add `PSA_OPERATION_INCOMPLETE ((psa_status_t)-248)`** to
+    `include/psa/error.h` + a public-header parity compile test (reverses the
+    earlier deliberate skip; the header-completeness argument holds). *(Compat L6)*
+  - [ ] **R-track evidence tests** (INFO-11..20): each fix lands the target /
+    host negative the corresponding INFO finding requires.
+
 ## Open items (active)
 
 - **#A confboot gate flakiness (MP5) - CLOSED (#83).** Now deterministic (20/20

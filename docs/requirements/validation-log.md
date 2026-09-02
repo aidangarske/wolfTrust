@@ -4070,9 +4070,8 @@ and the reset primitive share them now).
 
 Evidence:
 - M33MU: `confboot` 85/0/4 PASS - compiles clean and conformance is unchanged.
-- H563 silicon: determinism re-proof by N back-to-back `confboot` runs is in
-  progress; the fix is the documented root-cause remedy, and the reset-primitive
-  wait is unambiguously correct regardless of the count.
+- H563 silicon: three back-to-back `confboot` runs each PASS 85/0/4 with no
+  reboot storm - the previously ~1-in-4 flaky gate is now deterministic.
 
 The committed-install firmware-update deviation (TRIAL/accept not offered, from
 the PSA Firmware Update parity work) and the stateless-service narrow (from the
@@ -4081,3 +4080,27 @@ framework-version discovery work) are both recorded in the deviation register.
 Evidence: document review only; no code change. The register's cited
 behaviors carry their own host, M33MU, and silicon evidence in the entries
 above.
+
+## FF-M call misuse classified as programmer error, output published atomically (2026-09-01)
+
+Aligns the IPC call path with the FF-M programmer-error taxonomy and the
+atomic-output rule. `wt_ffm_call` and `wt_ffm_call_begin` had mapped a forged,
+stale, or wrong-owner handle to `PSA_ERROR_NOT_PERMITTED`/`PSA_ERROR_BAD_STATE`
+and a busy or error-dropped connection to `PSA_ERROR_BAD_STATE`; none of those
+trip the Secure-caller panic gate, so a partition could poll a broken handle
+forever instead of being faulted. Both now return `PSA_ERROR_PROGRAMMER_ERROR`
+for an invalid handle and for calling a non-idle connection, so the gate panics
+the caller as FF-M requires. `wt_ffm_call` and `wt_ffm_call_finish` now
+validate every output vector against the caller before copying any of them
+(two-phase), so a late `check_write` rejection can no longer leave partial data
+or a partial length in a client buffer. `wt_ffm_reply` rejects a server that
+returns `PSA_ERROR_CONNECTION_REFUSED`/`_BUSY` on a request message
+(`WT_FFM_ERROR_ARGUMENT`), since FF-M reserves those statuses for connect
+replies.
+
+Evidence:
+- Host: `tests/host/ffm` 33290 checks PASS - wrong-owner and error-dropped
+  connections now assert `PSA_ERROR_PROGRAMMER_ERROR`, a call-before-close
+  negative, and a reply-status-abuse negative; full `make test` unit/all PASS.
+- M33MU: `confboot` 85/0/4 PASS - the Arm FF-M conformance suite exercises the
+  programmer-error and output paths and is unchanged by the reclassification.

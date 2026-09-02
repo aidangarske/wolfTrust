@@ -627,13 +627,17 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
     if (ret != WT_FFM_SUCCESS) {
         g_wt_ffm_call_trace |= 5UL << 28;
         g_wt_ffm_refuse_base = (uint32_t)handle;
-        return ret == WT_FFM_ERROR_POLICY ? PSA_ERROR_NOT_PERMITTED :
-                                            PSA_ERROR_PROGRAMMER_ERROR;
+        /* FF-M: a forged, stale, or wrong-owner handle is invalid-handle use,
+         * a PROGRAMMER ERROR the Secure gate must panic the caller for. */
+        return PSA_ERROR_PROGRAMMER_ERROR;
     }
     connection = &runtime->connections[connection_index];
     if (connection->state != WT_IPC_CONNECTION_IDLE) {
         g_wt_ffm_call_trace |= 6UL << 28;
-        return PSA_ERROR_BAD_STATE;
+        /* FF-M: calling a connection that is already handling a request, or one
+         * dropped by a prior PROGRAMMER ERROR, is itself a PROGRAMMER ERROR
+         * until the client closes the handle. */
+        return PSA_ERROR_PROGRAMMER_ERROR;
     }
     if (wt_ffm_alloc_message(runtime, &message_index) != WT_FFM_SUCCESS) {
         g_wt_ffm_call_trace |= 7UL << 28;
@@ -665,15 +669,21 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
     }
 
     status = message->reply_status;
+    /* FF-M requires atomic output publication: revalidate every destination
+     * before writing any, so a later revalidation failure cannot leave partial
+     * data or a partial length in the client's buffers. */
     for (i = 0U; i < message->out_count; i++) {
-        if (message->out_position[i] != 0U) {
-            if (runtime->ops->check_write(runtime->port_context,
+        if (message->out_position[i] != 0U &&
+                runtime->ops->check_write(runtime->port_context,
                     message->caller, message->client_output[i],
                     message->out_position[i]) == 0) {
-                connection->state = WT_IPC_CONNECTION_ERROR;
-                wt_ffm_release_message(runtime, message_index);
-                return PSA_ERROR_NOT_PERMITTED;
-            }
+            connection->state = WT_IPC_CONNECTION_ERROR;
+            wt_ffm_release_message(runtime, message_index);
+            return PSA_ERROR_NOT_PERMITTED;
+        }
+    }
+    for (i = 0U; i < message->out_count; i++) {
+        if (message->out_position[i] != 0U) {
             (void)memcpy(message->client_output[i],
                 &message->output[message->out_offset[i]],
                 message->out_position[i]);
@@ -793,11 +803,13 @@ psa_status_t wt_ffm_call_begin(wt_ffm_runtime_t* runtime,
     ret = wt_ffm_connection_from_handle(runtime, caller, handle,
                                         &connection_index);
     if (ret != WT_FFM_SUCCESS)
-        return ret == WT_FFM_ERROR_POLICY ? PSA_ERROR_NOT_PERMITTED :
-                                            PSA_ERROR_PROGRAMMER_ERROR;
+        /* FF-M: a forged, stale, or wrong-owner handle is a PROGRAMMER ERROR. */
+        return PSA_ERROR_PROGRAMMER_ERROR;
     connection = &runtime->connections[connection_index];
     if (connection->state != WT_IPC_CONNECTION_IDLE)
-        return PSA_ERROR_BAD_STATE;
+        /* FF-M: a busy or programmer-error-dropped connection is a PROGRAMMER
+         * ERROR until close. */
+        return PSA_ERROR_PROGRAMMER_ERROR;
     if (wt_ffm_alloc_message(runtime, &message_index) != WT_FFM_SUCCESS)
         return PSA_ERROR_INSUFFICIENT_MEMORY;
 
@@ -973,15 +985,19 @@ psa_status_t wt_ffm_call_finish(wt_ffm_runtime_t* runtime, uint16_t msg_index,
     message = &runtime->messages[msg_index];
     connection = &runtime->connections[message->connection_index];
     status = message->reply_status;
+    /* Atomic output publication (FF-M): validate every destination first. */
     for (i = 0U; i < message->out_count; i++) {
-        if (message->out_position[i] != 0U) {
-            if (runtime->ops->check_write(runtime->port_context,
+        if (message->out_position[i] != 0U &&
+                runtime->ops->check_write(runtime->port_context,
                     message->caller, message->client_output[i],
                     message->out_position[i]) == 0) {
-                connection->state = WT_IPC_CONNECTION_ERROR;
-                wt_ffm_release_message(runtime, msg_index);
-                return PSA_ERROR_NOT_PERMITTED;
-            }
+            connection->state = WT_IPC_CONNECTION_ERROR;
+            wt_ffm_release_message(runtime, msg_index);
+            return PSA_ERROR_NOT_PERMITTED;
+        }
+    }
+    for (i = 0U; i < message->out_count; i++) {
+        if (message->out_position[i] != 0U) {
             (void)memcpy(message->client_output[i],
                 &message->output[message->out_offset[i]],
                 message->out_position[i]);
@@ -1379,6 +1395,12 @@ int wt_ffm_reply(wt_ffm_runtime_t* runtime, int32_t partition_id,
         connection->state = WT_IPC_CONNECTION_TERMINAL;
     }
     else if (message->type >= PSA_IPC_CALL) {
+        /* FF-M reserves CONNECTION_REFUSED/BUSY for connect replies; returning
+         * either on a request message is a server-side PROGRAMMER ERROR. */
+        if (status == PSA_ERROR_CONNECTION_REFUSED ||
+                status == PSA_ERROR_CONNECTION_BUSY) {
+            return WT_FFM_ERROR_ARGUMENT;
+        }
         connection->state = status == PSA_ERROR_PROGRAMMER_ERROR ?
             WT_IPC_CONNECTION_ERROR : WT_IPC_CONNECTION_IDLE;
     }
