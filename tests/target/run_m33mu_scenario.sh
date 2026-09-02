@@ -51,8 +51,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg) ;;
-  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg" >&2; exit 2 ;;
+  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg|gtzcneg) ;;
+  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg|gtzcneg" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -212,6 +212,8 @@ elif [ "$scenario" = "hsmattackneg" ]; then
   guest_flags="WT_HSM_ATTACK_PROBE=1"
 elif [ "$scenario" = "fwustage" ]; then
   guest_flags="WT_FWU_PROBE=1"
+elif [ "$scenario" = "gtzcneg" ]; then
+  guest_flags="WT_MPU_BYPASS_PROBE=1"
 fi
 
 # Guest images per scenario: the vnet scenario swaps the Zephyr/FreeRTOS pair
@@ -291,6 +293,12 @@ fi
 quit_flag="--quit-on-faults"
 timeout_s=60
 if [ "$scenario" = "restart" ]; then
+  quit_flag=""
+  timeout_s=40
+elif [ "$scenario" = "gtzcneg" ]; then
+  # The peer-write probe faults the initiating guest on purpose; the run ends
+  # on timeout with guest1's heartbeats as the containment evidence (like
+  # authneg), or on the clean BKPT when the store is silently discarded.
   quit_flag=""
   timeout_s=40
 elif [ "$scenario" = "spfaultneg" ] || [ "$scenario" = "panicneg" ] ||
@@ -820,5 +828,28 @@ case "$scenario" in
     refute_re "no guest scheduled off the corrupted manifest" \
       '(guest0_psa alive|freertos_guest1:|vnet-guest)'
     echo "PASS: target/manifestneg"
+    ;;
+  gtzcneg)
+    # A privileged NS guest disables its own NS MPU and stores a sentinel
+    # into the peer guest's RAM. The GTZC curtain must stop the access at
+    # the fabric: the store either faults the initiating guest (the monitor
+    # restarts it, so the attempt repeats deterministically) or is silently
+    # discarded (RAZ/WI, silicon TZIC behavior). Either way the sentinel
+    # never reads back and the peer guest keeps running (WT-FFM-0011).
+    refute_re "peer RAM never receives the sentinel" \
+      'wolfTrust GTZC peer write LEAKED'
+    attempts=$(grep -cF "wolfTrust GTZC bypass probe: attempting peer write" \
+      "$log" || true)
+    if grep -Fq "wolfTrust GTZC peer write blocked" "$log"; then
+      check_pass "peer store blocked without a fault (RAZ/WI)"
+    elif [ "$attempts" -ge 2 ]; then
+      check_pass "peer store faults the initiating guest every attempt ($attempts)"
+    else
+      check_fail "NS MPU bypass cannot reach peer guest RAM (WT-FFM-0011)" \
+        "no blocked marker and only $attempts probe attempt(s)"
+    fi
+    expect "peer guest keeps running through the containment" \
+      "freertos_guest1: heartbeat"
+    echo "PASS: target/gtzcneg"
     ;;
 esac

@@ -1321,6 +1321,38 @@ static void exercise_ffm_fwu(void)
 }
 #endif
 
+#if defined(WT_MPU_BYPASS_PROBE)
+/* Negative isolation proof for the GTZC curtain (WT-FFM-0011): a privileged
+ * NS kernel CAN disable its own NS MPU, so the fabric-level MPCBB gating —
+ * not the MPU — must keep the peer guest's RAM unreachable. The write is
+ * expected to be discarded (RAZ/WI) or to fault; either way the sentinel
+ * must not read back. SWD latch: 1 attempted, 2 blocked, 3 leaked. */
+volatile uint32_t g_guest0_gtzc_probe;
+
+static void exercise_mpu_bypass_probe(void)
+{
+	volatile uint32_t *mpu_ctrl_ns = (volatile uint32_t *)0xE000ED94u;
+	volatile uint32_t *peer = (volatile uint32_t *)0x20010000u;
+	uint32_t readback;
+
+	g_guest0_gtzc_probe = 1u;
+	LOG_INF("wolfTrust GTZC bypass probe: attempting peer write");
+	*mpu_ctrl_ns = 0u;
+	__asm volatile("dsb; isb");
+	*peer = 0xDEADBEEFu;
+	__asm volatile("dsb");
+	readback = *peer;
+	if (readback == 0xDEADBEEFu) {
+		g_guest0_gtzc_probe = 3u;
+		LOG_ERR("wolfTrust GTZC peer write LEAKED");
+	} else {
+		g_guest0_gtzc_probe = 2u;
+		LOG_INF("wolfTrust GTZC peer write blocked (read 0x%08x)",
+			readback);
+	}
+}
+#endif
+
 int main(void)
 {
 	int rc;
@@ -1352,6 +1384,9 @@ int main(void)
 	exercise_ffm_negatives();
 #if defined(WT_HSM_ATTACK_PROBE)
 	exercise_hsm_attack_probe();
+#endif
+#if defined(WT_MPU_BYPASS_PROBE)
+	exercise_mpu_bypass_probe();
 #endif
 #if defined(WT_FWU_PROBE)
 	exercise_ffm_fwu();

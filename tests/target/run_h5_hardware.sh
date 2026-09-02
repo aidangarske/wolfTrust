@@ -42,7 +42,7 @@ set -o pipefail
 mode="${1:-all}"
 scenario="${2:-positive}"
 case "$mode" in build|flash|all) ;; *) echo "usage: $0 build|flash|all [scenario]" >&2; exit 2 ;; esac
-case "$scenario" in positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg" >&2; exit 2 ;; esac
+case "$scenario" in positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg|gtzcneg) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg|gtzcneg" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -169,6 +169,7 @@ if [ "$mode" != "flash" ]; then
   [ "$scenario" = "restart" ] && guest_flags="WT_GUEST_FAULT_PROBE=1"
   [ "$scenario" = "writeonce" ] && guest_flags="WT_WRITE_ONCE_RESET_PROBE=1"
   [ "$scenario" = "hsmattackneg" ] && guest_flags="WT_HSM_ATTACK_PROBE=1"
+  [ "$scenario" = "gtzcneg" ] && guest_flags="WT_MPU_BYPASS_PROBE=1"
   [ "$scenario" = "bootupdate" ] && secure_flags="WT_BOOTUPDATE_PROBE=1"
   [ "$scenario" = "vnet" ] && secure_flags="CONFIG_VNET=y"
   [ "$scenario" = "vnetneg" ] && secure_flags="CONFIG_VNET=y WT_VNET_NEG_PROBE=1"
@@ -427,14 +428,37 @@ if [ "$mode" != "build" ]; then
   # Read a guest0 NS-RAM symbol over SWD. Both guests share USART3, so their
   # banners interleave and a UART grep is unreliable; guest0 latches its
   # lifecycle progress in RAM (g_guest0_lifecycle) which SWD reads cleanly.
+  # Guest RAM reads probe both the Non-secure address and its Secure alias
+  # (+0x10000000): the GTZC curtain marks the idle guest's blocks Secure, and
+  # the debug access is attributed by the alias it targets, so exactly one of
+  # the two views returns the live word (the other reads as zero, just like a
+  # hostile guest's access).
+  read_guest_ram_u32() {
+    local addr alias out ns_val s_val
+    addr="$1"
+    alias=$(printf '%08x' $((0x$addr + 0x10000000)))
+    out=$(pyocd cmd -t "$PYOCD_TARGET" -c halt -c "read32 0x$addr 4" \
+      -c "read32 0x$alias 4" 2>/dev/null)
+    ns_val=$(printf '%s\n' "$out" \
+      | awk -v a="$addr" 'tolower($1)==a":"{print $2}')
+    s_val=$(printf '%s\n' "$out" \
+      | awk -v a="$alias" 'tolower($1)==a":"{print $2}')
+    if [ -n "$ns_val" ] && [ $((0x$ns_val)) -ne 0 ]; then
+      echo "$ns_val"
+    elif [ -n "$s_val" ]; then
+      echo "$s_val"
+    else
+      echo "$ns_val"
+    fi
+  }
+
   read_guest0_u32() {
     local sym addr elf
     sym="$1"
     elf="${guest0%/*}/zephyr.elf"
     addr=$("$NM" "$elf" 2>/dev/null | awk -v s="$sym" '$3==s{print $1}')
     [ -n "$addr" ] || { echo ""; return; }
-    pyocd cmd -t "$PYOCD_TARGET" -c halt -c "read32 0x$addr 4" 2>/dev/null \
-      | awk -v a="$addr" 'tolower($1)==a":"{print $2}'
+    read_guest_ram_u32 "$addr"
   }
 
   read_guest1_u32() {
@@ -443,8 +467,7 @@ if [ "$mode" != "build" ]; then
     elf="${guest1%.bin}.elf"
     addr=$("$NM" "$elf" 2>/dev/null | awk -v s="$sym" '$3==s{print $1}')
     [ -n "$addr" ] || { echo ""; return; }
-    pyocd cmd -t "$PYOCD_TARGET" -c halt -c "read32 0x$addr 4" 2>/dev/null \
-      | awk -v a="$addr" 'tolower($1)==a":"{print $2}'
+    read_guest_ram_u32 "$addr"
   }
 
   case "$scenario" in
@@ -783,6 +806,23 @@ if [ "$mode" != "build" ]; then
       expect "guest1 alive through the quarantine" "vnet-guest1: alive"
       expect "mediated ping completes after both restarts" \
         "ping reply from 10.0.0.2"
+      ;;
+    gtzcneg)
+      # GTZC curtain on silicon (WT-FFM-0011): guest0 disables its own NS MPU
+      # and stores a sentinel into guest1's RAM; the MPCBB block gating must
+      # discard or fault the access. SWD latch: 2 = attempted and blocked
+      # (RAZ/WI), 1 = the store faulted the guest mid-probe (contained),
+      # 3 = the sentinel read back (isolation broken).
+      probe=$(read_guest0_u32 g_guest0_gtzc_probe)
+      if [ -n "$probe" ] && [ $((0x$probe)) -eq 2 ]; then
+        check_pass "NS MPU bypass blocked without a fault (latch=0x$probe)"
+      elif [ -n "$probe" ] && [ $((0x$probe)) -eq 1 ]; then
+        check_pass "NS MPU bypass faulted and contained (latch=0x$probe)"
+      else
+        check_fail "NS MPU bypass containment" \
+          "gtzc probe latch 0x${probe:-none}, want 1 or 2"
+      fi
+      refute_re "no HardFault escalation" '^(\[HARDFLT\]|HardFault|SecureFault)'
       ;;
   esac
   echo "PASS: hardware/h5/$scenario"

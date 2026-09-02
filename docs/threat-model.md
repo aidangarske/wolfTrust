@@ -32,6 +32,17 @@ reference platform.
    image; wolfTrust measures and version-checks each guest against a record
    pinned into its own signed image before entry, and can re-measure a running
    guest to quarantine a tampered one.
+4. **Non-secure guest to Non-secure guest.** Guest kernels run privileged in
+   the Non-secure state (a Zephyr or FreeRTOS kernel needs its NVIC, SysTick,
+   and MPU), so the per-guest NS MPU alone cannot contain a hostile kernel —
+   privileged NS code can reprogram `MPU_NS`. The enforced boundary is the
+   GTZC curtain: on every dispatch the monitor marks the whole shared guest
+   RAM extent Secure at the block level (MPCBB) and reopens only the arriving
+   guest's declared windows, so peer RAM rejects Non-secure transactions at
+   the fabric regardless of NS privilege (`gtzcneg` negative). The NS MPU
+   remains as fault-containment defense in depth. Residual: a guest can read
+   the peer's flash-resident code image (public, measured content — no
+   secrets are stored in guest flash).
 
 ## Adversary model
 
