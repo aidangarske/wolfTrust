@@ -4197,3 +4197,72 @@ Evidence:
   affects every partition).
 - H563 silicon: `vnet`, `vnetneg` (SWD fault count >= 2, no HardFault
   escalation, ping recovery), and `positive` PASS.
+
+## Full-scan review sweep: interrupt EOI, error semantics, XN constant data (2026-09-02)
+
+The 2026-09-02 full-codebase compatibility and compliance re-scans surfaced one
+High and eight Mediums; every genuine defect is fixed in one sweep.
+
+- `psa_eoi` now re-enables the hardware interrupt (FF-M 4.5.3): the gate's EOI
+  case resolves the manifest-bound interrupt number exactly like
+  `psa_irq_enable`, and the SVC completion hook performs the privileged
+  controller unmask on a successful EOI, so a masked-at-dispatch level source
+  delivers again after the partition finishes.
+- Constant data is no longer executable by any Secure Partition (WT-FFM-0010):
+  `secure.ld` ends executable code at a new 32-byte-aligned `_e_secure_text`
+  and collects `.rodata`, exception tables, and the guest-measurement slot in a
+  read-only section behind it; every SP thread MPU table now maps
+  [flash, `_e_secure_text`) RX and the remaining image window read-only XN.
+  In conformance builds the Arm client partition uses exactly
+  WT_MAX_MPU_REGIONS.
+- Client programmer errors latch the connection (FF-M Appendix A): a call on a
+  busy connection sets a per-connection latch so the connection lands in the
+  error state when the in-flight request completes, and an invalid-vector call
+  drops an idle connection to the error state; both stay PROGRAMMER_ERROR until
+  close. Failed output-memory revalidation returns
+  `PSA_ERROR_PROGRAMMER_ERROR` (was NOT_PERMITTED) on both the synchronous and
+  resumed call paths. A Secure Partition exceeding PSA_MAX_IOVEC in `psa_call`
+  panics instead of receiving a status. A zero-byte `psa_write` to an omitted
+  output vector succeeds (a payload still exceeds its zero capacity and
+  panics).
+- One build now reports one framework version everywhere:
+  `wt_ffm_framework_version` clamps the manifest-derived report to the compiled
+  public contract (`PSA_FRAMEWORK_VERSION`), closing the split where Non-secure
+  discovery could say 1.1 while headers and Secure Partitions said 1.0
+  (WT-FFM-0040 re-worded).
+- `PSA_FWU_MAX_WRITE_SIZE` is now deliverable: 1008 = the 1024-byte IPC
+  transfer budget minus the 16-byte marshalled request header, pinned by a
+  compile-time guard and exercised at max and max-plus-one through the public
+  API.
+- The NS storage shim returns `PSA_ERROR_INVALID_ARGUMENT` for a NULL data
+  pointer with a nonzero length before any marshalling, and
+  `PSA_ERROR_INSUFFICIENT_STORAGE` (not INVALID_ARGUMENT) for an object beyond
+  its bounce-buffer capacity.
+- `include/psa/error.h` carries the PSA Status Code coexistence guard
+  (`#ifndef PSA_SUCCESS`) around the shared status contract, and the manifest
+  generator rejects the non-FF-M `version_policy` 2 (UNSPECIFIED) with a new
+  generator negative.
+- Both review test-evidence gaps are closed with target negatives: a new
+  `manifestneg` scenario corrupts the generated manifest (strips the required
+  IPC feature bit) and proves activation fails closed on the production panic
+  (BKPT 0x7E) before any partition or guest is scheduled; and the FreeRTOS
+  guest now submits an iovec whose base lies in guest0's NS RAM, proving the
+  caller-banded memcheck refuses a cross-guest vector — asserted in `bothiso`
+  on M33MU and in the `positive` scenario on H563 silicon.
+- Not changed: `wt_ffm_prepare_vectors`' inaccessible-vector mapping to
+  `PSA_ERROR_INVALID_ARGUMENT` for Non-secure callers is conformance-pinned
+  (the Arm suite expects -135 for the oversized-invec case), and the generated
+  `entry_point` remains a boot integrity gate by design (recorded in the
+  deviation register).
+
+Evidence:
+- Host: full `make test` unit/all PASS — ffm (new error-latch and
+  omitted-vector-write cases), spm_gate (EOI resolves the interrupt for the
+  unmask), psa_ffm_client (FWU boundary round-trip and budget guard),
+  psa_headers; the generator suite passes 15/15 with the new policy negative.
+- M33MU: `positive`, `confboot` 85/0/4 (conformance partitions at the full MPU
+  region budget), `devstorage` (the corrected NS shim under the Arm storage
+  suite), `fwustage`, `panicneg`, `vnet`, `vnetneg` PASS; the new
+  `manifestneg` and the extended `bothiso` (cross-guest vector) PASS.
+- H563 silicon: `positive` (including the cross-guest vector refusal),
+  `confboot`, `vnetneg` PASS with the split RX/XN flash regions live.

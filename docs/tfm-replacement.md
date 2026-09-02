@@ -22,7 +22,7 @@ security behavior is not rewritten.
 
 | Area | Specification and version | Status | Evidence |
 | --- | --- | --- | --- |
-| Framework model | Arm FF-M 1.0 IPC, with FF-M 1.1 framework and isolation discovery | 1.0 fully implemented; 1.1 exposed as discovery only (stateless, SFN, and memory-mapped IOVEC are reserved but unadvertised) | `port/stm32h563/manifest.json:5` (`isolation_profile: 3`); `docs/requirements/framework.md:41-46`; framework-version discovery derives from the loaded manifest (`src/ffm.c` `wt_ffm_framework_version`) |
+| Framework model | Arm FF-M 1.0 IPC, with FF-M 1.1 framework and isolation discovery | 1.0 fully implemented; 1.1 exposed as discovery only (stateless, SFN, and memory-mapped IOVEC are reserved but unadvertised) | `port/stm32h563/manifest.json:5` (`isolation_profile: 3`); `docs/requirements/framework.md:41-46`; framework-version discovery derives from the loaded manifest and is clamped to the compiled public contract (`src/ffm.c` `wt_ffm_framework_version`) |
 | Client IPC API | FF-M 1.0 | Full: `psa_framework_version`, `psa_version`, `psa_connect`, `psa_call`, `psa_close` | `include/psa/client.h` |
 | Secure Partition API | FF-M 1.0 | Full: `psa_wait`, `psa_get`, `psa_read`, `psa_skip`, `psa_write`, `psa_set_rhandle`, `psa_reply`, `psa_notify`, `psa_clear`, `psa_eoi`, `psa_irq_enable`, `psa_panic` | `include/psa/service.h` |
 | Crypto | PSA Crypto API, provided by the wolfPSA client over the mediated relay | Client-level API parity through the wolfPSA/wolfCrypt stack; wolfTrust serves crypto as an opaque wolfHSM wire-packet relay (`SERVICE_HSM`), not a per-function PSA Crypto IPC surface | `lib/wolfPSA/wolfpsa/psa/crypto.h:25-26` (declares 1.4); `include/wolftrust/services/hsm_relay.h:27-33`. Version reconciliation: see open items |
@@ -62,8 +62,10 @@ Every shipped service is connection-based. The manifest schema validates the
 FF-M 1.1 stateless fields for forward compatibility, but a 1.0 build rejects a
 stateless service (`WT_MANIFEST_ERROR_SERVICE` / `_FEATURE`), and `psa_connect`
 on a non-connection-based service returns `PSA_ERROR_NOT_SUPPORTED`.
-Framework-version discovery derives from the loaded manifest, so it reports 1.0
-and never advertises the unenforced stateless capability. No first-profile
+Framework-version discovery derives from the loaded manifest and is clamped to
+the compiled public contract (`PSA_FRAMEWORK_VERSION`), so every caller path of
+this build reports 1.0 and never advertises the unenforced stateless
+capability. No first-profile
 service needs the stateless model; exposing unused routing would only add attack
 surface. Evidence: every service entry in `port/stm32h563/manifest.json` and
 `manifest-vnet.json` (`"connection_based": true`),
@@ -161,9 +163,12 @@ A single FF-M call's aggregate input, or aggregate output, is bounded to
 refused with `PSA_ERROR_INVALID_ARGUMENT`. Level 3 copies client memory rather
 than mapping it, so the budget is a fixed, deterministic SRAM allocation, not a
 dynamic one, which is a security property of the zero-allocation design. Every
-shipped service and the full Arm ACS run within the budget; a service needing
-more streams across successive calls. A future port may enlarge the budget where
-SRAM allows. Evidence: `include/wolftrust/ffm.h:36` (`WT_FFM_TRANSFER_BYTES`);
+advertised public maximum is derived from this budget so it is actually
+deliverable: `PSA_FWU_MAX_WRITE_SIZE` (1008) is the budget minus the marshalled
+request header, pinned by a compile-time guard and a boundary round-trip in
+`tests/host/psa_ffm_client`. Every shipped service and the full Arm ACS run
+within the budget; a service needing more streams across successive calls. A
+future port may enlarge the budget where SRAM allows. Evidence: `include/wolftrust/ffm.h:36` (`WT_FFM_TRANSFER_BYTES`);
 `src/ffm.c` (vector preparation); the Arm ACS runs in
 `docs/requirements/validation-log.md`.
 

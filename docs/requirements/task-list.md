@@ -869,6 +869,15 @@ wolfTrust on the board - the TF-M drop-in proof.
   (R1, R2) are now FIXED with silicon evidence**; R3-R10 are fixed or
   documented. Remaining: re-run both skoll reviews to confirm zero Crit/High
   before the master PR; optional INFO-15/18 hardening negatives.
+  - [~] **Full-scan sweep (2026-09-02):** the FF-M full re-scan leveled at
+    0 Crit / 0 High; the TF-M full re-scan surfaced 1 new High + 8 Mediums,
+    all fixed in one sweep (psa_eoi interrupt re-enable, XN constant data via
+    the _e_secure_text flash split, client error-latch + programmer-error
+    output revalidation, framework-version clamp, deliverable
+    PSA_FWU_MAX_WRITE_SIZE 1008, NS storage shim argument semantics, error.h
+    coexistence guard, generator version-policy tightening) except the
+    entry-point Medium (documented deviation, by design) — see the
+    validation-log sweep entry. Rescan both after validation.
   - [x] **R1 (High): VNET confined to its manifest domain.** SERVICE_VNET runs
     unprivileged (WT-FFM-0065): its switch state moved into a dedicated 20K vnet
     data band (linker VNETDATA + manifest resource), the privileged wide-table
