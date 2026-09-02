@@ -35,6 +35,7 @@
 #define WT_PSA_CLAIM_SW_COMPONENTS 2399
 #define WT_PSA_SW_MEASUREMENT_TYPE 1
 #define WT_PSA_SW_MEASUREMENT_VALUE 2
+#define WT_PSA_SW_MEASUREMENT_SIGNER_ID 5
 #define WT_PSA_SW_MEASUREMENT_DESCRIPTION 6
 #define WT_REQUIRED_CLAIMS 0xFFu
 static const char g_expected_profile[] = "tag:psacertified.org,2023:psa#tfm";
@@ -113,6 +114,15 @@ static int wt_verify_software_component(WOLFCOSE_CBOR_CTX* cbor,
                         ret = -1;
                     }
                 }
+                else if (label == WT_PSA_SW_MEASUREMENT_SIGNER_ID) {
+                    ret = wc_CBOR_DecodeBstr(cbor, &data, &dataSize);
+                    if ((ret == 0) && (dataSize == 32u)) {
+                        fields |= 8u;
+                    }
+                    else {
+                        ret = -1;
+                    }
+                }
                 else {
                     ret = wc_CBOR_Skip(cbor);
                 }
@@ -153,16 +163,28 @@ static int wt_verify_software_component(WOLFCOSE_CBOR_CTX* cbor,
                     ret = -1;
                 }
             }
+            else if ((ret == 0) &&
+                     (label == WT_PSA_SW_MEASUREMENT_SIGNER_ID)) {
+                ret = wc_CBOR_DecodeBstr(cbor, &data, &dataSize);
+                if ((ret == 0) && (dataSize == 32u)) {
+                    fields |= 8u;
+                }
+                else {
+                    ret = -1;
+                }
+            }
             else if (ret == 0) {
                 ret = wc_CBOR_Skip(cbor);
             }
         }
+        /* RFC 9783 4.4.1.4: every software component carries a Signer ID;
+         * a token missing one must fail verification (WT-FFM-0064). */
         if (ret == 0) {
             if (component == 0u) {
-                ret = (fields == 7u) ? 0 : -1;
+                ret = (fields == 15u) ? 0 : -1;
             }
             else {
-                ret = ((fields & 2u) != 0u) ? 0 : -1;
+                ret = ((fields & 10u) == 10u) ? 0 : -1;
             }
         }
     }
