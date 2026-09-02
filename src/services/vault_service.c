@@ -433,15 +433,12 @@ int wt_vault_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
     wt_spm_call_t call;
 
     (void)context;
-    (void)memset(&call, 0, sizeof(call));
-    call.op = WT_SPM_OP_WAIT;
-    call.partition_id = partition_id;
-    call.signal_mask = PSA_WAIT_ANY;
-    call.timeout = PSA_BLOCK;
-    call.asserted = &asserted;
-    if (g_vault_transport(runtime, &call) != WT_FFM_SUCCESS ||
-            call.ret_int != WT_FFM_SUCCESS) {
+    if (wt_spm_wait_service_signal(g_vault_transport, runtime, partition_id,
+                                   &asserted, NULL) != WT_FFM_SUCCESS) {
         return WT_FFM_ERROR_STATE;
+    }
+    if (asserted == 0U) {
+        return WT_FFM_SUCCESS;
     }
 
     (void)memset(&call, 0, sizeof(call));

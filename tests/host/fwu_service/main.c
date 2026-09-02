@@ -452,6 +452,15 @@ static void test_ipc_round_trip(void)
     check(status == PSA_ERROR_BAD_STATE,
           "WT-FWU-0003 reboot from READY is refused");
 
+    /* A peer's doorbell is absorbed by the dispatcher, never handed to
+     * psa_get where it would be a must-panic programmer error, and the
+     * service keeps serving afterwards. */
+    check(wt_ffm_notify(&runtime, TEST_FWU_PARTITION) == WT_FFM_SUCCESS,
+          "WT-FFM-0031 doorbell asserted on the FWU partition");
+    check(wt_fwu_service_dispatch(&fwu_ctx, &runtime, TEST_FWU_PARTITION) ==
+              WT_FFM_SUCCESS,
+          "WT-FFM-0031 dispatcher absorbs the doorbell without a panic");
+
     (void)memset(&info, 0, sizeof(info));
     status = fwu_call(&runtime, handle, WT_FWU_OP_QUERY, 0u, 0u, 0u, NULL, 0U,
                       &info, sizeof(info));

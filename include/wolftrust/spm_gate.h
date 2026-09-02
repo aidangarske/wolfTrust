@@ -192,4 +192,46 @@ typedef int (*wt_spm_transport_fn)(wt_ffm_runtime_t* runtime,
                                    wt_spm_call_t* call);
 int wt_spm_transport_direct(wt_ffm_runtime_t* runtime, wt_spm_call_t* call);
 
+/* SP dispatcher front half (cross-partition containment): wait for any
+ * signal, absorb a doorbell before it can reach psa_get (a peer's psa_notify
+ * is not a queued message, and an unfiltered mask would be a must-panic
+ * programmer error the notifier could trigger at will), and hand back
+ * exactly one asserted service signal. *signal == 0 means nothing to get on
+ * this pass. Production service partitions declare no interrupt signals, so
+ * the surviving bits are service signals only. */
+static inline int wt_spm_wait_service_signal(wt_spm_transport_fn transport,
+    wt_ffm_runtime_t* runtime, int32_t partition_id, psa_signal_t* signal,
+    uint32_t* ret_tick)
+{
+    wt_spm_call_t call = {0};
+    psa_signal_t asserted = 0U;
+
+    call.op = WT_SPM_OP_WAIT;
+    call.partition_id = partition_id;
+    call.signal_mask = PSA_WAIT_ANY;
+    call.timeout = PSA_BLOCK;
+    call.asserted = &asserted;
+    if (transport(runtime, &call) != WT_FFM_SUCCESS ||
+            call.ret_int != WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_STATE;
+    }
+    if (ret_tick != NULL) {
+        *ret_tick = call.ret_tick;
+    }
+    if ((asserted & PSA_DOORBELL) != 0U) {
+        wt_spm_call_t clear_call = {0};
+
+        clear_call.op = WT_SPM_OP_CLEAR;
+        clear_call.partition_id = partition_id;
+        if (transport(runtime, &clear_call) != WT_FFM_SUCCESS ||
+                clear_call.ret_int != WT_FFM_SUCCESS) {
+            return WT_FFM_ERROR_STATE;
+        }
+        asserted &= (psa_signal_t)~PSA_DOORBELL;
+    }
+    /* psa_get takes exactly one signal; serve the lowest asserted. */
+    *signal = asserted & (psa_signal_t)(0U - asserted);
+    return WT_FFM_SUCCESS;
+}
+
 #endif /* WOLFTRUST_SPM_GATE_H */
