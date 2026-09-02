@@ -4104,3 +4104,63 @@ Evidence:
   negative, and a reply-status-abuse negative; full `make test` unit/all PASS.
 - M33MU: `confboot` 85/0/4 PASS - the Arm FF-M conformance suite exercises the
   programmer-error and output paths and is unchanged by the reclassification.
+
+## psa_rot_lifecycle_state returns the boot lifecycle (2026-09-01)
+
+`psa_rot_lifecycle_state` had returned a hardcoded `PSA_LIFECYCLE_UNKNOWN`. The
+FF-M runtime now carries a `lifecycle` field stamped from the wolfBoot handoff
+(`bootHandoff.lifecycle`, the same value the attestation service reports as CWT
+claim 2395) just before the scheduler starts, and a new `WT_SPM_OP_LIFECYCLE`
+gate op returns it to a partition through the same SVC path as `psa_version`. An
+unset runtime still reports `PSA_LIFECYCLE_UNKNOWN`, so a build without a handoff
+is unchanged.
+
+Evidence:
+- Host: `tests/host/spm_gate` 294 checks PASS - a new case drives
+  `WT_SPM_OP_LIFECYCLE`, asserting the default `PSA_LIFECYCLE_UNKNOWN` and a
+  stamped `PSA_LIFECYCLE_SECURED` round-trip; full `make test` unit/all PASS.
+- M33MU: `confboot` 85/0/4 (the Arm `i088` case calls the API) and `devattest`
+  1/0/0 PASS.
+- H563 silicon: `positive` (full lifecycle `0x000000ff`), `confboot` (Arm 89
+  tests, 0 failed), `panicneg` all PASS.
+
+## A returning secure-partition entry faults only its own partition (2026-09-01)
+
+The coroutine trampoline had called whole-system `wt_platform_panic` if a
+Secure Partition (or guest) entry function ever returned. A returning entry is
+per-partition misbehavior, not a system fault, so the trampoline now traps with
+`udf #0x51`, routing through the same generic UsageFault dispatcher that a
+`must_panic` PROGRAMMER ERROR uses: the fault dispatcher quarantines just that
+coroutine under its own restart policy instead of resetting the platform. The
+`udf` mechanism is the one already proven by the must-panic path, so no new
+fault enablement is needed, and `WT_CONFORMANCE` builds still reset by policy.
+
+Evidence:
+- M33MU: `panicneg` PASS (the must-panic/UNDEFINSTR fault path is unchanged) and
+  `positive`/`confboot`/`devattest` PASS (no boot regression from the trampoline
+  change).
+- H563 silicon: `panicneg` PASS - the panic takes the UNDEFINSTR trap
+  (`CFSR=0x00010000`) without escalating to HardFault, the client unblocks with
+  the panicked leg removed (`0x000000fb`), and guest1 survives; `positive` and
+  `confboot` PASS with no reboot storm.
+
+## PSA header values pinned; SFN and partition-entry deviations clarified (2026-09-01)
+
+`PSA_OPERATION_INCOMPLETE ((psa_status_t)-248)` was added to
+`include/psa/error.h`, and a new `tests/host/psa_headers` suite compile-pins
+every PSA error, lifecycle-mask, framework-version, and `psa_msg_t` member-order
+value against the published PSA specification. The deviation register was
+corrected on two points that overstated enforcement: SFN generation is gated by
+the target's advertised feature set (the shipping build passes
+`--supported-features 0x1`, so SFN fails generation there) with the runtime
+failing closed on any non-IPC partition; and partition entry is dispatched by
+compile-time function in the single monolithic image, with manifest
+`domain->entry_point` used only as a boot integrity gate, never as a jump target.
+
+Evidence:
+- Host: `tests/host/psa_headers` compiles and passes (the `_Static_assert`s are
+  the test); full `make test` unit/all PASS.
+- Documentation review: the SFN and partition-entry deviation entries in
+  `docs/tfm-replacement.md` now match the generator, `wt_ffm_init`, and
+  `wt_ffm_boot_start_sched` behavior; `include/psa/client.h` already reports
+  framework `0x0100`.

@@ -875,41 +875,50 @@ wolfTrust on the board - the TF-M drop-in proof.
     partitions' private memory; the privileged path also grants RX-to-all-Secure
     flash with no XN. Run VNET unprivileged in its domain; add cross-domain and
     XN/execute negatives on M33MU + H5. *(Compat H1 + Compl H1/M2 + INFO-11/12)*
-  - [~] **R2 (High): FF-M programmer-error taxonomy.** wrong-owner handle and
-    non-IDLE (busy / error-dropped) connection now return `PSA_ERROR_PROGRAMMER_ERROR`
-    (was NOT_PERMITTED / BAD_STATE) in `wt_ffm_call` and `wt_ffm_call_begin`, so
-    the gate panics a Secure caller; `wt_ffm_reply` rejects a connection-only
-    status on a request. Host green; M33MU confboot re-validation running. Add
-    the busy-concurrent negative (INFO-15). *(Compat H2 + Compl M5/M6/M7/M8 +
-    INFO-15/16/17)*
-  - [~] **R3: atomic output publication.** `wt_ffm_call` / `wt_ffm_call_finish`
-    now validate every output vector before copying any, so a late revalidation
-    failure leaves all client buffers and lengths unchanged. Add the two-output
-    atomicity negative (INFO-18). *(Compl M9 + INFO-18)*
-  - [ ] **R4: `psa_rot_lifecycle_state` returns the boot-handoff lifecycle**, not
-    an unconditional UNKNOWN; consistent with the attestation lifecycle claim.
-    Target test for DEVELOPMENT/SECURED. *(Compat M4)*
-  - [ ] **R5: activate the generated entry point.** Boot uses hard-coded
-    `wt_spm_*_start`, not `domain->entry_point`; bind + validate the generated
-    entry to the production symbol. Host + M33MU. *(Compl M3 + INFO-13)*
-  - [ ] **R6: returning SP entry faults the partition, not the platform.**
-    `wt_co_trampoline` calls `wt_platform_panic` (BKPT, halts all); route to the
-    per-partition fault/restart dispatcher. M33MU + H5. *(Compl M4 + INFO-14)*
-  - [ ] **R7: FF-M 1.1 discovery consistency.** Generator accepts
-    `framework_version 0x0101` while `PSA_FRAMEWORK_VERSION` is fixed `0x0100`
-    with no 1.1 discovery API. Reject `0x0101` at generation until the full 1.1
-    contract ships (or implement it). Host. *(Compl M10 + INFO-19)*
+    **Fable-tier, deep. The one remaining High.**
+  - [x] **R2 (High): FF-M programmer-error taxonomy.** wrong-owner handle and
+    non-IDLE (busy / error-dropped) connection return `PSA_ERROR_PROGRAMMER_ERROR`
+    in `wt_ffm_call` / `wt_ffm_call_begin`; `wt_ffm_reply` rejects a
+    connection-only status on a request. Host ffm 33290 + M33MU confboot 85/0/4.
+    Commit `5038ce2`, pushed. Optional INFO-15 busy-concurrent negative deferred.
+    *(Compat H2 + Compl M5/M6/M7/M8 + INFO-15/16/17)*
+  - [x] **R3: atomic output publication.** `wt_ffm_call` / `wt_ffm_call_finish`
+    validate every output vector before copying any. Commit `5038ce2`, pushed.
+    Optional INFO-18 two-output atomicity negative deferred. *(Compl M9 + INFO-18)*
+  - [x] **R4: `psa_rot_lifecycle_state` returns the boot-handoff lifecycle**
+    via a new `WT_SPM_OP_LIFECYCLE` gate op; the runtime carries a `lifecycle`
+    field stamped from `bootHandoff.lifecycle`. Host spm_gate 294 + M33MU
+    confboot/devattest + H5 positive/confboot. Commit `e152d04`. *(Compat M4)*
+  - [x] **R5: resolved as documentation (would brick as code).**
+    `domain->entry_point` is the domain's flash base, a boot integrity gate
+    validated in `wt_domain_validate_entry_and_stack`, NOT a callable address in
+    the single monolithic image; branching through it faults. Added a launch-site
+    guard comment + deviation-register entry; per-binary dispatch is a multi-image
+    roadmap item. Commit `aa70906`. *(Compl M3 + INFO-13)*
+  - [x] **R6: returning SP entry faults the partition, not the platform.**
+    `wt_co_trampoline` traps a returning entry with `udf #0x51` (per-partition
+    fault via the proven must-panic dispatcher) instead of `wt_platform_panic`.
+    M33MU panicneg/positive/confboot + H5 panicneg (UNDEFINSTR, no HardFault
+    escalation, guest survives). Commit `4fdf1f4`. *(Compl M4 + INFO-14)*
+  - [x] **R7: resolved as documentation (shipping product already correct).**
+    Shipping build advertises IPC only (`--supported-features 0x1`), reports
+    framework 1.0, and `PSA_FRAMEWORK_VERSION` is already `0x0100`; the generator
+    intentionally accepts SFN for an SFN-advertising target (host test asserts
+    this). Corrected the imprecise SFN deviation entry. Commit `4a5720f`.
+    *(Compl M10 + INFO-19)*
   - [ ] **R8 (decide): 1024-byte aggregate vector limit** rejects valid buffers
     as `INVALID_ARGUMENT`. Raise/stream, or document as a scoped deviation
-    returning the spec's resource-handling path. *(Compat M3)*
+    returning the spec's resource-handling path. **Needs Aidan's call.** *(Compat M3)*
   - [ ] **R9 (decide): clean-room fixture.** `psa_ff_upstream` dispatcher is
     assertion-keyed (test-aware); replace with generic spec-derived fixtures or
-    run the suite as a sealed oracle. *(Compat M5)*
-  - [ ] **R10: add `PSA_OPERATION_INCOMPLETE ((psa_status_t)-248)`** to
-    `include/psa/error.h` + a public-header parity compile test (reverses the
-    earlier deliberate skip; the header-completeness argument holds). *(Compat L6)*
-  - [ ] **R-track evidence tests** (INFO-11..20): each fix lands the target /
-    host negative the corresponding INFO finding requires.
+    run the suite as a sealed oracle. **Needs Aidan's call.** *(Compat M5)*
+  - [x] **R10: added `PSA_OPERATION_INCOMPLETE ((psa_status_t)-248)`** to
+    `include/psa/error.h` + a new `tests/host/psa_headers` compile-parity suite
+    pinning all PSA error / lifecycle / framework-version / `psa_msg_t`-order
+    values. Commit `e6dc2db`. *(Compat L6)*
+  - [~] **R-track evidence tests** (INFO-11..20): landed for R2/R3/R4/R6/R10;
+    INFO-15 (busy-concurrent) and INFO-18 (two-output atomicity) optional
+    hardening deferred; INFO-11/12 ride R1.
 
 ## Open items (active)
 
