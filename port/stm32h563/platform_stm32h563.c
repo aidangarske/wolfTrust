@@ -1342,6 +1342,18 @@ void wt_platform_launch_debug(int code, uint32_t guest)
 
 void wt_platform_system_reset(void)
 {
+    uint32_t spins = 0u;
+
+    /* A flash program issued just before this reset - the conformance boot
+     * flag val resumes from, an anti-rollback arming store - must physically
+     * land before SYSRESETREQ, or the reset can cut it short and the value is
+     * lost (on silicon the panic test then re-runs into a reboot loop; the
+     * emulator programs flash instantly and never sees it). Wait for the flash
+     * controller to go idle, bounded so a wedged controller still resets. */
+    while ((WT_FLASH_SR & (WT_FLASH_SR_BSY | WT_FLASH_SR_DBNE)) != 0u &&
+            spins < 0x00200000u) {
+        spins++;
+    }
     wt_dsb();
     WT_SCB_AIRCR_S = WT_SCB_AIRCR_SYSRESETREQ;
     wt_dsb();

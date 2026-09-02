@@ -33,14 +33,11 @@
 #include <string.h>
 
 #define WT_FLASH_KEYR          (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x08u))
-#define WT_FLASH_SR            (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x24u))
 #define WT_FLASH_CR            (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x2Cu))
 #define WT_FLASH_CCR           (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x34u))
 #define WT_FLASH_OPTSR_CUR     (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x50u))
 #define WT_FLASH_ECCDETR       (*(volatile uint32_t *)(WT_FLASH_BASE_S + 0x104u))
 
-#define WT_FLASH_SR_BSY        (1u << 0)
-#define WT_FLASH_SR_DBNE       (1u << 3)
 #define WT_FLASH_SR_EOP        (1u << 16)
 #define WT_FLASH_SR_WRPE       (1u << 17)
 #define WT_FLASH_SR_PGSE       (1u << 18)

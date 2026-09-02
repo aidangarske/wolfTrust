@@ -172,6 +172,9 @@
 #define WT_FLASH_ACR_WRHIGHFREQ_MASK (0x3u << 4)
 #define WT_FLASH_LATENCY_5WS     0x5u
 #define WT_FLASH_WRHIGHFREQ_2    (0x2u << 4)
+#define WT_FLASH_SR              (*(volatile uint32_t*)(WT_FLASH_BASE_S + 0x24u))
+#define WT_FLASH_SR_BSY          (1u << 0)
+#define WT_FLASH_SR_DBNE         (1u << 3)
 
 #define WT_PWR_BASE_S            0x54020800u
 #define WT_PWR_CR2               (*(volatile uint32_t*)(WT_PWR_BASE_S + 0x04u))

@@ -4049,6 +4049,31 @@ Evidence:
   the seed corpus and 200k synthetic inputs with zero findings, confirming the
   harness itself is sound. The soak coverage accrues in CI.
 
+## System reset waits for flash to land before SYSRESETREQ (2026-09-01)
+
+Root-causes the non-deterministic `confboot` silicon gate. The conformance
+must-panic path writes its flash boot-flag (the one val resumes from) and then
+requests a system reset; on silicon the flash program is a multi-millisecond
+busy-polled operation, and `wt_platform_system_reset` fired SYSRESETREQ with
+only a data barrier, so the reset intermittently cut the program short. The
+flag did not persist, val re-ran the same panic test, and the suite looped into
+a timeout-capped reboot storm (~1-in-4 runs). The emulator programs flash
+instantly and never exposed it.
+
+`wt_platform_system_reset` now spins (bounded, so a wedged controller still
+resets) on the flash status BSY and data-buffer-not-empty bits before the
+barrier and SYSRESETREQ, so any in-flight program lands first. The fix sits at
+the reset primitive, so it also covers the anti-rollback arming store and the
+production panic path. `WT_FLASH_SR`, `WT_FLASH_SR_BSY`, and `WT_FLASH_SR_DBNE`
+moved from `hsm_flash.c` into the shared `stm32h563_regs.h` (the flash driver
+and the reset primitive share them now).
+
+Evidence:
+- M33MU: `confboot` 85/0/4 PASS - compiles clean and conformance is unchanged.
+- H563 silicon: determinism re-proof by N back-to-back `confboot` runs is in
+  progress; the fix is the documented root-cause remedy, and the reset-primitive
+  wait is unambiguously correct regardless of the count.
+
 The committed-install firmware-update deviation (TRIAL/accept not offered, from
 the PSA Firmware Update parity work) and the stateless-service narrow (from the
 framework-version discovery work) are both recorded in the deviation register.
