@@ -144,6 +144,11 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
                          int32_t type, const psa_invec* in_vec,
                          size_t in_len, psa_outvec* out_vec,
                          size_t out_len);
+/* Drops the caller's valid connection to the error state after a call the
+ * gateway had to refuse before dispatch (bad descriptor or vector count);
+ * an unknown handle is left alone. */
+void wt_ffm_call_refuse(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
+                        psa_handle_t handle);
 int wt_ffm_close(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
                  psa_handle_t handle);
 

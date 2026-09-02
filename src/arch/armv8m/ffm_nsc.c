@@ -95,6 +95,8 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
             !wt_cmse_check_ns_rw(ns_iovec, sizeof(*ns_iovec))) {
         g_wt_ffm_call_trace = (2UL << 28) |
             ((uint32_t)(uintptr_t)ns_iovec & 0x0FFFFFFFUL);
+        wt_ffm_call_refuse(wt_ffm_boot_runtime_mut(), caller,
+                           (psa_handle_t)handle);
         return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
     }
     /* Single read into a local copy: the struct's own fields are not
@@ -103,6 +105,8 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
     iovec = *ns_iovec;
     if (iovec.in_count > WT_FFM_VENEER_IOVEC_MAX ||
             iovec.out_count > WT_FFM_VENEER_IOVEC_MAX) {
+        wt_ffm_call_refuse(wt_ffm_boot_runtime_mut(), caller,
+                           (psa_handle_t)handle);
         return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
     }
     for (i = 0U; i < iovec.in_count; i++) {

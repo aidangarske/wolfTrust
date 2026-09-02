@@ -627,13 +627,6 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
         g_wt_ffm_call_trace = ((uint32_t)type << 16) |
             (((uint32_t)in_len & 0xFFU) << 8) | ((uint32_t)out_len & 0xFFU);
     }
-    /* FF-M: a negative call type and in_len + out_len > PSA_MAX_IOVEC are
-     * both PROGRAMMER ERRORs. */
-    if (type < 0 || in_len > PSA_MAX_IOVEC || out_len > PSA_MAX_IOVEC ||
-            in_len + out_len > PSA_MAX_IOVEC) {
-        g_wt_ffm_call_trace |= 4UL << 28;
-        return PSA_ERROR_PROGRAMMER_ERROR;
-    }
     ret = wt_ffm_connection_from_handle(runtime, caller, handle,
                                         &connection_index);
     if (ret != WT_FFM_SUCCESS) {
@@ -644,6 +637,18 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
         return PSA_ERROR_PROGRAMMER_ERROR;
     }
     connection = &runtime->connections[connection_index];
+    /* FF-M: a negative call type and in_len + out_len > PSA_MAX_IOVEC are
+     * both PROGRAMMER ERRORs, and the valid connection they arrived on must
+     * drop to the error state rather than stay usable. */
+    if (type < 0 || in_len > PSA_MAX_IOVEC || out_len > PSA_MAX_IOVEC ||
+            in_len + out_len > PSA_MAX_IOVEC) {
+        g_wt_ffm_call_trace |= 4UL << 28;
+        if (connection->state == WT_IPC_CONNECTION_IDLE)
+            connection->state = WT_IPC_CONNECTION_ERROR;
+        else
+            connection->error_latch = 1U;
+        return PSA_ERROR_PROGRAMMER_ERROR;
+    }
     if (connection->state != WT_IPC_CONNECTION_IDLE) {
         g_wt_ffm_call_trace |= 6UL << 28;
         /* FF-M: calling a connection that is already handling a request, or one
@@ -712,6 +717,24 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
     }
     wt_ffm_release_message(runtime, message_index);
     return status;
+}
+
+void wt_ffm_call_refuse(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
+                        psa_handle_t handle)
+{
+    wt_ffm_connection_runtime_t* connection;
+    uint16_t connection_index;
+
+    if (runtime == NULL || caller == 0)
+        return;
+    if (wt_ffm_connection_from_handle(runtime, caller, handle,
+                                      &connection_index) != WT_FFM_SUCCESS)
+        return;
+    connection = &runtime->connections[connection_index];
+    if (connection->state == WT_IPC_CONNECTION_IDLE)
+        connection->state = WT_IPC_CONNECTION_ERROR;
+    else
+        connection->error_latch = 1U;
 }
 
 int wt_ffm_close(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
@@ -817,15 +840,22 @@ psa_status_t wt_ffm_call_begin(wt_ffm_runtime_t* runtime,
 
     if (runtime == NULL || caller == 0 || msg_index == NULL)
         return PSA_ERROR_INVALID_ARGUMENT;
-    if (type < 0 || in_len > PSA_MAX_IOVEC || out_len > PSA_MAX_IOVEC ||
-            in_len + out_len > PSA_MAX_IOVEC)
-        return PSA_ERROR_PROGRAMMER_ERROR;
     ret = wt_ffm_connection_from_handle(runtime, caller, handle,
                                         &connection_index);
     if (ret != WT_FFM_SUCCESS)
         /* FF-M: a forged, stale, or wrong-owner handle is a PROGRAMMER ERROR. */
         return PSA_ERROR_PROGRAMMER_ERROR;
     connection = &runtime->connections[connection_index];
+    /* FF-M: a malformed call on a valid connection drops it to the error
+     * state; it must not stay usable after the PROGRAMMER ERROR. */
+    if (type < 0 || in_len > PSA_MAX_IOVEC || out_len > PSA_MAX_IOVEC ||
+            in_len + out_len > PSA_MAX_IOVEC) {
+        if (connection->state == WT_IPC_CONNECTION_IDLE)
+            connection->state = WT_IPC_CONNECTION_ERROR;
+        else
+            connection->error_latch = 1U;
+        return PSA_ERROR_PROGRAMMER_ERROR;
+    }
     if (connection->state != WT_IPC_CONNECTION_IDLE) {
         /* FF-M: a busy or programmer-error-dropped connection is a PROGRAMMER
          * ERROR until close; latch so it lands in the error state once the

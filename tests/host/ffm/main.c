@@ -393,13 +393,16 @@ static void test_vector_rejection(void)
         inputs[i].base = input_bytes;
         inputs[i].len = 1U;
     }
-    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
-                           inputs, PSA_MAX_IOVEC + 1U, &output, 1U),
-               PSA_ERROR_PROGRAMMER_ERROR);
     inputs[0].len = sizeof(input_bytes);
     EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                            inputs, 1U, &output, 1U),
                PSA_ERROR_INVALID_ARGUMENT);
+    /* The size error leaves the connection usable; the over-count below is a
+     * PROGRAMMER ERROR that drops it, so it runs after the size case. */
+    inputs[0].len = 1U;
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           inputs, PSA_MAX_IOVEC + 1U, &output, 1U),
+               PSA_ERROR_PROGRAMMER_ERROR);
     /* An unreadable base is an FF-M PROGRAMMER ERROR (memory reference),
      * not a size error. */
     inputs[0].base = NULL;
@@ -829,10 +832,69 @@ static void test_error_latch_and_omitted_write(void)
                  "write\n");
 }
 
+static void test_predispatch_error_drops_connection(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    uint8_t request[3] = { 'a', 'b', 'c' };
+    psa_invec input = { request, sizeof(request) };
+    uint8_t response[2] = { 0U, 0U };
+    psa_outvec output = { response, sizeof(response) };
+    psa_invec many_in[PSA_MAX_IOVEC + 1U];
+    psa_handle_t handle;
+    size_t i;
+
+    test_init(&runtime, &context);
+
+    /* A negative type on a valid idle connection drops it, so a later
+     * well-formed call is refused until the client closes the handle. */
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, -5,
+                           &input, 1U, &output, 1U),
+               PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U),
+               PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle), WT_FFM_SUCCESS);
+
+    /* A combined vector over-count drops the connection the same way. */
+    for (i = 0U; i < PSA_MAX_IOVEC + 1U; i++) {
+        many_in[i].base = request;
+        many_in[i].len = sizeof(request);
+    }
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           many_in, PSA_MAX_IOVEC + 1U, NULL, 0U),
+               PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U),
+               PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle), WT_FFM_SUCCESS);
+
+    /* The gateway refuse path drops a valid connection but ignores a forged
+     * handle. */
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    wt_ffm_call_refuse(&runtime, TEST_NS_CLIENT, handle + 0x1000);
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U), PSA_SUCCESS);
+    wt_ffm_call_refuse(&runtime, TEST_NS_CLIENT, handle);
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U),
+               PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle), WT_FFM_SUCCESS);
+
+    (void)printf("PASS: WT-FFM-0024 pre-dispatch programmer error drops the "
+                 "connection\n");
+}
+
 int main(void)
 {
     test_arguments();
     test_error_latch_and_omitted_write();
+    test_predispatch_error_drops_connection();
     test_doorbell_signal();
     test_eoi_signal();
     test_irq_route_and_assert();

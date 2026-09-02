@@ -125,6 +125,11 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
     psa_status_t st;
     uint32_t i;
 
+    if (iv->in_count > WT_FFM_VENEER_IOVEC_MAX ||
+            iv->out_count > WT_FFM_VENEER_IOVEC_MAX) {
+        wt_ffm_call_refuse(wt_ffm_boot_runtime_mut(), TEST_NS_CLIENT, handle);
+        return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
+    }
     memset(in, 0, sizeof(in));
     memset(out, 0, sizeof(out));
     for (i = 0u; i < iv->in_count; i++) {
