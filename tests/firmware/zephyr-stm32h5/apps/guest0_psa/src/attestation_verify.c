@@ -37,7 +37,7 @@
 #define WT_PSA_SW_MEASUREMENT_VALUE 2
 #define WT_PSA_SW_MEASUREMENT_DESCRIPTION 6
 #define WT_REQUIRED_CLAIMS 0xFFu
-static const char g_expected_profile[] = "http://arm.com/psa/2.0.0";
+static const char g_expected_profile[] = "tag:psacertified.org,2023:psa#tfm";
 
 static int wt_hex_nibble(char value)
 {

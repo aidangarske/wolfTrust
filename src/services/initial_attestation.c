@@ -60,9 +60,10 @@
 
 static const uint8_t g_measurement_type[] = "sha-256";
 static const uint8_t g_measurement_description[] = "wolftrust";
-/* Identifies the PSA 2.0 claim profile this token follows (registered CBOR
+/* RFC 9783 final profile identifier for the PSA claim set (registered CBOR
  * keys 2394-2400 plus the EAT nonce, UEID, profile, and boot-seed claims). */
-static const uint8_t g_profile_definition[] = "http://arm.com/psa/2.0.0";
+static const uint8_t g_profile_definition[] =
+    "tag:psacertified.org,2023:psa#tfm";
 #ifdef WT_ATTEST_CERT_REFERENCE
 static const uint8_t g_cert_reference[] = WT_ATTEST_CERT_REFERENCE;
 #endif
