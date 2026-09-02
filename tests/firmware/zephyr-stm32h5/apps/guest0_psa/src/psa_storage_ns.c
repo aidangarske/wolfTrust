@@ -69,14 +69,21 @@ static psa_status_t wt_storage_ns_write(uint32_t sid, int32_t op, uint64_t uid,
     psa_invec in_vec[1];
     psa_status_t status;
 
-    if (len > WT_NS_STORAGE_MAX) {
+    /* PSA Storage 1.0: an inaccessible data pointer (NULL with a nonzero
+     * length) is invalid before any marshalling; a valid object the local
+     * bounce buffer cannot carry is an insufficient-storage condition, not an
+     * argument error. */
+    if (data == NULL && len > 0U) {
         return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    if (len > WT_NS_STORAGE_MAX) {
+        return PSA_ERROR_INSUFFICIENT_STORAGE;
     }
     hdr.uid = uid;
     hdr.flags = flags;
     hdr.offset = offset;
     (void)memcpy(buffer, &hdr, sizeof(hdr));
-    if (data != NULL && len > 0U) {
+    if (len > 0U) {
         (void)memcpy(buffer + sizeof(hdr), data, len);
     }
     handle = psa_connect(sid, 1U);
