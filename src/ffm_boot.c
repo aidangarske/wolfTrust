@@ -215,6 +215,9 @@ int wt_ffm_boot_start_sched(void)
 {
     int ret;
 
+    /* Launch by compile-time entry function, never by domain->entry_point: in
+     * this single-image build entry_point holds the domain's flash base (a boot
+     * integrity gate, not a linked address), so branching through it faults. */
     ret = wt_spm_hsm_start(&g_ffm_runtime, PARTITION_HSM_ID);
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_vault_start(&g_ffm_runtime, PARTITION_VAULT_ID);

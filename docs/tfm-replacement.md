@@ -95,6 +95,20 @@ change and does not change the common SPM boundary. Evidence:
 `tests/host/manifest/test_generator.py` (`test_sfn_zero_signal_is_accepted`,
 generation under an SFN-advertising target).
 
+### Partition entry is compile-time, not manifest-dispatched (parity-or-better)
+
+Every Secure Partition is a coroutine inside one monolithic secure image, so
+each is launched by its compile-time entry function in `wt_ffm_boot_start_sched`
+(`src/ffm_boot.c`). The manifest `domain->entry_point` is a boot integrity gate,
+not a dispatch address: `wt_domain_validate_entry_and_stack` (`src/domain.c`)
+requires it to lie inside the domain's own executable region, and in this build
+it equals the domain's flash base rather than a linked function address, so
+branching through it would fault. Per-binary entry-address dispatch (a generator
+emitting linker-resolved entry symbols) is a roadmap item for a multi-image port
+and does not change the common SPM boundary. Evidence:
+`src/ffm_boot.c` (`wt_ffm_boot_start_sched`); `src/domain.c`
+(`wt_domain_validate_entry_and_stack`); `tools/manifest/generate.py:451`.
+
 ### Single mediated path — raw wolfHSM transport retired (parity-or-better)
 
 Every non-secure client request reaches a secure service only through the SPM
