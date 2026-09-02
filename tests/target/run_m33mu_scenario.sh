@@ -51,8 +51,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg) ;;
-  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg" >&2; exit 2 ;;
+  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg) ;;
+  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -175,6 +175,11 @@ elif [ "$scenario" = "vnetneg" ]; then
   # (must fault again); the partition quarantines, restarts, and the mediated
   # ping still completes.
   secure_flags="CONFIG_VNET=y WT_VNET_NEG_PROBE=1"
+elif [ "$scenario" = "manifestneg" ]; then
+  # Corrupted-manifest activation negative: the probe strips the required IPC
+  # feature bit, validation refuses the manifest, and the production panic
+  # path halts boot before any partition or guest is scheduled.
+  secure_flags="WT_MANIFEST_NEG_PROBE=1"
 fi
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
 # Stash the pre-patch image and matching elf: the guest build below can relink
@@ -440,6 +445,8 @@ case "$scenario" in
       "freertos_guest1: ffm forged-handle rejected"
     expect "FreeRTOS: oversized-vector call rejected" \
       "freertos_guest1: ffm oversized-vector rejected"
+    expect "FreeRTOS: cross-guest vector refused (caller-banded memcheck)" \
+      "freertos_guest1: ffm cross-guest vector rejected"
     expect "FreeRTOS: unknown-SID connect refused" \
       "freertos_guest1: ffm wrong-sid refused"
     expect "FreeRTOS survived: still serves mediated SERVICE_CRYPTO" \
@@ -802,5 +809,16 @@ case "$scenario" in
       "ping reply from 10.0.0.2"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/vnetneg"
+    ;;
+  manifestneg)
+    # A corrupted manifest must fail activation closed BEFORE scheduling: the
+    # boot halts on the production panic (BKPT 0x7E) and neither guest ever
+    # starts. A guest banner in the log means the SPM scheduled work off an
+    # invalid manifest and the gate fails.
+    expect "boot halted on the production manifest-validation panic" \
+      "[BKPT] imm=0x7e"
+    refute_re "no guest scheduled off the corrupted manifest" \
+      '(guest0_psa alive|freertos_guest1:|vnet-guest)'
+    echo "PASS: target/manifestneg"
     ;;
 esac

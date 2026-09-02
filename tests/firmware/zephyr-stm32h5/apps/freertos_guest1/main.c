@@ -300,6 +300,12 @@ static void run_psa_smoke(void)
 /* FF-M isolation negatives from the FreeRTOS client: the SPM must reject a
  * forged handle, an oversized input vector, and a connect to an unknown SID —
  * the same rejections guest0 proves — and none of them faults this guest. */
+/* SWD-readable negative-result latch: the shared H5 console interleaves
+ * guest lines char-by-char, so silicon asserts this mask by symbol instead of
+ * UART markers. Bits: 1 forged handle, 2 oversized vector, 4 cross-guest
+ * vector, 8 unknown SID — set only when the SPM rejected the abuse. */
+volatile uint32_t g_guest1_ffm_neg;
+
 static void run_ffm_negatives(void)
 {
     psa_handle_t handle;
@@ -322,6 +328,9 @@ static void run_ffm_negatives(void)
     out_vec.len = sizeof(digest);
     st = psa_call((psa_handle_t)(handle + 0x1000), 0, &in_vec, 1u,
                   &out_vec, 1u);
+    if (st != PSA_SUCCESS) {
+        g_guest1_ffm_neg |= 1u;
+    }
     uart_puts(st != PSA_SUCCESS ?
               "freertos_guest1: ffm forged-handle rejected\r\n" :
               "freertos_guest1: ffm forged-handle NOT rejected\r\n");
@@ -333,15 +342,34 @@ static void run_ffm_negatives(void)
     out_vec.base = digest;
     out_vec.len = sizeof(digest);
     st = psa_call(handle, 0, &in_vec, 1u, &out_vec, 1u);
+    if (st != PSA_SUCCESS) {
+        g_guest1_ffm_neg |= 2u;
+    }
     uart_puts(st != PSA_SUCCESS ?
               "freertos_guest1: ffm oversized-vector rejected\r\n" :
               "freertos_guest1: ffm oversized-vector NOT rejected\r\n");
+
+    /* Cross-guest vector: a base inside guest0's NS RAM window must be
+     * refused by the caller-banded memcheck — guests are isolated from each
+     * other through the SPM, not merely NS from Secure (WT-FFM-0011). */
+    in_vec.base = (const void *)0x20000000u; /* guest0 NS RAM, not ours */
+    in_vec.len = 16u;
+    out_vec.base = digest;
+    out_vec.len = sizeof(digest);
+    st = psa_call(handle, 0, &in_vec, 1u, &out_vec, 1u);
+    if (st != PSA_SUCCESS) {
+        g_guest1_ffm_neg |= 4u;
+    }
+    uart_puts(st != PSA_SUCCESS ?
+              "freertos_guest1: ffm cross-guest vector rejected\r\n" :
+              "freertos_guest1: ffm cross-guest vector NOT rejected\r\n");
 
     psa_close(handle);
 
     /* Connect to an unknown SID: refused, no handle handed back. */
     bad = psa_connect(0x4200u, 1u);
     if (bad <= 0) {
+        g_guest1_ffm_neg |= 8u;
         uart_puts("freertos_guest1: ffm wrong-sid refused\r\n");
     } else {
         uart_puts("freertos_guest1: ffm wrong-sid NOT refused\r\n");

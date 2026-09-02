@@ -295,6 +295,7 @@ jobs:
           - { key: bootupdate,      name: "Full boot-and-update swap gate" }
           - { key: vnet,            name: "wolfIP virtual network (mediated ping)" }
           - { key: vnetneg,         name: "Confined VNET isolation negatives" }
+          - { key: manifestneg,     name: "Corrupted-manifest activation refused" }
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15

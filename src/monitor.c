@@ -41,6 +41,9 @@ void wt_platform_launch_debug(int code, uint32_t guest);
 
 static wt_scheduler_state_t g_scheduler;
 static wt_spm_t g_spm;
+#if defined(WT_MANIFEST_NEG_PROBE) && (WT_MANIFEST_NEG_PROBE == 1)
+static wt_system_manifest_t g_wt_manifest_neg_probe;
+#endif
 /* Restart-engine event counters: non-static so the hardware harness can read
  * them by symbol over the debug port (UART markers can interleave-split). */
 volatile uint32_t g_wt_restart_events;
@@ -446,9 +449,21 @@ void wt_monitor_init(void)
 
     wt_platform_init();
 
+#if defined(WT_MANIFEST_NEG_PROBE) && (WT_MANIFEST_NEG_PROBE == 1)
+    /* Corrupted-manifest activation negative: strip the required IPC feature
+     * bit so validation must refuse the manifest and the standing panic path
+     * below halts boot before any partition or guest is scheduled. Never
+     * built into production images. */
+    g_wt_manifest_neg_probe = *wt_generated_manifest_get();
+    g_wt_manifest_neg_probe.features = 0U;
+    spm_result = wt_spm_init(&g_spm, &g_wt_manifest_neg_probe,
+                             WT_MANIFEST_FEATURE_IPC,
+                             wt_partitions_profile_capabilities());
+#else
     spm_result = wt_spm_init(&g_spm, wt_generated_manifest_get(),
                              WT_MANIFEST_FEATURE_IPC,
                              wt_partitions_profile_capabilities());
+#endif
     if (spm_result != WT_SPM_VALID) {
         wt_platform_panic();
     }

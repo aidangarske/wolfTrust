@@ -437,6 +437,16 @@ if [ "$mode" != "build" ]; then
       | awk -v a="$addr" 'tolower($1)==a":"{print $2}'
   }
 
+  read_guest1_u32() {
+    local sym addr elf
+    sym="$1"
+    elf="${guest1%.bin}.elf"
+    addr=$("$NM" "$elf" 2>/dev/null | awk -v s="$sym" '$3==s{print $1}')
+    [ -n "$addr" ] || { echo ""; return; }
+    pyocd cmd -t "$PYOCD_TARGET" -c halt -c "read32 0x$addr 4" 2>/dev/null \
+      | awk -v a="$addr" 'tolower($1)==a":"{print $2}'
+  }
+
   case "$scenario" in
     positive)
       # The full PSA/FF-M lifecycle is gated on guest0's SWD progress latch,
@@ -460,6 +470,17 @@ if [ "$mode" != "build" ]; then
         check_pass "attestation token measurement equals the signed image"
       else
         printf '  [check] INFO  measurement match not visible on the interleaved console (latch gates the lifecycle)\n'
+      fi
+      # Hardware cross-guest isolation proof (WT-FFM-0011): guest1 submits an
+      # iovec whose base lies in guest0's NS RAM; the caller-banded memcheck
+      # must refuse it on silicon. The shared console shreds guest1 lines
+      # char-by-char, so the proof is guest1's SWD-latched negative mask
+      # (1 forged, 2 oversized, 4 cross-guest, 8 unknown SID).
+      neg=$(read_guest1_u32 g_guest1_ffm_neg)
+      if [ -n "$neg" ] && [ $((0x$neg & 0x4)) -ne 0 ]; then
+        check_pass "cross-guest vector refused on silicon (mask=0x$neg)"
+      else
+        check_fail "cross-guest isolation" "guest1 negative mask 0x${neg:-none}, want bit 0x4"
       fi
       ;;
     authneg)
