@@ -314,8 +314,21 @@ static int run_guest(uint32_t guest_id)
 
     wt_uart_puts(id->banner);
 
-    rc = wt_vnet_psa_open(&g_vnet, WT_VNET_SERVICE_SID,
-                          WT_VNET_SERVICE_VERSION, &info);
+    /* SERVICE_VNET may be mid-quarantine (a faulted partition restarting
+     * under its manifest policy); a transient failure heals, so retry. */
+    {
+        int tries;
+        volatile uint32_t spin;
+
+        rc = -1;
+        for (tries = 0; tries < 50 && rc != 0; tries++) {
+            rc = wt_vnet_psa_open(&g_vnet, WT_VNET_SERVICE_SID,
+                                  WT_VNET_SERVICE_VERSION, &info);
+            if (rc != 0) {
+                for (spin = 0; spin < 200000u; spin++) { }
+            }
+        }
+    }
     if (rc != 0) { wt_uart_puts("vnet open failed\r\n"); return -1; }
     wt_uart_puts("vnet open ok, rx_irq=");
     wt_uart_put_u32((uint32_t)info.rx_irq);

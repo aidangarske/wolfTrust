@@ -155,6 +155,9 @@ typedef struct wt_spm_call {
     int          ret_int;      /* WAIT/SET_RHANDLE/WRITE/NOTIFY/CLEAR result */
     psa_handle_t ret_handle;   /* CONNECT result */
     uint32_t     ret_version;  /* VERSION result */
+    uint32_t     ret_tick;     /* out: scheduler tick stamped on every SVC
+                                * return, so a confined SP has a time source
+                                * without reaching monitor state */
 
     /* Set when the op is an FF-M PROGRAMMER ERROR the SPM must panic the caller
      * for (psa_get/psa_read/psa_write with an out-of-domain buffer), rather

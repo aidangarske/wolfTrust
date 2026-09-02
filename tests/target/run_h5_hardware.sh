@@ -42,7 +42,7 @@ set -o pipefail
 mode="${1:-all}"
 scenario="${2:-positive}"
 case "$mode" in build|flash|all) ;; *) echo "usage: $0 build|flash|all [scenario]" >&2; exit 2 ;; esac
-case "$scenario" in positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet" >&2; exit 2 ;; esac
+case "$scenario" in positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -99,7 +99,7 @@ GUEST0_ADDR=0x080A0000
 GUEST1_ADDR=0x080E0000
 guest0="$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin"
 guest1="$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
-if [ "$scenario" = "vnet" ]; then
+if [ "$scenario" = "vnet" ] || [ "$scenario" = "vnetneg" ]; then
   guest0="$repo/tests/firmware/stm32h563-vnet/build/guest0.bin"
   guest1="$repo/tests/firmware/stm32h563-vnet/build/guest1.bin"
 fi
@@ -171,6 +171,7 @@ if [ "$mode" != "flash" ]; then
   [ "$scenario" = "hsmattackneg" ] && guest_flags="WT_HSM_ATTACK_PROBE=1"
   [ "$scenario" = "bootupdate" ] && secure_flags="WT_BOOTUPDATE_PROBE=1"
   [ "$scenario" = "vnet" ] && secure_flags="CONFIG_VNET=y"
+  [ "$scenario" = "vnetneg" ] && secure_flags="CONFIG_VNET=y WT_VNET_NEG_PROBE=1"
   # WT_CONF_DIAG_TRAP=0: the emulator-only hang-probe fault would become a
   # conformance-monitor reset on silicon and can eat the suite's report window.
   [ "$scenario" = "confboot" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0"; guest_flags="WT_RUN_CONFORMANCE=1"; }
@@ -197,7 +198,7 @@ if [ "$mode" != "flash" ]; then
 
   # Hardware guest build: NO WT_M33MU_EXPECT_BKPT (emulator-only breakpoint).
   stage "building guests (hardware variant, no emulator BKPT, $scenario)"
-  if [ "$scenario" = "vnet" ]; then
+  if [ "$scenario" = "vnet" ] || [ "$scenario" = "vnetneg" ]; then
     {
       rm -rf tests/firmware/stm32h563-vnet/build
       make -C tests/firmware/stm32h563-vnet build/guest0.bin build/guest1.bin \
@@ -742,6 +743,25 @@ if [ "$mode" != "build" ]; then
       expect "guest0 sends the first mediated ping" "ping seq=1 to 10.0.0.2"
       expect "guest0 receives guest1's mediated echo reply" \
         "ping reply from 10.0.0.2 seq=1"
+      ;;
+    vnetneg)
+      # Confined SERVICE_VNET isolation on silicon (WT-FFM-0011/0056): the
+      # unprivileged vnet SP reads SPM RAM then executes from its XN data
+      # band; each fault quarantines only that partition (SWD fault counter),
+      # never a HardFault, and the mediated ping completes after the second
+      # restart. First pings can land during quarantine, so any seq counts.
+      refute_re "isolation faults did not escalate to HardFault" \
+        '^(\[HARDFLT\]|HardFault|SecureFault)'
+      fault_cnt=$(read_secure_u32 g_tasklet_fault_count)
+      if [ -n "$fault_cnt" ] && [ $((0x$fault_cnt)) -ge 2 ]; then
+        check_pass "vnet SP faulted on both probes (count=0x$fault_cnt)"
+      else
+        check_fail "vnet isolation faults" "SP fault count 0x${fault_cnt:-none}, want >= 2"
+      fi
+      expect "guest0 alive through the quarantine" "vnet-guest0: alive"
+      expect "guest1 alive through the quarantine" "vnet-guest1: alive"
+      expect "mediated ping completes after both restarts" \
+        "ping reply from 10.0.0.2"
       ;;
   esac
   echo "PASS: hardware/h5/$scenario"

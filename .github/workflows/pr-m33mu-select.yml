@@ -56,7 +56,7 @@ jobs:
           # Individually-picked scenarios become a dynamic matrix of
           # {key,name} objects (same shape/names as stm32h563-build.yml).
           # 'all'/'m33mu' are handled by the full job below, not expanded here.
-          all="positive bothpsa bothiso restart crossdomain spfaultneg confboot devstorage devcrypto devattest devattestqcbor attestneg authneg rollbackneg vaultrecover vaultrecoversec fwustage remeasureneg bootupdate"
+          all="positive bothpsa bothiso restart crossdomain spfaultneg confboot devstorage devcrypto devattest devattestqcbor attestneg authneg rollbackneg vaultrecover vaultrecoversec fwustage remeasureneg bootupdate vnet vnetneg"
           picked=""
           for s in $all; do
             case " $sel " in
@@ -83,6 +83,8 @@ jobs:
               fwustage)        n="PSA Firmware Update staging" ;;
               remeasureneg)    n="Runtime re-measurement quarantine" ;;
               bootupdate)      n="Full boot-and-update swap gate" ;;
+              vnet)            n="wolfIP virtual network (mediated ping)" ;;
+              vnetneg)         n="Confined VNET isolation negatives" ;;
             esac
             picked="$picked {\"key\":\"$s\",\"name\":\"$n\"},"
           done

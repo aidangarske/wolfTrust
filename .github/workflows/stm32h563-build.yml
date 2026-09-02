@@ -294,6 +294,7 @@ jobs:
           - { key: remeasureneg,    name: "Runtime re-measurement quarantine" }
           - { key: bootupdate,      name: "Full boot-and-update swap gate" }
           - { key: vnet,            name: "wolfIP virtual network (mediated ping)" }
+          - { key: vnetneg,         name: "Confined VNET isolation negatives" }
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15

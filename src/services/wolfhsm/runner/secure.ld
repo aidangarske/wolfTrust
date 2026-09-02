@@ -27,7 +27,13 @@ MEMORY {
   /* SRAM1 has Secure and Non-secure aliases to the same physical memory.
    * The first 32 KiB are assigned to the two guests through the 0x20000000
    * Non-secure alias, so keep secure .data/.bss above that physical window. */
-  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 308K
+  RAM   (rwx): ORIGIN = 0x30028000, LENGTH = 308K - WT_VNET_DATA_LENGTH
+  /* SERVICE_VNET data band (WT-FFM-0011/0056): the switch state and relay
+   * scratch the confined vnet partition touches in-thread, carved from the
+   * RAM tail only in CONFIG_VNET builds (WT_VNET_DATA_LENGTH is 0 otherwise).
+   * Mirrors WT_VNET_DATA_* in port/stm32h563/memory_map.h. */
+  VNETDATA (rw): ORIGIN = 0x30028000 + 308K - WT_VNET_DATA_LENGTH,
+                 LENGTH = WT_VNET_DATA_LENGTH
   /* wolfHSM keystore trust band (WT-FFM-0011 Level 3): the shared wolfHSM
    * server, NVM, lock, and per-guest tasklet state, relocated out of general
    * SPM RAM into one MPU-alignable region so the keystore partitions can be
@@ -183,6 +189,26 @@ SECTIONS {
     _e_keystore = .;
   } > KEYSTORE
 
+  /* SERVICE_VNET data band: first-claim the vnet dataplane, service, and
+   * relay objects' RAM out of shared SPM .data/.bss so the unprivileged
+   * partition's MPU grant covers exactly its own state. Empty (zero-length
+   * region) outside CONFIG_VNET builds. */
+  .vnet_data : {
+    . = ALIGN(32);
+    _s_vnet = .;
+    *wt_sec_vnet_*.o(.data .data.*)
+    . = ALIGN(4);
+    _e_vnet_data = .;
+  } > VNETDATA AT > FLASH
+  _si_vnet = LOADADDR(.vnet_data);
+
+  .vnet_bss (NOLOAD) : {
+    _s_vnet_bss = .;
+    *wt_sec_vnet_*.o(.bss .bss.* COMMON)
+    . = ALIGN(32);
+    _e_vnet = .;
+  } > VNETDATA
+
   .data : {
     _sdata = .;
     *(.data*)
@@ -200,8 +226,12 @@ SECTIONS {
     KEEP(*(.sp_stacks*))
   } > SPSTACKS
 
-  ASSERT(ORIGIN(KEYSTORE) == (ORIGIN(RAM) + LENGTH(RAM)),
-         "keystore band must sit directly above the secure RAM window")
+  ASSERT(ORIGIN(VNETDATA) == (ORIGIN(RAM) + LENGTH(RAM)),
+         "vnet data band must sit directly above the secure RAM window")
+  ASSERT(ORIGIN(KEYSTORE) == (ORIGIN(VNETDATA) + LENGTH(VNETDATA)),
+         "keystore band must sit directly above the vnet data band")
+  ASSERT(_e_vnet <= (ORIGIN(VNETDATA) + LENGTH(VNETDATA)),
+         "vnet data band overflow")
   ASSERT(ORIGIN(FWUSTACK) == (ORIGIN(KEYSTORE) + LENGTH(KEYSTORE)),
          "FWU stack must sit directly above the keystore band")
   ASSERT(_e_keystore <= (ORIGIN(KEYSTORE) + LENGTH(KEYSTORE)),

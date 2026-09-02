@@ -163,6 +163,15 @@
 #define WT_SP_VNET_STACK_BASE    (WT_RAM_S_BASE + 0x0006B000u)  /* 0x30093000 */
 #define WT_SP_VNET_STACK_SIZE    WT_SP_SECURE_STACK_SIZE
 
+/* VNET data band (CONFIG_VNET builds): every RAM object the confined
+ * SERVICE_VNET partition touches in-thread — the switch, its pools/rings/FDB,
+ * and the relay's staging scratch — carved from the tail of general secure RAM
+ * so the unprivileged coroutine reaches only its own state. MUST match the
+ * VNETDATA region in src/services/wolfhsm/runner/secure.ld and the
+ * manifest-vnet.json domain resource. */
+#define WT_VNET_DATA_BASE        (WT_RAM_S_BASE + 0x00048000u)  /* 0x30070000 */
+#define WT_VNET_DATA_SIZE        0x00005000u                    /* 20 KiB */
+
 /* wolfBoot update partition (WOLFBOOT_PARTITION_UPDATE_ADDRESS): the secure
  * flash window SERVICE_FWU stages a candidate image into (WT-FWU-0002). Secure
  * alias, inside the writable secure-alias MPU region. */

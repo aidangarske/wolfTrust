@@ -1598,6 +1598,13 @@ void Reset_Handler(void)
     extern uint32_t _e_keystore_data;
     extern uint32_t _s_keystore_bss;
     extern uint32_t _e_keystore;
+#if defined(CONFIG_VNET)
+    extern uint32_t _si_vnet;
+    extern uint32_t _s_vnet;
+    extern uint32_t _e_vnet_data;
+    extern uint32_t _s_vnet_bss;
+    extern uint32_t _e_vnet;
+#endif
     uint32_t* src = &_sidata;
     uint32_t* dst = &_sdata;
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
@@ -1632,6 +1639,17 @@ void Reset_Handler(void)
     for (dst = &_s_keystore_bss; dst < &_e_keystore; ++dst) {
         *dst = 0u;
     }
+
+#if defined(CONFIG_VNET)
+    /* SERVICE_VNET data band: same treatment as the keystore band. */
+    src = &_si_vnet;
+    for (dst = &_s_vnet; dst < &_e_vnet_data; ++dst) {
+        *dst = *src++;
+    }
+    for (dst = &_s_vnet_bss; dst < &_e_vnet; ++dst) {
+        *dst = 0u;
+    }
+#endif
 
     wt_monitor_init();
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)

@@ -25,7 +25,6 @@
 #include <string.h>
 #include "wolftrust/types.h"
 #include "wolftrust/platform.h"
-#include "wolftrust/monitor.h"
 #include "wolftrust/vnet/vnet_abi.h"
 #include "wolftrust/vnet/vnet_switch.h"
 #include "wolftrust/vnet/vnet_errors.h"
@@ -62,12 +61,6 @@ void wt_vnet_service_refresh_irq(wt_guest_id_t guest_id)
     if ((uint32_t)guest_id >= (uint32_t)WT_MAX_GUESTS) return;
     pending = vnet_switch_irq_pending(&g_switch, (uint32_t)guest_id);
     wt_platform_set_ns_irq_pending((uint32_t)WT_VNET_RX_IRQ, pending);
-}
-
-uint32_t wt_vnet_service_now_tick(void)
-{
-    const wt_scheduler_state_t *s = wt_monitor_state();
-    return (s != NULL) ? s->monotonic_ticks : 0U;
 }
 
 vnet_switch_t* wt_vnet_service_switch(void)

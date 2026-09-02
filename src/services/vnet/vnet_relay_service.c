@@ -32,6 +32,10 @@ volatile uint32_t g_wt_vnet_dispatch_count;
 static vnet_switch_t* g_vnet_sw = NULL;
 static uint32_t (*g_vnet_tick)(void) = NULL;
 static wt_spm_transport_fn g_vnet_transport = wt_spm_transport_direct;
+/* Confined time source: the SVC stamps the scheduler tick into every gate
+ * return (ret_tick), so the unprivileged relay ages frames without a tick
+ * callback that would dereference monitor state outside its MPU domain. */
+static uint32_t g_vnet_now_tick;
 
 /* Frame staging between the FF-M copied vectors and the switch. One
  * message is in flight at a time in the cooperative SPM, and file scope
@@ -204,7 +208,7 @@ static psa_status_t wt_vnet_relay_tx(wt_ffm_runtime_t* runtime,
             len != msg->in_size[0]) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
-    tick = (g_vnet_tick != NULL) ? g_vnet_tick() : 0U;
+    tick = (g_vnet_tick != NULL) ? g_vnet_tick() : g_vnet_now_tick;
     rc = vnet_switch_tx(sw, vm, g_vnet_tx_scratch, (uint16_t)len, tick);
     if (rc != WT_VNET_OK) {
         return (psa_status_t)rc;
@@ -314,6 +318,7 @@ int wt_vnet_relay_dispatch(void* context, wt_ffm_runtime_t* runtime,
             call.ret_int != WT_FFM_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
+    g_vnet_now_tick = call.ret_tick;
 
     (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_GET;

@@ -172,6 +172,7 @@ static wt_spm_sp_t* wt_spm_slot_for_current(void)
  * deliberate out-of-domain read and serves normally. Chosen above any valid
  * partition id so the entry can still decode the id underneath it. */
 #define WT_SP_FAULT_PROBE_RESTARTED 0x40000000
+#define WT_SP_FAULT_PROBE_SECOND    0x20000000
 
 /* --- Graceful Secure-Partition fault recovery (WT-SYS-0008 / WT-FFM-0017) ---
  * The neutral state machine (wt_sp_recovery_run) sequences these arch-specific
@@ -225,6 +226,15 @@ static int wt_spm_fault_restart(void* ctx)
 #if (defined(WT_SP_FAULT_PROBE) && (WT_SP_FAULT_PROBE == 1)) || \
     (defined(WT_PANIC_NEG_PROBE) && (WT_PANIC_NEG_PROBE == 1))
     arg = (void*)((intptr_t)slot->arg | WT_SP_FAULT_PROBE_RESTARTED);
+#endif
+#if defined(WT_VNET_NEG_PROBE) && (WT_VNET_NEG_PROBE == 1)
+    /* Two-stage probe progression persists in slot->arg: fault 1 arms
+     * RESTARTED, fault 2 arms SECOND, the third run serves normally. */
+    if (((intptr_t)slot->arg & WT_SP_FAULT_PROBE_RESTARTED) != 0) {
+        slot->arg = (void*)((intptr_t)slot->arg | WT_SP_FAULT_PROBE_SECOND);
+    }
+    slot->arg = (void*)((intptr_t)slot->arg | WT_SP_FAULT_PROBE_RESTARTED);
+    arg = slot->arg;
 #endif
     if (wt_co_reinit(slot->co, slot->entry, arg) != 0) {
         return -1;
@@ -359,6 +369,7 @@ void wt_spm_svc_entry(uint32_t* frame)
 {
     wt_spm_call_t* call;
     wt_spm_sp_t* slot;
+    const wt_scheduler_state_t* sched;
     int status;
 
     call = (wt_spm_call_t*)(uintptr_t)frame[0];
@@ -378,6 +389,11 @@ void wt_spm_svc_entry(uint32_t* frame)
         frame[0] = (uint32_t)WT_FFM_ERROR_ARGUMENT;
         return;
     }
+
+    /* Every gate return carries the scheduler tick: a confined SP (the vnet
+     * relay ages frames with it) must not dereference monitor state. */
+    sched = wt_monitor_state();
+    call->ret_tick = (sched != NULL) ? sched->monotonic_ticks : 0u;
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     /* Platform NVM service (P5 K2): the unprivileged DRIVER partition cannot
@@ -976,8 +992,7 @@ static size_t wt_spm_conf_grant(wt_secure_domain_t* table, size_t count,
 
 static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
                                    int32_t partition_id,
-                                   wt_spm_sp_entry_fn entry, void* arg,
-                                   unsigned int priv)
+                                   wt_spm_sp_entry_fn entry, void* arg)
 {
     wt_spm_sp_t* slot;
     const wt_mpu_region_t* stack_region;
@@ -1002,7 +1017,10 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
 
     /* The SP's execution stack is the manifest domain's PRIVATE writable
      * resource — a shared band (the keystore) is never a stack; fail closed
-     * if the manifest stops declaring one. */
+     * if the manifest stops declaring one. When the domain declares its
+     * stack explicitly, only the resource containing that range qualifies,
+     * so adding a second private writable band (the vnet data band) cannot
+     * silently repoint the stack. */
     stack_region = NULL;
     for (i = 0u; i < g_spm_sp_domain.region_count; i++) {
         if ((g_spm_sp_domain.regions[i].attributes & WT_MEM_ATTR_WRITE) !=
@@ -1011,6 +1029,15 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
                  WT_MEM_ATTR_DEVICE) == 0u &&
                 (g_spm_sp_domain.regions[i].attributes &
                  WT_MEMORY_ATTR_SHARED) == 0u) {
+            if (g_spm_sp_domain.stack_size != 0u &&
+                    (g_spm_sp_domain.stack_base <
+                         g_spm_sp_domain.regions[i].base ||
+                     g_spm_sp_domain.stack_base +
+                         g_spm_sp_domain.stack_size >
+                         g_spm_sp_domain.regions[i].base +
+                         g_spm_sp_domain.regions[i].size)) {
+                continue;
+            }
             stack_region = &g_spm_sp_domain.regions[i];
         }
     }
@@ -1020,38 +1047,25 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
 
     slot = &g_spm_sp[g_spm_sp_count];
     slot->table.domain_id = g_spm_sp_domain.domain_id;
-    if (priv != 0u) {
-        /* Privileged slot (vault): the table is only the SVC/gate
-         * bounds-check whitelist — wt_co_set_domain is never called, so
-         * the MPU stays wide and the coroutine runs privileged. */
-        slot->table.regions[0].base = WT_FLASH_S_BASE;
-        slot->table.regions[0].size = WT_FLASH_S_SIZE;
-        slot->table.regions[0].attributes = WT_MEM_ATTR_READ |
-                                            WT_MEM_ATTR_EXEC;
-        slot->table.regions[1].base = WT_RAM_S_BASE;
-        slot->table.regions[1].size = WT_RAM_S_SIZE;
-        slot->table.regions[1].attributes = WT_MEM_ATTR_READ |
-                                            WT_MEM_ATTR_WRITE;
-        region_count = 2u;
-    }
-    else {
-        /* Thread-domain MPU table: shared whole-image RX (the manifest's 4K
-         * code window lies inside it and Armv8-M regions must not overlap —
-         * task #26 tracks narrowing) plus the domain's non-EXEC resources. */
-        slot->table.regions[0].base = WT_FLASH_S_BASE;
-        slot->table.regions[0].size = WT_FLASH_S_SIZE;
-        slot->table.regions[0].attributes = WT_MEM_ATTR_READ |
-                                            WT_MEM_ATTR_EXEC;
-        region_count = 1u;
-        for (i = 0u; i < g_spm_sp_domain.region_count &&
-                region_count < WT_MAX_MPU_REGIONS; i++) {
-            if ((g_spm_sp_domain.regions[i].attributes & WT_MEM_ATTR_EXEC) ==
-                    0u) {
-                slot->table.regions[region_count] =
-                    g_spm_sp_domain.regions[i];
-                region_count++;
-            }
+    /* Thread-domain MPU table: shared whole-image RX (the manifest's 4K
+     * code window lies inside it and Armv8-M regions must not overlap —
+     * task #26 tracks narrowing) plus the domain's non-EXEC resources.
+     * Every scheduled SP is confined this way; no wide privileged table
+     * exists any more (WT-FFM-0011). */
+    slot->table.regions[0].base = WT_FLASH_S_BASE;
+    slot->table.regions[0].size = WT_FLASH_S_SIZE;
+    slot->table.regions[0].attributes = WT_MEM_ATTR_READ |
+                                        WT_MEM_ATTR_EXEC;
+    region_count = 1u;
+    for (i = 0u; i < g_spm_sp_domain.region_count &&
+            region_count < WT_MAX_MPU_REGIONS; i++) {
+        if ((g_spm_sp_domain.regions[i].attributes & WT_MEM_ATTR_EXEC) ==
+                0u) {
+            slot->table.regions[region_count] =
+                g_spm_sp_domain.regions[i];
+            region_count++;
         }
+    }
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     /* Hosted Arm partitions read their val_api/psa_api tables from .data, which
      * the linker places in the shared CONFDATA window; grant it so the SP
@@ -1088,7 +1102,6 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
                                      WT_CONF_SP_DATA_BASE +
                                      WT_CONF_SP_DATA_SIZE);
 #endif
-    }
     slot->table.region_count = region_count;
 
     slot->co = wt_co_create_blocked_ex(
@@ -1097,9 +1110,7 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
     if (slot->co == NULL) {
         return WT_FFM_ERROR_RESOURCE;
     }
-    if (priv == 0u) {
-        wt_co_set_domain(slot->co, &slot->table, 1u);
-    }
+    wt_co_set_domain(slot->co, &slot->table, 1u);
     slot->partition_id = partition_id;
     slot->wait_kind = WT_SPM_WAIT_NONE;
     slot->entry = entry;
@@ -1145,7 +1156,7 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
 int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
                      wt_spm_sp_entry_fn entry, void* arg)
 {
-    return wt_spm_sched_add_common(runtime, partition_id, entry, arg, 0u);
+    return wt_spm_sched_add_common(runtime, partition_id, entry, arg);
 }
 
 /* SERVICE_HSM's relay loop: a confined scheduled SP. The submit pump reaches
@@ -1422,12 +1433,38 @@ int wt_spm_fwu_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 }
 
 #if defined(CONFIG_VNET)
-/* The virtual network partition (WT-FFM-0056): a scheduled privileged
- * coroutine driving the monitor-owned switch through the neutral relay. */
+/* The virtual network partition (WT-FFM-0056): an UNPRIVILEGED scheduled
+ * coroutine confined to its manifest domain (code + stack + the vnet data
+ * band). The switch state it drives lives in that band, and its time source
+ * is the tick the SVC stamps on every gate return — the coroutine never
+ * reaches monitor state or any other partition's memory. */
 static void wt_spm_vnet_entry(void* arg)
 {
     int32_t partition_id = (int32_t)(intptr_t)arg;
 
+#if defined(WT_VNET_NEG_PROBE) && (WT_VNET_NEG_PROBE == 1)
+    /* Negative isolation proof (WT-FFM-0011/0056): the confined vnet
+     * partition must fault reading SPM RAM, and again executing from its
+     * own (XN) data band; each fault quarantines and restarts it with the
+     * marker set, and the pass after both faults serves normally. Never
+     * built into production images. */
+    volatile uint32_t probe;
+    void (*xn_probe)(void);
+
+    partition_id = (int32_t)((intptr_t)arg &
+                             ~(intptr_t)WT_SP_FAULT_PROBE_RESTARTED &
+                             ~(intptr_t)WT_SP_FAULT_PROBE_SECOND);
+    if (((intptr_t)arg & WT_SP_FAULT_PROBE_RESTARTED) == 0) {
+        probe = *(const volatile uint32_t*)(uintptr_t)WT_RAM_S_BASE;
+        (void)probe;
+        __asm volatile("udf #3");
+    }
+    else if (((intptr_t)arg & WT_SP_FAULT_PROBE_SECOND) == 0) {
+        xn_probe = (void (*)(void))(uintptr_t)(WT_VNET_DATA_BASE | 1u);
+        xn_probe();
+        __asm volatile("udf #4");
+    }
+#endif
     for (;;) {
         (void)wt_vnet_relay_dispatch(NULL, NULL, partition_id);
     }
@@ -1437,8 +1474,7 @@ int wt_spm_vnet_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
     wt_vnet_relay_set_transport(wt_spm_svc_transport);
     wt_vnet_relay_set_switch(wt_vnet_service_switch());
-    wt_vnet_relay_set_tick(wt_vnet_service_now_tick);
-    return wt_spm_sched_add_common(runtime, partition_id, wt_spm_vnet_entry,
-                                   (void*)(intptr_t)partition_id, 1u);
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_vnet_entry,
+                            (void*)(intptr_t)partition_id);
 }
 #endif /* CONFIG_VNET */

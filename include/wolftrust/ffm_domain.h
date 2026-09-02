@@ -34,6 +34,8 @@ typedef struct wt_secure_domain {
     wt_domain_id_t domain_id;
     wt_mpu_region_t regions[WT_MAX_MPU_REGIONS];
     size_t region_count;
+    uintptr_t stack_base;
+    size_t stack_size;
 } wt_secure_domain_t;
 
 typedef enum wt_secure_domain_result {

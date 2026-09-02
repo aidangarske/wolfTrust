@@ -51,8 +51,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet) ;;
-  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet" >&2; exit 2 ;;
+  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg) ;;
+  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -169,6 +169,12 @@ elif [ "$scenario" = "vnet" ]; then
   # Mediated virtual network (WT-FFM-0058): the production chain with the
   # SERVICE_VNET partition compiled in; guests are the bare-metal wolfIP pair.
   secure_flags="CONFIG_VNET=y"
+elif [ "$scenario" = "vnetneg" ]; then
+  # Confined-VNET isolation negatives (WT-FFM-0011/0056): the probe reads SPM
+  # RAM (must MemManage-fault) and then executes from the XN vnet data band
+  # (must fault again); the partition quarantines, restarts, and the mediated
+  # ping still completes.
+  secure_flags="CONFIG_VNET=y WT_VNET_NEG_PROBE=1"
 fi
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
 # Stash the pre-patch image and matching elf: the guest build below can relink
@@ -207,7 +213,7 @@ fi
 # for the bare-metal wolfIP guests, relinked into the standard NS windows.
 g0_img="$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin"
 g1_img="$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
-if [ "$scenario" = "vnet" ]; then
+if [ "$scenario" = "vnet" ] || [ "$scenario" = "vnetneg" ]; then
   rm -rf tests/firmware/stm32h563-vnet/build
   make -C tests/firmware/stm32h563-vnet build/guest0.bin build/guest1.bin \
     WT_GUEST0_FLASH_ORIGIN=0x080A0000 WT_GUEST1_FLASH_ORIGIN=0x080E0000 \
@@ -282,8 +288,9 @@ timeout_s=60
 if [ "$scenario" = "restart" ]; then
   quit_flag=""
   timeout_s=40
-elif [ "$scenario" = "spfaultneg" ] || [ "$scenario" = "panicneg" ]; then
-  # The SP faults once on purpose; wolfTrust catches the fault and restarts
+elif [ "$scenario" = "spfaultneg" ] || [ "$scenario" = "panicneg" ] ||
+     [ "$scenario" = "vnetneg" ]; then
+  # The SP faults on purpose; wolfTrust catches the fault and restarts
   # the partition in place, so halting on the fault would defeat the
   # recovery. The rest of the lifecycle then completes normally through the
   # clean BKPT exit — the restarted SP serves the later requests.
@@ -778,5 +785,22 @@ case "$scenario" in
     expect "[EXPECT BKPT] Success clean exit on the first reply" \
       "[EXPECT BKPT] Success"
     echo "PASS: target/vnet"
+    ;;
+  vnetneg)
+    # Confined SERVICE_VNET isolation proof: the unprivileged partition's read
+    # of SPM RAM faults, its execute from the XN data band faults, each fault
+    # quarantines only the vnet partition, and after the second restart the
+    # mediated guest ping still completes end to end.
+    expect "SPM-RAM read denied to the confined vnet SP (MEMFAULT)" \
+      "addr=0x30028000"
+    expect "execute from the XN vnet data band denied" \
+      "0x30070000"
+    refute_re "no HardFault escalation" '(\[HARDFLT\]|HardFault)'
+    expect "guest0 alive through the quarantine" "vnet-guest0: alive"
+    expect "guest1 alive through the quarantine" "vnet-guest1: alive"
+    expect "mediated ping still completes after both restarts" \
+      "ping reply from 10.0.0.2"
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
+    echo "PASS: target/vnetneg"
     ;;
 esac
