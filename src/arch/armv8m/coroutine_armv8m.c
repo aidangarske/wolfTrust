@@ -52,9 +52,13 @@ struct wt_co *g_wt_co_pendsv_target __attribute__((used));
 __attribute__((naked))
 static void wt_co_trampoline(void)
 {
+    /* An SP or guest entry must never return. Falling off the end is
+     * per-partition misbehavior, so trap here instead of panicking the whole
+     * system: the fault dispatcher quarantines just this coroutine under its
+     * own restart policy, the same path a must-panic PROGRAMMER ERROR takes. */
     __asm__ volatile (
         "blx  r4                \n"
-        "bl   wt_platform_panic \n"
+        "udf  #0x51             \n"
         "1: b 1b                \n"
     );
 }
