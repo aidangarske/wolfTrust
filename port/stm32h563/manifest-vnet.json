@@ -67,6 +67,12 @@
           "size": 65536,
           "attributes": 19,
           "share_id": 0
+        },
+        {
+          "base": 1073760256,
+          "size": 1024,
+          "attributes": 43,
+          "share_id": 2
         }
       ],
       "interrupt_resources": [],
@@ -102,6 +108,12 @@
           "size": 65536,
           "attributes": 19,
           "share_id": 0
+        },
+        {
+          "base": 1073760256,
+          "size": 1024,
+          "attributes": 43,
+          "share_id": 2
         }
       ],
       "interrupt_resources": [],

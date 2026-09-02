@@ -77,6 +77,10 @@ const wt_guest_measurement_t* wt_platform_guest_measurements(size_t* count)
 #define WT_TIMESLICE_MS 2U
 #endif
 
+#ifndef WT_SHARED_UART
+#define WT_SHARED_UART 3
+#endif
+
 #define WT_USART_REGION_SIZE 0x00000400U
 #if WT_SHARED_UART == 3
 #define WT_GUEST0_USART_BASE 0x40004800U
@@ -371,10 +375,15 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
         config->launch_required = domain->launch_required;
         config->launch_min_version = domain->launch_min_version;
 
-        if (domain->memory_resource_count != config->memory_window_count ||
-                domain->memory_resource_count > config->mpu_region_count) {
+        /* Rebuild the entire NS MPU table from declared policy: memory
+         * resources become caller-band windows, the declared console UART is
+         * the only device grant accepted (pinned to the compiled address),
+         * and unused slots are cleared so no static grant survives. */
+        if (domain->memory_resource_count > WT_MAX_MPU_REGIONS - 1U) {
             return -1;
         }
+        size_t window_count = 0U;
+        size_t region_count = 0U;
         for (size_t resource = 0U;
                 resource < domain->memory_resource_count; ++resource) {
             const wt_memory_resource_t* manifest_resource =
@@ -383,11 +392,45 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
                 (WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_EXEC |
                  WT_MEM_ATTR_DEVICE);
 
-            config->memory_windows[resource] = *manifest_resource;
-            config->mpu_regions[resource].base = manifest_resource->base;
-            config->mpu_regions[resource].size = manifest_resource->size;
-            config->mpu_regions[resource].attributes = mpu_attributes;
+            if ((manifest_resource->attributes & WT_MEM_ATTR_DEVICE) != 0U) {
+                uintptr_t usart_base = (config->guest_id == 0U) ?
+                    WT_GUEST0_USART_BASE : WT_GUEST1_USART_BASE;
+
+                if (manifest_resource->base != usart_base ||
+                        manifest_resource->size != WT_USART_REGION_SIZE) {
+                    return -1;
+                }
+            }
+            else {
+                if (window_count >= config->memory_window_count) {
+                    return -1;
+                }
+                config->memory_windows[window_count] = *manifest_resource;
+                window_count++;
+            }
+            config->mpu_regions[region_count].base = manifest_resource->base;
+            config->mpu_regions[region_count].size = manifest_resource->size;
+            config->mpu_regions[region_count].attributes = mpu_attributes;
+            region_count++;
         }
+        if (window_count != config->memory_window_count) {
+            return -1;
+        }
+        /* NSC veneer fetch window: a platform policy object every NS domain
+         * needs to reach the SG gateway (SAU NSC + NS MPU execute). */
+        config->mpu_regions[region_count].base = WT_FLASH_NSC_BASE;
+        config->mpu_regions[region_count].size =
+            WT_FLASH_NSC_END - WT_FLASH_NSC_BASE + 1U;
+        config->mpu_regions[region_count].attributes =
+            WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
+        region_count++;
+        for (size_t clear = region_count; clear < WT_MAX_MPU_REGIONS;
+                ++clear) {
+            config->mpu_regions[clear].base = 0U;
+            config->mpu_regions[clear].size = 0U;
+            config->mpu_regions[clear].attributes = 0U;
+        }
+        config->mpu_region_count = region_count;
 
         if (domain->entry_point == 0U ||
                 domain->interrupt_resource_count > WT_MAX_IRQ_WORDS * 32U ||
