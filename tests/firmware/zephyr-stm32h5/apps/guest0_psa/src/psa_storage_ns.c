@@ -107,6 +107,11 @@ static psa_status_t wt_storage_ns_read(uint32_t sid, int32_t op, uint64_t uid,
     psa_outvec out_vec[1];
     psa_status_t status;
 
+    /* p_data_length must receive the bytes written on success (zero
+     * included), so a NULL output pointer is an invalid argument. */
+    if (out_len == NULL) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
     hdr.uid = uid;
     hdr.flags = 0U;
     hdr.offset = offset;
@@ -120,9 +125,7 @@ static psa_status_t wt_storage_ns_read(uint32_t sid, int32_t op, uint64_t uid,
     out_vec[0].len = out_cap;
     status = psa_call(handle, op, in_vec, 1U, out_vec, 1U);
     psa_close(handle);
-    if (out_len != NULL) {
-        *out_len = out_vec[0].len;
-    }
+    *out_len = out_vec[0].len;
     return status;
 }
 
