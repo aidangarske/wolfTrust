@@ -294,8 +294,13 @@ int wt_hsm_rollback_enforce(uint32_t image_version)
     }
 
     if (changed && wt_hsm_rollback_store(&table) != 0) {
-        /* A lost advance keeps the old floor; the next boot retries. */
-        return WT_ROLLBACK_ERROR_ARGUMENT;
+        /* An unpersisted floor must not launch guests: the next reset would
+         * accept the previous floor again. Quarantine fail-closed; secure
+         * services stay up so the wedge is observable and recoverable. */
+        for (i = 0U; i < guest_count; i++) {
+            wt_monitor_quarantine_guest((wt_guest_id_t)i);
+        }
+        return WT_ROLLBACK_REFUSED;
     }
 
     return WT_ROLLBACK_OK;
