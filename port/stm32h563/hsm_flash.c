@@ -728,8 +728,14 @@ static int wt_fwu_backend_write(void *ctx, uint32_t offset,
                                 const uint8_t *data, uint32_t size)
 {
     const uint8_t *mapped = (const uint8_t *)(g_fwu_flash_cfg.base + offset);
+    uint32_t reserved = g_fwu_flash_cfg.size - g_fwu_flash_cfg.sector_size;
 
     (void)ctx;
+    /* The trailer sector holds wolfBoot's swap trigger and is owned by
+     * arm/disarm alone; staging data must never pre-program it. */
+    if (offset >= reserved || size > reserved - offset) {
+        return -1;
+    }
     if (wt_fwu_ensure_erased(offset, size) != 0) {
         return -1;
     }
@@ -742,6 +748,8 @@ static int wt_fwu_backend_write(void *ctx, uint32_t offset,
     }
     return 0;
 }
+
+static int wt_fwu_backend_disarm(void *ctx);
 
 static int wt_fwu_backend_arm(void *ctx, uint32_t image_size, uint32_t version)
 {
@@ -761,10 +769,10 @@ static int wt_fwu_backend_arm(void *ctx, uint32_t image_size, uint32_t version)
         return -1;
     }
     if (wt_hsm_flash_program(&g_fwu_flash_ctx, block_off,
-                             (uint32_t)sizeof(block), block) != WH_ERROR_OK) {
-        return -1;
-    }
-    if (memcmp(mapped, block, sizeof(block)) != 0) {
+                             (uint32_t)sizeof(block), block) != WH_ERROR_OK ||
+            memcmp(mapped, block, sizeof(block)) != 0) {
+        /* A partially programmed trigger must not survive a failed arm. */
+        (void)wt_fwu_backend_disarm(NULL);
         return -1;
     }
     return 0;
@@ -787,7 +795,8 @@ const wt_fwu_backend_t wt_fwu_flash_backend = {
     .write = wt_fwu_backend_write,
     .arm = wt_fwu_backend_arm,
     .disarm = wt_fwu_backend_disarm,
-    .capacity = WT_FWU_UPDATE_FLASH_SIZE,
+    /* The trailer sector is arm/disarm-owned, never staging capacity. */
+    .capacity = WT_FWU_UPDATE_FLASH_SIZE - WT_FLASH_SECTOR_SIZE,
     .align = 16u,
 };
 
