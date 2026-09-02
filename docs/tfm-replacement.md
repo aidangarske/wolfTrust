@@ -142,12 +142,37 @@ entry point outside the FF-M client ABI. Evidence:
 `port/stm32h563/manifest.json` (`SERVICE_VAULT`),
 `docs/requirements/framework.md:101,171-173`.
 
-### PSA Crypto multi-part operations not implemented
+### PSA Crypto multi-part operations not implemented (parity-or-better)
 
-`PSA_OPERATION_INCOMPLETE` is deliberately omitted from `include/psa/error.h`:
-wolfTrust implements no PSA Crypto multi-part operation, so the constant has no
-consumer, and `error.h` is a maintained subset of the PSA status namespace
-rather than a full mirror.
+wolfTrust implements no PSA Crypto multi-part operation. `PSA_OPERATION_INCOMPLETE`
+is defined in `include/psa/error.h` for parity with the published PSA status
+namespace and pinned by `tests/host/psa_headers`, but it has no runtime consumer:
+a single-shot service never returns it. Evidence: `include/psa/error.h`;
+`tests/host/psa_headers/main.c`.
+
+### Bounded IPC transfer budget (parity-or-better)
+
+A single FF-M call's aggregate input, or aggregate output, is bounded to
+`WT_FFM_TRANSFER_BYTES` (1024) by the SPM copy buffer; a larger aggregate is
+refused with `PSA_ERROR_INVALID_ARGUMENT`. Level 3 copies client memory rather
+than mapping it, so the budget is a fixed, deterministic SRAM allocation, not a
+dynamic one, which is a security property of the zero-allocation design. Every
+shipped service and the full Arm ACS run within the budget; a service needing
+more streams across successive calls. A future port may enlarge the budget where
+SRAM allows. Evidence: `include/wolftrust/ffm.h:36` (`WT_FFM_TRANSFER_BYTES`);
+`src/ffm.c` (vector preparation); the Arm ACS runs in
+`docs/requirements/validation-log.md`.
+
+### Conformance authority is the Arm ACS on hardware (methodology)
+
+The authoritative FF-M conformance evidence is the Arm Architecture Compliance
+Suite run unmodified on M33MU and on H563 silicon (the `confboot` scenario,
+85/89 applicable tests). The host-side `tests/host/psa_ff_upstream` fixture is a
+fast smoke cross-check whose server dispatch is keyed to the suite's
+expectations rather than an independently spec-derived clean-room server, so it
+is treated as a sealed oracle, not a second conformance authority. Evidence:
+`tests/host/psa_ff_upstream/README.md`; the Arm ACS silicon runs in
+`docs/requirements/validation-log.md`.
 
 ## Open reconciliation items
 

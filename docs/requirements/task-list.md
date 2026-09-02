@@ -906,12 +906,14 @@ wolfTrust on the board - the TF-M drop-in proof.
     intentionally accepts SFN for an SFN-advertising target (host test asserts
     this). Corrected the imprecise SFN deviation entry. Commit `4a5720f`.
     *(Compl M10 + INFO-19)*
-  - [ ] **R8 (decide): 1024-byte aggregate vector limit** rejects valid buffers
-    as `INVALID_ARGUMENT`. Raise/stream, or document as a scoped deviation
-    returning the spec's resource-handling path. **Needs Aidan's call.** *(Compat M3)*
-  - [ ] **R9 (decide): clean-room fixture.** `psa_ff_upstream` dispatcher is
-    assertion-keyed (test-aware); replace with generic spec-derived fixtures or
-    run the suite as a sealed oracle. **Needs Aidan's call.** *(Compat M5)*
+  - [x] **R8: documented as a scoped deviation** (Aidan's call, 2026-09-02).
+    The 1024-byte `WT_FFM_TRANSFER_BYTES` budget is a fixed, deterministic SRAM
+    allocation (Level 3 copies, never maps); the Arm ACS and every shipped service
+    run within it, larger payloads stream. Deviation-register entry added. *(Compat M3)*
+  - [x] **R9: documented as a sealed oracle** (Aidan's call, 2026-09-02). The
+    authoritative conformance evidence is the unmodified Arm ACS on M33MU + H563;
+    `psa_ff_upstream` is a host smoke cross-check, not a second authority.
+    Deviation-register methodology entry added. *(Compat M5)*
   - [x] **R10: added `PSA_OPERATION_INCOMPLETE ((psa_status_t)-248)`** to
     `include/psa/error.h` + a new `tests/host/psa_headers` compile-parity suite
     pinning all PSA error / lifecycle / framework-version / `psa_msg_t`-order
