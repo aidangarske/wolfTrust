@@ -864,18 +864,21 @@ wolfTrust on the board - the TF-M drop-in proof.
 
 - [ ] **Phase 9+ - parity, security review, release qualification.**
 
-- [ ] **R-track: post-review compatibility + compliance hardening** (skoll
-  TF-M-compatibility and FF-M-compliance re-scan, 2026-09-01). Two Highs block
-  the master PR. Each fix lands with its host + M33MU (+ H5 where a silicon
-  seam) negative and updates the ledger; re-run both reviews to zero Crit/High
-  before the master PR.
-  - [ ] **R1 (High): confine VNET to its manifest domain.** `wt_spm_vnet_start`
-    passes `priv=1` to `wt_spm_sched_add_common`, mapping all Secure flash/RAM
-    and skipping `wt_co_set_domain`, so SERVICE_VNET reaches SPM and other
-    partitions' private memory; the privileged path also grants RX-to-all-Secure
-    flash with no XN. Run VNET unprivileged in its domain; add cross-domain and
-    XN/execute negatives on M33MU + H5. *(Compat H1 + Compl H1/M2 + INFO-11/12)*
-    **Fable-tier, deep. The one remaining High.**
+- [~] **R-track: post-review compatibility + compliance hardening** (skoll
+  TF-M-compatibility and FF-M-compliance re-scan, 2026-09-01). **Both Highs
+  (R1, R2) are now FIXED with silicon evidence**; R3-R10 are fixed or
+  documented. Remaining: re-run both skoll reviews to confirm zero Crit/High
+  before the master PR; optional INFO-15/18 hardening negatives.
+  - [x] **R1 (High): VNET confined to its manifest domain.** SERVICE_VNET runs
+    unprivileged (WT-FFM-0065): its switch state moved into a dedicated 20K vnet
+    data band (linker VNETDATA + manifest resource), the privileged wide-table
+    scheduler path is deleted outright, the stack picker honors the declared
+    domain stack, and the relay's tick comes from the SVC-stamped `ret_tick`
+    instead of monitor state. New `vnetneg` cross-domain + XN-execute negatives
+    with restart recovery on M33MU + H563 (SWD fault count), wired into both CI
+    matrices. M33MU vnet/vnetneg + positive/confboot(85/0)/panicneg regression
+    green; H5 vnet/vnetneg/positive green. *(Compat H1 + Compl H1/M2 +
+    INFO-11/12)*
   - [x] **R2 (High): FF-M programmer-error taxonomy.** wrong-owner handle and
     non-IDLE (busy / error-dropped) connection return `PSA_ERROR_PROGRAMMER_ERROR`
     in `wt_ffm_call` / `wt_ffm_call_begin`; `wt_ffm_reply` rejects a

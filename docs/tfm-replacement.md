@@ -138,9 +138,13 @@ different and tighter. Evidence: `include/wolftrust/services/hsm_relay.h:27-33`,
 crypto, has no Non-secure access (`"nonsecure_clients": false`). The optional
 mediated virtual-network switch (`SERVICE_VNET`) is compile-time gated and absent
 from the base manifest; enabling it must not reintroduce any non-secure-callable
-entry point outside the FF-M client ABI. Evidence:
+entry point outside the FF-M client ABI, and when enabled the partition runs
+unprivileged in its own manifest domain — image code, its stack, and a dedicated
+vnet data band carved from the RAM tail — with no scheduler path remaining that
+can grant a partition the whole Secure address space (`WT-FFM-0065`). Evidence:
 `port/stm32h563/manifest.json` (`SERVICE_VAULT`),
-`docs/requirements/framework.md:101,171-173`.
+`docs/requirements/framework.md:101,171-173`; the `vnet`/`vnetneg` scenarios on
+M33MU and H563 silicon.
 
 ### PSA Crypto multi-part operations not implemented (parity-or-better)
 

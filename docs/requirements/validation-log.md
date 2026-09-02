@@ -4164,3 +4164,36 @@ Evidence:
   `docs/tfm-replacement.md` now match the generator, `wt_ffm_init`, and
   `wt_ffm_boot_start_sched` behavior; `include/psa/client.h` already reports
   framework `0x0100`.
+
+## SERVICE_VNET confined to its manifest domain (2026-09-02)
+
+The last privileged scheduled partition is retired (WT-FFM-0065). SERVICE_VNET
+had run with a wide table — all Secure flash mapped RX with no XN and all Secure
+RAM RW, `wt_co_set_domain` never called — because its switch state lived in
+shared SPM `.bss`. That state (the switch, frame pool, rings, FDB, and relay
+staging scratch, ~16 KiB) now lives in a dedicated 20 KiB vnet data band carved
+from the tail of general secure RAM (`WT_VNET_DATA_BASE` 0x30070000, linker
+`VNETDATA` region gated by a `WT_VNET_DATA_LENGTH` defsym so non-vnet images are
+unchanged), declared as the vnet domain's third memory resource, and the
+partition runs unprivileged under `wt_co_set_domain` like every other SP. The
+privileged wide-table path in `wt_spm_sched_add_common` is deleted outright, so
+no code path can grant a partition the whole Secure address space again; the
+stack picker honors the domain's declared `stack_base`/`stack_size` (now carried
+through `wt_ffm_resolve_secure_domain`) so the added band can never be mistaken
+for the stack. The relay's time source moves off `wt_monitor_state` (SPM RAM a
+confined partition must not read): the SVC dispatcher stamps the scheduler tick
+into every gate return (`ret_tick`) and the relay ages frames from it. The vnet
+guest client retries a failed OPEN, since a service mid-quarantine heals.
+
+Evidence:
+- Host: full `make test` unit/all PASS (vnet_relay, spm_gate, domain, ffm
+  suites cover the touched seams).
+- M33MU: `vnet` PASS with the confined partition (mediated ping end to end);
+  new `vnetneg` PASS — the probe's SPM-RAM read faults
+  (`MEMFAULT addr=0x30028000`), its execute from the XN band faults
+  (`MEMFAULT pc=0x30070000`), each quarantines only the vnet partition, guests
+  survive, and the ping completes after the second restart with a clean exit;
+  `positive`/`confboot`/`panicneg` regression PASS (the scheduler change
+  affects every partition).
+- H563 silicon: `vnet`, `vnetneg` (SWD fault count >= 2, no HardFault
+  escalation, ping recovery), and `positive` PASS.
