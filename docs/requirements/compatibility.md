@@ -38,8 +38,10 @@ platform enforcement capabilities.
 
 ## Framework compatibility policy
 
-The first production profile implements the complete FF-M 1.0 IPC programming
-model. It also exposes FF-M 1.1 framework and isolation discovery, explicit
+The first production profile implements the FF-M 1.0 IPC programming model
+under a published bounded per-call transfer budget (`WT_FFM_TRANSFER_BYTES`;
+every advertised public maximum is derived from it — see the deviation
+register). It also exposes FF-M 1.1 framework and isolation discovery, explicit
 IPC manifest selection, and stateless services after their individual gates
 pass. SFN partitions remain a later compatibility feature, but the manifest
 intermediate representation reserves the model distinction now so adding SFN
