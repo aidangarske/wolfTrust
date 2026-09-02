@@ -233,6 +233,11 @@ psa_status_t wt_fwu_request_reboot(wt_fwu_service_ctx_t* ctx)
     if (ctx == NULL || ctx->transport == NULL) {
         return PSA_ERROR_BAD_STATE;
     }
+    /* A platform reset is granted only to complete an armed STAGED install;
+     * any other state would let a guest reset unrelated guests at will. */
+    if (ctx->state != PSA_FWU_STAGED || ctx->armed == 0u) {
+        return PSA_ERROR_BAD_STATE;
+    }
     /* The reset is a privileged platform op: hop through the FWU-pinned SVC
      * gate. On target a granted reboot does not return; anywhere the gate
      * lacks the platform op (host), report it unsupported. */
@@ -360,6 +365,10 @@ static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
         status = wt_fwu_start(ctx, req.component, req.version);
         break;
     case WT_FWU_OP_WRITE:
+        if (req.size != (uint32_t)(in_len - sizeof(req))) {
+            status = PSA_ERROR_INVALID_ARGUMENT;
+            break;
+        }
         status = wt_fwu_write(ctx, req.component, req.offset,
                               buffer + sizeof(req),
                               (uint32_t)(in_len - sizeof(req)));

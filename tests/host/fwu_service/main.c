@@ -430,6 +430,13 @@ static void test_ipc_round_trip(void)
     check(status == PSA_ERROR_BAD_STATE && mem.begin_calls == 0u,
           "WT-FWU-0003 IPC write before start is refused, nothing staged");
 
+    /* A reboot without an armed STAGED candidate must never reach the
+     * platform reset. */
+    status = fwu_call(&runtime, handle, WT_FWU_OP_REBOOT, 0u, 0u, 0u, NULL,
+                      0U, NULL, 0U);
+    check(status == PSA_ERROR_BAD_STATE,
+          "WT-FWU-0003 reboot from READY is refused");
+
     (void)memset(&info, 0, sizeof(info));
     status = fwu_call(&runtime, handle, WT_FWU_OP_QUERY, 0u, 0u, 0u, NULL, 0U,
                       &info, sizeof(info));
@@ -445,6 +452,18 @@ static void test_ipc_round_trip(void)
                       sizeof(blk0), NULL, 0U);
     check(status == PSA_SUCCESS,
           "WT-FWU-0002 IPC write stages the first block");
+    status = fwu_call(&runtime, handle, WT_FWU_OP_WRITE, 32u, 16u, 0u, blk1,
+                      sizeof(blk1), NULL, 0U);
+    check(status == PSA_ERROR_INVALID_ARGUMENT && mem.image[32] != 0x22,
+          "WT-FWU-0003 declared size below the vector tail is refused");
+    status = fwu_call(&runtime, handle, WT_FWU_OP_WRITE, 32u, 48u, 0u, blk1,
+                      sizeof(blk1), NULL, 0U);
+    check(status == PSA_ERROR_INVALID_ARGUMENT && mem.image[32] != 0x22,
+          "WT-FWU-0003 declared size above the vector tail is refused");
+    status = fwu_call(&runtime, handle, WT_FWU_OP_REBOOT, 0u, 0u, 0u, NULL,
+                      0U, NULL, 0U);
+    check(status == PSA_ERROR_BAD_STATE,
+          "WT-FWU-0003 reboot while WRITING is refused");
     status = fwu_call(&runtime, handle, WT_FWU_OP_WRITE, 32u, 32u, 0u, blk1,
                       sizeof(blk1), NULL, 0U);
     check(status == PSA_SUCCESS && mem.image[0] == 0x11 && mem.image[32] ==
