@@ -137,6 +137,10 @@ volatile uint32_t g_wt_svc_entry_rej_call __attribute__((used));
 volatile uint32_t g_wt_svc_entry_rej_psp __attribute__((used));
 volatile uint32_t g_wt_svc_entry_rej_why __attribute__((used));
 
+/* End of executable image code (secure.ld): the SP thread tables grant RX up
+ * to here and the rest of the image window read-only XN (WT-FFM-0010). */
+extern char _e_secure_text[];
+
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 /* Conformance-only hang tripwires: silent stalls on target are undebuggable,
  * so convert them into diag-trap register dumps. Activity is any SVC or
@@ -606,10 +610,13 @@ void wt_spm_svc_entry(uint32_t* frame)
     slot->wait_kind = WT_SPM_WAIT_NONE;
     status = wt_spm_gate(g_spm_svc_runtime, &slot->table, call);
     frame[0] = (uint32_t)status;
-    /* psa_irq_enable: the gate validated the signal against the manifest and
-     * resolved its interrupt number; the privileged controller unmask happens
-     * here where NVIC access is legal. */
-    if (call->op == WT_SPM_OP_IRQ_ENABLE && call->ret_int == WT_FFM_SUCCESS)
+    /* psa_irq_enable and psa_eoi: the gate validated the signal against the
+     * manifest and resolved its interrupt number; the privileged controller
+     * unmask happens here where NVIC access is legal. EOI must re-enable the
+     * line (FF-M 4.5.3) — the dispatch handler masked it before asserting the
+     * signal, so a level source cannot re-pend until the SP finishes. */
+    if ((call->op == WT_SPM_OP_IRQ_ENABLE || call->op == WT_SPM_OP_EOI) &&
+            call->ret_int == WT_FFM_SUCCESS)
         wt_platform_secure_irq_enable(call->ret_version);
     /* FF-M PROGRAMMER ERROR the SPM must panic the caller for. Conformance
      * resets (val resumes off its flash boot flag, P5 K3); production lands
@@ -1047,16 +1054,24 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
 
     slot = &g_spm_sp[g_spm_sp_count];
     slot->table.domain_id = g_spm_sp_domain.domain_id;
-    /* Thread-domain MPU table: shared whole-image RX (the manifest's 4K
-     * code window lies inside it and Armv8-M regions must not overlap —
-     * task #26 tracks narrowing) plus the domain's non-EXEC resources.
-     * Every scheduled SP is confined this way; no wide privileged table
-     * exists any more (WT-FFM-0011). */
+    /* Thread-domain MPU table: shared image code RX up to _e_secure_text
+     * (the manifest's 4K code window lies inside it and Armv8-M regions must
+     * not overlap — task #26 tracks per-partition narrowing), the remaining
+     * image window (constant data and the signed tail) read-only XN, plus the
+     * domain's non-EXEC resources. Every scheduled SP is confined this way;
+     * no wide privileged table exists any more (WT-FFM-0011/0010). NOTE: in
+     * conformance builds the Arm client SP uses exactly WT_MAX_MPU_REGIONS
+     * (2 flash + stack + 5 window grants) — a new fixed region needs a
+     * budget re-count. */
     slot->table.regions[0].base = WT_FLASH_S_BASE;
-    slot->table.regions[0].size = WT_FLASH_S_SIZE;
+    slot->table.regions[0].size = (uintptr_t)_e_secure_text - WT_FLASH_S_BASE;
     slot->table.regions[0].attributes = WT_MEM_ATTR_READ |
                                         WT_MEM_ATTR_EXEC;
-    region_count = 1u;
+    slot->table.regions[1].base = (uintptr_t)_e_secure_text;
+    slot->table.regions[1].size = WT_FLASH_S_BASE + WT_FLASH_S_SIZE -
+                                  (uintptr_t)_e_secure_text;
+    slot->table.regions[1].attributes = WT_MEM_ATTR_READ;
+    region_count = 2u;
     for (i = 0u; i < g_spm_sp_domain.region_count &&
             region_count < WT_MAX_MPU_REGIONS; i++) {
         if ((g_spm_sp_domain.regions[i].attributes & WT_MEM_ATTR_EXEC) ==

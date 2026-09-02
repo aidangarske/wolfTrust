@@ -224,6 +224,14 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
              * is a programmer error the SPM must panic the caller for (FF-M). */
             call->must_panic = 1U;
         }
+        else {
+            /* FF-M 4.5.3: psa_eoi re-enables the interrupt. Resolve the
+             * manifest-bound number here; the arch layer performs the
+             * privileged controller unmask on success (ret_version = irq),
+             * mirroring WT_SPM_OP_IRQ_ENABLE. */
+            ret = wt_ffm_irq_lookup(runtime, call->partition_id,
+                                    call->signal_mask, &call->ret_version);
+        }
         call->ret_int = ret;
         break;
     case WT_SPM_OP_IRQ_ENABLE:

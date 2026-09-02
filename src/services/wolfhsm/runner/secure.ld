@@ -91,13 +91,21 @@ SECTIONS {
 
   .text (WT_SECURE_FLASH_ORIGIN + WT_SECURE_IMAGE_HEADER_SIZE + 0x800) : {
     *(.text*)
+    *(.glue_7)
+    *(.glue_7t)
+    . = ALIGN(32);
+    _e_secure_text = .;
+  } > FLASH
+
+  /* Constant data is readable, never executable (WT-FFM-0010): the SP thread
+   * MPU tables grant [flash, _e_secure_text) RX and the rest of the image
+   * window read-only XN, so no partition can execute from constant data. */
+  .rodata : {
     . = ALIGN(4);
     KEEP(*(.wt_guest_meas))
     *(.rodata*)
     *(.ARM.extab* .gnu.linkonce.armextab.*)
     *(.ARM.exidx* .gnu.linkonce.armexidx.*)
-    *(.glue_7)
-    *(.glue_7t)
     *(.eh_frame)
   } > FLASH
 

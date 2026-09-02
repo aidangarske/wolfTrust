@@ -704,6 +704,19 @@ static void test_gate_irq_enable(void)
     EXPECT_INT(call.ret_version, 42);
     EXPECT_INT(call.must_panic, 0);
 
+    /* psa_eoi must re-enable the interrupt (FF-M 4.5.3): a successful EOI
+     * resolves the same manifest line so the arch layer can unmask it. */
+    EXPECT_INT(wt_ffm_assert_signal(&runtime, TEST_PARTITION_ID,
+                                    TEST_IRQ_SIGNAL), WT_FFM_SUCCESS);
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_EOI;
+    call.partition_id = TEST_PARTITION_ID;
+    call.signal_mask = TEST_IRQ_SIGNAL;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_version, 42);
+    EXPECT_INT(call.must_panic, 0);
+
     /* psa_irq_enable on a non-interrupt signal is a programmer error. */
     (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_IRQ_ENABLE;
