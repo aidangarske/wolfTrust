@@ -537,7 +537,9 @@ def validate_policy(manifest, supported_features, word_max):
                 policy_error("service identity is duplicated")
             if service["sid"] == 0 or service["version"] == 0:
                 policy_error("service identity or version is invalid")
-            if service["version_policy"] not in (0, 1, 2):
+            # FF-M defines exactly STRICT (0) and RELAXED (1); the IR's
+            # UNSPECIFIED (2) accept-any policy is not generatable.
+            if service["version_policy"] not in (0, 1):
                 policy_error("service version policy is invalid")
             if framework == 0x100 and not service["connection_based"]:
                 policy_error("FF-M 1.0 service must be connection based")

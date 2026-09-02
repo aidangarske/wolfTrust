@@ -179,6 +179,18 @@ class GeneratorTest(unittest.TestCase):
             result = self.run_generator(source, root / "output", "0x7")
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_unspecified_version_policy_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "policy.json"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["partitions"][0]["services"][0]["version_policy"] = 2
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_generator(source, root / "output")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("version policy", result.stderr)
+
     def test_dependency_cycle_is_rejected_before_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

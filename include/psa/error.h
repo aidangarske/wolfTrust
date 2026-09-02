@@ -23,9 +23,12 @@
 
 #include <stdint.h>
 
+/* PSA Status Code API 1.0 2.2.1: the shared status contract is guarded on
+ * PSA_SUCCESS so independently supplied conforming PSA headers coexist. */
+#ifndef PSA_SUCCESS
 typedef int32_t psa_status_t;
-
 #define PSA_SUCCESS                    ((psa_status_t)0)
+#endif
 #define PSA_ERROR_PROGRAMMER_ERROR     ((psa_status_t)-129)
 #define PSA_ERROR_CONNECTION_REFUSED  ((psa_status_t)-130)
 #define PSA_ERROR_CONNECTION_BUSY     ((psa_status_t)-131)
