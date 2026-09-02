@@ -119,6 +119,8 @@ psa_status_t wt_fwu_write(wt_fwu_service_ctx_t* ctx, uint32_t component,
 
 psa_status_t wt_fwu_finish(wt_fwu_service_ctx_t* ctx, uint32_t component)
 {
+    uint32_t header_version = 0u;
+
     if (ctx == NULL || ctx->backend == NULL) {
         return PSA_ERROR_BAD_STATE;
     }
@@ -135,6 +137,22 @@ psa_status_t wt_fwu_finish(wt_fwu_service_ctx_t* ctx, uint32_t component)
         ctx->state = PSA_FWU_FAILED;
         ctx->error = PSA_ERROR_NOT_PERMITTED;
         return PSA_ERROR_NOT_PERMITTED;
+    }
+    /* Bind the candidate to the staged bytes: a malformed image or a header
+     * version that contradicts the declared one never becomes CANDIDATE, so
+     * the pre-arm rollback check runs against authenticated-header data. */
+    if (ctx->backend->verify != NULL) {
+        if (ctx->backend->verify(ctx->backend_ctx, ctx->write_high,
+                                 &header_version) != 0) {
+            ctx->state = PSA_FWU_FAILED;
+            ctx->error = PSA_ERROR_INVALID_ARGUMENT;
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
+        if (header_version != ctx->candidate_version) {
+            ctx->state = PSA_FWU_FAILED;
+            ctx->error = PSA_ERROR_NOT_PERMITTED;
+            return PSA_ERROR_NOT_PERMITTED;
+        }
     }
     ctx->state = PSA_FWU_CANDIDATE;
     return PSA_SUCCESS;

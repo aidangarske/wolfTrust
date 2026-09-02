@@ -790,6 +790,63 @@ static int wt_fwu_backend_disarm(void *ctx)
     return 0;
 }
 
+/* wolfBoot image header size for this port (staged images carry it). */
+#define WT_FWU_IMAGE_HEADER_SIZE 0x400u
+#define WT_FWU_IMAGE_MAGIC 0x464C4F57u
+#define WT_FWU_HDR_TAG_VERSION 0x0001u
+
+static int wt_fwu_backend_verify(void *ctx, uint32_t staged_size,
+                                 uint32_t *header_version)
+{
+    const uint8_t *hdr = (const uint8_t *)g_fwu_flash_cfg.base;
+    uint32_t magic;
+    uint32_t fw_size;
+    uint32_t version = 0u;
+    uint32_t offset = 8u;
+    uint32_t tag;
+    uint32_t len;
+    int found = 0;
+
+    (void)ctx;
+    if (header_version == NULL ||
+            staged_size < WT_FWU_IMAGE_HEADER_SIZE) {
+        return -1;
+    }
+    memcpy(&magic, hdr, sizeof(magic));
+    memcpy(&fw_size, hdr + 4u, sizeof(fw_size));
+    if (magic != WT_FWU_IMAGE_MAGIC) {
+        return -1;
+    }
+    /* The staged extent must cover the header plus the declared payload. */
+    if (fw_size > staged_size - WT_FWU_IMAGE_HEADER_SIZE) {
+        return -1;
+    }
+    while (offset + 4u <= WT_FWU_IMAGE_HEADER_SIZE) {
+        if (hdr[offset] == 0xFFu) {
+            offset++;
+            continue;
+        }
+        tag = (uint32_t)hdr[offset] | ((uint32_t)hdr[offset + 1u] << 8);
+        len = (uint32_t)hdr[offset + 2u] | ((uint32_t)hdr[offset + 3u] << 8);
+        if (tag == 0u) {
+            break;
+        }
+        if (offset + 4u + len > WT_FWU_IMAGE_HEADER_SIZE) {
+            return -1;
+        }
+        if (tag == WT_FWU_HDR_TAG_VERSION && len == sizeof(version)) {
+            memcpy(&version, hdr + offset + 4u, sizeof(version));
+            found = 1;
+        }
+        offset += 4u + len;
+    }
+    if (found == 0) {
+        return -1;
+    }
+    *header_version = version;
+    return 0;
+}
+
 const wt_fwu_backend_t wt_fwu_flash_backend = {
     .begin = wt_fwu_backend_begin,
     .write = wt_fwu_backend_write,
@@ -798,6 +855,7 @@ const wt_fwu_backend_t wt_fwu_flash_backend = {
     /* The trailer sector is arm/disarm-owned, never staging capacity. */
     .capacity = WT_FWU_UPDATE_FLASH_SIZE - WT_FLASH_SECTOR_SIZE,
     .align = 16u,
+    .verify = wt_fwu_backend_verify,
 };
 
 #if defined(WT_REMEASURE_PROBE)

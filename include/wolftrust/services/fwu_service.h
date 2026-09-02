@@ -84,6 +84,10 @@ typedef struct wt_fwu_backend {
     int (*disarm)(void* ctx);
     uint32_t capacity;
     uint32_t align;
+    /* Validates the staged bytes before CANDIDATE: full header coverage and
+     * a parseable wolfBoot image header, returning the header's version so
+     * the state machine can bind it to the caller-declared candidate. */
+    int (*verify)(void* ctx, uint32_t staged_size, uint32_t* header_version);
 } wt_fwu_backend_t;
 
 /* Per-loop dispatch context, built on the Secure Partition's own stack and

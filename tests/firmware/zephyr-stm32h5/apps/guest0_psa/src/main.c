@@ -1147,8 +1147,9 @@ static void exercise_ffm_fwu(void)
 	struct tee_invoke_func_arg arg;
 	struct tee_param param[2];
 	struct wt_fwu_probe_req req;
-	uint8_t writebuf[16 + 32];
+	uint8_t writebuf[16 + 512];
 	uint32_t info[8];
+	uint32_t word;
 	int ok = 1;
 	int32_t handle;
 	int32_t st;
@@ -1195,11 +1196,24 @@ static void exercise_ffm_fwu(void)
 		ok = 0;
 	}
 
+	/* Stage a minimal valid wolfBoot image: the 0x400 header carries the
+	 * magic, the payload size, and a version TLV matching the declared
+	 * candidate; FINISH parses it, so junk bytes no longer stage. */
 	memset(&req, 0, sizeof(req));
 	req.offset = 0u;
-	req.size = 32u;
+	req.size = 512u;
 	memcpy(writebuf, &req, sizeof(req));
-	memset(writebuf + 16, 0x11, 32u);
+	memset(writebuf + 16, 0xFF, 512u);
+	word = 0x464C4F57u; /* "WOLF" */
+	memcpy(writebuf + 16, &word, 4u);
+	word = 32u; /* payload size */
+	memcpy(writebuf + 20, &word, 4u);
+	writebuf[24] = 0x01u; /* version TLV: tag 1, len 4, value 7 */
+	writebuf[25] = 0x00u;
+	writebuf[26] = 0x04u;
+	writebuf[27] = 0x00u;
+	word = 7u;
+	memcpy(writebuf + 28, &word, 4u);
 	st = wt_fwu_probe_call(tee, handle, WT_FWU_OP_WRITE, writebuf,
 			       sizeof(writebuf), NULL, 0u);
 	if (st != 0) {
@@ -1207,13 +1221,25 @@ static void exercise_ffm_fwu(void)
 		ok = 0;
 	}
 
-	req.offset = 32u;
+	req.offset = 512u;
 	memcpy(writebuf, &req, sizeof(req));
-	memset(writebuf + 16, 0x22, 32u);
+	memset(writebuf + 16, 0xFF, 512u);
 	st = wt_fwu_probe_call(tee, handle, WT_FWU_OP_WRITE, writebuf,
 			       sizeof(writebuf), NULL, 0u);
 	if (st != 0) {
 		LOG_ERR("wolfTrust FWU write#1 failed st=%d", st);
+		ok = 0;
+	}
+
+	memset(&req, 0, sizeof(req));
+	req.offset = 1024u;
+	req.size = 32u;
+	memcpy(writebuf, &req, sizeof(req));
+	memset(writebuf + 16, 0x22, 32u);
+	st = wt_fwu_probe_call(tee, handle, WT_FWU_OP_WRITE, writebuf,
+			       16u + 32u, NULL, 0u);
+	if (st != 0) {
+		LOG_ERR("wolfTrust FWU write#2 failed st=%d", st);
 		ok = 0;
 	}
 
@@ -1244,8 +1270,8 @@ static void exercise_ffm_fwu(void)
 	}
 
 	if (ok) {
-		LOG_INF("wolfTrust FWU staged 64 bytes to update partition, "
-			"armed, verified");
+		LOG_INF("wolfTrust FWU staged signed-header candidate to update "
+			"partition, armed, verified");
 	}
 
 	/* PSA FWU 1.0 lifecycle tail: reject disarms the staged swap and

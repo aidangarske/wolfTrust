@@ -60,8 +60,10 @@ typedef struct mock_backend {
     uint32_t armed;
     uint32_t armed_size;
     uint32_t armed_version;
+    uint32_t header_version;
     int fail_write;
     int fail_arm;
+    int fail_verify;
 } mock_backend_t;
 
 static int mock_begin(void* ctx)
@@ -106,6 +108,19 @@ static int mock_disarm(void* ctx)
     mock_backend_t* b = (mock_backend_t*)ctx;
 
     b->armed = 0u;
+    return 0;
+}
+
+static int mock_verify(void* ctx, uint32_t staged_size,
+                       uint32_t* header_version)
+{
+    mock_backend_t* b = (mock_backend_t*)ctx;
+
+    (void)staged_size;
+    if (b->fail_verify) {
+        return -1;
+    }
+    *header_version = b->header_version;
     return 0;
 }
 
@@ -524,11 +539,64 @@ static void test_wolfboot_arm_trailer(void)
           "WT-FWU-0002 arm-trailer rejects an undersized block");
 }
 
+/* WT-FWU-0003: FINISH binds the declared candidate version to the staged
+ * header and refuses a malformed or contradicting candidate before arm. */
+static void test_staged_header_binding(void)
+{
+    wt_fwu_backend_t backend;
+    mock_backend_t mem;
+    wt_fwu_service_ctx_t ctx;
+    uint8_t block[32];
+
+    (void)memset(block, 0x5A, sizeof(block));
+    mock_backend_init(&backend, &mem);
+    backend.verify = mock_verify;
+    ctx_init(&ctx, &backend, &mem, 3u);
+
+    /* Header version below the declared one: refused, FAILED, never armed. */
+    mem.header_version = 4u;
+    check(wt_fwu_start(&ctx, WT_FWU_COMPONENT_PRIMARY, 5u) == PSA_SUCCESS,
+          "WT-FWU-0003 binding: start accepts version 5");
+    check(wt_fwu_write(&ctx, WT_FWU_COMPONENT_PRIMARY, 0u, block,
+              sizeof(block)) == PSA_SUCCESS,
+          "WT-FWU-0003 binding: block stages");
+    check(wt_fwu_finish(&ctx, WT_FWU_COMPONENT_PRIMARY) ==
+              PSA_ERROR_NOT_PERMITTED && ctx.state == PSA_FWU_FAILED &&
+              mem.armed == 0u,
+          "WT-FWU-0003 header version contradicting the declared one fails");
+    check(wt_fwu_clean(&ctx, WT_FWU_COMPONENT_PRIMARY) == PSA_SUCCESS,
+          "WT-FWU-0003 binding: clean recovers");
+
+    /* An unparseable staged image never becomes CANDIDATE. */
+    mem.fail_verify = 1;
+    check(wt_fwu_start(&ctx, WT_FWU_COMPONENT_PRIMARY, 5u) == PSA_SUCCESS &&
+              wt_fwu_write(&ctx, WT_FWU_COMPONENT_PRIMARY, 0u, block,
+                  sizeof(block)) == PSA_SUCCESS &&
+              wt_fwu_finish(&ctx, WT_FWU_COMPONENT_PRIMARY) ==
+                  PSA_ERROR_INVALID_ARGUMENT &&
+              ctx.state == PSA_FWU_FAILED && mem.armed == 0u,
+          "WT-FWU-0003 malformed staged image fails FINISH");
+    check(wt_fwu_clean(&ctx, WT_FWU_COMPONENT_PRIMARY) == PSA_SUCCESS,
+          "WT-FWU-0003 binding: clean recovers again");
+
+    /* A matching header version proceeds to CANDIDATE and arms. */
+    mem.fail_verify = 0;
+    mem.header_version = 5u;
+    check(wt_fwu_start(&ctx, WT_FWU_COMPONENT_PRIMARY, 5u) == PSA_SUCCESS &&
+              wt_fwu_write(&ctx, WT_FWU_COMPONENT_PRIMARY, 0u, block,
+                  sizeof(block)) == PSA_SUCCESS &&
+              wt_fwu_finish(&ctx, WT_FWU_COMPONENT_PRIMARY) == PSA_SUCCESS &&
+              wt_fwu_install(&ctx) == PSA_SUCCESS_REBOOT &&
+              mem.armed == 1u && mem.armed_version == 5u,
+          "WT-FWU-0003 matching header version stages and arms");
+}
+
 int main(void)
 {
     test_state_machine();
     test_ipc_round_trip();
     test_wolfboot_arm_trailer();
+    test_staged_header_binding();
 
     if (g_failures == 0) {
         (void)printf("SERVICE_FWU host suite: all checks passed\n");

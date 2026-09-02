@@ -262,7 +262,7 @@ static int fwu_mock_disarm(void* ctx)
 
 static const wt_fwu_backend_t g_fwu_backend = {
     fwu_mock_begin, fwu_mock_write, fwu_mock_arm, fwu_mock_disarm,
-    4096U, 16U
+    4096U, 16U, NULL
 };
 
 static wt_fwu_service_ctx_t g_fwu_ctx;

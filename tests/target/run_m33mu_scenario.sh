@@ -735,7 +735,7 @@ case "$scenario" in
     expect_flat "write before start refused on target (WT-FWU-0003)" \
       "wolfTrust FWU write-before-start refused"
     expect_flat "candidate staged to the update partition and armed (WT-FWU-0002)" \
-      "wolfTrust FWU staged 64 bytes to update partition, armed, verified"
+      "wolfTrust FWU staged signed-header candidate to update partition, armed, verified"
     expect_flat "reject disarms and clean restores READY (WT-FWU-0003)" \
       "wolfTrust FWU reject disarmed and clean restored READY"
     expect_flat "unrelated storage partitions unaffected" \
