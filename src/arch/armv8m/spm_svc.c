@@ -474,6 +474,14 @@ void wt_spm_svc_entry(uint32_t* frame)
             /* psa_fwu_request_reboot: the granted reset does not return. */
             wt_platform_system_reset();
         }
+        else if (call->call_type == WT_SPM_FWU_FLOOR) {
+            uint32_t fwu_floor = 0u;
+
+            if (wt_hsm_rollback_image_floor(&fwu_floor) == 0) {
+                call->ret_version = fwu_floor;
+                fwu_ret = 0;
+            }
+        }
         call->ret_int = fwu_ret;
         frame[0] = (uint32_t)WT_FFM_SUCCESS;
         return;
@@ -1441,6 +1449,21 @@ static int wt_spm_fwu_gate_disarm(void* ctx)
     return wt_spm_fwu_gate_op(WT_SPM_FWU_DISARM, 0u, NULL, 0u, 0u);
 }
 
+static int wt_spm_fwu_gate_floor(uint32_t* floor)
+{
+    wt_spm_call_t call;
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_FWU_BACKEND;
+    call.call_type = WT_SPM_FWU_FLOOR;
+    if (wt_spm_svc_transport(NULL, &call) != WT_FFM_SUCCESS ||
+            call.ret_int != 0) {
+        return -1;
+    }
+    *floor = call.ret_version;
+    return 0;
+}
+
 /* The Firmware Update partition (WT-FWU-0001/0002): a confined scheduled SP.
  * Context and the gate backend live on its own stack; capacity/align mirror
  * the port flash backend (rodata, readable from the confined domain). */
@@ -1449,6 +1472,7 @@ static void wt_spm_fwu_entry(void* arg)
     int32_t partition_id = (int32_t)(intptr_t)arg;
     wt_fwu_service_ctx_t ctx;
     wt_fwu_backend_t backend;
+    uint32_t version_floor = 0u;
 
     (void)memset(&backend, 0, sizeof(backend));
     backend.begin = wt_spm_fwu_gate_begin;
@@ -1458,11 +1482,18 @@ static void wt_spm_fwu_entry(void* arg)
     backend.capacity = wt_fwu_flash_backend.capacity;
     backend.align = wt_fwu_flash_backend.align;
 
+    /* WT-FWU-0003: staging enforces the persisted monotonic floor. An
+     * unreadable floor proves nothing, so it fails closed by refusing
+     * every candidate until a restart can read it. */
+    if (wt_spm_fwu_gate_floor(&version_floor) != 0) {
+        version_floor = 0xFFFFFFFFu;
+    }
+
     (void)memset(&ctx, 0, sizeof(ctx));
     ctx.transport = wt_spm_svc_transport;
     ctx.backend = &backend;
     ctx.backend_ctx = NULL;
-    ctx.version_floor = 0u;
+    ctx.version_floor = version_floor;
     ctx.state = PSA_FWU_READY;
 
     for (;;) {

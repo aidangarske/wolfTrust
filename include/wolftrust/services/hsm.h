@@ -52,6 +52,11 @@ void wt_hsm_set_boot_lifecycle(uint32_t lifecycle);
  * accepted boot advances the floors. Returns 0 or WT_ROLLBACK_REFUSED. */
 int wt_hsm_rollback_enforce(uint32_t image_version);
 
+/* Effective image staging floor for SERVICE_FWU: the persisted monotonic
+ * floor, or zero in the unlocked provisioning lifecycles. Nonzero on an
+ * unreadable table so the caller can fail closed. */
+int wt_hsm_rollback_image_floor(uint32_t* floor);
+
 /* 1 if a foreign/corrupt vault was reformatted this boot (observability). */
 int wt_hsm_vault_was_reformatted(void);
 

@@ -301,6 +301,22 @@ int wt_hsm_rollback_enforce(uint32_t image_version)
     return WT_ROLLBACK_OK;
 }
 
+int wt_hsm_rollback_image_floor(uint32_t* floor)
+{
+    wt_rollback_table_t table;
+
+    if (floor == NULL) {
+        return -1;
+    }
+    if (wt_hsm_rollback_load(&table) != 0) {
+        return -1;
+    }
+    /* The unlocked provisioning lifecycles bypass refusal at boot; the
+     * staging floor mirrors that so development flows are never bricked. */
+    *floor = wt_hsm_reformat_allowed() ? 0U : table.image_floor;
+    return 0;
+}
+
 /* -------------------------------------------------------------------------
  * Forward declaration — tasklet body defined below.
  * ---------------------------------------------------------------------- */
