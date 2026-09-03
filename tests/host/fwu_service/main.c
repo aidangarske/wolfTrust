@@ -144,6 +144,7 @@ static void ctx_init(wt_fwu_service_ctx_t* ctx, const wt_fwu_backend_t* backend,
     ctx->backend = backend;
     ctx->backend_ctx = mem;
     ctx->version_floor = floor;
+    ctx->active_version = 2u;
     ctx->state = PSA_FWU_READY;
 }
 
@@ -221,8 +222,8 @@ static void test_state_machine(void)
           "WT-FWU-0002 finish moves the candidate to CANDIDATE");
     check(wt_fwu_query(&ctx, WT_FWU_COMPONENT_PRIMARY, &info) == PSA_SUCCESS &&
               info.state == PSA_FWU_CANDIDATE &&
-              info.impl.staged_size == 64u && info.version.build == 5u,
-          "WT-FWU-0001 query reports the CANDIDATE and staged size");
+              info.impl.staged_size == 64u && info.version.build == 2u,
+          "WT-FWU-0001 query keeps the active image version public");
 
     st = wt_fwu_install(&ctx);
     check(st == PSA_SUCCESS_REBOOT && ctx.state == PSA_FWU_STAGED &&

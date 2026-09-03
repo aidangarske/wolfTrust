@@ -78,6 +78,7 @@ typedef enum wt_spm_op {
 #define WT_SPM_FWU_REBOOT 4
 #define WT_SPM_FWU_FLOOR  5
 #define WT_SPM_FWU_VERIFY 6
+#define WT_SPM_FWU_ACTIVE 7
 
 /* WT_SPM_OP_KEYSTORE_FLASH sub-operations, carried in call_type. Only the
  * callbacks that touch the flash controller trap; pure in-band bookkeeping

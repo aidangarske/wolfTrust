@@ -227,6 +227,13 @@ static int wt_hsm_rollback_store(const wt_rollback_table_t* table)
     return (rc == WH_ERROR_OK) ? 0 : -1;
 }
 
+static uint32_t g_active_image_version;
+
+uint32_t wt_hsm_active_image_version(void)
+{
+    return g_active_image_version;
+}
+
 int wt_hsm_rollback_enforce(uint32_t image_version)
 {
     wt_rollback_table_t table;
@@ -237,6 +244,7 @@ int wt_hsm_rollback_enforce(uint32_t image_version)
     int refused_platform = 0;
     int changed = 0;
 
+    g_active_image_version = image_version;
     guest_count = wt_monitor_state()->guest_count;
 
     if (wt_hsm_rollback_load(&table) != 0) {

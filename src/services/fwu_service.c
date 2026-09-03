@@ -283,8 +283,10 @@ psa_status_t wt_fwu_query(wt_fwu_service_ctx_t* ctx, uint32_t component,
     (void)memset(info, 0, sizeof(*info));
     info->state = (uint8_t)ctx->state;
     info->error = (ctx->state == PSA_FWU_FAILED) ? ctx->error : PSA_SUCCESS;
-    /* wolfBoot versions are one monotonic word; carried in build. */
-    info->version.build = ctx->candidate_version;
+    /* wolfBoot versions are one monotonic word, carried in build. The public
+     * field is the ACTIVE image version (PSA FWU 1.0 defines no candidate
+     * slot); the declared candidate stays private in the service context. */
+    info->version.build = ctx->active_version;
     info->max_size = ctx->backend->capacity;
     info->impl.staged_size = ctx->write_high;
     return PSA_SUCCESS;

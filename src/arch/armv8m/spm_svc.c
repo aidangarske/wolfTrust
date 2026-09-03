@@ -487,6 +487,10 @@ void wt_spm_svc_entry(uint32_t* frame)
                 call->ret_version = staged_version;
             }
         }
+        else if (call->call_type == WT_SPM_FWU_ACTIVE) {
+            call->ret_version = wt_hsm_active_image_version();
+            fwu_ret = 0;
+        }
         call->ret_int = fwu_ret;
         frame[0] = (uint32_t)WT_FFM_SUCCESS;
         return;
@@ -1493,6 +1497,20 @@ static int wt_spm_fwu_gate_verify(void* ctx, uint32_t staged_size,
     return 0;
 }
 
+static uint32_t wt_spm_fwu_gate_active(void)
+{
+    wt_spm_call_t call;
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_FWU_BACKEND;
+    call.call_type = WT_SPM_FWU_ACTIVE;
+    if (wt_spm_svc_transport(NULL, &call) != WT_FFM_SUCCESS ||
+            call.ret_int != 0) {
+        return 0u;
+    }
+    return call.ret_version;
+}
+
 /* The Firmware Update partition (WT-FWU-0001/0002): a confined scheduled SP.
  * Context and the gate backend live on its own stack; capacity/align mirror
  * the port flash backend (rodata, readable from the confined domain). */
@@ -1524,6 +1542,7 @@ static void wt_spm_fwu_entry(void* arg)
     ctx.backend = &backend;
     ctx.backend_ctx = NULL;
     ctx.version_floor = version_floor;
+    ctx.active_version = wt_spm_fwu_gate_active();
     ctx.state = PSA_FWU_READY;
 
     for (;;) {

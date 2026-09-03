@@ -353,6 +353,7 @@ int main(void)
     g_fwu_ctx.backend = &g_fwu_backend;
     g_fwu_ctx.backend_ctx = &g_fwu_mock;
     g_fwu_ctx.version_floor = 3U;
+    g_fwu_ctx.active_version = 4U;
     check(wt_ffm_register_partition(wt_ffm_boot_runtime_mut(),
                                     TEST_FWU_PARTITION,
                                     wt_fwu_service_dispatch,
@@ -373,7 +374,7 @@ int main(void)
           "WT-FWU-0002 psa_fwu_finish completes the candidate");
     check(psa_fwu_query(0U, &fwu_info) == PSA_SUCCESS &&
               fwu_info.state == PSA_FWU_CANDIDATE &&
-              fwu_info.version.build == 5U &&
+              fwu_info.version.build == 4U &&
               fwu_info.impl.staged_size == sizeof(fwu_block),
           "WT-FWU-0001 query reports CANDIDATE, version, and staged size");
     check(psa_fwu_install() == PSA_SUCCESS_REBOOT && g_fwu_mock.armed == 1U,

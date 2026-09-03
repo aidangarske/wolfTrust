@@ -57,6 +57,10 @@ int wt_hsm_rollback_enforce(uint32_t image_version);
  * unreadable table so the caller can fail closed. */
 int wt_hsm_rollback_image_floor(uint32_t* floor);
 
+/* Running image version recorded at boot enforcement; SERVICE_FWU reports
+ * it as the public active version. */
+uint32_t wt_hsm_active_image_version(void);
+
 /* 1 if a foreign/corrupt vault was reformatted this boot (observability). */
 int wt_hsm_vault_was_reformatted(void);
 
