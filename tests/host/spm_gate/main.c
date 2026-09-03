@@ -1049,6 +1049,17 @@ static void test_gate_server_misuse_panic_class(void)
     EXPECT_INT(call.ret_int, WT_FFM_ERROR_ARGUMENT);
     EXPECT_INT((int)call.must_panic, 1);
 
+    /* A valid signal mixed with an unassigned bit must not launder it. */
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_WAIT;
+    call.partition_id = I063_SERVER_ID;
+    call.signal_mask = PSA_DOORBELL | 0x80000000U;
+    call.asserted = (psa_signal_t*)&ns_msg;
+    call.timeout = PSA_POLL;
+    EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_ARGUMENT);
+    EXPECT_INT((int)call.must_panic, 1);
+
     (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_NOTIFY;
     call.partition_id = I063_SERVER_ID;

@@ -583,10 +583,11 @@ static void test_wait_signal_mask(void)
                            TEST_SERVICE_SIGNAL, &asserted),
                WT_FFM_ERROR_ARGUMENT);
 
+    /* A valid doorbell bit must not launder another partition's signal in
+     * the same mask: any unassigned bit fails the whole wait. */
     EXPECT_INT(wt_ffm_wait(&runtime, TEST_CLIENT_PARTITION,
                            PSA_DOORBELL | TEST_SERVICE_SIGNAL, &asserted),
-               WT_FFM_SUCCESS);
-    EXPECT_INT(asserted, PSA_DOORBELL);
+               WT_FFM_ERROR_ARGUMENT);
 
     EXPECT_INT(wt_ffm_wait(&runtime, TEST_CLIENT_PARTITION, PSA_DOORBELL,
                            &asserted), WT_FFM_SUCCESS);

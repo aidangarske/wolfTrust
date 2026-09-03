@@ -1147,10 +1147,16 @@ int wt_ffm_wait(wt_ffm_runtime_t* runtime, int32_t partition_id,
     if (wt_ffm_find_partition(runtime, partition_id, &partition_index) !=
             WT_FFM_SUCCESS)
         return WT_FFM_ERROR_POLICY;
+    if (signal_mask != PSA_WAIT_ANY &&
+            (signal_mask & ~wt_ffm_partition_signal_set(runtime,
+                partition_index)) != 0U) {
+        /* FF-M: any explicit mask bit outside the partition's assignable
+         * signals is a PROGRAMMER ERROR (i062) — a valid bit mixed in must
+         * not launder the unassigned one; PSA_WAIT_ANY stays permitted. */
+        return WT_FFM_ERROR_ARGUMENT;
+    }
     if ((signal_mask & wt_ffm_partition_signal_set(runtime,
             partition_index)) == 0U) {
-        /* FF-M: a mask selecting none of the partition's assignable signals
-         * is a PROGRAMMER ERROR (i062); PSA_WAIT_ANY always intersects. */
         return WT_FFM_ERROR_ARGUMENT;
     }
     *asserted = runtime->partitions[partition_index].asserted_signals &
