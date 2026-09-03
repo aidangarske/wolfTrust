@@ -45,6 +45,7 @@ typedef struct test_context {
     unsigned int panics;
     int reject_write;
     int reply_programmer_error;
+    int refuse_dispatch;
 } test_context_t;
 
 static unsigned int g_checks;
@@ -186,6 +187,10 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     size_t length;
 
     test->dispatches++;
+    if (test->refuse_dispatch) {
+        /* A masked or busy partition leaves the message queued. */
+        return WT_FFM_ERROR_NOT_READY;
+    }
     EXPECT_INT(partition_id, TEST_PARTITION_ID);
     EXPECT_INT(wt_ffm_wait(runtime, partition_id, PSA_WAIT_ANY, &asserted),
                WT_FFM_SUCCESS);
@@ -910,11 +915,48 @@ static void test_predispatch_error_drops_connection(void)
                  "connection\n");
 }
 
+/* WT-FFM-0014: a dispatch the partition refuses must unlink the queued
+ * message before its slot is released, so the slot cannot alias the next
+ * request and the service serves normally once the partition accepts. */
+static void test_refused_dispatch_queue_consistency(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    uint8_t request[3] = { 'a', 'b', 'c' };
+    psa_invec input = { request, sizeof(request) };
+    uint8_t response[2] = { 0U, 0U };
+    psa_outvec output = { response, sizeof(response) };
+    psa_handle_t handle;
+
+    test_init(&runtime, &context);
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+
+    context.refuse_dispatch = 1;
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U),
+               PSA_ERROR_GENERIC_ERROR);
+    context.refuse_dispatch = 0;
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle), WT_FFM_SUCCESS);
+
+    /* A fresh connection on a fresh slot must serve cleanly: the refused
+     * message left no stale queue reference behind. */
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U), PSA_SUCCESS);
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle), WT_FFM_SUCCESS);
+
+    (void)printf("PASS: WT-FFM-0014 refused dispatch leaves the service "
+                 "queue consistent\n");
+}
+
 int main(void)
 {
     test_arguments();
     test_error_latch_and_omitted_write();
     test_predispatch_error_drops_connection();
+    test_refused_dispatch_queue_consistency();
     test_doorbell_signal();
     test_eoi_signal();
     test_irq_route_and_assert();

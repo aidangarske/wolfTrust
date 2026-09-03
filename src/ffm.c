@@ -307,6 +307,35 @@ static void wt_ffm_enqueue(wt_ffm_runtime_t* runtime, uint16_t service_index,
     wt_ffm_update_service_signal(runtime, service_index);
 }
 
+/* Unlink an undelivered message from its service queue so its slot can be
+ * released: a released-but-still-queued slot would alias the next request
+ * that reuses it (a dispatch refusal must not corrupt the queue). */
+static void wt_ffm_dequeue_message(wt_ffm_runtime_t* runtime,
+                                   uint16_t service_index,
+                                   uint16_t message_index)
+{
+    wt_ffm_service_runtime_t* service = &runtime->services[service_index];
+    uint16_t current = service->queue_head;
+    uint16_t previous = WT_FFM_QUEUE_NONE;
+
+    while (current != WT_FFM_QUEUE_NONE) {
+        if (current == message_index) {
+            if (previous == WT_FFM_QUEUE_NONE)
+                service->queue_head = runtime->messages[current].next;
+            else
+                runtime->messages[previous].next =
+                    runtime->messages[current].next;
+            if (service->queue_tail == current)
+                service->queue_tail = previous;
+            runtime->messages[current].next = WT_FFM_QUEUE_NONE;
+            break;
+        }
+        previous = current;
+        current = runtime->messages[current].next;
+    }
+    wt_ffm_update_service_signal(runtime, service_index);
+}
+
 /* SWD-readable record of the last refused client vector: (kind<<28) |
  * (index<<24) | (caller low byte<<16) | length low 16; kind 1=in policy,
  * 2=out policy, 3=transfer cap. Forensics for silicon-only refusals. */
@@ -692,6 +721,8 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
     ret = wt_ffm_dispatch_message(runtime, message_index);
     if (ret != WT_FFM_SUCCESS) {
         connection->state = WT_IPC_CONNECTION_ERROR;
+        wt_ffm_dequeue_message(runtime, connection->service_index,
+                               message_index);
         wt_ffm_release_message(runtime, message_index);
         return PSA_ERROR_GENERIC_ERROR;
     }
@@ -777,6 +808,10 @@ int wt_ffm_close(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
     message->type = PSA_IPC_DISCONNECT;
     wt_ffm_enqueue(runtime, connection->service_index, message_index);
     ret = wt_ffm_dispatch_message(runtime, message_index);
+    if (ret != WT_FFM_SUCCESS) {
+        wt_ffm_dequeue_message(runtime, connection->service_index,
+                               message_index);
+    }
     wt_ffm_release_message(runtime, message_index);
     if (ret == WT_FFM_SUCCESS)
         wt_ffm_release_connection(runtime, connection_index);
