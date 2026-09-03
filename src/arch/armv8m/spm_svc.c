@@ -1589,10 +1589,14 @@ static void wt_spm_vnet_entry(void* arg)
         __asm volatile("udf #4");
     }
 #endif
-    /* The fault scrub zeroes the RESTART_CLEAR data band, so every entry
-     * (first schedule and each restart) rebuilds the switch state in place;
-     * the relay's switch pointer is unchanged by the in-place rebuild. */
+    /* The fault scrub zeroes the RESTART_CLEAR data band, which holds both the
+     * switch state AND the relay's own wiring pointers (g_vnet_sw, transport).
+     * So every entry (first schedule and each restart) rebuilds the switch and
+     * re-establishes the wiring before serving — a restart that only rebuilt
+     * the switch would dispatch through a zeroed transport/switch pointer. */
     wt_vnet_service_init_state();
+    wt_vnet_relay_set_transport(wt_spm_svc_transport);
+    wt_vnet_relay_set_switch(wt_vnet_service_switch());
     for (;;) {
         (void)wt_vnet_relay_dispatch(NULL, NULL, partition_id);
     }
@@ -1600,8 +1604,6 @@ static void wt_spm_vnet_entry(void* arg)
 
 int wt_spm_vnet_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
-    wt_vnet_relay_set_transport(wt_spm_svc_transport);
-    wt_vnet_relay_set_switch(wt_vnet_service_switch());
     return wt_spm_sched_add(runtime, partition_id, wt_spm_vnet_entry,
                             (void*)(intptr_t)partition_id);
 }
