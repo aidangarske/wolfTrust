@@ -41,7 +41,8 @@
 
 static const wt_memory_resource_t sp1_memory[2] = {
     {SP1_FLASH_BASE, SP1_FLASH_SIZE, WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC, 0U},
-    {SP1_RAM_BASE, SP1_RAM_SIZE, WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE, 0U}
+    {SP1_RAM_BASE, SP1_RAM_SIZE,
+     WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_RESTART_CLEAR, 0U}
 };
 
 static const wt_memory_resource_t sp2_memory[1] = {
@@ -124,6 +125,10 @@ int main(void)
     check(result == WT_SECURE_DOMAIN_OK, "resolve secure partition 1");
     check(sp1.region_count == 2U, "partition 1 region count");
     check(sp1.domain_id == 1U, "partition 1 domain id");
+    /* The fault scrub records the declared restart-clear band from the
+     * resolved attributes, so resolution must not strip the flag. */
+    check((sp1.regions[1].attributes & WT_MEM_ATTR_RESTART_CLEAR) != 0U,
+          "restart-clear survives domain resolution");
 
     result = wt_ffm_resolve_secure_domain(&manifest, 2U, &sp2);
     check(result == WT_SECURE_DOMAIN_OK, "resolve secure partition 2");
