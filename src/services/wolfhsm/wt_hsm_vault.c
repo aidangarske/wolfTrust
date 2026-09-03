@@ -416,6 +416,9 @@ static psa_status_t wt_hsm_vault_get(int32_t owner, int32_t sub,
             table.slot[id - WT_HSM_VAULT_ID_BASE], g_vault_ct, meta.len,
             g_vault_pt);
         if (status != PSA_SUCCESS) {
+            /* GCM decrypts before the tag compare, so a failed unseal can
+             * leave unauthenticated plaintext in the persistent buffer. */
+            wt_hsm_vault_zeroize(g_vault_pt, pt_len);
             return status;
         }
         if (offset > pt_len) {
