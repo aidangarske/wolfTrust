@@ -141,7 +141,14 @@ void SVC_Handler(void)
         "ldr  r3, [r2, #24]                \n"
         "ldrb r3, [r3, #-2]                \n"
         "cmp  r3, #0x7F                    \n"
+        "bne  2f                           \n"
+        /* Internal guest-return is privileged MSP-thread-only: a PSP-origin
+         * caller is a Secure Partition attempting the scheduler's own SVC,
+         * which fails the platform closed instead of restoring SPM state. */
+        "tst  lr, #4                       \n"
         "beq  wt_platform_svc_guest_return \n"
+        "b    wt_platform_panic            \n"
+        "2:                                \n"
         "cmp  r3, #0x01                    \n"
         "bne  1f                           \n"
         /* SVC #1: Secure Partition psa_* request. r0 = exception frame so
