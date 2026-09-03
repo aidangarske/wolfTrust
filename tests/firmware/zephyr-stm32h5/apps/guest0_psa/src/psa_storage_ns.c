@@ -108,8 +108,10 @@ static psa_status_t wt_storage_ns_read(uint32_t sid, int32_t op, uint64_t uid,
     psa_status_t status;
 
     /* p_data_length must receive the bytes written on success (zero
-     * included), so a NULL output pointer is an invalid argument. */
-    if (out_len == NULL) {
+     * included), so a NULL output pointer is an invalid argument — as is a
+     * NULL data buffer with a nonzero capacity (the storage API pins -135,
+     * where the raw FF-M vector check would classify a programmer error). */
+    if (out_len == NULL || (out == NULL && out_cap != 0U)) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
     hdr.uid = uid;
