@@ -862,6 +862,31 @@ wolfTrust on the board - the TF-M drop-in proof.
   boundary; H5/C5 hardware qualification. (Moved here from the old Phase 6 line.)
 
 
+- [ ] **PSA Initial Attestation API 2.0 upgrade (post-merge follow-up).**
+  wolfTrust ships the *real* Initial Attestation implementation (client +
+  secure service); wolfPSA only provides a 1.0-shaped header and returns
+  `PSA_ERROR_NOT_SUPPORTED` (`lib/wolfPSA/src/psa_attestation.c`), so the
+  version decision is ours. The token profile identifier is already the final
+  RFC 9783 value in this branch (commit `eb8e078`) and every software
+  component now carries a Signer ID (`4af9655`), but the API is still declared
+  1.0. Move the modern/default profile to **API 2.0** (RFC 9783 reports):
+  - Depends on **wolfCOSE PR #75** (EAT PSA claims) landing first:
+    https://github.com/wolfSSL/wolfCOSE/pull/75 — build the token through
+    `WOLFCOSE_EAT_PSA_CLAIMS` / `wc_CoseEatPsaToken_CreateSign1()` instead of
+    the hand-rolled CBOR claim encoder in `src/services/initial_attestation.c`.
+  - Bump `PSA_INITIAL_ATTEST_API_VERSION_MAJOR` to 2 and add the currently
+    missing `PSA_INITIAL_ATTEST_MAX_TOKEN_SIZE`
+    (`lib/wolfPSA/wolfpsa/psa/initial_attestation.h`).
+  - Keep the `psa_initial_attest_get_token*()` signatures unchanged (only the
+    version and token wire format move).
+  - Do NOT advertise 1.0 and 2.0 from one build — API 2.0's RFC 9783 report is
+    incompatible with the 1.0 format. Make the emitted profile a compile-time
+    selection; default = 2.0, legacy 1.0 opt-in.
+  - Correct the remaining claim provenance/sizing before declaring compliance,
+    and regenerate the golden vector + realign the guest verifier and the ACS
+    attestation leg (`devattest`).
+  Sequencing: **after the mega PR merges to master**, and after wolfCOSE #75.
+
 - [ ] **Phase 9+ - parity, security review, release qualification.**
 
 - [~] **R-track: post-review compatibility + compliance hardening** (skoll

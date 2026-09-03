@@ -4336,3 +4336,49 @@ Evidence:
   staging), `bootupdate`, `bothiso`, and the new `gtzcneg` all PASS.
 - H563 silicon: `positive`, `confboot`, `vnetneg`, `devattest` PASS with the
   mediums sweep; the curtain's silicon leg (`gtzcneg`) runs in the H5 suite.
+
+## 2026-09-03 — Third-pass rescans (FF-M, TF-M, security review) to zero High
+
+The rescans on the second-sweep HEAD each surfaced one new High plus mediums
+and lows; all genuine findings are fixed, the rest are the recorded sealed
+deviations (bounded transfer budget, sealed conformance oracle, compile-time
+entry binding, shared image text).
+
+- Security review High: the internal scheduler-return SVC (`svc #0x7F`) was
+  reachable from an unprivileged Secure-Partition PSP origin (the instruction
+  sits in the shared image text every SP can execute). `SVC_Handler` now
+  authorizes it before branching — a privileged MSP thread reaches
+  `wt_platform_svc_guest_return`, a PSP or unprivileged origin fails the
+  platform closed. Lows: `wt_ffm_wait` rejects any non-`PSA_WAIT_ANY` mask
+  carrying a bit outside the partition's assigned set (a valid bit no longer
+  launders an unassigned one), and a failed vault unseal zeroizes the
+  persistent plaintext buffer before returning (AES-GCM writes plaintext
+  before the tag compare).
+- FF-M compliance High: a Non-secure blocking call whose partition refused
+  dispatch (`WT_FFM_ERROR_NOT_READY`) released the message slot while it was
+  still linked in the service queue, so a later request reusing the slot could
+  alias it. `wt_ffm_dequeue_message` now unlinks the message from the queue on
+  both the `wt_ffm_call` and `wt_ffm_close` dispatch-failure paths before the
+  slot is released.
+- TF-M compatibility mediums/low: the domain resolver now preserves
+  `WT_MEMORY_ATTR_RESTART_CLEAR` (a prior sweep's restart-clear band scrub was
+  silently inert because resolution stripped the flag); the firmware-update
+  query reports the ACTIVE image version in the public `version.build` field
+  (seeded through a new `WT_SPM_FWU_ACTIVE` gate op from
+  `wt_hsm_active_image_version`), keeping the candidate version private; and
+  the NS storage read shim rejects a null data buffer with nonzero capacity as
+  `PSA_ERROR_INVALID_ARGUMENT`.
+- Regression caught by target validation and fixed: activating the
+  restart-clear scrub exposed that the virtual-network relay's own wiring
+  pointers (`g_vnet_sw`, transport) live in the scrubbed band; a restart nulled
+  them and only `wt_spm_vnet_start` had set them. The relay wiring is now
+  re-established in `wt_spm_vnet_entry`, which runs on every schedule and
+  restart, after the in-place switch rebuild.
+
+Evidence:
+- Host `make test` unit/all green with all fixes (FF-M runtime 33435 checks;
+  new refused-dispatch queue-consistency, mixed-wait-mask, restart-clear
+  survival, and active-version tests).
+- M33MU: `positive`, `confboot` 85/0/4, `vnetneg`, `fwustage`, `spfaultneg`
+  all PASS on the post-fix tree.
+- H563 silicon: `positive` and `vnetneg` PASS.
