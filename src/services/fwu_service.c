@@ -62,8 +62,9 @@ psa_status_t wt_fwu_start(wt_fwu_service_ctx_t* ctx, uint32_t component,
     if (ctx->state != PSA_FWU_READY) {
         return PSA_ERROR_BAD_STATE;
     }
-    /* Reject a rolled-back candidate before the update partition is touched. */
-    if (version < ctx->version_floor) {
+    /* Reject a rolled-back candidate before the update partition is touched;
+     * an undeclared version is bound from the image header at FINISH. */
+    if (version != WT_FWU_VERSION_UNDECLARED && version < ctx->version_floor) {
         return PSA_ERROR_NOT_PERMITTED;
     }
     if (ctx->backend->begin != NULL &&
@@ -133,14 +134,11 @@ psa_status_t wt_fwu_finish(wt_fwu_service_ctx_t* ctx, uint32_t component)
     if (ctx->write_high == 0u) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
-    if (ctx->candidate_version < ctx->version_floor) {
-        ctx->state = PSA_FWU_FAILED;
-        ctx->error = PSA_ERROR_NOT_PERMITTED;
-        return PSA_ERROR_NOT_PERMITTED;
-    }
     /* Bind the candidate to the staged bytes: a malformed image or a header
      * version that contradicts the declared one never becomes CANDIDATE, so
-     * the pre-arm rollback check runs against authenticated-header data. */
+     * the pre-arm rollback check runs against authenticated-header data. An
+     * undeclared version adopts the header's; without a header parser it
+     * cannot be bound at all and fails closed. */
     if (ctx->backend->verify != NULL) {
         if (ctx->backend->verify(ctx->backend_ctx, ctx->write_high,
                                  &header_version) != 0) {
@@ -148,11 +146,20 @@ psa_status_t wt_fwu_finish(wt_fwu_service_ctx_t* ctx, uint32_t component)
             ctx->error = PSA_ERROR_INVALID_ARGUMENT;
             return PSA_ERROR_INVALID_ARGUMENT;
         }
-        if (header_version != ctx->candidate_version) {
+        if (ctx->candidate_version == WT_FWU_VERSION_UNDECLARED) {
+            ctx->candidate_version = header_version;
+        }
+        else if (header_version != ctx->candidate_version) {
             ctx->state = PSA_FWU_FAILED;
             ctx->error = PSA_ERROR_NOT_PERMITTED;
             return PSA_ERROR_NOT_PERMITTED;
         }
+    }
+    if (ctx->candidate_version == WT_FWU_VERSION_UNDECLARED ||
+            ctx->candidate_version < ctx->version_floor) {
+        ctx->state = PSA_FWU_FAILED;
+        ctx->error = PSA_ERROR_NOT_PERMITTED;
+        return PSA_ERROR_NOT_PERMITTED;
     }
     ctx->state = PSA_FWU_CANDIDATE;
     return PSA_SUCCESS;

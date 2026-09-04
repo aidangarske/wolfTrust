@@ -68,6 +68,11 @@ typedef struct wt_fwu_req {
     uint32_t version;  /* START: declared candidate version (anti-rollback) */
 } wt_fwu_req_t;
 
+/* START version meaning "no detached manifest": the PSA FWU 1.0 (NULL, 0)
+ * call form. The candidate version is then bound from the staged image header
+ * at FINISH; the erased-flash pattern can never be a real image version. */
+#define WT_FWU_VERSION_UNDECLARED 0xFFFFFFFFu
+
 /* Staging backend seam: the neutral state machine drives the wolfBoot update
  * partition entirely through these ops so the host test can supply a RAM
  * mock while the Secure Partition supplies the real flash + trigger backend.

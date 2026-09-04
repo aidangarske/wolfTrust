@@ -407,6 +407,20 @@ int main(void)
     check(psa_fwu_cancel(0U) == PSA_SUCCESS && psa_fwu_clean(0U) == PSA_SUCCESS,
           "WT-FWU-0003 max-write candidate cancels and cleans back to READY");
 
+    /* PSA FWU 1.0 no-manifest form (NULL, 0) enters the state machine; this
+     * mock has no header parser, so the unbound version fails closed at
+     * finish rather than arming. A NULL manifest with a size is malformed. */
+    check(psa_fwu_start(0U, NULL, sizeof(fwu_manifest)) ==
+              PSA_ERROR_INVALID_ARGUMENT,
+          "WT-FWU-0003 psa_fwu_start refuses a NULL manifest with a size");
+    check(psa_fwu_start(0U, NULL, 0U) == PSA_SUCCESS,
+          "WT-FWU-0002 psa_fwu_start accepts the no-manifest call form");
+    check(psa_fwu_write(0U, 0U, fwu_block, sizeof(fwu_block)) == PSA_SUCCESS &&
+              psa_fwu_finish(0U) == PSA_ERROR_NOT_PERMITTED,
+          "WT-FWU-0003 unbound version fails closed without a header parser");
+    check(psa_fwu_clean(0U) == PSA_SUCCESS,
+          "WT-FWU-0003 no-manifest candidate cleans back to READY");
+
     /* Clearing the port memcheck seam fails closed. */
     wt_ffm_boot_set_memcheck(NULL, NULL);
     handle = psa_connect(TEST_HSM_SID, 1U);

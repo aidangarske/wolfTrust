@@ -599,6 +599,47 @@ static void test_staged_header_binding(void)
               wt_fwu_install(&ctx) == PSA_SUCCESS_REBOOT &&
               mem.armed == 1u && mem.armed_version == 5u,
           "WT-FWU-0003 matching header version stages and arms");
+
+    /* PSA FWU 1.0 no-manifest form: the version is adopted from the header. */
+    mock_backend_init(&backend, &mem);
+    backend.verify = mock_verify;
+    ctx_init(&ctx, &backend, &mem, 3u);
+    mem.header_version = 7u;
+    check(wt_fwu_start(&ctx, WT_FWU_COMPONENT_PRIMARY,
+              WT_FWU_VERSION_UNDECLARED) == PSA_SUCCESS &&
+              wt_fwu_write(&ctx, WT_FWU_COMPONENT_PRIMARY, 0u, block,
+                  sizeof(block)) == PSA_SUCCESS &&
+              wt_fwu_finish(&ctx, WT_FWU_COMPONENT_PRIMARY) == PSA_SUCCESS &&
+              ctx.candidate_version == 7u &&
+              wt_fwu_install(&ctx) == PSA_SUCCESS_REBOOT &&
+              mem.armed == 1u && mem.armed_version == 7u,
+          "WT-FWU-0003 undeclared version binds from the header and arms");
+
+    /* The adopted header version is still subject to anti-rollback. */
+    mock_backend_init(&backend, &mem);
+    backend.verify = mock_verify;
+    ctx_init(&ctx, &backend, &mem, 3u);
+    mem.header_version = 2u;
+    check(wt_fwu_start(&ctx, WT_FWU_COMPONENT_PRIMARY,
+              WT_FWU_VERSION_UNDECLARED) == PSA_SUCCESS &&
+              wt_fwu_write(&ctx, WT_FWU_COMPONENT_PRIMARY, 0u, block,
+                  sizeof(block)) == PSA_SUCCESS &&
+              wt_fwu_finish(&ctx, WT_FWU_COMPONENT_PRIMARY) ==
+                  PSA_ERROR_NOT_PERMITTED &&
+              ctx.state == PSA_FWU_FAILED && mem.armed == 0u,
+          "WT-FWU-0003 adopted header version below the floor is refused");
+
+    /* Without a header parser an undeclared version cannot be bound. */
+    mock_backend_init(&backend, &mem);
+    ctx_init(&ctx, &backend, &mem, 0u);
+    check(wt_fwu_start(&ctx, WT_FWU_COMPONENT_PRIMARY,
+              WT_FWU_VERSION_UNDECLARED) == PSA_SUCCESS &&
+              wt_fwu_write(&ctx, WT_FWU_COMPONENT_PRIMARY, 0u, block,
+                  sizeof(block)) == PSA_SUCCESS &&
+              wt_fwu_finish(&ctx, WT_FWU_COMPONENT_PRIMARY) ==
+                  PSA_ERROR_NOT_PERMITTED &&
+              ctx.state == PSA_FWU_FAILED && mem.armed == 0u,
+          "WT-FWU-0003 undeclared version fails closed without a parser");
 }
 
 int main(void)

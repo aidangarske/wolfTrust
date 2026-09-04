@@ -4409,3 +4409,29 @@ Evidence:
 - M33MU on the preceding refused-CONNECT queue unlink and conformance NVM
   bounds-wrap fixes (previously host-only): `positive`, `confboot`, and
   `devstorage` all PASS.
+
+## Firmware update accepts the PSA FWU 1.0 no-manifest call form
+
+TF-M compatibility High: PSA Firmware Update 1.0 declares the detached
+manifest of `psa_fwu_start` OPTIONAL — `(NULL, 0)` means the metadata travels
+in the image header — but the public client made wolfTrust's 4-byte version
+word mandatory and refused the conforming form with
+`PSA_ERROR_INVALID_ARGUMENT`, so an unmodified PSA application could not enter
+the update state machine. The client now maps `(NULL, 0)` to a
+`WT_FWU_VERSION_UNDECLARED` wire value (the erased-flash pattern, never a real
+image version); `wt_fwu_start` skips only the early fast-fail for it, and
+`wt_fwu_finish` runs the backend header verify first, adopts the parsed header
+version as the candidate (or enforces equality against a declared one), then
+applies the anti-rollback floor. A backend with no header parser cannot bind
+an undeclared version and fails closed `PSA_ERROR_NOT_PERMITTED`. The
+production STM32H563 backend parses the wolfBoot header
+(`wt_fwu_backend_verify`), so the spec form arms end to end on target. The
+detached 4-byte manifest keeps its stricter pre-flash rejection.
+
+Evidence:
+- Host `fwu_service`: undeclared version binds from the header and arms with
+  it; an adopted header version below the floor is refused at finish; no
+  parser fails closed. Existing declared-version binding and floor-advance
+  cases unchanged. Host `psa_ffm_client` through the public API:
+  `psa_fwu_start(0, NULL, 0)` accepted, a NULL manifest with a size refused,
+  the unbound candidate fails closed on the parser-less mock and cleans.

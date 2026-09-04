@@ -84,12 +84,26 @@ psa_status_t psa_fwu_start(psa_fwu_component_t component,
     wt_fwu_req_t req;
     uint32_t version;
 
-    /* wolfTrust's manifest is the candidate's monotonic version word, which
-     * seeds the anti-rollback check before any flash is touched. */
-    if (manifest == NULL || manifest_size != sizeof(version)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
+    /* PSA FWU 1.0: the detached manifest is optional. (NULL, 0) means the
+     * metadata rides in the image header, so the anti-rollback version is
+     * bound from that header at finish; a detached manifest is wolfTrust's
+     * monotonic version word, which fails a rolled-back candidate before any
+     * flash is touched. */
+    if (manifest == NULL) {
+        if (manifest_size != 0u) {
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
+        version = WT_FWU_VERSION_UNDECLARED;
     }
-    (void)memcpy(&version, manifest, sizeof(version));
+    else {
+        if (manifest_size != sizeof(version)) {
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
+        (void)memcpy(&version, manifest, sizeof(version));
+        if (version == WT_FWU_VERSION_UNDECLARED) {
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
+    }
     (void)memset(&req, 0, sizeof(req));
     req.component = component;
     req.version = version;
