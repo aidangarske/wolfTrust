@@ -126,6 +126,26 @@ narrowing is tracked (task #26) and lands with the multi-image port above.
 Evidence: `src/arch/armv8m/spm_svc.c` (SP table build); the cross-domain and
 `vnetneg` negatives in `docs/requirements/validation-log.md`.
 
+### Keystore trust unit shares one writable band (scoped deviation)
+
+The three Root-of-Trust partitions — attestation, the wolfHSM relay, and the
+vault (domains 3, 4, 5) — share a single writable keystore band (declared
+`SHARED`, `share_id 1`) that holds the wolfHSM server, NVM, lock state, and the
+seal key. They are not three independent data domains: they are one keystore
+trust unit deliberately split into three scheduled partitions so each runs
+unprivileged with its privileged flash/entropy/NVM-lock needs pinned to its
+identity through the SPM gate, rather than one large privileged partition. A
+non-keystore partition is still faulted out of the band, and a keystore gate
+request from a non-keystore identity is refused (WT-FFM-0062, proven by
+`crossdomain` and `keystoreneg` on M33MU and H563). The residual is that the
+three keystore partitions can reach each other's state within the shared band —
+by construction, because they operate on the same keystore. Collapsing them
+into one partition (or giving each private data with an owning-domain IPC hop)
+is a scoped roadmap item; the shared band is the intentional trust boundary
+today. Evidence: `docs/requirements/framework.md` (WT-FFM-0062);
+`port/stm32h563/manifest.json` (domains 3/4/5 shared resource);
+`docs/requirements/validation-log.md` (`crossdomain`, `keystoreneg`).
+
 ### Single mediated path — raw wolfHSM transport retired (parity-or-better)
 
 Every non-secure client request reaches a secure service only through the SPM
