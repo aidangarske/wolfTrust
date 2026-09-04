@@ -82,8 +82,11 @@ int pal_nvmem_write(addr_t base, uint32_t offset, void* buffer, int size)
 {
     (void)base;
     (void)wt_conf_drv_nvm_init();
+    /* Wrap-safe: offset + size overflows size_t on a 32-bit target, so
+     * compare each side against the array bound without adding them. */
     if (buffer == NULL || size < 0 ||
-            (size_t)offset + (size_t)size > sizeof(g_drv_nvm)) {
+            (size_t)offset > sizeof(g_drv_nvm) ||
+            (size_t)size > sizeof(g_drv_nvm) - (size_t)offset) {
         return 0;
     }
     (void)memcpy(&g_drv_nvm[offset], buffer, (size_t)size);
@@ -98,8 +101,11 @@ int pal_nvmem_read(addr_t base, uint32_t offset, void* buffer, int size)
 {
     (void)base;
     (void)wt_conf_drv_nvm_init();
+    /* Wrap-safe: offset + size overflows size_t on a 32-bit target, so
+     * compare each side against the array bound without adding them. */
     if (buffer == NULL || size < 0 ||
-            (size_t)offset + (size_t)size > sizeof(g_drv_nvm)) {
+            (size_t)offset > sizeof(g_drv_nvm) ||
+            (size_t)size > sizeof(g_drv_nvm) - (size_t)offset) {
         return 0;
     }
     (void)memcpy(buffer, &g_drv_nvm[offset], (size_t)size);
