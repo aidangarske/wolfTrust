@@ -630,6 +630,11 @@ psa_handle_t wt_ffm_connect(wt_ffm_runtime_t* runtime,
     wt_ffm_enqueue(runtime, service_index, message_index);
     ret = wt_ffm_dispatch_message(runtime, message_index);
     status = message->reply_status;
+    if (ret != WT_FFM_SUCCESS) {
+        /* A refused CONNECT dispatch must unlink the message before its slot
+         * is released, or the slot aliases the next queued request. */
+        wt_ffm_dequeue_message(runtime, service_index, message_index);
+    }
     wt_ffm_release_message(runtime, message_index);
     if (ret != WT_FFM_SUCCESS || status != PSA_SUCCESS) {
         wt_ffm_release_connection(runtime, connection_index);

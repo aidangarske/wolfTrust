@@ -930,6 +930,13 @@ static void test_refused_dispatch_queue_consistency(void)
     psa_handle_t handle;
 
     test_init(&runtime, &context);
+
+    /* A refused CONNECT dispatch must also leave no queued slot behind. */
+    context.refuse_dispatch = 1;
+    EXPECT_TRUE(!PSA_HANDLE_IS_VALID(
+        wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U)));
+    context.refuse_dispatch = 0;
+
     handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
     EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
 
