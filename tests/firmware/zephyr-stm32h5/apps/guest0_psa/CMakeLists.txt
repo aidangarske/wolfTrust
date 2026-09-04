@@ -585,10 +585,11 @@ if(WT_RUN_CONFORMANCE)
   )
   elseif(WT_CONF_SUITE STREQUAL "storage")
     # dev_apis ITS/PS: test bodies run entirely Non-secure and reach
-    # SERVICE_ITS / SERVICE_PS through src/psa_storage_ns.c.
+    # SERVICE_ITS / SERVICE_PS through the OS-neutral src/client PSA storage
+    # client.
     set(WT_STORAGE_SRCS
       src/conformance_pal.c
-      src/psa_storage_ns.c
+      ${WT_REPO_ROOT}/src/client/psa_storage_client.c
       ${WT_CONF_U}/val/common/val_log.c
       ${WT_CONF_U}/platform/targets/common/nspe/pal_weak.c
       ${WT_CONF_U}/val/nspe/val_entry.c

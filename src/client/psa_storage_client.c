@@ -1,4 +1,4 @@
-/* psa_storage_ns.c
+/* psa_storage_client.c
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *
@@ -18,14 +18,16 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Non-secure client shim for PSA ITS/PS (P4-S6). The dev_apis Storage suite
- * calls the psa_its and psa_ps families; this translates each into an FF-M
- * IPC request to SERVICE_ITS / SERVICE_PS through the CMSE veneer
- * (psa_connect/psa_call from conformance_pal.c). The wire matches
- * src/services/storage_service.c: one
- * concatenated input vector [header][data] on writes, header alone on reads,
- * the reply in output vector 0. The SPM stamps the caller identity, so the
- * vault namespaces every object under this guest automatically. */
+/* PSA Internal Trusted Storage / Protected Storage 1.0 client
+ * (SRC-PSA-STORAGE): marshals the public psa_its_* and psa_ps_* calls onto the
+ * SERVICE_ITS / SERVICE_PS wire protocol over the OS-neutral FF-M client
+ * (psa_connect/psa_call/psa_close), with no operating-system dependency, so
+ * every Non-secure client links the same code. Each operation runs one
+ * connect/call/close round trip; the SPM stamps the caller identity, so the
+ * vault namespaces every object under the calling guest automatically. The
+ * wire matches src/services/storage_service.c: one concatenated input vector
+ * [header][data] on writes, the header alone on reads, the reply in output
+ * vector 0. */
 
 #include <stdint.h>
 #include <string.h>
@@ -38,7 +40,7 @@
 #include "psa/protected_storage.h"
 
 /* Wire header + ops, kept in lockstep with storage_service.h (the SPM-side
- * definition is not includable from Non-secure code). */
+ * definition pulls in Secure-only headers and is not includable here). */
 typedef struct {
     uint64_t uid;
     uint32_t flags;

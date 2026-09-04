@@ -4382,3 +4382,30 @@ Evidence:
 - M33MU: `positive`, `confboot` 85/0/4, `vnetneg`, `fwustage`, `spfaultneg`
   all PASS on the post-fix tree.
 - H563 silicon: `positive` and `vnetneg` PASS.
+
+## PSA storage client extracted to a real OS-neutral library (SRC-PSA-STORAGE)
+
+TF-M compatibility High: the public `psa_its_*` / `psa_ps_*` client existed
+only as guest conformance-app source (`psa_storage_ns.c`), so the advertised
+PSA Storage client API had no linkable implementation off the test shim. The
+marshalling now lives in `src/client/psa_storage_client.c` alongside the other
+OS-neutral clients (`psa_ffm_client.c`, `psa_fwu_client.c`); it wraps each
+`psa_its_*` / `psa_ps_*` call as one `psa_connect`/`psa_call`/`psa_close` round
+trip onto `SERVICE_ITS` / `SERVICE_PS` with no operating-system dependency, and
+keeps the PSA Storage 1.0 argument rules (null-data, insufficient-storage, null
+length/info) client-side. The guest0 conformance build compiles the shared
+client; the shim is deleted.
+
+Evidence:
+- New host suite `tests/host/psa_storage_client` (registered in `unit/all`):
+  drives the real client through the FF-M runtime, real gated vault, and real
+  wolfHSM NVM/AES-GCM seal stack — 20/20 PASS covering ITS set/get/get_info/
+  offset/remove, WRITE_ONCE, the sealed PS face, `psa_ps_get_support`/`create`/
+  `set_extended` NOT_SUPPORTED, and the three argument-rule negatives. Green
+  under gcc, clang, and ASan/UBSan; host `make test` unit/all green.
+- M33MU on the extracted client: `devstorage` (dev_apis ITS/PS s001-s017
+  through `src/client/psa_storage_client.c`) PASS and `confboot` PASS with
+  Arm suite TOTAL FAILED 0.
+- M33MU on the preceding refused-CONNECT queue unlink and conformance NVM
+  bounds-wrap fixes (previously host-only): `positive`, `confboot`, and
+  `devstorage` all PASS.

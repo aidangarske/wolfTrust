@@ -192,8 +192,9 @@ int32_t pal_crypto_function(int type, va_list valist)
 #endif
 
 /* dev_apis Storage (P4-S6): dispatch the val ITS/PS function codes to the
- * NS client shim (psa_storage_ns.c), which marshals each onto SERVICE_ITS /
- * SERVICE_PS over FF-M IPC. The code values are val_storage.h's
+ * OS-neutral PSA storage client (src/client/psa_storage_client.c), which
+ * marshals each onto SERVICE_ITS / SERVICE_PS over FF-M IPC. The code values
+ * are val_storage.h's
  * storage_function_type_t: ITS SET/GET/GET_INFO/REMOVE = 0x1..0x4,
  * PS SET/GET/GET_INFO/REMOVE/CREATE/SET_EXTENDED/GET_SUPPORT = 0x5..0xB. */
 uint32_t pal_its_function(int type, va_list valist)
