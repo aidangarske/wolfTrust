@@ -171,6 +171,10 @@ int wt_ffm_close_begin(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
 int wt_ffm_msg_complete(const wt_ffm_runtime_t* runtime, uint16_t msg_index);
 int wt_ffm_fail_partition_messages(wt_ffm_runtime_t* runtime,
                                    int32_t partition_id, psa_status_t status);
+/* Releases every connection (and any request still in flight) owned by a
+ * client that terminated abnormally and can no longer close its handles. */
+int wt_ffm_fail_client_connections(wt_ffm_runtime_t* runtime,
+                                   psa_client_id_t caller);
 
 /* Dispatch one queued-but-undelivered message inline. The scheduler wake
  * loop does this on target; the direct transport uses it as the host

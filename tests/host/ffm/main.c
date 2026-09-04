@@ -807,6 +807,110 @@ static void test_fault_unblock(void)
     (void)printf("PASS: WT-FFM-0017 pinned client unblock on partition fault\n");
 }
 
+/* Locate a client's allocated connection slot for white-box assertions. */
+static int find_connection(const wt_ffm_runtime_t* runtime,
+                           psa_client_id_t caller, size_t* out_index)
+{
+    size_t i;
+
+    for (i = 0U; i < WT_FFM_MAX_CONNECTIONS; i++) {
+        if (runtime->connections[i].allocated != 0U &&
+                runtime->connections[i].caller == caller) {
+            *out_index = i;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* WT-FFM-0026: a connection that is IDLE when its serving partition faults is
+ * referenced by no message row, so the message sweep never visits it. The
+ * partition-fault cleanup must still drop it to the error state and clear its
+ * reverse handle, or the restarted instance receives a pointer into the domain
+ * that was just scrubbed and the client's next call is silently served. */
+static void test_idle_connection_fault(void)
+{
+    static const uint8_t request[] = { 'a', 'b', 'c' };
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_invec input = { request, sizeof(request) };
+    uint8_t response[2] = { 0U, 0U };
+    psa_outvec output = { response, sizeof(response) };
+    psa_handle_t handle;
+    size_t idx = 0U;
+
+    test_init(&runtime, &context);
+    /* A successful connect leaves the connection IDLE with no message in
+     * flight — exactly the row the message sweep cannot reach. */
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    EXPECT_TRUE(find_connection(&runtime, TEST_NS_CLIENT, &idx));
+    EXPECT_INT(runtime.connections[idx].state, WT_IPC_CONNECTION_IDLE);
+    /* Model the served instance having pinned a reverse handle before it died. */
+    runtime.connections[idx].rhandle = (uintptr_t)TEST_RHANDLE;
+
+    /* The serving partition faults with no message in flight. */
+    EXPECT_INT(wt_ffm_fail_partition_messages(&runtime, TEST_PARTITION_ID,
+                                              PSA_ERROR_COMMUNICATION_FAILURE),
+               0);
+    EXPECT_INT(runtime.connections[idx].state, WT_IPC_CONNECTION_ERROR);
+    EXPECT_TRUE(runtime.connections[idx].rhandle == 0U);
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U),
+               PSA_ERROR_PROGRAMMER_ERROR);
+    (void)printf("PASS: WT-FFM-0026 idle connection sweeps on serving fault\n");
+}
+
+/* WT-FFM-0026/0035: a client that terminates abnormally (a quarantined or
+ * restarted guest) never closes its handles, so its connection slots must be
+ * released outright — otherwise repeated faults exhaust the static pool and
+ * every psa_connect on the system reports CONNECTION_BUSY forever. Peers keep
+ * their connections; a request still in flight is force-completed first so a
+ * later service reply cannot land in a reissued slot. */
+static void test_client_connection_release(void)
+{
+    static const uint8_t request[] = { 'a', 'b', 'c' };
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_invec input = { request, sizeof(request) };
+    uint8_t response[2] = { 0U, 0U };
+    psa_outvec output = { response, sizeof(response) };
+    psa_handle_t victim;
+    psa_handle_t peer;
+    psa_handle_t fresh;
+    uint16_t msg_index = 0U;
+    size_t idx = 0U;
+
+    test_init(&runtime, &context);
+    victim = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    peer = wt_ffm_connect(&runtime, TEST_OTHER_NS_CLIENT, TEST_SERVICE_SID,
+                          3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(victim));
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(peer));
+
+    /* Leave a request in flight on the victim's connection. */
+    EXPECT_INT(wt_ffm_call_begin(&runtime, TEST_NS_CLIENT, victim,
+                                 PSA_IPC_CALL, &input, 1U, &output, 1U,
+                                 &msg_index), PSA_SUCCESS);
+
+    EXPECT_TRUE(wt_ffm_fail_client_connections(&runtime, TEST_NS_CLIENT) >= 1);
+    /* The victim's slot is gone, not merely errored: its handle no longer
+     * resolves and the pool row is free for reuse. */
+    EXPECT_TRUE(!find_connection(&runtime, TEST_NS_CLIENT, &idx));
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, victim, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U),
+               PSA_ERROR_PROGRAMMER_ERROR);
+
+    /* The peer is untouched and can still be used and reconnected against. */
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_OTHER_NS_CLIENT, peer, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U), PSA_SUCCESS);
+    fresh = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(fresh));
+
+    EXPECT_INT(wt_ffm_fail_client_connections(NULL, TEST_NS_CLIENT), 0);
+    (void)printf("PASS: WT-FFM-0026 abnormal client release frees its slots\n");
+}
+
 /* FF-M Appendix A: a client PROGRAMMER ERROR against a connection latches it
  * into the error state even when the in-flight request later completes
  * normally, and it stays a PROGRAMMER ERROR until close. Also covers psa_write
@@ -977,6 +1081,8 @@ int main(void)
     test_output_revalidation();
     test_bounded_resources();
     test_fault_unblock();
+    test_idle_connection_fault();
+    test_client_connection_release();
     if (g_failures != 0U) {
         (void)fprintf(stderr, "FF-M checks failed: %u/%u\n",
                       g_failures, g_checks);

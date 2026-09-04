@@ -380,6 +380,9 @@ static void wt_restart_guest(wt_guest_id_t guest_id, wt_fault_reason_t reason)
     }
 
     runtime->last_fault = reason;
+    /* Quarantined or restarted, the guest will never close its handles. */
+    (void)wt_ffm_fail_client_connections(wt_ffm_boot_runtime_mut(),
+                                         -(psa_client_id_t)(guest_id + 1U));
     if (wt_restart_policy_evaluate(config->restart_policy.restart_limit,
                                    config->restart_policy.restart_window_ticks,
                                    g_scheduler.monotonic_ticks,

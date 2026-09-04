@@ -994,6 +994,7 @@ int wt_ffm_fail_partition_messages(wt_ffm_runtime_t* runtime,
                                    int32_t partition_id, psa_status_t status)
 {
     wt_ffm_message_runtime_t* message;
+    wt_ffm_connection_runtime_t* connection;
     wt_ffm_service_runtime_t* service;
     wt_ffm_partition_runtime_t* partition;
     int failed = 0;
@@ -1038,7 +1039,72 @@ int wt_ffm_fail_partition_messages(wt_ffm_runtime_t* runtime,
         service->queue_tail = WT_FFM_QUEUE_NONE;
         wt_ffm_update_service_signal(runtime, (uint16_t)i);
     }
+
+    /* Every connection to the dead partition drops to ERROR, idle ones
+     * included (an idle connection owns no message, so the loops above never
+     * visit it), and its reverse handle is cleared: the restarted instance
+     * must never receive a pointer into the domain that was just scrubbed.
+     * The client still has to close the handle to release the slot (FF-M A). */
+    for (i = 0U; i < WT_FFM_MAX_CONNECTIONS; i++) {
+        connection = &runtime->connections[i];
+        if (connection->allocated == 0U ||
+                connection->state == WT_IPC_CONNECTION_FREE ||
+                connection->state == WT_IPC_CONNECTION_TERMINAL) {
+            continue;
+        }
+        service = &runtime->services[connection->service_index];
+        partition = &runtime->partitions[service->partition_index];
+        if (partition->manifest == NULL ||
+                partition->manifest->domain_id !=
+                    (wt_domain_id_t)partition_id) {
+            continue;
+        }
+        connection->state = WT_IPC_CONNECTION_ERROR;
+        connection->rhandle = 0U;
+    }
     return failed;
+}
+
+/* WT-FFM-0026: when a client terminates abnormally (a Non-secure guest is
+ * quarantined or restarted) nothing will ever close its handles, so release
+ * every connection it owns outright; otherwise each restart leaks slots until
+ * every psa_connect on the system reports CONNECTION_BUSY forever. Any
+ * request still in flight on such a connection is force-completed and its
+ * slot released first, so a later service reply cannot land in a slot that
+ * has been handed to a new client. Returns the number of connections freed. */
+int wt_ffm_fail_client_connections(wt_ffm_runtime_t* runtime,
+                                   psa_client_id_t caller)
+{
+    wt_ffm_message_runtime_t* message;
+    wt_ffm_connection_runtime_t* connection;
+    int freed = 0;
+    size_t i;
+
+    if (runtime == NULL) {
+        return 0;
+    }
+
+    for (i = 0U; i < WT_FFM_MAX_MESSAGES; i++) {
+        message = &runtime->messages[i];
+        if (message->allocated == 0U || message->caller != caller) {
+            continue;
+        }
+        if (message->complete == 0U && message->active == 0U) {
+            wt_ffm_dequeue_message(runtime, message->service_index,
+                                   (uint16_t)i);
+        }
+        wt_ffm_release_message(runtime, (uint16_t)i);
+    }
+
+    for (i = 0U; i < WT_FFM_MAX_CONNECTIONS; i++) {
+        connection = &runtime->connections[i];
+        if (connection->allocated == 0U || connection->caller != caller) {
+            continue;
+        }
+        wt_ffm_release_connection(runtime, (uint16_t)i);
+        freed++;
+    }
+    return freed;
 }
 
 int wt_ffm_dispatch_pending(wt_ffm_runtime_t* runtime, uint16_t msg_index)

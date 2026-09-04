@@ -4435,3 +4435,29 @@ Evidence:
   cases unchanged. Host `psa_ffm_client` through the public API:
   `psa_fwu_start(0, NULL, 0)` accepted, a NULL manifest with a size refused,
   the unbound candidate fails closed on the parser-less mock and cleans.
+
+## Abnormal-termination cleanup sweeps idle and client-owned connections
+
+FF-M compliance High + Medium (WT-FFM-0026, WT-FFM-0035): the fault/restart
+pipeline released only messages that were in flight, so two connection classes
+leaked across an abnormal termination. (1) A connection that was IDLE at the
+instant its serving partition faulted was referenced by no message row, so
+`wt_ffm_fail_partition_messages` never visited it: it stayed IDLE holding the
+reverse handle the destroyed instance had pinned, and the client's next call
+was served by the restarted instance with a pointer into the just-scrubbed
+domain. That function now also sweeps every connection resolving to the faulted
+partition, dropping each to `WT_IPC_CONNECTION_ERROR` and clearing its
+`rhandle`. (2) A Non-secure guest that faulted and restarted never closed its
+handles and there was no code path to release them, so each cycle leaked
+connection slots until the static pool was exhausted and every `psa_connect`
+returned `CONNECTION_BUSY` permanently. A new `wt_ffm_fail_client_connections`
+releases every connection a client owns — force-completing and releasing any
+still-in-flight message first so a later reply cannot land in a reissued slot —
+and `wt_restart_guest` calls it for both the restart and quarantine outcomes.
+
+Evidence:
+- Host `ffm`: an IDLE connection whose serving partition faults ends in ERROR
+  with `rhandle` cleared and its next call refused `PROGRAMMER_ERROR`; an
+  abnormally terminated client's slots are freed (handle stops resolving, a
+  peer's connection keeps working, a fresh connect succeeds), with a request
+  left in flight force-completed first. Full host `make test` unit/all green.
