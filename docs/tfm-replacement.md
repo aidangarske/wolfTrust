@@ -146,6 +146,24 @@ today. Evidence: `docs/requirements/framework.md` (WT-FFM-0062);
 `port/stm32h563/manifest.json` (domains 3/4/5 shared resource);
 `docs/requirements/validation-log.md` (`crossdomain`, `keystoreneg`).
 
+### RCC clock tree not secured against privileged Non-secure guests (scoped roadmap)
+
+The STM32H563 clock controller (RCC) is left in its reset attribution: the
+system clock source, PLLs, oscillators, and bus prescalers stay writable from
+Non-secure state, so a privileged Non-secure guest kernel — which the threat
+model permits, since it may reprogram `MPU_NS` — can reprogram the clock tree
+and destabilise Secure execution or deny service to peer guests. This is an
+availability concern only: the GTZC MPCBB curtain still confines every guest to
+its own memory, the crypto peripherals (HASH/RNG/PKA) are GTZC-secured, and no
+confidentiality or integrity boundary depends on RCC attribution. Securing the
+clock tree through `RCC_SECCFGR` (the system-clock, prescaler, PLL, and
+oscillator bits) while leaving the per-peripheral clock enables Non-secure so
+guests keep their own devices is the tracked fix; because the M33MU model does
+not implement peripheral security, it can be qualified only on H5 silicon and
+is gated on that hardware run. Evidence: `port/stm32h563/platform_stm32h563.c`
+(`wt_gtzc_init` secures HASH/RNG/PKA and the SRAM curtain, RCC not yet
+attributed); STM32H563 RM0481 RCC security configuration.
+
 ### Single mediated path — raw wolfHSM transport retired (parity-or-better)
 
 Every non-secure client request reaches a secure service only through the SPM

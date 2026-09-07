@@ -4461,3 +4461,59 @@ Evidence:
   abnormally terminated client's slots are freed (handle stops resolving, a
   peer's connection keeps working, a fresh connect succeeds), with a request
   left in flight force-completed first. Full host `make test` unit/all green.
+
+## FF-M, TF-M, and CWE security scan hardening pass
+
+Codex (`gpt-5.6-sol`, max effort) FF-M-compliance, TF-M-compatibility, and
+CWE-mapped security scans over the full tree surfaced no Critical and six High
+findings; five are fixed below and the sixth (RCC clock attribution) is a
+hardware-validation-gated deviation (`docs/tfm-replacement.md`). Full host
+`make test` unit/all green after each fix.
+
+- **psa_wait mixed signal mask (TF-M).** `wt_ffm_wait` rejected any mask
+  carrying a bit outside the caller's assignable set, so a mask mixing an
+  assigned signal with an unassigned bit was driven to the `must_panic`
+  programmer-error path. FF-M 1.0 4.5.3 makes psa_wait a programmer error only
+  when the mask selects no assigned signal; the over-strict check is removed and
+  the unassigned bits are ignored as the spec requires. The upstream
+  conformance `test_i062` client body is an empty success stub and does not
+  constrain the behaviour either way. Evidence: host `ffm` (a mixed mask returns
+  the asserted assigned signal) and `spm_gate` (a mixed mask with an unasserted
+  doorbell is a poll miss, not a panic).
+
+- **Short attestation output buffer (CWE-400).** The token CALL handler wrote
+  the token without checking the caller's output-vector capacity, so a raw
+  service call with a zero or undersized out-vec faulted `wt_ffm_write`, which
+  the gate maps to `must_panic` — a Non-secure guest could restart the
+  attestation partition on demand. The handler now validates capacity and
+  returns `PSA_ERROR_BUFFER_TOO_SMALL`, matching its token-size and public-key
+  siblings. Evidence: host `attestation_service` (zero-length and
+  token-minus-one out-vecs refused without panic; the partition serves the next
+  caller).
+
+- **Sealer reinitialisation fail-closed (CWE-321).** `wt_hsm_seal_init` left
+  `g_seal_ready` set and the key buffer intact on its metadata/read/unexpected
+  failure exits, and `wt_hsm_bind_store` kept the previously installed sealer
+  when a reinit (format/recovery) failed, so a failed reinit could seal with a
+  stale or zero key. Init now clears readiness on entry and zeroes the key on
+  every failure exit, and bind detaches the sealer when init fails so sealed
+  writes fail closed. Evidence: host
+  `ps_service`/`vault_service`/`storage_service`/`wolfhsm_relay` sealed-storage
+  paths green (normal sealing unchanged).
+
+- **Oversized VNET frame wedge (CWE-400).** The relay advertised
+  `WT_VNET_PSA_MTU` but accepted frames up to the internal scratch size, so an
+  oversized frame could sit at a peer's queue head undeliverable to an
+  MTU-sized receiver, wedging the queue and pinning a shared pool slot. TX now
+  refuses frames above the advertised MTU, and a short receive drops and
+  releases the undeliverable head frame so the queue always advances. Evidence:
+  host `vnet_relay` (an over-MTU frame is refused at TX; an undersized receive
+  buffer drops the frame and the queue drains rather than wedging).
+
+- **Abnormal-termination cleanup disconnection (FF-M).**
+  `wt_ffm_fail_client_connections` released an abnormally terminated client's
+  established connections without delivering the FF-M cleanup disconnection
+  (DEN 0063 3.3.3), leaking the backing service's per-connection state. It now
+  delivers a synchronous `PSA_IPC_DISCONNECT` to the service for each connection
+  the service had accepted before reclaiming the slot. Evidence: host `ffm`
+  abnormal-client-release case green.
