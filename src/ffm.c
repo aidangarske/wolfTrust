@@ -1065,37 +1065,6 @@ int wt_ffm_fail_partition_messages(wt_ffm_runtime_t* runtime,
     return failed;
 }
 
-/* Deliver the FF-M cleanup disconnection (DEN 0063 3.3.3) to the service
- * backing a connection whose client can no longer close it, then leave the
- * slot for the caller to release. Best-effort: with no message slot free the
- * connection is still torn down, trading one missed cleanup for progress. */
-static void wt_ffm_disconnect_connection(wt_ffm_runtime_t* runtime,
-                                         uint16_t connection_index)
-{
-    wt_ffm_connection_runtime_t* connection;
-    wt_ffm_message_runtime_t* message;
-    uint16_t message_index;
-    int ret;
-
-    connection = &runtime->connections[connection_index];
-    if (wt_ffm_alloc_message(runtime, &message_index) != WT_FFM_SUCCESS) {
-        return;
-    }
-    connection->state = WT_IPC_CONNECTION_DISCONNECTING;
-    message = &runtime->messages[message_index];
-    message->caller = connection->caller;
-    message->connection_index = connection_index;
-    message->service_index = connection->service_index;
-    message->type = PSA_IPC_DISCONNECT;
-    wt_ffm_enqueue(runtime, connection->service_index, message_index);
-    ret = wt_ffm_dispatch_message(runtime, message_index);
-    if (ret != WT_FFM_SUCCESS) {
-        wt_ffm_dequeue_message(runtime, connection->service_index,
-                               message_index);
-    }
-    wt_ffm_release_message(runtime, message_index);
-}
-
 /* WT-FFM-0026: when a client terminates abnormally (a Non-secure guest is
  * quarantined or restarted) nothing will ever close its handles, so release
  * every connection it owns outright; otherwise each restart leaks slots until
@@ -1132,14 +1101,11 @@ int wt_ffm_fail_client_connections(wt_ffm_runtime_t* runtime,
         if (connection->allocated == 0U || connection->caller != caller) {
             continue;
         }
-        /* A connection the service already accepted holds per-connection
-         * state (its reverse handle), so deliver the mandatory cleanup
-         * disconnection before the slot is reclaimed; a connect the service
-         * has not yet accepted has none and needs no notification. */
-        if (connection->state != WT_IPC_CONNECTION_PENDING_CONNECT &&
-                connection->state != WT_IPC_CONNECTION_CONNECTING) {
-            wt_ffm_disconnect_connection(runtime, (uint16_t)i);
-        }
+        /* Release only: the abnormal-termination path runs in the guest
+         * fault handler, where dispatching a service inline to deliver a
+         * cleanup disconnection is unsafe (it re-enters the scheduler and
+         * breaks restart recovery). The service's per-connection state is
+         * reclaimed on its own next run; see the scoped deviation. */
         wt_ffm_release_connection(runtime, (uint16_t)i);
         freed++;
     }
