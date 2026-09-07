@@ -4521,3 +4521,30 @@ hardware-validation-gated deviation (`docs/tfm-replacement.md`). Full host
   (`docs/tfm-replacement.md`); the release path is release-only and safe in the
   fault handler. Evidence: host `ffm` abnormal-client-release case green; the
   `restart` M33MU scenario green after the revert.
+
+## Pre-first-dispatch guest re-measurement and GTZC block ownership
+
+Two isolation findings from the codex security re-scan (`gpt-5.6-sol`, max),
+both against the "hostile privileged Non-secure guest" threat model.
+
+- **Guest image re-measured before first dispatch (WT-SYS-0002, CWE-284).** Boot
+  verifies every guest up front, then dispatches; a guest scheduled first can
+  reach the Non-secure flash controller and reprogram a peer's image before the
+  peer runs, and only restarts re-measured. `wt_dispatch_guest` now re-measures
+  each guest immediately before its first dispatch (armed by
+  `g_wt_first_dispatch_pending` in `wt_monitor_init`); a mismatch faults the
+  guest and the scheduler selects another. A substituted peer image is therefore
+  caught before it can run. The hardware root fix (securing the `FLASH_NS`
+  control interface) is SAU/SECWM-level, not a GTZC/TZSC bit, and is gated on H5
+  silicon — the M33MU model does not implement flash-controller security, so
+  re-measurement is the emulator-provable layer (`docs/tfm-replacement.md`).
+  Evidence: M33MU `positive`, `restart`, `remeasureneg` (on-demand re-measure
+  caught a post-launch tamper), `panicneg`, `spfaultneg`, `hsmattackneg`,
+  `confboot`, `crossdomain`, `gtzcneg` all green with the change.
+
+- **Guest windows must own whole GTZC blocks (CWE-284).** GTZC MPCBB attribution
+  is per 512-byte block, but the STM32H563 manifest binding accepted 32-byte
+  aligned writable windows, so a crafted manifest could place two guests in one
+  block. The binding now rejects a writable guest window whose base or exclusive
+  end is not 512-byte aligned. All shipped manifests are 64 KiB-aligned and
+  still bind. Evidence: host `spm` (production manifest binds); M33MU `gtzcneg`.
