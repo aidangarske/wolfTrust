@@ -481,16 +481,28 @@ static void test_bounded_resources(void)
     size_t j;
 
     test_init(&runtime, &context);
-    for (i = 0U; i < WT_FFM_MAX_CONNECTIONS; i++) {
+    /* One client may hold up to its quota, then is refused: it cannot reserve
+     * the whole shared pool (WT-FFM-0035, CWE-400). */
+    for (i = 0U; i < WT_FFM_MAX_CONNECTIONS_PER_CLIENT; i++) {
         handles[i] = wt_ffm_connect(&runtime, TEST_NS_CLIENT,
                                     TEST_SERVICE_SID, 3U);
         EXPECT_TRUE(PSA_HANDLE_IS_VALID(handles[i]));
     }
     EXPECT_INT(wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U),
                PSA_ERROR_CONNECTION_BUSY);
+    /* A peer is not starved: it can still reach its own quota from the
+     * remainder the first client could not take. */
+    for (i = WT_FFM_MAX_CONNECTIONS_PER_CLIENT;
+            i < WT_FFM_MAX_CONNECTIONS; i++) {
+        handles[i] = wt_ffm_connect(&runtime, TEST_OTHER_NS_CLIENT,
+                                    TEST_SERVICE_SID, 3U);
+        EXPECT_TRUE(PSA_HANDLE_IS_VALID(handles[i]));
+    }
     for (i = 0U; i < WT_FFM_MAX_CONNECTIONS; i++) {
-        EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handles[i]),
-                   WT_FFM_SUCCESS);
+        EXPECT_INT(wt_ffm_close(&runtime,
+                       (i < WT_FFM_MAX_CONNECTIONS_PER_CLIENT) ?
+                           TEST_NS_CLIENT : TEST_OTHER_NS_CLIENT,
+                       handles[i]), WT_FFM_SUCCESS);
     }
     for (i = 0U; i < WT_FFM_MAX_MESSAGES; i++) {
         EXPECT_INT(runtime.messages[i].allocated, 0U);

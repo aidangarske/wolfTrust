@@ -582,6 +582,21 @@ uint32_t wt_ffm_service_version(const wt_ffm_runtime_t* runtime,
     return runtime->services[service_index].descriptor->version;
 }
 
+static size_t wt_ffm_client_connection_count(const wt_ffm_runtime_t* runtime,
+                                             psa_client_id_t caller)
+{
+    size_t count = 0U;
+    size_t i;
+
+    for (i = 0U; i < WT_FFM_MAX_CONNECTIONS; i++) {
+        if (runtime->connections[i].allocated != 0U &&
+                runtime->connections[i].caller == caller) {
+            count++;
+        }
+    }
+    return count;
+}
+
 psa_handle_t wt_ffm_connect(wt_ffm_runtime_t* runtime,
                             psa_client_id_t caller, uint32_t sid,
                             uint32_t version)
@@ -606,6 +621,12 @@ psa_handle_t wt_ffm_connect(wt_ffm_runtime_t* runtime,
     }
     if (runtime->services[service_index].descriptor->connection_based == 0U)
         return (psa_handle_t)PSA_ERROR_NOT_SUPPORTED;
+
+    /* Per-client quota: a single client cannot reserve the whole shared
+     * connection pool and starve peers of every service (CWE-400). */
+    if (wt_ffm_client_connection_count(runtime, caller) >=
+            WT_FFM_MAX_CONNECTIONS_PER_CLIENT)
+        return (psa_handle_t)PSA_ERROR_CONNECTION_BUSY;
 
     if (wt_ffm_alloc_connection(runtime, &connection_index) !=
             WT_FFM_SUCCESS)
@@ -846,6 +867,12 @@ psa_handle_t wt_ffm_connect_begin(wt_ffm_runtime_t* runtime,
     }
     if (runtime->services[service_index].descriptor->connection_based == 0U)
         return (psa_handle_t)PSA_ERROR_NOT_SUPPORTED;
+
+    /* Per-client quota: a single client cannot reserve the whole shared
+     * connection pool and starve peers of every service (CWE-400). */
+    if (wt_ffm_client_connection_count(runtime, caller) >=
+            WT_FFM_MAX_CONNECTIONS_PER_CLIENT)
+        return (psa_handle_t)PSA_ERROR_CONNECTION_BUSY;
 
     if (wt_ffm_alloc_connection(runtime, &connection_index) !=
             WT_FFM_SUCCESS)

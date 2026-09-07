@@ -32,6 +32,9 @@
 #define WT_FFM_MAX_PARTITIONS     9U
 #define WT_FFM_MAX_SERVICES       20U
 #define WT_FFM_MAX_CONNECTIONS    16U
+/* Per-client connection quota: no single client may hold more than half the
+ * shared pool, so one guest cannot exhaust it and starve peers (CWE-400). */
+#define WT_FFM_MAX_CONNECTIONS_PER_CLIENT (WT_FFM_MAX_CONNECTIONS / 2U)
 #define WT_FFM_MAX_MESSAGES       16U
 #define WT_FFM_TRANSFER_BYTES     1024U
 #define WT_FFM_QUEUE_NONE         UINT16_MAX
