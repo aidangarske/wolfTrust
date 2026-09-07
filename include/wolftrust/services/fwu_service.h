@@ -110,6 +110,8 @@ typedef struct wt_fwu_service_ctx {
     uint32_t armed;
     psa_status_t error;     /* FAILED detail, cleared by clean (PSA FWU 1.0) */
     uint32_t active_version; /* running image; query's public version field */
+    psa_client_id_t owner;  /* client that opened the active update; 0 = none.
+                             * Only the owner may drive or reboot it. */
 } wt_fwu_service_ctx_t;
 
 /* Neutral state-machine transitions, driven directly by the host test and by

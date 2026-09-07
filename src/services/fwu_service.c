@@ -376,6 +376,15 @@ static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
     }
     (void)memcpy(&req, buffer, sizeof(req));
 
+    /* Per-transaction owner: only the client that opened the update (START)
+     * may drive or reboot it, so one guest cannot hijack, monopolize, arm, or
+     * reboot another guest's update (CWE-862). QUERY is read-only; START binds
+     * a new owner (and wt_fwu_start itself refuses a second concurrent one). */
+    if (msg->type != WT_FWU_OP_QUERY && msg->type != WT_FWU_OP_START &&
+            ctx->owner != 0 && msg->client_id != ctx->owner) {
+        return PSA_ERROR_NOT_PERMITTED;
+    }
+
     switch (msg->type) {
     case WT_FWU_OP_QUERY:
         if (msg->out_size[0] < sizeof(info)) {
@@ -390,6 +399,9 @@ static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
         break;
     case WT_FWU_OP_START:
         status = wt_fwu_start(ctx, req.component, req.version);
+        if (status == PSA_SUCCESS) {
+            ctx->owner = msg->client_id;
+        }
         break;
     case WT_FWU_OP_WRITE:
         if (req.size != (uint32_t)(in_len - sizeof(req))) {
@@ -427,6 +439,12 @@ static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
     default:
         status = PSA_ERROR_NOT_SUPPORTED;
         break;
+    }
+    /* The transaction is over once no update is in progress (cancel, clean, or
+     * reject returned to READY); an installed-and-pending update keeps its
+     * owner until the reboot. Release the owner so the next client may start. */
+    if (ctx->state == PSA_FWU_READY) {
+        ctx->owner = 0;
     }
     return status;
 }
