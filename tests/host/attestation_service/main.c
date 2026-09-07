@@ -173,6 +173,7 @@ int main(void)
     psa_invec size_in = { &challenge32, sizeof(challenge32) };
     psa_outvec size_out = { &token32, sizeof(token32) };
     psa_outvec key_out = { public_key, sizeof(public_key) };
+    psa_outvec short_out = { token, 0U };
     psa_status_t status;
 
     if (wt_ffm_init(&runtime, &g_manifest, &g_port_ops, NULL) !=
@@ -239,6 +240,39 @@ int main(void)
         return 1;
     }
     (void)printf("PASS: mediated IAK public-key query\n");
+
+    /* A token CALL whose output vector is shorter than the token must report
+     * BUFFER_TOO_SMALL, not fault the partition into its panic trap: a short
+     * out-vec previously reached wt_ffm_write and the gate mapped that to
+     * must_panic, so a hostile guest could restart the attestation partition
+     * (SEC review). The partition stays healthy for the next caller. */
+    short_out.len = 0U;
+    status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                         &in_vec, 1U, &short_out, 1U);
+    if (status != PSA_ERROR_BUFFER_TOO_SMALL) {
+        (void)fprintf(stderr, "zero-length token out-vec not refused st=%d\n",
+                      (int)status);
+        return 1;
+    }
+    short_out.len = sizeof(g_stub_token) - 1U;
+    status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                         &in_vec, 1U, &short_out, 1U);
+    if (status != PSA_ERROR_BUFFER_TOO_SMALL) {
+        (void)fprintf(stderr, "short token out-vec not refused st=%d\n",
+                      (int)status);
+        return 1;
+    }
+    out_vec.base = token;
+    out_vec.len = sizeof(token);
+    status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                         &in_vec, 1U, &out_vec, 1U);
+    if (status != PSA_SUCCESS || out_vec.len != sizeof(g_stub_token)) {
+        (void)fprintf(stderr,
+                      "attestation partition unhealthy after short out-vec "
+                      "st=%d\n", (int)status);
+        return 1;
+    }
+    (void)printf("PASS: short attestation out-vec refused without panic\n");
 
     if (wt_ffm_close(&runtime, TEST_NS_CLIENT, handle) != WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "psa_close(SERVICE_ATTEST) failed\n");

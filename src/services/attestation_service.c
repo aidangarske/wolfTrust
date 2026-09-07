@@ -83,9 +83,11 @@ static int wt_attest_write_vec(wt_ffm_runtime_t* runtime, int32_t partition_id,
     return WT_FFM_SUCCESS;
 }
 
-static int wt_attestation_service_token(wt_ffm_runtime_t* runtime,
-                                        int32_t partition_id,
-                                        const psa_msg_t* msg)
+static psa_status_t wt_attestation_map_status(int ret);
+
+static psa_status_t wt_attestation_service_token(wt_ffm_runtime_t* runtime,
+                                                 int32_t partition_id,
+                                                 const psa_msg_t* msg)
 {
     uint8_t challenge[WT_ATTEST_CHALLENGE_SIZE_64];
     uint8_t token[WT_ATTEST_MAX_TOKEN_SIZE];
@@ -97,29 +99,35 @@ static int wt_attestation_service_token(wt_ffm_runtime_t* runtime,
     /* Initial Attestation is a Non-secure client service; the token binds the
      * caller's guest identity, derived from the PSA client id. */
     if (msg->client_id >= 0) {
-        return WT_FFM_ERROR_STATE;
+        return PSA_ERROR_NOT_PERMITTED;
     }
     guest_id = (wt_guest_id_t)(-msg->client_id - 1);
 
     if (msg->in_size[0] > sizeof(challenge)) {
-        return WT_FFM_ERROR_ARGUMENT;
+        return PSA_ERROR_INVALID_ARGUMENT;
     }
     if (wt_attest_read_vec(runtime, partition_id, msg->handle, 0U, challenge,
                            sizeof(challenge), &challenge_len) !=
             WT_FFM_SUCCESS) {
-        return WT_FFM_ERROR_STATE;
+        return PSA_ERROR_GENERIC_ERROR;
     }
 
     ret = wt_initial_attest_get_token(guest_id, challenge, challenge_len,
                                       token, sizeof(token), &token_len);
     if (ret != WT_ATTEST_SUCCESS) {
-        return WT_FFM_ERROR_STATE;
+        return wt_attestation_map_status(ret);
+    }
+    /* Check the caller's output capacity before writing: a short out-vec
+     * faults the FF-M write, which the gate maps to must_panic, turning a
+     * client sizing mistake into an attestation-partition restart. */
+    if (msg->out_size[0] < token_len) {
+        return PSA_ERROR_BUFFER_TOO_SMALL;
     }
     if (wt_attest_write_vec(runtime, partition_id, msg->handle, 0U, token,
                             token_len) != WT_FFM_SUCCESS) {
-        return WT_FFM_ERROR_STATE;
+        return PSA_ERROR_GENERIC_ERROR;
     }
-    return WT_FFM_SUCCESS;
+    return PSA_SUCCESS;
 }
 
 static psa_status_t wt_attestation_map_status(int ret)
@@ -239,8 +247,7 @@ int wt_attestation_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
         reply_status = PSA_SUCCESS;
     } else if (msg.type == PSA_IPC_CALL) {
         reply_status = wt_attestation_service_token(runtime, partition_id,
-                           &msg) == WT_FFM_SUCCESS ?
-                       PSA_SUCCESS : PSA_ERROR_GENERIC_ERROR;
+                                                    &msg);
     } else if (msg.type == WT_ATTEST_OP_TOKEN_SIZE) {
         reply_status = wt_attestation_service_token_size(runtime,
                            partition_id, &msg);
