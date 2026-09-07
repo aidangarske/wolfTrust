@@ -917,6 +917,7 @@ static void test_gate_server_misuse_panic_class(void)
     wt_spm_call_t call;
     psa_msg_t msg;
     uint16_t ns_msg;
+    psa_signal_t asserted_sig;
     psa_handle_t handle;
 
     EXPECT_INT(wt_ffm_init(&runtime, &g_i063_manifest, &g_port_ops, NULL),
@@ -1043,7 +1044,7 @@ static void test_gate_server_misuse_panic_class(void)
     call.op = WT_SPM_OP_WAIT;
     call.partition_id = I063_SERVER_ID;
     call.signal_mask = 0x80000000U;
-    call.asserted = (psa_signal_t*)&ns_msg;
+    call.asserted = &asserted_sig;
     call.timeout = PSA_POLL;
     EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
     EXPECT_INT(call.ret_int, WT_FFM_ERROR_ARGUMENT);
@@ -1056,7 +1057,7 @@ static void test_gate_server_misuse_panic_class(void)
     call.op = WT_SPM_OP_WAIT;
     call.partition_id = I063_SERVER_ID;
     call.signal_mask = PSA_DOORBELL | 0x80000000U;
-    call.asserted = (psa_signal_t*)&ns_msg;
+    call.asserted = &asserted_sig;
     call.timeout = PSA_POLL;
     EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
     EXPECT_INT(call.ret_int, WT_FFM_ERROR_NOT_READY);
