@@ -1049,7 +1049,9 @@ static void test_gate_server_misuse_panic_class(void)
     EXPECT_INT(call.ret_int, WT_FFM_ERROR_ARGUMENT);
     EXPECT_INT((int)call.must_panic, 1);
 
-    /* A valid signal mixed with an unassigned bit must not launder it. */
+    /* A mask mixing an assigned bit with an unassigned one is valid (i062):
+     * the unassigned bit is ignored, so an unasserted doorbell is a poll
+     * miss (NOT_READY), not a panic. */
     (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_WAIT;
     call.partition_id = I063_SERVER_ID;
@@ -1057,8 +1059,8 @@ static void test_gate_server_misuse_panic_class(void)
     call.asserted = (psa_signal_t*)&ns_msg;
     call.timeout = PSA_POLL;
     EXPECT_INT(wt_spm_gate(&runtime, NULL, &call), WT_FFM_SUCCESS);
-    EXPECT_INT(call.ret_int, WT_FFM_ERROR_ARGUMENT);
-    EXPECT_INT((int)call.must_panic, 1);
+    EXPECT_INT(call.ret_int, WT_FFM_ERROR_NOT_READY);
+    EXPECT_INT((int)call.must_panic, 0);
 
     (void)memset(&call, 0, sizeof(call));
     call.op = WT_SPM_OP_NOTIFY;

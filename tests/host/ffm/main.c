@@ -583,11 +583,13 @@ static void test_wait_signal_mask(void)
                            TEST_SERVICE_SIGNAL, &asserted),
                WT_FFM_ERROR_ARGUMENT);
 
-    /* A valid doorbell bit must not launder another partition's signal in
-     * the same mask: any unassigned bit fails the whole wait. */
+    /* A mixed mask with at least one assigned bit is valid (i062): the
+     * unassigned bit is ignored and the asserted assigned signal returns. */
+    asserted = 0U;
     EXPECT_INT(wt_ffm_wait(&runtime, TEST_CLIENT_PARTITION,
                            PSA_DOORBELL | TEST_SERVICE_SIGNAL, &asserted),
-               WT_FFM_ERROR_ARGUMENT);
+               WT_FFM_SUCCESS);
+    EXPECT_INT(asserted, PSA_DOORBELL);
 
     EXPECT_INT(wt_ffm_wait(&runtime, TEST_CLIENT_PARTITION, PSA_DOORBELL,
                            &asserted), WT_FFM_SUCCESS);
