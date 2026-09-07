@@ -31,6 +31,10 @@
  * An unpatched slot advertises zero records, which fails launch closed. */
 #define WT_GUEST_MEAS_SLOT_MAGIC_LEN 16u
 #define WT_GUEST_MEAS_SLOT_UNPATCHED 0xFFFFFFFFu
+
+/* GTZC MPCBB security attribution is per 512-byte block, so two guest
+ * windows sharing one block cannot be separated by the curtain. */
+#define WT_GTZC_MPCBB_BLOCK 512u
 #if defined(__ARM_EABI__)
 #define WT_GUEST_MEAS_SECTION \
     __attribute__((section(".wt_guest_meas"), used, aligned(4)))
@@ -403,6 +407,15 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
             }
             else {
                 if (window_count >= config->memory_window_count) {
+                    return -1;
+                }
+                /* A writable guest window must own whole GTZC blocks: a base
+                 * or exclusive end falling mid-block would round outward and
+                 * hand an adjacent guest's memory to whoever is scheduled. */
+                if ((manifest_resource->attributes & WT_MEM_ATTR_WRITE) != 0U &&
+                        ((manifest_resource->base % WT_GTZC_MPCBB_BLOCK) != 0U ||
+                         ((manifest_resource->base + manifest_resource->size) %
+                              WT_GTZC_MPCBB_BLOCK) != 0U)) {
                     return -1;
                 }
                 config->memory_windows[window_count] = *manifest_resource;
