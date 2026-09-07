@@ -207,7 +207,13 @@ void PendSV_Handler(void)
         "ldmia  r0!, {r4-r11}                                   \n"
         "msr    psp, r0                                         \n"
         "ldr    r3, [r2, #" "4" "]                              \n"
-        "adds   r3, r3, #4                                      \n"
+        /* Reserve a 32-byte software-save band (plus the canary word and
+         * 8-byte alignment) above stack_base. The save path's
+         * "stmdb r0!, {r4-r11}" writes 32 bytes below PSP through r0, and
+         * PSPLIM guards only SP-relative accesses, not r0-based stores; keeping
+         * PSP >= stack_base + 40 keeps that save inside the coroutine's own
+         * stack instead of underflowing into the adjacent partition. */
+        "adds   r3, r3, #40                                     \n"
         "msr    psplim, r3                                      \n"
         "ldrb   r3, [r2, #" "40" "]                             \n"
         "mrs    r1, control                                     \n"
