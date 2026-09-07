@@ -51,6 +51,11 @@ volatile uint32_t g_wt_quarantine_events;
 /* WT-FFM-0049 launch-verification outcome, one bit per guest. */
 volatile uint32_t g_wt_launch_verified_mask;
 volatile uint32_t g_wt_launch_refused_mask;
+/* WT-SYS-0002: guests still awaiting their pre-first-dispatch re-measurement.
+ * Boot verifies every guest up front, but a guest scheduled first can tamper a
+ * peer's flash before the peer runs, so each guest is re-measured immediately
+ * before its first dispatch. One bit per guest, cleared once re-measured. */
+volatile uint32_t g_wt_first_dispatch_pending;
 /* WT-FFM-0052 runtime re-measurement counters (harness reads by symbol). */
 volatile uint32_t g_wt_runtime_verify_pass;
 volatile uint32_t g_wt_runtime_verify_fail;
@@ -304,6 +309,19 @@ static void wt_dispatch_guest(wt_guest_id_t guest_id)
         wt_platform_panic();
     }
 
+    /* WT-SYS-0002: re-measure a guest immediately before its first dispatch,
+     * so a peer that tampered its flash after boot verification but before it
+     * ran cannot launch an unverified image. On mismatch fault the guest and
+     * let the scheduler pick another (bounded: each guest re-measures once). */
+    if ((g_wt_first_dispatch_pending & ((uint32_t)1U << guest_id)) != 0U) {
+        g_wt_first_dispatch_pending &= ~((uint32_t)1U << guest_id);
+        if (wt_verify_guest_launch(guest_id) != WT_GUEST_VERIFY_OK) {
+            runtime->state = WT_GUEST_FAULTED;
+            g_wt_quarantine_events++;
+            wt_schedule_next_guest();
+        }
+    }
+
     wt_apply_partition(guest_id);
     runtime->state = WT_GUEST_RUNNING;
     g_scheduler.current_guest = guest_id;
@@ -509,6 +527,10 @@ void wt_monitor_init(void)
             g_wt_quarantine_events++;
         }
     }
+    /* Arm the pre-first-dispatch re-measurement for every guest; a faulted
+     * guest is never dispatched, so its bit simply never fires. */
+    g_wt_first_dispatch_pending = (count >= 32U) ? 0xFFFFFFFFu :
+                                  (((uint32_t)1U << count) - 1U);
 }
 
 void wt_monitor_start(void)
