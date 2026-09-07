@@ -195,7 +195,10 @@ static psa_status_t wt_vnet_relay_tx(wt_ffm_runtime_t* runtime,
     int rc;
 
     if (msg->in_size[0] == 0U ||
-            msg->in_size[0] > sizeof(g_vnet_tx_scratch)) {
+            msg->in_size[0] > (size_t)WT_VNET_PSA_MTU) {
+        /* OPEN advertises WT_VNET_PSA_MTU as the link MTU; refuse larger
+         * frames here so an oversized frame can never enter a peer's queue
+         * and wedge a receiver sized to the advertised MTU. */
         return PSA_ERROR_INVALID_ARGUMENT;
     }
     if (msg->in_size[0] < (size_t)WT_VNET_FRAME_MIN) {
@@ -243,6 +246,14 @@ static psa_status_t wt_vnet_relay_rx_fetch(wt_ffm_runtime_t* runtime,
                             g_vnet_meta_scratch.token_gen,
                             g_vnet_rx_scratch, (uint16_t)dst_cap);
     if (n < 0) {
+        if (n == WT_VNET_E_BADARG) {
+            /* Head frame does not fit the caller's buffer: drop and release
+             * it so an undeliverable frame cannot wedge the queue or pin its
+             * shared pool slot until an expiry sweep that has no caller. */
+            (void)vnet_switch_release_rx(sw, vm,
+                                         g_vnet_meta_scratch.token_slot,
+                                         g_vnet_meta_scratch.token_gen);
+        }
         return (psa_status_t)n;
     }
     rc = vnet_switch_release_rx(sw, vm, g_vnet_meta_scratch.token_slot,

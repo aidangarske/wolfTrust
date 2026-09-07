@@ -239,6 +239,7 @@ int main(void)
     static const char payload[] = "wolfTrust mediated vnet frame";
     uint8_t frame[64];
     uint8_t rx_buf[64];
+    uint8_t big_frame[WT_VNET_PSA_MTU + 4U];
     vnet_info_t info;
     vnet_rx_meta_t meta;
     psa_handle_t h0;
@@ -390,6 +391,46 @@ int main(void)
     check(status == PSA_ERROR_INVALID_ARGUMENT,
           "WT-FFM-0056 an undersized RX meta vector is refused");
 
+    /* SEC review: OPEN advertises WT_VNET_PSA_MTU, so TX must refuse a larger
+     * frame; otherwise an oversized frame enters a peer's queue and wedges a
+     * receiver whose buffer is sized to the advertised MTU. */
+    memset(big_frame, 0, sizeof(big_frame));
+    memcpy(&big_frame[0], mac1, sizeof(mac1));
+    memcpy(&big_frame[6], mac0, sizeof(mac0));
+    in_vec.base = big_frame;
+    in_vec.len = (size_t)WT_VNET_PSA_MTU + 1U;
+    status = psa_call(h0, WT_VNET_OP_TX, &in_vec, 1U, NULL, 0U);
+    check(status == PSA_ERROR_INVALID_ARGUMENT,
+          "SEC an over-MTU frame is refused at TX");
+
+    /* SEC review: a receiver that offers a payload buffer smaller than the
+     * head frame must not wedge the queue or pin the shared pool slot; the
+     * relay drops and releases the undeliverable frame so the queue drains. */
+    g_active_client = TEST_GUEST0;
+    build_frame(frame, mac1, mac0, payload, sizeof(payload) - 1U);
+    in_vec.base = frame;
+    in_vec.len = sizeof(frame);
+    status = psa_call(h0, WT_VNET_OP_TX, &in_vec, 1U, NULL, 0U);
+    check(status == PSA_SUCCESS, "SEC undersized-RX setup TX succeeds");
+
+    g_active_client = TEST_GUEST1;
+    out_vec[0].base = &meta;
+    out_vec[0].len = sizeof(meta);
+    out_vec[1].base = rx_buf;
+    out_vec[1].len = sizeof(frame) - 1U;
+    status = psa_call(h1, WT_VNET_OP_RX_FETCH, NULL, 0U, out_vec, 2U);
+    check(status == (psa_status_t)WT_VNET_E_BADARG,
+          "SEC an undersized RX payload buffer is refused");
+
+    out_vec[0].base = &meta;
+    out_vec[0].len = sizeof(meta);
+    out_vec[1].base = rx_buf;
+    out_vec[1].len = sizeof(rx_buf);
+    status = psa_call(h1, WT_VNET_OP_RX_FETCH, NULL, 0U, out_vec, 2U);
+    check(status == (psa_status_t)WT_VNET_E_EMPTY,
+          "SEC the undeliverable frame is dropped, not wedged at the head");
+
+    g_active_client = TEST_GUEST0;
     status = psa_call(h0, 99, NULL, 0U, NULL, 0U);
     check(status == PSA_ERROR_NOT_SUPPORTED,
           "WT-FFM-0056 an unknown operation is refused");
