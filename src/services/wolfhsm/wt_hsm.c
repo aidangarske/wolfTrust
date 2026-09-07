@@ -375,6 +375,12 @@ static int wt_hsm_bind_store(void)
         if (wt_hsm_seal_init(&g_nvm_ctx) == 0) {
             wt_hsm_vault_set_sealer(&wt_hsm_sealer);
         }
+        else {
+            /* Reinit on the format/recovery path can fail after a prior
+             * success; drop the sealer so sealed writes fail closed rather
+             * than run with a stale or zero key. */
+            wt_hsm_vault_set_sealer(NULL);
+        }
         /* Keys live in the wolfHSM server keystore, reached through the
          * SERVICE_HSM relay (WT-FFM-0054) — the vault has no key backend, so
          * its key ops stay fail-closed. Only the RANDOM face is served. */

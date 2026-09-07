@@ -79,14 +79,19 @@ int wt_hsm_seal_init(whNvmContext* nvm)
     if (nvm == NULL) {
         return -1;
     }
+    /* Fail closed across a re-init: drop readiness until the key is proven
+     * present again, so a partial reinit can never seal with a stale key. */
+    g_seal_ready = 0;
     rc = wh_Nvm_GetMetadata(nvm, WT_HSM_SEAL_KEY_ID, &meta);
     if (rc == WH_ERROR_OK) {
         if (meta.len != WT_HSM_SEAL_KEY_LEN) {
+            wt_hsm_seal_zeroize(g_seal_key, sizeof(g_seal_key));
             return -1;
         }
         rc = wh_Nvm_Read(nvm, WT_HSM_SEAL_KEY_ID, 0U, WT_HSM_SEAL_KEY_LEN,
                          g_seal_key);
         if (rc != WH_ERROR_OK) {
+            wt_hsm_seal_zeroize(g_seal_key, sizeof(g_seal_key));
             return -1;
         }
     }
@@ -115,6 +120,7 @@ int wt_hsm_seal_init(whNvmContext* nvm)
         }
     }
     else {
+        wt_hsm_seal_zeroize(g_seal_key, sizeof(g_seal_key));
         return -1;
     }
     g_seal_ready = 1;
