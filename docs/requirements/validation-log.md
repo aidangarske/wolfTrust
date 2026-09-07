@@ -4548,3 +4548,33 @@ both against the "hostile privileged Non-secure guest" threat model.
   block. The binding now rejects a writable guest window whose base or exclusive
   end is not 512-byte aligned. All shipped manifests are 64 KiB-aligned and
   still bind. Evidence: host `spm` (production manifest binds); M33MU `gtzcneg`.
+
+## Context-save band, firmware-update owner, and connection quota
+
+Three Highs from the four-engine security re-scan on the fixed tree.
+
+- **Coroutine context-save band (CWE-787).** `PendSV_Handler` saves an outgoing
+  coroutine with `stmdb r0!, {r4-r11}` — an r0-based store 32 bytes below PSP.
+  PSPLIM guards only SP-relative accesses, so a compromised unprivileged Secure
+  Partition could arrange its PSP so that save underflowed into the adjacent
+  partition's stack (the handler runs privileged with PRIVDEFENA, bypassing the
+  MPU). The restore path now sets `PSPLIM = stack_base + 40` instead of `+ 4`,
+  reserving the 32-byte save band plus the canary word, so the save always stays
+  inside the coroutine's own 24 KiB stack. Emulator/silicon only (no host
+  coverage); validated on M33MU SP-coroutine scenarios.
+
+- **Firmware-update transaction owner (CWE-862).** `SERVICE_FWU` authorized only
+  by the all-Non-secure connect policy, so any guest could drive or reboot an
+  update another guest opened. `wt_fwu_service_call` now binds the START caller
+  as `ctx->owner` and refuses every mutating op (write, finish, install, cancel,
+  clean, reject, reboot) from a different client with `PSA_ERROR_NOT_PERMITTED`;
+  QUERY stays read-only, and the owner clears when the transaction returns to
+  READY. Evidence: host `fwu_service` + `psa_ffm_client` green; M33MU `fwustage`,
+  `bootupdate`.
+
+- **Per-client connection quota (CWE-400).** The 16-slot FF-M connection pool had
+  no per-caller cap, so one guest could reserve all of it and starve peers of
+  every service. `wt_ffm_connect`/`wt_ffm_connect_begin` now refuse a caller
+  already holding `WT_FFM_MAX_CONNECTIONS_PER_CLIENT` (half the pool) with
+  `CONNECTION_BUSY`. Evidence: host `ffm` (one client capped at its quota, a peer
+  still reaches its own quota from the remainder).
