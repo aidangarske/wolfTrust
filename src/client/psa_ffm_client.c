@@ -68,23 +68,31 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type,
     psa_status_t status;
     size_t i;
 
-    /* An over-count is marshalled as its raw count with the excess vectors
-     * dropped, so the Secure gateway sees the PROGRAMMER ERROR and drops the
-     * connection; a client-local return would leave it usable. */
+    /* An over-count is forwarded as its raw count so the Secure gateway sees
+     * the PROGRAMMER ERROR and drops the connection; a client-local return
+     * would leave it usable. The vectors are marshalled only when the count is
+     * within the ABI maximum, so a lying count never walks the caller's array
+     * past PSA_MAX_IOVEC. */
     memset(&iovec, 0, sizeof(iovec));
-    for (i = 0u; i < in_len && i < WT_FFM_VENEER_IOVEC_MAX; i++) {
-        iovec.in[i].base = in_vec[i].base;
-        iovec.in[i].len = (uint32_t)in_vec[i].len;
+    if (in_len <= WT_FFM_VENEER_IOVEC_MAX) {
+        for (i = 0u; i < in_len; i++) {
+            iovec.in[i].base = in_vec[i].base;
+            iovec.in[i].len = (uint32_t)in_vec[i].len;
+        }
     }
-    for (i = 0u; i < out_len && i < WT_FFM_VENEER_IOVEC_MAX; i++) {
-        iovec.out[i].base = out_vec[i].base;
-        iovec.out[i].len = (uint32_t)out_vec[i].len;
+    if (out_len <= WT_FFM_VENEER_IOVEC_MAX) {
+        for (i = 0u; i < out_len; i++) {
+            iovec.out[i].base = out_vec[i].base;
+            iovec.out[i].len = (uint32_t)out_vec[i].len;
+        }
     }
     iovec.in_count = (uint32_t)in_len;
     iovec.out_count = (uint32_t)out_len;
     status = (psa_status_t)WolfTrust_FFM_Call((int32_t)handle, type, &iovec);
-    for (i = 0u; i < out_len && i < WT_FFM_VENEER_IOVEC_MAX; i++) {
-        out_vec[i].len = iovec.out[i].len;
+    if (out_len <= WT_FFM_VENEER_IOVEC_MAX) {
+        for (i = 0u; i < out_len; i++) {
+            out_vec[i].len = iovec.out[i].len;
+        }
     }
     return status;
 }
