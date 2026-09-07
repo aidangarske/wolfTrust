@@ -4510,10 +4510,14 @@ hardware-validation-gated deviation (`docs/tfm-replacement.md`). Full host
   host `vnet_relay` (an over-MTU frame is refused at TX; an undersized receive
   buffer drops the frame and the queue drains rather than wedging).
 
-- **Abnormal-termination cleanup disconnection (FF-M).**
-  `wt_ffm_fail_client_connections` released an abnormally terminated client's
-  established connections without delivering the FF-M cleanup disconnection
-  (DEN 0063 3.3.3), leaking the backing service's per-connection state. It now
-  delivers a synchronous `PSA_IPC_DISCONNECT` to the service for each connection
-  the service had accepted before reclaiming the slot. Evidence: host `ffm`
-  abnormal-client-release case green.
+- **Abnormal-termination connection release (FF-M).**
+  `wt_ffm_fail_client_connections` releases every connection an abnormally
+  terminated client owned (WT-FFM-0026), force-completing any in-flight message
+  first. An earlier attempt to also deliver the FF-M cleanup disconnection
+  (DEN 0063 3.3.3) inline was reverted: it dispatches a Secure service from the
+  guest fault handler, which re-enters the scheduler and broke guest restart
+  recovery (the `restart` M33MU scenario saw one banner instead of four). The
+  cleanup disconnection is now a documented scoped deviation
+  (`docs/tfm-replacement.md`); the release path is release-only and safe in the
+  fault handler. Evidence: host `ffm` abnormal-client-release case green; the
+  `restart` M33MU scenario green after the revert.

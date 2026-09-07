@@ -164,6 +164,37 @@ is gated on that hardware run. Evidence: `port/stm32h563/platform_stm32h563.c`
 (`wt_gtzc_init` secures HASH/RNG/PKA and the SRAM curtain, RCC not yet
 attributed); STM32H563 RM0481 RCC security configuration.
 
+### Abnormal-termination connection release omits the cleanup disconnection (scoped deviation)
+
+When a Non-secure guest terminates abnormally (fault, quarantine, or restart)
+it can no longer close its FF-M handles, so the monitor releases every
+connection the guest owned (WT-FFM-0026). FF-M (DEN 0063 3.3.3) also expects
+the backing service to receive a `PSA_IPC_DISCONNECT` so it can drop its
+per-connection reverse handle. wolfTrust does not deliver that disconnection on
+the abnormal-termination path: it runs inside the guest fault handler, where
+dispatching a Secure service inline would re-enter the scheduler and break guest
+restart recovery. The residual is bounded — every wolfTrust service runs each
+message to completion and keeps no per-connection heap state, so a released
+connection leaks no service resource beyond a reverse-handle slot the restarted
+or replacement client overwrites on its next connect. Delivering the cleanup
+disconnection through the deferred begin/finish scheduler path (not inline) is a
+scoped roadmap item. Evidence: `src/ffm.c` (`wt_ffm_fail_client_connections`
+release path), the `restart` M33MU scenario.
+
+### Synchronous Non-secure calls do not support a deferred service reply (scoped deviation)
+
+FF-M permits a service to retain (defer) a connect or request message and reply
+later, after another signal, doorbell, or interrupt. wolfTrust's synchronous
+Non-secure veneer path (`psa_connect`/`psa_call`/`psa_close` over the CMSE
+gateway) dispatches the message inline and expects the service to reply within
+that dispatch; a service that defers returns `WT_FFM_ERROR_NOT_READY`, which the
+synchronous path treats as a failure. Every Non-secure-facing wolfTrust service
+runs each message to completion without yielding, so none defers in the shipped
+profile; a partition that needs deferred client IPC uses the begin/finish
+deferred API (WT-FFM-0014). Supporting a deferred reply over the synchronous NS
+veneer (block-and-reschedule) is a scoped roadmap item. Evidence: `src/ffm.c`
+(`wt_ffm_dispatch_message` NOT_READY handling), `include/wolftrust/ffm.h`.
+
 ### Single mediated path — raw wolfHSM transport retired (parity-or-better)
 
 Every non-secure client request reaches a secure service only through the SPM
