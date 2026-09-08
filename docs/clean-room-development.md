@@ -43,7 +43,7 @@ Implementers may use:
 - Public Secure Partition examples limited to specified API usage and
   documented manifest input.
 - wolfTrust requirements carrying an approved provenance record.
-- wolfSSL, wolfBoot, wolfPSA, wolfHSM, wolfCOSE, wolfPKCS11, wolfHAL, and other
+- wolfSSL, wolfBoot, wolfPSA, wolfHSM, wolfCOSE, wolfHAL, and other
   explicitly approved project sources.
 
 Public TF-M examples and tests are compatibility consumers. Their presence on

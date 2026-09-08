@@ -190,7 +190,7 @@ guest1` delivery path on the host with no hardware. All three also run in CI (th
 host suites as `vnet`/`vnet_relay` units, the emulator scenario as the `vnet`
 M33MU scenario).
 
-### Zephyr, PSA, FreeRTOS, and PKCS#11
+### Zephyr and FreeRTOS PSA guests
 
 The advanced integration lives in `tests/firmware/zephyr-stm32h5`. Its setup
 downloads a narrow Zephyr workspace and installs `west` and `pyelftools` in a
@@ -256,7 +256,7 @@ settings. The full list of interfaces a port supplies is in
 - `docs/` user documentation and the `requirements/` traceability ledger
 - `tests/host/` native unit and integration suites
 - `tests/target/` M33MU and STM32H563 scenario runners
-- `tests/firmware/` bare-metal, VNET, Zephyr, PSA, FreeRTOS, and PKCS#11 demos
+- `tests/firmware/` bare-metal, VNET, and Zephyr/FreeRTOS PSA demos
 - `lib/` wolfSSL ecosystem dependencies, included as submodules
 
 ## Documentation

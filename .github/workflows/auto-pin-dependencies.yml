@@ -32,10 +32,10 @@ jobs:
           changed=0
           failed=0
 
-          # These dependencies publish stable release tags. wolfPSA and
-          # wolfPKCS11 remain manual while this branch carries fork-only
-          # runtime-devId/device-ID changes; including them here would undo
-          # the tested replacement patches on the next upstream release scan.
+          # These dependencies publish stable release tags. wolfPSA remains
+          # manual while this branch carries fork-only runtime-devId/device-ID
+          # changes; including it here would undo the tested replacement
+          # patches on the next upstream release scan.
           specs=(
             "lib/wolfSSL|https://github.com/wolfSSL/wolfSSL.git|v*-stable"
             "lib/wolfHSM|https://github.com/wolfSSL/wolfHSM.git|wolfHSM-v*"

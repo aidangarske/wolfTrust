@@ -53,7 +53,7 @@ OEM-owned.**
    / regulated customers, an ST-owned RoT is a non-starter - this alone wins
    deals.
 3. **Certified crypto you may already need.** wolfTrust rides
-   wolfCrypt/wolfBoot/wolfHSM/wolfPKCS11/wolfCOSE - **FIPS 140-3, DO-178**, etc.
+   wolfCrypt/wolfBoot/wolfHSM/wolfPSA/wolfCOSE - **FIPS 140-3, DO-178**, etc.
    Secure Manager is ST's stack. Customers standardized on wolfSSL/FIPS get one
    certified core everywhere.
 4. **Auditable + customizable.** Secure Manager is a closed immutable ST blob.

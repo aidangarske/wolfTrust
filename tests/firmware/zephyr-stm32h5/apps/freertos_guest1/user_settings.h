@@ -2,7 +2,7 @@
  *
  * Satisfies WOLFSSL_USER_SETTINGS (wolfCrypt's compile-time config
  * trampoline) for the SPM-mediated guest: wolfPSA front-end, FF-M
- * entropy hook, no wolfHSM/wolfPKCS11 raw transport. Mirrors the Zephyr
+ * entropy hook, no raw HSM transport. Mirrors the Zephyr
  * guest user_settings but with FREERTOS heap / port hooks turned on. */
 
 #ifndef WOLFTRUST_FREERTOS_NS_USER_SETTINGS_H

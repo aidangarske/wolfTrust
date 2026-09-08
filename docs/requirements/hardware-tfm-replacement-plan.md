@@ -59,7 +59,7 @@ separate ledger - never implied by emulator results.**
   0x0100`, SERVICE_CRYPTO dispatch verified, forged-handle + oversized-vector
   rejected, `psa_hash_compute(SHA-256) KAT`, `psa_initial_attestation st=0`,
   COSE_Sign1 verified, `attestation verify=0 …`, `guest0_psa done`, and the
-  freertos_guest1 wolfHSM/wolfPKCS11 markers. Real completion = guest-done
+  freertos_guest1 PSA markers. Real completion = guest-done
   banners + no fault marker (no BKPT on silicon).
 
 ### P2.2 - Fix hardware-only issues (the real bring-up)

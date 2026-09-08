@@ -10,9 +10,6 @@
 [submodule "lib/wolfPSA"]
 	path = lib/wolfPSA
 	url = https://github.com/aidangarske/wolfPSA.git
-[submodule "lib/wolfPKCS11"]
-	path = lib/wolfPKCS11
-	url = https://github.com/aidangarske/wolfPKCS11.git
 [submodule "lib/wolfIP"]
 	path = lib/wolfIP
 	url = git@github.com:wolfSSL/wolfip.git

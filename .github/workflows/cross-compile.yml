@@ -22,7 +22,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://github.com/".insteadOf git@github.com:
           git submodule update --init \
-            lib/wolfCOSE lib/wolfHSM lib/wolfPKCS11 lib/wolfPSA lib/wolfSSL \
+            lib/wolfCOSE lib/wolfHSM lib/wolfPSA lib/wolfSSL \
             lib/wolfhal
       - name: Install Arm GCC toolchain
         run: |

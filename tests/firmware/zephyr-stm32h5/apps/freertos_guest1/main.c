@@ -4,10 +4,8 @@
  *   FreeRTOS task → psa_* (wolfPSA) / psa_connect+psa_call (neutral core)
  *                → WolfTrust_FFM_* veneers → SPM → SERVICE_CRYPTO → vault
  *
- * The raw HSM-CMSE transport (wolfPKCS11 → wh_Client_CryptoCb →
- * WolfTrust_HSM_Submit/Poll) is retired from this guest: every secure
- * request is mediated by the SPM (WT-FFM-0054), and the wolfCrypt DRBG
- * seeds from SERVICE_CRYPTO's vault-backed RNG over the same path.
+ * Every secure request is mediated by the SPM (WT-FFM-0054); the wolfCrypt
+ * DRBG seeds from SERVICE_CRYPTO's vault-backed RNG over the same path.
  *
  * Cortex-M33 NTZ port: TrustZone-unaware FreeRTOS port. The secure side
  * still owns CMSE, the secure SysTick, and the per-guest MPU window.
