@@ -82,6 +82,44 @@ int wt_guest_verify_image(const void* image,
     return ret;
 }
 
+int wt_guest_flash_wrp_covers(uint32_t wrp_bitmap,
+                              uintptr_t window_base, size_t window_size,
+                              uintptr_t bank_base,
+                              uint32_t sector_size,
+                              uint32_t sectors_per_group)
+{
+    uintptr_t offset;
+    uint32_t first_group;
+    uint32_t last_group;
+    uint32_t group;
+    int ret = WT_GUEST_VERIFY_OK;
+
+    if (window_size == 0u || sector_size == 0u || sectors_per_group == 0u ||
+            window_base < bank_base) {
+        return WT_GUEST_VERIFY_ERROR_ARGUMENT;
+    }
+
+    offset = window_base - bank_base;
+    first_group = (uint32_t)((offset / sector_size) / sectors_per_group);
+    last_group = (uint32_t)(((offset + (uintptr_t)window_size - 1u) /
+                             sector_size) / sectors_per_group);
+
+    /* A window that runs past the 32-group bank map cannot be confirmed from a
+     * single bank's WRP register, so fail closed. */
+    if (last_group >= 32u) {
+        return WT_GUEST_VERIFY_ERROR_LAYOUT;
+    }
+
+    for (group = first_group; group <= last_group; ++group) {
+        if ((wrp_bitmap & ((uint32_t)1U << group)) != 0U) {
+            ret = WT_GUEST_VERIFY_ERROR_WRP;
+            break;
+        }
+    }
+
+    return ret;
+}
+
 int wt_runtime_verify_decide(const void* window_base, size_t window_size,
                              const wt_guest_measurement_t* record,
                              uint32_t min_version, int launch_required)

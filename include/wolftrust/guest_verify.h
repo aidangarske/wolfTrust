@@ -45,7 +45,8 @@ typedef enum wt_guest_verify_result {
     WT_GUEST_VERIFY_ERROR_DIGEST = -702,
     WT_GUEST_VERIFY_ERROR_VERSION = -703,
     WT_GUEST_VERIFY_ERROR_HASH = -704,
-    WT_GUEST_VERIFY_ERROR_CAPACITY = -705
+    WT_GUEST_VERIFY_ERROR_CAPACITY = -705,
+    WT_GUEST_VERIFY_ERROR_WRP = -706
 } wt_guest_verify_result_t;
 
 /* WT-SYS-0002 / WT-FFM-0049 launch predicate: SHA-256 the guest image bytes,
@@ -55,6 +56,19 @@ int wt_guest_verify_image(const void* image,
                           size_t window_size,
                           const wt_guest_measurement_t* record,
                           uint32_t min_version);
+
+/* STM32H5-family flash write-protection predicate for a guest image window.
+ * Each WRP bit protects a group of sectors_per_group consecutive sector_size
+ * sectors within a bank, and a 0 bit means write-protected. Returns
+ * WT_GUEST_VERIFY_OK only when every sector spanned by [window_base,
+ * window_base + window_size) has its WRP group bit cleared, so a Non-secure
+ * guest cannot reprogram the image a peer will later resume. Neutral and
+ * host-tested; the port supplies WRPnR_CUR and the bank geometry. */
+int wt_guest_flash_wrp_covers(uint32_t wrp_bitmap,
+                              uintptr_t window_base, size_t window_size,
+                              uintptr_t bank_base,
+                              uint32_t sector_size,
+                              uint32_t sectors_per_group);
 
 /* WT-FFM-0052 / WT-SYS-0013 runtime re-measurement decision. On demand after
  * boot, re-hash the domain's window against its pinned record. A guest with no

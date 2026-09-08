@@ -190,6 +190,67 @@ static void wt_test_measurement_table(void)
     EXPECT_TRUE(wt_guest_measurement_count() == 0u);
 }
 
+/* WT-SYS-0002 flash write-protection predicate over the production STM32H5
+ * layout: 8 KiB sectors, 4 sectors per WRP group, a 0 bit meaning protected.
+ * guest0 = 0x080A0000+0x40000 (sectors 80-111, groups 20-27); guest1 =
+ * 0x080E0000+0x20000 (sectors 112-127, groups 28-31). */
+#define WT_TEST_BANK1_BASE 0x08000000u
+#define WT_TEST_SECTOR     0x2000u
+#define WT_TEST_GROUP      4u
+#define WT_TEST_GUEST0_BASE 0x080A0000u
+#define WT_TEST_GUEST0_SIZE 0x40000u
+#define WT_TEST_GUEST1_BASE 0x080E0000u
+#define WT_TEST_GUEST1_SIZE 0x20000u
+
+static void wt_test_flash_wrp(void)
+{
+    /* Both guests protected: groups 20-31 cleared (0x000FFFFF). */
+    EXPECT_RESULT(wt_guest_flash_wrp_covers(0x000FFFFFu, WT_TEST_GUEST0_BASE,
+                  WT_TEST_GUEST0_SIZE, WT_TEST_BANK1_BASE, WT_TEST_SECTOR,
+                  WT_TEST_GROUP), WT_GUEST_VERIFY_OK);
+    EXPECT_RESULT(wt_guest_flash_wrp_covers(0x000FFFFFu, WT_TEST_GUEST1_BASE,
+                  WT_TEST_GUEST1_SIZE, WT_TEST_BANK1_BASE, WT_TEST_SECTOR,
+                  WT_TEST_GROUP), WT_GUEST_VERIFY_OK);
+
+    /* Factory default: all sectors open (0xFFFFFFFF) fails both closed. */
+    EXPECT_RESULT(wt_guest_flash_wrp_covers(0xFFFFFFFFu, WT_TEST_GUEST0_BASE,
+                  WT_TEST_GUEST0_SIZE, WT_TEST_BANK1_BASE, WT_TEST_SECTOR,
+                  WT_TEST_GROUP), WT_GUEST_VERIFY_ERROR_WRP);
+    EXPECT_RESULT(wt_guest_flash_wrp_covers(0xFFFFFFFFu, WT_TEST_GUEST1_BASE,
+                  WT_TEST_GUEST1_SIZE, WT_TEST_BANK1_BASE, WT_TEST_SECTOR,
+                  WT_TEST_GROUP), WT_GUEST_VERIFY_ERROR_WRP);
+
+    /* One group of guest0 (bit 25) left open fails guest0 but not guest1. */
+    EXPECT_RESULT(wt_guest_flash_wrp_covers(0x000FFFFFu | (1u << 25),
+                  WT_TEST_GUEST0_BASE, WT_TEST_GUEST0_SIZE, WT_TEST_BANK1_BASE,
+                  WT_TEST_SECTOR, WT_TEST_GROUP), WT_GUEST_VERIFY_ERROR_WRP);
+    EXPECT_RESULT(wt_guest_flash_wrp_covers(0x000FFFFFu | (1u << 25),
+                  WT_TEST_GUEST1_BASE, WT_TEST_GUEST1_SIZE, WT_TEST_BANK1_BASE,
+                  WT_TEST_SECTOR, WT_TEST_GROUP), WT_GUEST_VERIFY_OK);
+
+    /* Boundary: guest1's top group (bit 31) open fails guest1 closed. */
+    EXPECT_RESULT(wt_guest_flash_wrp_covers(0x000FFFFFu | (1u << 31),
+                  WT_TEST_GUEST1_BASE, WT_TEST_GUEST1_SIZE, WT_TEST_BANK1_BASE,
+                  WT_TEST_SECTOR, WT_TEST_GROUP), WT_GUEST_VERIFY_ERROR_WRP);
+
+    /* Argument abuse: zero size, base below the bank, zero geometry. */
+    EXPECT_RESULT(wt_guest_flash_wrp_covers(0x000FFFFFu, WT_TEST_GUEST0_BASE,
+                  0u, WT_TEST_BANK1_BASE, WT_TEST_SECTOR, WT_TEST_GROUP),
+                  WT_GUEST_VERIFY_ERROR_ARGUMENT);
+    EXPECT_RESULT(wt_guest_flash_wrp_covers(0x000FFFFFu,
+                  WT_TEST_BANK1_BASE - 0x2000u, WT_TEST_GUEST0_SIZE,
+                  WT_TEST_BANK1_BASE, WT_TEST_SECTOR, WT_TEST_GROUP),
+                  WT_GUEST_VERIFY_ERROR_ARGUMENT);
+    EXPECT_RESULT(wt_guest_flash_wrp_covers(0x000FFFFFu, WT_TEST_GUEST0_BASE,
+                  WT_TEST_GUEST0_SIZE, WT_TEST_BANK1_BASE, 0u, WT_TEST_GROUP),
+                  WT_GUEST_VERIFY_ERROR_ARGUMENT);
+
+    /* A window running past the 32-group bank map fails closed as layout. */
+    EXPECT_RESULT(wt_guest_flash_wrp_covers(0x00000000u, WT_TEST_BANK1_BASE,
+                  0x100001u, WT_TEST_BANK1_BASE, WT_TEST_SECTOR, WT_TEST_GROUP),
+                  WT_GUEST_VERIFY_ERROR_LAYOUT);
+}
+
 int main(void)
 {
     size_t i;
@@ -204,6 +265,7 @@ int main(void)
     wt_test_layout();
     wt_test_arguments();
     wt_test_measurement_table();
+    wt_test_flash_wrp();
 
     if (g_failures != 0u) {
         (void)fprintf(stderr, "guest-verify checks failed: %u/%u\n",

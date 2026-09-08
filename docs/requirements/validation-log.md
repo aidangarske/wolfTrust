@@ -4549,6 +4549,47 @@ both against the "hostile privileged Non-secure guest" threat model.
   end is not 512-byte aligned. All shipped manifests are 64 KiB-aligned and
   still bind. Evidence: host `spm` (production manifest binds); M33MU `gtzcneg`.
 
+## Guest flash hardware write protection (WRP)
+
+The codex security re-scan (`gpt-5.6-sol`, max) traced a Critical the earlier
+re-measurement mitigation left open (CWE-284/CWE-1256): a first-dispatch-only
+re-measure could not cover a post-first-dispatch takeover, and re-measuring on
+every resume is infeasible (a 94 KiB software SHA exceeds the 2 ms timeslice on
+silicon). A privileged Non-secure guest can program Non-secure flash through
+`FLASH_NS`, so a peer could reprogram a suspended guest's instruction page and
+the victim would resume a substituted image, inheriting its FFM identity, PSA
+storage, and HSM namespace.
+
+- **Guest images write-protected in hardware, enforced fail-closed
+  (WT-SYS-0002).** Each guest's active-image sectors are write-protected through
+  the FLASH WRP option bytes — bank-1 sectors 0x50-0x7F (`0x080A0000`-
+  `0x080FFFFF`, `WRPSGn1=0x000FFFFF`), so the flash controller rejects every
+  program/erase from Non-secure and Secure state alike, independent of the
+  guest's MPU or privilege. wolfTrust does not assume the protection: launch
+  verification reads `WRP1R_CUR` and refuses to launch a guest whose sectors are
+  not write-protected (`WT_GUEST_FLASH_WRP`, `src/monitor.c`
+  `wt_verify_guest_launch` -> `port/stm32h563/platform_stm32h563.c`
+  `wt_platform_guest_flash_wrp_ok` -> neutral `src/guest_verify.c`
+  `wt_guest_flash_wrp_covers`). Sound because guest images are immutable at
+  runtime: the PSA FWU path updates only the secure/primary image
+  (`WT_FWU_COMPONENT_PRIMARY`, staged into the separate wolfBoot update
+  partition), so WRP never needs unlocking in normal operation; provisioning
+  clears WRP only to reflash guests and re-locks after
+  (`tests/target/provisioning_ctrl.sh` `set-wrp`/`clear-wrp`). WRP is
+  programmed while Open (reversible) and becomes immutable at TZ-Closed. The
+  first-dispatch/restart re-measurement remains as defense-in-depth.
+- **Evidence.** Host `guest_verify` suite (41 checks: the WRP predicate accepts
+  a protected bitmap and rejects open/partial/boundary/argument/layout cases,
+  both polarities). M33MU full regression with the flag off — `positive`,
+  `confboot`, `crossdomain`, `bothpsa`, `restart`, `remeasureneg` all green (the
+  emulator has no flash WRP, so the guard is compiled out there). H5 silicon:
+  the WRP-enforcing image refuses guest0 with WRP cleared (lifecycle latched
+  `0x00000000`, quarantined at launch, no CPU fault) and boots it with WRP set
+  (full lifecycle `0x000000ff`, attestation and cross-guest refusal pass);
+  `sec_monitor.o` carries the `wt_platform_guest_flash_wrp_ok` reference only
+  the guard emits. STM32H563 RM0481 (WRP option bytes; WRP mutable in Open only,
+  Table 53).
+
 ## Context-save band, firmware-update owner, and connection quota
 
 Three Highs from the four-engine security re-scan on the fixed tree.

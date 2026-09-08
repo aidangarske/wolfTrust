@@ -211,6 +211,17 @@ static int wt_verify_guest_launch(wt_guest_id_t guest_id)
                                     config->launch_min_version);
     }
 
+#if defined(WT_GUEST_FLASH_WRP) && (WT_GUEST_FLASH_WRP == 1)
+    /* A verified image is only trustworthy if a peer Non-secure guest cannot
+     * reprogram it in flash between now and any later resume. Require the
+     * guest's sectors to be hardware write-protected (WRP); fail closed
+     * otherwise so a mis-provisioned board never launches an unprotected guest. */
+    if (ret == WT_GUEST_VERIFY_OK) {
+        ret = wt_platform_guest_flash_wrp_ok(window->base,
+                                             (size_t)window->size);
+    }
+#endif
+
     if (ret == WT_GUEST_VERIFY_OK) {
         bool recorded = false;
 

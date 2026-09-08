@@ -58,6 +58,11 @@ DA_CONN_RST="-c port=SWD speed=fast ap=1 mode=Hotplug -hardRst"
 WT_OB=(TZEN=0xB4 BOOT_UBE=0xB4 SWAP_BANK=0x0
        SECWM1_STRT=0x0 SECWM1_END=0x4F SECWM2_STRT=0x0 SECWM2_END=0x7F)
 
+# Guest-flash write protection (WRPSGn1, 0 = protected, 4 sectors per bit).
+# 0x000FFFFF clears bits 20-31 -> bank-1 sectors 0x50-0x7F protected, the guest
+# region; 0xFFFFFFFF leaves all sectors writable (factory default).
+WRP_GUEST=0x000FFFFF; WRP_OPEN=0xFFFFFFFF
+
 # Product-state codes (RM0481).
 PS_OPEN=0xED; PS_PROVISIONING=0x17; PS_TZCLOSED=0xC6; PS_CLOSED=0x72; PS_LOCKED=0x5C
 
@@ -94,6 +99,29 @@ case "$cmd" in
     "$CLI" -c port=SWD mode=UR -ob "${WT_OB[@]}" 2>&1 | strip | tail -4
     ;;
 
+  set-wrp)
+    # Write-protect the guest flash region so a privileged Non-secure guest
+    # cannot reprogram a peer guest's image (WT-SYS-0002 hardware root fix).
+    # WRPSGn1 groups four 8 KiB sectors per bit and 0 means protected, so
+    # 0x000FFFFF protects bank-1 sectors 0x50-0x7F (0x080A0000-0x080FFFFF),
+    # the whole guest region, and leaves the secure/FWU region writable. WRP is
+    # mutable only in Open; run this AFTER flashing the guests (a protected
+    # sector rejects the image write) and before advancing product state.
+    confirm
+    [ "$(product_state)" = "$PS_OPEN" ] || \
+      fail "set-wrp" "WRP is settable only in Open ($PS_OPEN); state=$(product_state)"
+    echo "Write-protecting guest flash (bank1 sectors 0x50-0x7F): WRPSGn1=$WRP_GUEST"
+    "$CLI" -c port=SWD mode=UR -ob WRPSGn1="$WRP_GUEST" 2>&1 | strip | tail -4
+    "$CLI" -c port=SWD mode=HotPlug -ob displ 2>&1 | strip | grep -iE "WRPSGn1"
+    ;;
+
+  clear-wrp)
+    # Remove guest-flash write protection so the images can be reflashed.
+    confirm
+    echo "Clearing guest-flash write protection: WRPSGn1=$WRP_OPEN"
+    "$CLI" -c port=SWD mode=UR -ob WRPSGn1="$WRP_OPEN" 2>&1 | strip | tail -4
+    ;;
+
   flash)
     confirm
     for f in "$wb" "$wt" "$g0" "$g1"; do
@@ -119,7 +147,9 @@ case "$cmd" in
   restore)
     confirm
     WT_LOCK_CONFIRM=1 "$0" set-perimeter
+    WT_LOCK_CONFIRM=1 "$0" clear-wrp
     WT_LOCK_CONFIRM=1 "$0" flash
+    WT_LOCK_CONFIRM=1 "$0" set-wrp
     "$0" verify
     echo "PASS: wolfTrust restored and booting"
     ;;

@@ -19,6 +19,7 @@
  */
 
 #include "wolftrust/platform.h"
+#include "wolftrust/guest_verify.h"
 #include "wolftrust/monitor.h"
 #include "wolftrust/arch/armv8m/context.h"
 
@@ -179,6 +180,25 @@ static void wt_sau_set_region(uint32_t rnr,
     WT_SAU_RNR = rnr;
     WT_SAU_RBAR = base & 0xFFFFFFE0u;
     WT_SAU_RLAR = (limit_inclusive & 0xFFFFFFE0u) | (nsc ? 2u : 0u) | 1u;
+}
+
+int wt_platform_guest_flash_wrp_ok(uintptr_t window_base, size_t window_size)
+{
+    uint32_t wrp;
+    uintptr_t bank_base;
+
+    if (window_base >= WT_FLASH_NS_BASE + 0x00100000u) {
+        wrp = WT_FLASH_WRP2R_CUR;
+        bank_base = WT_FLASH_NS_BASE + 0x00100000u;
+    }
+    else {
+        wrp = WT_FLASH_WRP1R_CUR;
+        bank_base = WT_FLASH_NS_BASE;
+    }
+
+    return wt_guest_flash_wrp_covers(wrp, window_base, window_size, bank_base,
+                                     WT_FLASH_SECTOR_SIZE,
+                                     WT_FLASH_WRP_SECTORS_PER_GROUP);
 }
 
 static void wt_gtzc_init(void)

@@ -83,6 +83,11 @@ void wt_platform_log_fault(wt_guest_id_t guest_id,
 struct wt_guest_measurement;
 const struct wt_guest_measurement* wt_platform_guest_measurements(
     size_t* count);
+/* Verify a guest image window is hardware write-protected (WRP) so a peer
+ * Non-secure guest cannot reprogram it. Returns WT_GUEST_VERIFY_OK when every
+ * sector of [window_base, window_base + window_size) is write-protected, else a
+ * wt_guest_verify_result_t error. Called only under WT_GUEST_FLASH_WRP. */
+int wt_platform_guest_flash_wrp_ok(uintptr_t window_base, size_t window_size);
 uintptr_t wt_platform_read_fault_address(void);
 void wt_platform_all_guests_faulted(void) __attribute__((noreturn));
 void wt_platform_panic(void) __attribute__((noreturn));

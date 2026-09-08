@@ -164,23 +164,38 @@ is gated on that hardware run. Evidence: `port/stm32h563/platform_stm32h563.c`
 (`wt_gtzc_init` secures HASH/RNG/PKA and the SRAM curtain, RCC not yet
 attributed); STM32H563 RM0481 RCC security configuration.
 
-### Guest flash-control access blocked by re-measurement, not yet by hardware (scoped roadmap)
+### Guest images write-protected in hardware (WRP), enforced fail-closed at boot (parity-or-better)
 
 A privileged Non-secure guest kernel can reach the Non-secure flash-control
-interface (`FLASH_NS`, 0x40022000) and, because guest sectors carry no write
-protection, could erase or reprogram a peer guest's image in flash. wolfTrust
-defeats the resulting attack — a peer running a substituted image — by
-re-measuring every guest immediately before its first dispatch (WT-SYS-0002,
-`src/monitor.c` `wt_dispatch_guest`), so a tampered image is faulted before it
-can run rather than launched, and restart/relaunch re-measures the same way.
-The hardware root fix that also prevents the write itself — securing the
-flash-control interface (marking the `FLASH_NS` control page Secure through the
-SAU/IDAU, or provisioning WRP/SECWM over guest sectors where the update design
-permits) — is not a GTZC/TZSC bit on this line and can be qualified only on H5
-silicon, so it is gated on that hardware run; the M33MU model does not implement
-flash-controller security, making the re-measurement the emulator-provable layer
-today. Evidence: `src/monitor.c` (first-dispatch re-measure); the `restart` and
-`remeasureneg` M33MU scenarios; STM32H563 RM0481.
+interface (`FLASH_NS`, 0x40022000). Absent protection it could erase or
+reprogram a peer guest's image: a malicious guest waits until a peer has
+dispatched, reprograms the suspended peer's instruction page from RAM, and
+yields, so the peer resumes a substituted image and inherits its FFM identity,
+PSA storage, and HSM namespace. wolfTrust closes this at the hardware root.
+Each guest's active-image sectors are write-protected through the FLASH WRP
+option bytes — bank-1 sectors 0x50-0x7F (`0x080A0000`-`0x080FFFFF`, the whole
+guest region), programmed as `WRPSGn1=0x000FFFFF` — so the flash controller
+rejects every program/erase of those sectors from Non-secure and Secure state
+alike (`WRPERR`), regardless of the guest's MPU or privilege. wolfTrust does not
+merely assume the protection: launch verification reads `WRP1R_CUR` and refuses
+to launch any guest whose sectors are not write-protected
+(`WT_GUEST_FLASH_WRP`, `src/monitor.c` `wt_verify_guest_launch` →
+`wt_platform_guest_flash_wrp_ok`), so a mis-provisioned board fails closed rather
+than running an unprotected guest. This is sound because guest images are
+immutable at runtime: the PSA Firmware Update path updates only the
+secure/primary image (`WT_FWU_COMPONENT_PRIMARY`, staged into the separate
+wolfBoot update partition), so WRP never needs unlocking in normal operation;
+the provisioning flow clears WRP only to reflash guests and re-locks after
+(`tests/target/provisioning_ctrl.sh` `clear-wrp`/`set-wrp`). WRP is programmed
+while the device is Open (reversible) and becomes immutable at TZ-Closed. The
+first-dispatch and restart re-measurement (WT-SYS-0002, `wt_dispatch_guest`)
+remains as defense-in-depth for the boot-to-first-dispatch window. Silicon only:
+the M33MU emulator does not model flash WRP, so the hardware block is qualified
+on H5 silicon while the neutral predicate is host-tested. Evidence:
+`src/guest_verify.c` `wt_guest_flash_wrp_covers` + host `guest_verify` suite;
+`port/stm32h563/platform_stm32h563.c` `wt_platform_guest_flash_wrp_ok`; the H5
+`positive` (guests boot with WRP set) and fail-closed (guests refused without
+WRP) silicon runs; STM32H563 RM0481 (WRP option bytes, Table 53).
 
 ### Abnormal-termination connection release omits the cleanup disconnection (scoped deviation)
 

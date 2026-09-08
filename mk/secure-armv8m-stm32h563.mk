@@ -187,6 +187,13 @@ endif
 ifeq ($(WT_BOOTUPDATE_PROBE),1)
 SECURE_CFLAGS += -DWT_BOOTUPDATE_PROBE=1
 endif
+# Hardware guest-flash write protection: refuse to launch a guest whose image
+# sectors are not WRP-protected, so a peer Non-secure guest cannot reprogram a
+# suspended guest's flash. Silicon only (the M33MU model has no flash WRP).
+WT_GUEST_FLASH_WRP ?= 0
+ifeq ($(WT_GUEST_FLASH_WRP),1)
+SECURE_CFLAGS += -DWT_GUEST_FLASH_WRP=1
+endif
 
 # Vault recovery negative test: force the foreign-pool ACCESS at first
 # provisioning so the lifecycle-gated reformat path runs. WT_VAULT_PROBE_SECURED

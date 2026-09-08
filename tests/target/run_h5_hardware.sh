@@ -340,6 +340,12 @@ if [ "$mode" != "build" ]; then
   update_d=""
   [ "$scenario" = "bootupdate" ] && \
     update_d="-d $repo/build/wolftrust_v2_signed.bin 0x0C100000"
+  # Guest flash is write-protected under WT_GUEST_FLASH_WRP, and a protected
+  # sector rejects the image write, so unlock before flashing and re-lock after.
+  if [ "${WT_GUEST_FLASH_WRP:-0}" = "1" ]; then
+    stage "clearing guest-flash WRP before flashing"
+    "$CLI" -c port=SWD mode=UR -ob WRPSGn1=0xFFFFFFFF >> "$LOGFILE" 2>&1 || true
+  fi
   "$CLI" -c port=SWD mode=UR \
     -d "$repo/wolfBoot/wolfboot.bin" "$WOLFBOOT_ADDR" \
     -d "$repo/build/wolftrust_v1_signed.bin" "$WOLFTRUST_ADDR" \
@@ -350,6 +356,10 @@ if [ "$mode" != "build" ]; then
   cat "$cli_log" >> "$LOGFILE" || true
   grep -aq "verified successfully" "$cli_log" || {
     echo "FAIL: flash verify did not complete" >&2; exit 1; }
+  if [ "${WT_GUEST_FLASH_WRP:-0}" = "1" ]; then
+    stage "write-protecting guest flash (WRPSGn1=0x000FFFFF)"
+    "$CLI" -c port=SWD mode=UR -ob WRPSGn1=0x000FFFFF >> "$LOGFILE" 2>&1 || true
+  fi
 
   # CubeProgrammer -hardRst is unreliable (observed: board left parked in the
   # pre-flash state); always follow with an explicit debug-port reset.

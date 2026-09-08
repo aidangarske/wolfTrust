@@ -175,6 +175,13 @@
 #define WT_FLASH_SR              (*(volatile uint32_t*)(WT_FLASH_BASE_S + 0x24u))
 #define WT_FLASH_SR_BSY          (1u << 0)
 #define WT_FLASH_SR_DBNE         (1u << 3)
+/* Write-protection current option bytes (RM0481): one global set, no S/NS
+ * split. Each bit protects a group of 4 consecutive 8 KiB sectors; a 0 bit
+ * means write-protected. Read-only here — the port never programs option
+ * bytes; provisioning sets them and wolfTrust verifies them fail-closed. */
+#define WT_FLASH_WRP1R_CUR       (*(volatile uint32_t*)(WT_FLASH_BASE_S + 0xE8u))
+#define WT_FLASH_WRP2R_CUR       (*(volatile uint32_t*)(WT_FLASH_BASE_S + 0x1E8u))
+#define WT_FLASH_WRP_SECTORS_PER_GROUP 4u
 
 #define WT_PWR_BASE_S            0x54020800u
 #define WT_PWR_CR2               (*(volatile uint32_t*)(WT_PWR_BASE_S + 0x04u))
