@@ -94,6 +94,16 @@ lifecycles. A failed guest check quarantines that guest. An unreadable or
 failed wolfTrust image floor quarantines all guests. The same hash check can be
 requested after boot; a mismatch then quarantines the running guest.
 
+Measurement alone cannot stop a privileged Non-secure guest from reprogramming a
+suspended peer's image between checks. Guest image sectors are hardware
+write-protected through the flash WRP option bytes, so the flash controller
+rejects any program or erase of those sectors from Non-secure or Secure state
+alike. wolfTrust does not merely assume the protection: launch verification
+reads the WRP registers and refuses to launch a guest whose sectors are not
+write-protected, so a mis-provisioned board fails closed. Guest images are
+immutable at runtime — firmware update replaces only the secure image — so the
+protection never needs unlocking during normal operation.
+
 Source: [`src/guest_verify.c`](../src/guest_verify.c),
 [`src/rollback.c`](../src/rollback.c), and
 [`src/monitor.c`](../src/monitor.c).
@@ -101,9 +111,11 @@ Source: [`src/guest_verify.c`](../src/guest_verify.c),
 ## Fault recovery
 
 Restart action, budget, and window come from the manifest. For a recoverable
-scheduled-partition fault, the SPM releases HSM locks, completes pinned calls
-with a communication error, scrubs the partition stack, and reinitializes its
-coroutine in place. Exhausted or platform-fatal policy escalates instead.
+scheduled-partition fault, the SPM releases HSM locks, removes the faulted
+coroutine from any lock wait queue so no later acquirer blocks behind a dead
+waiter, completes pinned calls with a communication error, scrubs the partition
+stack, and reinitializes its coroutine in place. Exhausted or platform-fatal
+policy escalates instead.
 
 Connections involved in a fault enter an error state and cannot be reused.
 The restarted service accepts new connections; the reference HSM client also

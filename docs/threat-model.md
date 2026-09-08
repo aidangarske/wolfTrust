@@ -40,9 +40,14 @@ reference platform.
    RAM extent Secure at the block level (MPCBB) and reopens only the arriving
    guest's declared windows, so peer RAM rejects Non-secure transactions at
    the fabric regardless of NS privilege (`gtzcneg` negative). The NS MPU
-   remains as fault-containment defense in depth. Residual: a guest can read
-   the peer's flash-resident code image (public, measured content — no
-   secrets are stored in guest flash).
+   remains as fault-containment defense in depth. Peer code in flash is the
+   second front: a privileged Non-secure guest can reach the Non-secure flash
+   controller and could otherwise reprogram a suspended peer's image and resume
+   it under the peer's identity. Guest image sectors are hardware
+   write-protected (WRP), so the flash controller rejects that write from any
+   master, and wolfTrust refuses to launch a guest whose sectors are not
+   write-protected; re-measurement remains defense in depth. No secrets are
+   stored in guest flash — the image is public, measured content.
 
 ## Adversary model
 

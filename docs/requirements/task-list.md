@@ -15,6 +15,13 @@ core/port split is enforced (adding a port = one `port/<soc>/` folder, zero core
 edits, CI-guarded). The unmodified Arm PSA/FF-M conformance suite runs against
 wolfTrust on the board - the TF-M drop-in proof.
 
+The FF-M, TF-M, and CWE-mapped skoll reviews are cleared to **0 Critical /
+0 High**: the guest-flash identity takeover is closed in hardware (guest-flash
+WRP with a fail-closed launch check, silicon-proven), the mutex faulted-waiter
+deadlock and the firmware-update idle-owner DoS are fixed, and remaining
+differences are documented in the deviation register. The branch is a clean,
+linear, master-PR-ready history.
+
 ## Milestones - H5 secure-manager port (`wolftrust-secure-manager-port-plan.md`)
 
 - [x] **MP1** - first STM32H563 hardware boot (clean console, positive smoke).
@@ -892,8 +899,15 @@ wolfTrust on the board - the TF-M drop-in proof.
 - [~] **R-track: post-review compatibility + compliance hardening** (skoll
   TF-M-compatibility and FF-M-compliance re-scan, 2026-09-01). **Both Highs
   (R1, R2) are now FIXED with silicon evidence**; R3-R10 are fixed or
-  documented. Remaining: re-run both skoll reviews to confirm zero Crit/High
-  before the master PR; optional INFO-15/18 hardening negatives.
+  documented. **Closed (2026-09-08).** The final `review-security` cutoff (codex
+  `gpt-5.6-sol` at max) surfaced one Critical — a guest-flash identity takeover
+  where a privileged Non-secure guest reprograms a suspended peer's image and
+  resumes under its identity — fixed in hardware with guest-flash WRP and a
+  fail-closed launch check, silicon-proven; codex terra and big-pickle re-scans
+  then confirmed 0 Crit / 0 High. Two verified Mediums were fixed (mutex
+  faulted-waiter deadlock, firmware-update idle-owner DoS); the sealed-vault
+  counter-table MAC is a documented deviation and an MPU size finding was a
+  false positive. Branch is master-PR-ready. See the validation-log entries.
   - [~] **Full-scan sweep (2026-09-02):** the FF-M full re-scan leveled at
     0 Crit / 0 High; the TF-M full re-scan surfaced 1 new High + 8 Mediums,
     all fixed in one sweep (psa_eoi interrupt re-enable, XN constant data via
