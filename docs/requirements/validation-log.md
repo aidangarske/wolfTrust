@@ -4589,6 +4589,15 @@ storage, and HSM namespace.
   `sec_monitor.o` carries the `wt_platform_guest_flash_wrp_ok` reference only
   the guard emits. STM32H563 RM0481 (WRP option bytes; WRP mutable in Open only,
   Table 53).
+- **Build-flag requirement.** `WT_GUEST_FLASH_WRP` defaults to 0 because the
+  M33MU emulator does not model the WRP registers, so a default emulator build
+  must compile the guard out or every scenario would fail closed. It is a hard
+  requirement for a production hardware image and is set on the H5 build path
+  (`tests/target/run_h5_hardware.sh`, which also programs and re-locks the WRP
+  option bytes around flashing). The hardware flash controller enforces WRP
+  regardless of the flag; the flag only adds wolfTrust's fail-closed launch
+  check, so a hardware image built without it still cannot have its guest
+  sectors reprogrammed, it just does not self-verify the protection at boot.
 
 ## Context-save band, firmware-update owner, and connection quota
 

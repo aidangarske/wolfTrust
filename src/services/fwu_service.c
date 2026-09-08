@@ -484,9 +484,12 @@ static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
      * owner until the reboot. Release the owner so the next client may start. */
     if (ctx->state == PSA_FWU_READY) {
         ctx->owner = 0;
-    } else if (ctx->owner != 0 && msg->client_id == ctx->owner) {
-        /* The owner made progress: reset its idle clock so a legitimate
-         * multi-step update is never reclaimed mid-flight. */
+    } else if (ctx->owner != 0 && msg->client_id == ctx->owner &&
+               msg->type != WT_FWU_OP_QUERY && msg->type != WT_FWU_OP_START) {
+        /* Refresh the idle clock only on owner progress (a state-mutating op),
+         * never on a read-only QUERY, so an owner cannot keep an abandoned
+         * session pinned by polling status under the timeout. START binds the
+         * clock in its own case. */
         ctx->owner_tick = now_tick;
     }
     return status;
