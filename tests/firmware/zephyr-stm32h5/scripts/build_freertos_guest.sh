@@ -3,8 +3,9 @@ set -eu
 
 # Build the FreeRTOS NS guest1 image: FreeRTOS kernel + ARM_CM33_NTZ port +
 # wolfCrypt + wolfPSA + the OS-neutral FF-M client core, linked against the
-# secure-side CMSE veneer import library. P7-S3: the raw wolfHSM/wolfPKCS11
-# transport is retired — every secure request is SPM-mediated. Output:
+# secure-side CMSE veneer import library. Every secure request goes through
+# the SPM-mediated SERVICE_HSM relay — there is no raw wolfHSM transport.
+# Output:
 #   build/freertos_guest1/freertos_guest1.{elf,bin}
 #
 # The clone of FreeRTOS is owned by scripts/clone_freertos.sh (idempotent;

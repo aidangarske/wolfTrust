@@ -30,7 +30,7 @@
 #define configTICK_RATE_HZ                        100u
 #define configSYSTICK_CLOCK_HZ                    configCPU_CLOCK_HZ
 
-/* Heap (heap_4.c). The wolfPKCS11 + wolfCrypt cryptocb path allocates
+/* Heap (heap_4.c). The wolfPSA + wolfCrypt cryptocb path allocates
  * key scratch buffers on the FreeRTOS heap, so it needs a few KiB. */
 #define configTOTAL_HEAP_SIZE                     ( (size_t) ( 16 * 1024 ) )
 #define configSUPPORT_DYNAMIC_ALLOCATION          1

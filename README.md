@@ -39,14 +39,15 @@ flowchart TB
             PS[SERVICE_PS<br/>sealed storage]
             FW[SERVICE_FWU]
             VA[SERVICE_VAULT<br/>Secure only]
+            VN[SERVICE_VNET<br/>optional wolfIP switch]
         end
-        V[VNET switch<br/>optional]
         SPM --- AT
         SPM --- HS
         SPM --- IT
         SPM --- PS
         SPM --- FW
         SPM --- VA
+        SPM --- VN
     end
 
     subgraph NS[Non-secure world]
@@ -57,10 +58,10 @@ flowchart TB
     WB -->|measured handoff| SPM
     GA -->|WolfTrust_FFM_* CMSE gateway| SPM
     GB -->|WolfTrust_FFM_* CMSE gateway| SPM
-    GA <-->|Ethernet frames| V
-    GB <-->|Ethernet frames| V
     SPM -->|cyclic dispatch, MPU + IRQ policy| GA
     SPM -->|cyclic dispatch, MPU + IRQ policy| GB
+    GA -.->|wolfIP frames via psa_call| VN
+    VN -.->|wolfIP frames via psa_call| GB
 ```
 
 The SPM owns caller identity, message handles, queues, signals, and the Secure
@@ -200,7 +201,7 @@ CMake, Ninja, and network access.
 cd tests/firmware/zephyr-stm32h5
 
 make run-uarts               # Zephyr/PSA guest A, bare-metal guest B
-make zephyr-freertos-uarts   # Zephyr/PSA guest A, FreeRTOS/wolfPKCS11 guest B
+make zephyr-freertos-uarts   # Zephyr/PSA guest A, FreeRTOS/PSA guest B
 ```
 
 The first invocation creates the ignored `.venv/` and `.workspace/` trees and

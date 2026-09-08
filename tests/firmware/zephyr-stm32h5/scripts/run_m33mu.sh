@@ -95,10 +95,9 @@ psa_cipher_encrypt(AES-CTR) st=0"
     freertos)
         NEEDLES_GUEST1="\
 freertos_guest1: alive|\
-freertos_guest1: wolfHSM client up; devId=0x5748534d|\
-freertos_guest1: C_Initialize rv=0|\
-freertos_guest1: C_OpenSession rv=0|\
-freertos_guest1: C_Digest(SHA-256) rv=0|\
+freertos_guest1: ffm sha256 ok|\
+freertos_guest1: psa_crypto_init st=0|\
+freertos_guest1: psa hash ok|\
 freertos_guest1: heartbeat 0"
         ;;
     *)

@@ -145,10 +145,10 @@ $(GUEST1_BIN): $(GUEST1_ELF)
 
 # ---- FreeRTOS guest1 variant ----------------------------------------------
 # Clones FreeRTOS on demand into the gitignored .workspace/ subtree, builds
-# a Cortex-M33-NTZ NS image with FreeRTOS + wolfPKCS11 + wolfHSM client
+# a Cortex-M33-NTZ NS image with FreeRTOS + wolfPSA + wolfHSM client
 # + wolfCrypt, and pairs it with the existing PSA-driven Zephyr guest0_psa
 # for an end-to-end "two NS guests, two different crypto APIs, one secure
-# wolfHSM" demo. lib/wolfPKCS11 is a wolftrust submodule.
+# wolfHSM" demo, with every secure request mediated over SERVICE_HSM.
 
 freertos-workspace:
 	"$(SCRIPT_DIR)/clone_freertos.sh"

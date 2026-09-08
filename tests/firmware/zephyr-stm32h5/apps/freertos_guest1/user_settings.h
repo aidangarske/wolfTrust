@@ -35,10 +35,10 @@
 #define NO_ECC384
 #define NO_ECC521
 
-/* SHA-256 only. wolfPKCS11's PKCS11 SHA-1 paths are gated on !NO_SHA. */
+/* SHA-256 only; the mediated PSA crypto path has no SHA-1 caller. */
 #define NO_SHA
 
-/* AES-CBC + AES-CTR (PSA / PKCS11 AES paths). */
+/* AES-CBC + AES-CTR for the mediated PSA crypto path. */
 #define WOLFSSL_AES_COUNTER
 
 /* HMAC + HKDF kept on. */
