@@ -866,11 +866,14 @@ void wt_hsm_set_fault_notify(wt_hsm_fault_notify_fn fn)
 
 void wt_hsm_release_locks(struct wt_co *co)
 {
-    /* Drop every secure-side wolfHSM lock the faulted coroutine still held so
-     * a waiter woken during recovery does not deadlock behind a dead holder.
-     * The NVM lock is the only such mutex today; add any future ones here. */
+    /* Drop every secure-side wolfHSM lock the faulted coroutine still held, and
+     * unlink it if it died parked as a waiter, so no later acquirer deadlocks
+     * behind a dead holder or a dead queued waiter. The NVM lock is the only
+     * such mutex today; add any future ones here. Recovery runs this before the
+     * partition is restarted, so the waiter is gone before it can re-enqueue. */
     if (co != NULL) {
         wt_mutex_release_if_holder(&g_nvm_lock_mutex, co);
+        wt_mutex_remove_waiter(&g_nvm_lock_mutex, co);
     }
 }
 

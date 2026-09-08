@@ -29,6 +29,7 @@
 #include "wolftrust/sp_recovery.h"
 #include "wolftrust/sched/coroutine.h"
 #include "wolftrust/sched/coroutine_internal.h"
+#include "wolftrust/sync/mutex.h"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -305,11 +306,64 @@ static void test_reinit(void)
     (void)printf("PASS: WT-SYS-0008 in-place coroutine restart\n");
 }
 
+/* A coroutine that faults while parked as a mutex waiter must be removed from
+ * the wait queue so the mutex is never handed to a dead waiter (which would
+ * deadlock every later acquirer behind a holder that can never release). */
+static void test_mutex_faulted_waiter(void)
+{
+    wt_co_t *a, *b, *c;
+    wt_mutex_t m;
+
+    wt_co_init();
+    a = wt_co_create_blocked_ex((uint8_t*)g_stacks[0], sizeof(g_stacks[0]),
+                                test_entry, NULL);
+    b = wt_co_create_blocked_ex((uint8_t*)g_stacks[1], sizeof(g_stacks[1]),
+                                test_entry, NULL);
+    c = wt_co_create_blocked_ex((uint8_t*)g_stacks[2], sizeof(g_stacks[2]),
+                                test_entry, NULL);
+    EXPECT_TRUE(a != NULL && b != NULL && c != NULL);
+
+    /* A holds the mutex; B then C queue behind it. */
+    wt_mutex_init(&m);
+    EXPECT_INT(wt_mutex_acquire_queued(&m, a), 0);
+    EXPECT_INT(wt_mutex_acquire_queued(&m, b), 1);
+    EXPECT_INT(wt_mutex_acquire_queued(&m, c), 1);
+    EXPECT_TRUE(wt_mutex_holder(&m) == a);
+
+    /* B faults as the head waiter; recovery unlinks it. */
+    wt_co_mark_faulted(b);
+    EXPECT_INT(wt_co_state(b), WT_CO_FAULTED);
+    wt_mutex_remove_waiter(&m, b);
+
+    /* Release must hand the mutex to the live waiter C, never the dead B. */
+    wt_mutex_release_if_holder(&m, a);
+    EXPECT_TRUE(wt_mutex_holder(&m) == c);
+    EXPECT_TRUE(wt_mutex_holder(&m) != b);
+
+    /* remove_waiter on a coroutine that is not queued is a no-op. */
+    wt_co_init();
+    a = wt_co_create_blocked_ex((uint8_t*)g_stacks[0], sizeof(g_stacks[0]),
+                                test_entry, NULL);
+    b = wt_co_create_blocked_ex((uint8_t*)g_stacks[1], sizeof(g_stacks[1]),
+                                test_entry, NULL);
+    c = wt_co_create_blocked_ex((uint8_t*)g_stacks[2], sizeof(g_stacks[2]),
+                                test_entry, NULL);
+    wt_mutex_init(&m);
+    EXPECT_INT(wt_mutex_acquire_queued(&m, a), 0);
+    EXPECT_INT(wt_mutex_acquire_queued(&m, b), 1);
+    wt_mutex_remove_waiter(&m, c);
+    wt_mutex_release_if_holder(&m, a);
+    EXPECT_TRUE(wt_mutex_holder(&m) == b);
+
+    (void)printf("PASS: faulted mutex waiter removed from wait queue\n");
+}
+
 int main(void)
 {
     test_decide();
     test_run();
     test_reinit();
+    test_mutex_faulted_waiter();
     if (g_failures != 0U) {
         (void)fprintf(stderr, "SP recovery checks failed: %u/%u\n",
                       g_failures, g_checks);

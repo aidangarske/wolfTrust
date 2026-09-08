@@ -161,6 +161,39 @@ int wt_mutex_acquire_queued(wt_mutex_t *m, struct wt_co *self)
     return 1;
 }
 
+void wt_mutex_remove_waiter(wt_mutex_t *m, struct wt_co *co)
+{
+    wt_co_t *prev;
+    wt_co_t *cur;
+
+    if (m == NULL || co == NULL) {
+        return;
+    }
+
+    /* Unlink co from the wait queue if parked there. A coroutine that faults
+     * while blocked as a waiter would otherwise be handed the mutex on the
+     * next release (m->holder = dead co, wt_co_wake a no-op for FAULTED) and
+     * every later acquirer would block forever behind the dead holder. */
+    prev = NULL;
+    cur = m->wait_head;
+    while (cur != NULL) {
+        if (cur == co) {
+            if (prev == NULL) {
+                m->wait_head = cur->next_wait;
+            } else {
+                prev->next_wait = cur->next_wait;
+            }
+            if (m->wait_tail == cur) {
+                m->wait_tail = prev;
+            }
+            cur->next_wait = NULL;
+            return;
+        }
+        prev = cur;
+        cur = cur->next_wait;
+    }
+}
+
 void wt_mutex_release_if_holder(wt_mutex_t *m, struct wt_co *co)
 {
     wt_co_t *next;

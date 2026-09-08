@@ -197,6 +197,25 @@ on H5 silicon while the neutral predicate is host-tested. Evidence:
 `positive` (guests boot with WRP set) and fail-closed (guests refused without
 WRP) silicon runs; STM32H563 RM0481 (WRP option bytes, Table 53).
 
+### Sealed-vault counter table integrity not yet cryptographically anchored (scoped roadmap)
+
+The sealed protected-storage vault derives each AES-GCM nonce deterministically
+from a monotonic counter (`wt_hsm_seal_nonce`, counter `|| "WTPS"`), and the
+counter table is persisted to the wolfHSM NVM store (`WT_HSM_VAULT_TABLE_ID`)
+without its own keyed MAC. The anti-replay and nonce-uniqueness guarantees
+therefore rest on the integrity of that NVM object: a rollback of both the
+sealed object and the counter table would force a (key, nonce) reuse, which for
+AES-GCM is catastrophic. That table lives in SECWM-secured bank-2 flash, so a
+Non-secure guest cannot reach it — the exposure is to a physical/offline rollback
+or a future Secure-side driver defect, not the hostile-guest threat model. The
+hardening (store the counter/rollback tables under a keyed MAC and verify it on
+every load, or mix an RNG component into the nonce) is scoped for a later release;
+until then the property is documented as resting on secure-NVM integrity.
+Evidence: `src/services/wolfhsm/wt_hsm_seal.c` (`wt_hsm_seal_nonce`),
+`src/services/wolfhsm/wt_hsm_vault.c` (`wt_hsm_vault_table_store`,
+`WH_NVM_ACCESS_ANY`); the SECWM2 watermark over bank 2
+(`tests/target/provisioning_ctrl.sh`).
+
 ### Abnormal-termination connection release omits the cleanup disconnection (scoped deviation)
 
 When a Non-secure guest terminates abnormally (fault, quarantine, or restart)

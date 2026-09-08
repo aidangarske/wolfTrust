@@ -112,7 +112,21 @@ typedef struct wt_fwu_service_ctx {
     uint32_t active_version; /* running image; query's public version field */
     psa_client_id_t owner;  /* client that opened the active update; 0 = none.
                              * Only the owner may drive or reboot it. */
+    uint32_t owner_tick;    /* scheduler tick of the owner's last activity; an
+                             * owner idle past the timeout is reclaimed so one
+                             * client cannot wedge updates for everyone (DoS). */
 } wt_fwu_service_ctx_t;
+
+/* Scheduler ticks (each ~one timeslice) an owned update may sit idle before a
+ * different client may reclaim it. Generous: every owner operation refreshes
+ * the clock, so this bounds only true abandonment, not a slow legitimate write. */
+#define WT_FWU_OWNER_IDLE_TIMEOUT_TICKS 30000u
+
+/* Reclaim predicate: non-zero when an owned session should be taken from an
+ * idle owner because a different client is asking and the owner has been idle
+ * past WT_FWU_OWNER_IDLE_TIMEOUT_TICKS. Neutral and host-tested. */
+int wt_fwu_owner_expired(psa_client_id_t owner, uint32_t owner_tick,
+                         uint32_t now_tick, psa_client_id_t caller);
 
 /* Neutral state-machine transitions, driven directly by the host test and by
  * the dispatch loop below. Each returns a psa_status_t; a rejected or failed

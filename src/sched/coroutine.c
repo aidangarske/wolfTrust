@@ -374,7 +374,10 @@ void wt_co_mark_faulted(wt_co_t *co)
         link = &(*link)->next_run;
     }
 
-    co->next_wait = (struct wt_co *)0;
+    /* Leave next_wait intact: a coroutine parked in a mutex wait queue must
+     * stay linked so recovery (wt_mutex_remove_waiter) can unlink it cleanly;
+     * clearing it here would strand the waiters queued behind it. wt_co_reinit
+     * resets next_wait when the coroutine is restarted. */
     co->state     = WT_CO_FAULTED;
 
     if (g_wt_co_current == co) {

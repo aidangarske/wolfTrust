@@ -642,12 +642,32 @@ static void test_staged_header_binding(void)
           "WT-FWU-0003 undeclared version fails closed without a parser");
 }
 
+/* WT-FWU DoS guard: an owner idle past the timeout is reclaimable by a
+ * different client; an active or same-client owner never is. */
+static void test_owner_timeout(void)
+{
+    uint32_t t = WT_FWU_OWNER_IDLE_TIMEOUT_TICKS;
+
+    check(wt_fwu_owner_expired(0, 100u, 100u + t + 5u, 7) == 0,
+          "no owner is never reclaimed");
+    check(wt_fwu_owner_expired(7, 100u, 100u + t + 5u, 7) == 0,
+          "the owner itself never expires its own session");
+    check(wt_fwu_owner_expired(7, 100u, 100u + t - 1u, 9) == 0,
+          "a different client cannot reclaim before the timeout");
+    check(wt_fwu_owner_expired(7, 100u, 100u + t, 9) == 1,
+          "a different client reclaims an owner idle past the timeout");
+    check(wt_fwu_owner_expired(7, 0xFFFFFFF0u,
+                               (uint32_t)(0xFFFFFFF0u + t), 9) == 1,
+          "timeout comparison is correct across tick wrap-around");
+}
+
 int main(void)
 {
     test_state_machine();
     test_ipc_round_trip();
     test_wolfboot_arm_trailer();
     test_staged_header_binding();
+    test_owner_timeout();
 
     if (g_failures == 0) {
         (void)printf("SERVICE_FWU host suite: all checks passed\n");

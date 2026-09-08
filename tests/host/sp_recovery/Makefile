@@ -26,7 +26,7 @@ CFLAGS := -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
 LDFLAGS := $(EXTRA_LDFLAGS)
 TEST := $(BUILD_DIR)/test_sp_recovery
 SRCS := $(ROOT)/src/sp_recovery.c $(ROOT)/src/restart_policy.c \
-    $(ROOT)/src/sched/coroutine.c main.c
+    $(ROOT)/src/sched/coroutine.c $(ROOT)/src/sync/mutex.c main.c
 
 .PHONY: all run compilers compiler-gcc compiler-clang sanitize valgrind \
     run-valgrind clean

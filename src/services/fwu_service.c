@@ -351,10 +351,40 @@ static int wt_fwu_write_out(wt_fwu_service_ctx_t* ctx,
     return WT_FFM_SUCCESS;
 }
 
+int wt_fwu_owner_expired(psa_client_id_t owner, uint32_t owner_tick,
+                         uint32_t now_tick, psa_client_id_t caller)
+{
+    if (owner == 0 || caller == owner) {
+        return 0;
+    }
+    /* Unsigned subtraction wraps correctly across the 32-bit tick counter. */
+    if ((uint32_t)(now_tick - owner_tick) >= WT_FWU_OWNER_IDLE_TIMEOUT_TICKS) {
+        return 1;
+    }
+    return 0;
+}
+
+/* Reclaim an abandoned session: disarm any pending swap and return to READY so
+ * a new client may start. Never advances the version floor or arms a swap. */
+static void wt_fwu_force_reset(wt_fwu_service_ctx_t* ctx)
+{
+    if (ctx->armed != 0u && ctx->backend != NULL &&
+            ctx->backend->disarm != NULL) {
+        (void)ctx->backend->disarm(ctx->backend_ctx);
+    }
+    ctx->state = PSA_FWU_READY;
+    ctx->write_high = 0u;
+    ctx->candidate_version = 0u;
+    ctx->armed = 0u;
+    ctx->error = PSA_SUCCESS;
+    ctx->owner = 0;
+}
+
 static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
                                         wt_ffm_runtime_t* runtime,
                                         int32_t partition_id,
-                                        const psa_msg_t* msg)
+                                        const psa_msg_t* msg,
+                                        uint32_t now_tick)
 {
     uint8_t buffer[sizeof(wt_fwu_req_t) + WT_FWU_BLOCK_MAX];
     wt_fwu_req_t req;
@@ -375,6 +405,14 @@ static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
         return PSA_ERROR_INVALID_ARGUMENT;
     }
     (void)memcpy(&req, buffer, sizeof(req));
+
+    /* Reclaim a session whose owner has gone idle past the timeout so one
+     * client that opens an update and stops cannot wedge updates for everyone
+     * (DoS). An active owner refreshes its clock on every op below. */
+    if (wt_fwu_owner_expired(ctx->owner, ctx->owner_tick, now_tick,
+                             msg->client_id)) {
+        wt_fwu_force_reset(ctx);
+    }
 
     /* Per-transaction owner: only the client that opened the update (START)
      * may drive or reboot it, so one guest cannot hijack, monopolize, arm, or
@@ -401,6 +439,7 @@ static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
         status = wt_fwu_start(ctx, req.component, req.version);
         if (status == PSA_SUCCESS) {
             ctx->owner = msg->client_id;
+            ctx->owner_tick = now_tick;
         }
         break;
     case WT_FWU_OP_WRITE:
@@ -445,6 +484,10 @@ static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
      * owner until the reboot. Release the owner so the next client may start. */
     if (ctx->state == PSA_FWU_READY) {
         ctx->owner = 0;
+    } else if (ctx->owner != 0 && msg->client_id == ctx->owner) {
+        /* The owner made progress: reset its idle clock so a legitimate
+         * multi-step update is never reclaimed mid-flight. */
+        ctx->owner_tick = now_tick;
     }
     return status;
 }
@@ -482,7 +525,8 @@ int wt_fwu_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
     if (msg.type == PSA_IPC_CONNECT || msg.type == PSA_IPC_DISCONNECT) {
         reply_status = PSA_SUCCESS;
     } else if (msg.type >= WT_FWU_OP_QUERY && msg.type <= WT_FWU_OP_ACCEPT) {
-        reply_status = wt_fwu_service_call(ctx, runtime, partition_id, &msg);
+        reply_status = wt_fwu_service_call(ctx, runtime, partition_id, &msg,
+                                           call.ret_tick);
     } else {
         reply_status = PSA_ERROR_NOT_SUPPORTED;
     }

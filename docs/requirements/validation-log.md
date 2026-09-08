@@ -4619,3 +4619,37 @@ Three Highs from the four-engine security re-scan on the fixed tree.
   already holding `WT_FFM_MAX_CONNECTIONS_PER_CLIENT` (half the pool) with
   `CONNECTION_BUSY`. Evidence: host `ffm` (one client capped at its quota, a peer
   still reaches its own quota from the remainder).
+
+## Mutex faulted-waiter deadlock and firmware-update session reclaim
+
+Two Mediums from the big-pickle re-scan of the fixed tree, each verified against
+source before fixing. (The re-scan's other two Mediums were dispositioned: the
+MPU size/alignment finding is a false positive — this is an Armv8-M base+limit
+MPU and the 32-byte granule is already validated at `src/domain.c:194` before any
+register write; the GCM counter-table integrity finding is a scoped deviation,
+see `docs/tfm-replacement.md`.)
+
+- **Faulted mutex waiter left in the wait queue (CWE-833).** `wt_co_wake` is a
+  no-op for a `WT_CO_FAULTED` coroutine, and the recovery path released a faulted
+  *holder* but never removed a faulted *waiter*. A coroutine that faulted while
+  parked on `g_nvm_lock_mutex` stayed linked, so the next `wt_mutex_release`
+  handed it the mutex (`m->holder = dead`, wake a no-op) and every later acquirer
+  blocked forever. Fix: `wt_co_mark_faulted` no longer clears `next_wait` (so the
+  wait-queue linkage survives for recovery), and `wt_mutex_remove_waiter` unlinks
+  a faulted waiter, called from `wt_hsm_release_locks` before the partition is
+  restarted. Evidence: host `sp_recovery` (a faulted head waiter is removed and
+  the mutex is handed to the live waiter, never the dead one); M33MU `restart`,
+  `spfaultneg`, `hsmattackneg`.
+
+- **Firmware-update session held by an idle owner (CWE-400 DoS).** The owner ACL
+  (WT-FWU anti-hijack) bound the session to the first client with no timeout, so
+  one guest could `START` and stop, wedging updates for every client until reboot
+  (disconnect and guest restart did not clear it). `wt_fwu_service_call` now
+  reclaims a session whose owner has been idle past
+  `WT_FWU_OWNER_IDLE_TIMEOUT_TICKS` when a different client asks
+  (`wt_fwu_owner_expired` + `wt_fwu_force_reset`, disarming any pending swap);
+  every owner operation refreshes the idle clock, so a legitimate multi-block
+  write is never reclaimed mid-flight. The tick is the scheduler tick stamped on
+  each gate reply. Evidence: host `fwu_service` (idle owner reclaimed by a peer,
+  active/same-client owner never reclaimed, correct across tick wrap); M33MU
+  `fwustage`, `bootupdate`.
