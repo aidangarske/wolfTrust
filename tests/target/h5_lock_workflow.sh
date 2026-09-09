@@ -4,7 +4,7 @@
 # Board-writing stages refuse to run without WT_LOCK_CONFIRM=1; the permanent
 # Locked state is refused outright on this dev board.
 #
-# VERIFIED ON THE BOARD (2026-08-18, docs/evidence/2026-08-18-h5-mp3-lock):
+# VERIFIED ON THE BOARD (2026-08-18):
 # DA provisioning is REJECTED in the Open product state ("Provisioning with
 # password is not supported by the current device") for both password and
 # certificate configs. That matches the STM32H5 OEM-iRoT sequence: DA keys are

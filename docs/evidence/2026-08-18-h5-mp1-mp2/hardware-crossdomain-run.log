@@ -1,8 +1,0 @@
-/home/aidangarske/wolfTrust-l3-work/tests/target/run_h5_hardware.sh: line 58: /home/aidangarske/wolfTrust-l3-work/ci-h5-hardware-crossdomain.log: Permission denied
-  ... capturing /dev/ttyACM0 @ 115200 for 25s
-  ... flashing wolfTrust chain via STM32CubeProgrammer
-  [check] PASS  isolation fault did not escalate to HardFault
-  [check] PASS  crypto SP faulted on the cross-domain read (count=0x00000001)
-  [check] PASS  denied read targeted SPM-private RAM (addr=0x30028000)
-  [check] PASS  guest1 alive after SP quarantined
-PASS: hardware/h5/crossdomain

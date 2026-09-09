@@ -35,10 +35,10 @@ repo="$(cd "$(dirname "$0")/../.." && pwd)"
 # ST DA credential from the pinned NUCLEO-H563ZI ROT_Provisioning/DA folder.
 # wolfTrust runs with TrustZone ENABLED, so DA is CERTIFICATE-based: AN6008
 # requires the certificate method when TZEN=0xB4, and a password OBK provisioned
-# here cannot authenticate and blocks regression (verified on-board 2026-08-19,
-# docs/evidence/2026-08-18-h5-mp3-lock). Use DA_Config.obk + the leaf key and
-# cert chain, NOT DA_ConfigWithPassword.obk. Override once a wolfTrust-owned
-# certificate chain replaces ST's sample.
+# here cannot authenticate and blocks regression (verified on board
+# 2026-08-19). Use DA_Config.obk with the leaf key and certificate chain, not
+# DA_ConfigWithPassword.obk. Override once a wolfTrust-owned certificate chain
+# replaces ST's sample.
 DA_DIR="${WT_DA_DIR:-$HOME/st-rot-h5/Projects/NUCLEO-H563ZI/ROT_Provisioning/DA}"
 DA_OBK="${WT_DA_OBK:-$DA_DIR/Binary/DA_Config.obk}"
 DA_PWD="${WT_DA_PWD:-$DA_DIR/Binary/password.bin}"
@@ -49,7 +49,7 @@ DA_CONN="-c port=SWD speed=fast ap=1 mode=Hotplug"
 DA_CONN_RST="-c port=SWD speed=fast ap=1 mode=Hotplug -hardRst"
 
 # wolfTrust OEM-iRoT perimeter — the EXACT option bytes read from a known-good
-# wolfTrust STM32H563 board (see docs/evidence MP3 reference dump). BOOT_UBE
+# wolfTrust STM32H563 board. BOOT_UBE
 # selects the OEM-iRoT boot path (so SECBOOTADD is unused); SECWM1 covers the
 # secure wolfBoot+wolfTrust region, SECWM2 the secure bank-2 window.
 # SECWM1_END must span the WHOLE boot partition (through 0x0809FFFF): with the
@@ -186,8 +186,7 @@ case "$cmd" in
 
   regress)
     confirm
-    # Certificate DA Full Regression -> Open. VERIFIED on-board 2026-08-19
-    # (docs/evidence/2026-08-18-h5-mp3-lock/2026-08-19-recovery-cert-regression.log).
+    # Certificate DA Full Regression -> Open. VERIFIED on board 2026-08-19.
     # wolfTrust runs TZEN enabled, so the credential is the certificate (per=a).
     # Do NOT send debugauth=3 first: it locks the debug session and then blocks
     # AP access for the handshake. Reset to clear any stale lock, then

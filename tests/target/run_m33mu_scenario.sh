@@ -117,12 +117,6 @@ fi
 #     CMake cache must go too: scenarios configure guest0_psa with different
 #     -D sets and CMake refuses to regenerate over a conflicting cache. ---
 git submodule update --init --single-branch
-# wolfPSA TLS-1.2 PRF fix (dev_apis c020): wc_PRF_TLS wants a wc_MACAlgorithm id,
-# not a WC_HASH_TYPE_* value. Local carry until the upstream wolfPSA PR merges;
-# drop with the submodule pin bump.
-git -C lib/wolfPSA apply --reverse --check \
-  "$repo/tests/target/wolfpsa-tls12-prf-mac-alg.patch" 2>/dev/null || \
-  git -C lib/wolfPSA apply "$repo/tests/target/wolfpsa-tls12-prf-mac-alg.patch"
 rm -rf build tests/firmware/zephyr-stm32h5/build
 
 # --- Secure-app wolfBoot first stage. ---
