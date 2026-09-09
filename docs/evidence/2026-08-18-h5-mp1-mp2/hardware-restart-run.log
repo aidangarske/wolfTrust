@@ -1,8 +1,0 @@
-/home/aidangarske/wolfTrust-l3-work/tests/target/run_h5_hardware.sh: line 58: /home/aidangarske/wolfTrust-l3-work/ci-h5-hardware-restart.log: Permission denied
-  ... capturing /dev/ttyACM0 @ 115200 for 32s
-  ... flashing wolfTrust chain via STM32CubeProgrammer
-  [check] PASS  no unhandled fault markers
-  [check] PASS  monitor restarted the guest exactly 3 times
-  [check] PASS  guest quarantined FAULTED after the limit (events=1)
-  [check] PASS  guest1 alive after guest0 FAULTED
-PASS: hardware/h5/restart
