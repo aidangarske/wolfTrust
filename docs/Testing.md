@@ -178,6 +178,36 @@ The workflows under `.github/workflows/` separately run:
 - fuzz targets; and
 - selected and nightly M33MU scenarios.
 
+### Trigger routing
+
+The host, compiler, sanitizer, Valgrind, cross-compilation, integration, and
+core/port split checks run on every pull request, including drafts. The fuzz
+target also runs on pull requests as a 60-second libFuzzer smoke pass; the
+nightly schedule and manual dispatch run the 600-second soak instead.
+
+The full M33MU matrix (the `M33MU` workflow: wolfBoot plus both guest lifecycles
+and every scenario) is heavy, so it does not run on a plain pull request. It
+runs on a push to `master`, `main`, or `wolfTrust-dev`, on the nightly schedule,
+and on manual dispatch. A pull request whose branch is not one of those receives
+no M33MU coverage until it is requested.
+
+### Requesting M33MU on a pull request
+
+Add a label to pull the emulator matrix onto a pull request without editing code
+(the `PR M33MU (label-selected)` workflow):
+
+- `ci:<scenario>` runs one scenario, for example `ci:positive` or
+  `ci:crossdomain`. Add several labels to run several.
+- `ci:m33mu` or `ci:all` runs the full M33MU matrix.
+
+The workflow fires on the label event, so re-add a label to re-run after a new
+push. The off-branch equivalent is a manual dispatch:
+
+```sh
+gh workflow run pr-m33mu-select.yml --ref <branch> -f jobs="positive devcrypto"
+gh workflow run pr-m33mu-select.yml --ref <branch> -f jobs="all"
+```
+
 The GitHub-hosted workflows do not establish a physical-board result. Hardware
 output must come from the STM32H563 runner attached to a board.
 
