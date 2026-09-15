@@ -214,6 +214,11 @@ static int wt_attest_build_claims(wt_guest_id_t guestId,
         (records == NULL)) {
         return WT_ATTEST_ERROR_INVALID_ARGUMENT;
     }
+    /* Reject out-of-range guest ids so the negative client-id map below cannot
+     * overflow int32 or turn positive. */
+    if (guestId >= WT_MAX_GUESTS) {
+        return WT_ATTEST_ERROR_INVALID_ARGUMENT;
+    }
 
     count = wt_attest_measurement_count();
     if ((count > recordCap) || ((count + 1u) > componentCap)) {
@@ -277,6 +282,23 @@ static int wt_attest_build_claims(wt_guest_id_t guestId,
     return ret;
 }
 
+/* Accept only the PSA lifecycle major states the wolfCOSE EAT encoder allows
+ * (RFC 9783), so init fails closed instead of arming a path that can never
+ * issue a token. */
+static int wt_attest_lifecycle_valid(uint32_t lifecycle)
+{
+    uint16_t major;
+
+    if (lifecycle > 0xFFFFu) {
+        return 0;
+    }
+    major = (uint16_t)(lifecycle & 0xFF00u);
+    return ((major == 0x0000u) || (major == 0x1000u) ||
+            (major == 0x2000u) || (major == 0x3000u) ||
+            (major == 0x4000u) || (major == 0x5000u) ||
+            (major == 0x6000u)) ? 1 : 0;
+}
+
 int wt_initial_attest_init(const wt_boot_handoff_t* handoff)
 {
     int ret;
@@ -286,6 +308,11 @@ int wt_initial_attest_init(const wt_boot_handoff_t* handoff)
     }
     if ((handoff->hash_algorithm != WT_BOOT_HANDOFF_HASH_SHA256) ||
         (handoff->measurement_size != WT_BOOT_HANDOFF_DIGEST_SIZE)) {
+        return WT_ATTEST_ERROR_INVALID_ARGUMENT;
+    }
+    /* Reject a handoff whose lifecycle is not a PSA state the EAT encoder
+     * accepts, so a doomed handoff is refused here rather than at token time. */
+    if (wt_attest_lifecycle_valid(handoff->lifecycle) == 0) {
         return WT_ATTEST_ERROR_INVALID_ARGUMENT;
     }
 
