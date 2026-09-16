@@ -26,6 +26,8 @@
 #include "wolftrust/services/attestation_cose.h"
 #include "wolftrust/services/hsm.h"
 
+#include "psa/lifecycle.h"
+
 #include "wolfssl/wolfcrypt/sha256.h"
 #include "wolfssl/wolfcrypt/hash.h"
 
@@ -292,11 +294,14 @@ static int wt_attest_lifecycle_valid(uint32_t lifecycle)
     if (lifecycle > 0xFFFFu) {
         return 0;
     }
-    major = (uint16_t)(lifecycle & 0xFF00u);
-    return ((major == 0x0000u) || (major == 0x1000u) ||
-            (major == 0x2000u) || (major == 0x3000u) ||
-            (major == 0x4000u) || (major == 0x5000u) ||
-            (major == 0x6000u)) ? 1 : 0;
+    major = (uint16_t)(lifecycle & PSA_LIFECYCLE_PSA_STATE_MASK);
+    return ((major == PSA_LIFECYCLE_UNKNOWN) ||
+            (major == PSA_LIFECYCLE_ASSEMBLY_AND_TEST) ||
+            (major == PSA_LIFECYCLE_PSA_ROT_PROVISIONING) ||
+            (major == PSA_LIFECYCLE_SECURED) ||
+            (major == PSA_LIFECYCLE_NON_PSA_ROT_DEBUG) ||
+            (major == PSA_LIFECYCLE_RECOVERABLE_PSA_ROT_DEBUG) ||
+            (major == PSA_LIFECYCLE_DECOMMISSIONED)) ? 1 : 0;
 }
 
 int wt_initial_attest_init(const wt_boot_handoff_t* handoff)
@@ -326,6 +331,9 @@ int wt_initial_attest_init(const wt_boot_handoff_t* handoff)
     if (ret == 0) {
         (void)memcpy(&g_boot_handoff, handoff, sizeof(g_boot_handoff));
         g_handoff_ready = true;
+        /* Drop the cached UEID and boot-seed so a new handoff re-derives them;
+         * a stale boot-binding must never be carried into a signed token. */
+        g_attest_ready = false;
     }
 
     return ret == 0 ? WT_ATTEST_SUCCESS : WT_ATTEST_ERROR_CRYPTO;
@@ -394,7 +402,8 @@ int wt_initial_attest_get_token(wt_guest_id_t guestId,
     int keyReady = 0;
     int ret;
 
-    if ((challenge == NULL) || (token == NULL) || (tokenSize == NULL)) {
+    if ((challenge == NULL) || (token == NULL) || (tokenSize == NULL) ||
+        (tokenCapacity == 0u)) {
         return WT_ATTEST_ERROR_INVALID_ARGUMENT;
     }
     *tokenSize = 0u;
