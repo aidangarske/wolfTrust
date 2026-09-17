@@ -22,12 +22,18 @@ WT_SHARED_UART ?= 3
 # heartbeat companion runs as guest-b. Override WT_MAX_GUESTS=1 to drop the
 # companion and rebuild the secure side for the single-TEE configuration.
 WT_MAX_GUESTS ?= 2
+WT_REUSE_SECURE_BUILD ?= 0
+WT_EXPECTED_LIFECYCLE ?= 0x3000u
+WT_ATTESTATION_DEVELOPMENT_PROFILE ?= 0
+WT_M33MU_EXPECT_BKPT ?= 0
+WT_GUEST_FAULT_PROBE ?= 0
+WT_FWU_PROBE ?= 0
 
 # Baremetal guest-b memory map — matches WT_GUEST1_FLASH_BASE / WT_GUEST1_RAM_BASE
-# in src/port/stm32h563/memory_map.h. Kept here as overridable variables so
+# in port/stm32h563/memory_map.h. Kept here as overridable variables so
 # this Makefile is self-contained.
 WT_GUEST1_FLASH_BASE ?= 0x08040000
-WT_GUEST1_RAM_BASE   ?= 0x20008000
+WT_GUEST1_RAM_BASE   ?= 0x20010000
 WT_GUEST_FLASH_SIZE  ?= 0x00020000
 WT_GUEST_RAM_SIZE    ?= 0x00008000
 WT_GUEST_CORE_CLOCK_HZ ?= 240000000
@@ -94,8 +100,13 @@ $(PATCH_STAMP): $(wildcard $(CURDIR)/patches/zephyr/*.patch) $(SCRIPT_DIR)/apply
 # clean target also wipes tests/firmware/stm32h563/build/ — a peer baremetal
 # test suite with its own generated headers that we have no business touching.
 secure:
+ifeq ($(WT_REUSE_SECURE_BUILD),1)
+	test -s "$(SECURE_BIN)"
+	test -s "$(SECURE_CMSE_IMPLIB)"
+else
 	rm -rf "$(TOP_BUILD_DIR)"
 	WT_MAX_GUESTS="$(WT_MAX_GUESTS)" $(MAKE) -C "$(ROOT)" build/wolftrust.bin build/secure_cmse_implib.o
+endif
 
 build-guest0: patch secure
 	ZEPHYR_TAG="$(ZEPHYR_TAG)" ZEPHYR_WORKSPACE="$(ZEPHYR_WORKSPACE)" \
@@ -111,6 +122,13 @@ build-guest0-psa: patch secure
 	ZEPHYR_BOARD="$(ZEPHYR_BOARD)" \
 	SECURE_BIN="$(SECURE_BIN)" SECURE_CMSE_IMPLIB="$(SECURE_CMSE_IMPLIB)" \
 	WT_SHARED_UART="$(WT_SHARED_UART)" \
+	WT_EXPECTED_MEASUREMENT_HEX="$(WT_EXPECTED_MEASUREMENT_HEX)" \
+	WT_EXPECTED_LIFECYCLE="$(WT_EXPECTED_LIFECYCLE)" \
+	WT_ATTESTATION_DEVELOPMENT_PROFILE="$(WT_ATTESTATION_DEVELOPMENT_PROFILE)" \
+	WT_M33MU_EXPECT_BKPT="$(WT_M33MU_EXPECT_BKPT)" \
+	WT_GUEST_FAULT_PROBE="$(WT_GUEST_FAULT_PROBE)" \
+	WT_ATTEST_NEG_PROBE="$(WT_ATTEST_NEG_PROBE)" \
+	WT_FWU_PROBE="$(WT_FWU_PROBE)" \
 	"$(SCRIPT_DIR)/build_guest.sh" guest0_psa
 
 build-guest1: $(GUEST1_BIN)
@@ -127,10 +145,10 @@ $(GUEST1_BIN): $(GUEST1_ELF)
 
 # ---- FreeRTOS guest1 variant ----------------------------------------------
 # Clones FreeRTOS on demand into the gitignored .workspace/ subtree, builds
-# a Cortex-M33-NTZ NS image with FreeRTOS + wolfPKCS11 + wolfHSM client
+# a Cortex-M33-NTZ NS image with FreeRTOS + wolfPSA + wolfHSM client
 # + wolfCrypt, and pairs it with the existing PSA-driven Zephyr guest0_psa
 # for an end-to-end "two NS guests, two different crypto APIs, one secure
-# wolfHSM" demo. lib/wolfPKCS11 is a wolftrust submodule.
+# wolfHSM" demo, with every secure request mediated over SERVICE_HSM.
 
 freertos-workspace:
 	"$(SCRIPT_DIR)/clone_freertos.sh"

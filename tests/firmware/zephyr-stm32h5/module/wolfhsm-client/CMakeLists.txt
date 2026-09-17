@@ -11,7 +11,6 @@
 #                                                 secure-side import library
 #                                                 with the CMSE veneer syms;
 #                                                 passed by build_guest.sh)
-#   - DT node `wolftrust_hsm_transport`          (board /ns variant)
 
 if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
 
@@ -36,6 +35,7 @@ if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
     ${WT_WOLFHSM_DIR}
     ${WT_WOLFSSL_DIR}
     ${WT_GENERATED_DIR}
+    ${WT_REPO_ROOT}/include
   )
 
   # Make WOLFSSL_USER_SETTINGS / WOLFHSM_CFG visible to every TU that
@@ -49,6 +49,7 @@ if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
     WOLFSSL_SP_ASM
     WOLFSSL_SP_ARM_CORTEX_M_ASM
     WOLFSSL_ARM_ARCH=8
+    WOLFSSL_ECDSA_DETERMINISTIC_K
     WOLFSSL_ARMASM
     WOLFSSL_ARMASM_NO_HW_CRYPTO
     WOLFSSL_ARMASM_INLINE
@@ -99,6 +100,7 @@ if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/hash.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/hmac.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/memory.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/pwdbased.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sha.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_cortexm.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_int.c
@@ -108,10 +110,15 @@ if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c
   )
 
-  # Local glue + Zephyr init.
+  # Local glue + Zephyr init, plus the OS-neutral FF-M client core and the
+  # SPM-mediated wolfHSM transport (WT-FFM-0054). The module owns
+  # psa_ffm_client.c so every client-enabled app links psa_connect/psa_call
+  # without carrying its own copy.
   zephyr_library_sources(
     ${WT_MODULE_DIR}/src/wolfhsm_client_glue.c
     ${WT_MODULE_DIR}/src/wolfhsm_zephyr_init.c
+    ${WT_REPO_ROOT}/src/client/psa_ffm_client.c
+    ${WT_REPO_ROOT}/src/client/hsm_psa_transport.c
   )
 
   # Tone down third-party warnings; wolftrust-owned code stays strict.
@@ -140,6 +147,7 @@ if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/hash.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/hmac.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/memory.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/pwdbased.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sha.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_cortexm.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_int.c

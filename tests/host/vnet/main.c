@@ -25,14 +25,27 @@
 int g_test_pass = 0;
 int g_test_fail = 0;
 
+static int run_vnet_suite(const char* name, int (*test)(void))
+{
+    int ret = test();
+
+    if (ret == 0) {
+        (void)printf("PASS: unit/vnet/%s\n", name);
+    }
+    else {
+        (void)printf("FAIL: unit/vnet/%s\n", name);
+    }
+
+    return ret;
+}
+
 int main(void)
 {
-    int rc = 0;
-    rc |= run_mac_tests();
-    rc |= run_pool_tests();
-    rc |= run_ring_tests();
-    rc |= run_fdb_tests();
-    rc |= run_switch_tests();
+    (void)run_vnet_suite("mac", run_mac_tests);
+    (void)run_vnet_suite("pool", run_pool_tests);
+    (void)run_vnet_suite("ring", run_ring_tests);
+    (void)run_vnet_suite("fdb", run_fdb_tests);
+    (void)run_vnet_suite("switch", run_switch_tests);
 
     fprintf(stderr, "\nvnet host tests: %d checks passed, %d failed\n",
             g_test_pass, g_test_fail);

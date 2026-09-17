@@ -55,15 +55,11 @@
 /*---------------------------------------------------------------------------
  * Communication buffer
  *
- * Cap the data payload at 256 bytes to match the CMSE shared-buffer size.
- * The default (1280 B) would overflow the transport; anything larger than
- * 256 B gets silently truncated by the NSC gateway.
+ * COMM_DATA_LEN is the wire payload budget; the 8 B whCommHeader rides in
+ * front of it, so one packet is 376 B — inside the relay's
+ * WT_HSM_RELAY_MSG_MAX (512 B) copied-IOVEC bound (hsm_relay.h).
  *---------------------------------------------------------------------------*/
-/* 248, not 256: the CMSE shared buffer is 256 B per slot, of which
- * 8 B is the whTransportMemCsr header. The payload area is therefore
- * 256 - 8 = 248 B. cmse_transport.c carries a _Static_assert that
- * traps if this drifts away from (WT_HSM_BUF_SIZE/2 - 8). */
-#define WOLFHSM_CFG_COMM_DATA_LEN 248
+#define WOLFHSM_CFG_COMM_DATA_LEN 368
 
 /*---------------------------------------------------------------------------
  * Role: server only
@@ -103,9 +99,17 @@
  *
  * WOLFHSM_CFG_NVM_OBJECT_COUNT controls the directory table size in
  * wh_nvm_flash.h. The STM32H563 port reserves two 8 KiB internal-flash
- * sectors for the mirrored wolfHSM NVM partitions.
+ * sectors for the mirrored wolfHSM NVM partitions. Phase 4 backs PSA ITS/PS
+ * objects here (plus the attestation key and the PS device key), so the
+ * directory holds 32 slots; each slot costs ~80 bytes of the 8 KiB partition,
+ * leaving ample data space for the small dev_apis storage objects.
  *---------------------------------------------------------------------------*/
-#define WOLFHSM_CFG_NVM_OBJECT_COUNT       8
+#define WOLFHSM_CFG_NVM_OBJECT_COUNT       32
+
+/* STM32H5 flash is programmed in 128-bit quadwords. Keep the wolfHSM journal
+ * unit aligned with the physical programming unit so no quadword is written
+ * more than once. */
+#define WOLFHSM_CFG_FLASH_UNIT_SIZE         16
 
 /*---------------------------------------------------------------------------
  * Disabled extensions (opt-in, so omitting the define is sufficient)

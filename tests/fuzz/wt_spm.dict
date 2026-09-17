@@ -1,0 +1,28 @@
+# libFuzzer dictionary for the Non-secure to SPM fuzzer.
+# Tokens the mutator splices in: the operation selectors, real service ids
+# (little-endian), and handle/type edge values that steer coverage toward the
+# accept paths and the programmer-error boundaries.
+
+# Operation selectors (low 3 bits) with sid-source flag variants.
+op_connect="\x00"
+op_connect_strict="\x10"
+op_call_held="\x01"
+op_call_forged="\x02"
+op_close="\x03"
+op_version="\x04"
+op_close_probe="\x05"
+
+# Real service ids, little-endian (FUZZ_CONN_SID / FUZZ_STRICT_SID).
+sid_conn="\x00\x20\x00\x00"
+sid_strict="\x01\x20\x00\x00"
+
+# Handle and type edge values.
+handle_null="\x00\x00\x00\x00"
+handle_forged="\xef\xbe\xad\xde"
+type_neg="\xff\xff\xff\xff"
+type_zero="\x00\x00\x00\x00"
+
+# Vector length edges (max iovec is 4; the harness masks to 0..5).
+len_over="\x06"
+len_max="\x04"
+take_max="\x20"

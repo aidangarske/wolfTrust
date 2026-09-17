@@ -1,0 +1,109 @@
+name: Dependency integrations
+
+on:
+  push:
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3, wolfTrust-dev]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    uses: ./.github/workflows/_resolve-wolfssl.yml
+
+  wolfcose:
+    name: wolfCOSE integration (${{ matrix.name }})
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init lib/wolfCOSE lib/wolfSSL
+      - name: Select wolfSSL ref
+        if: matrix.ref != 'pinned'
+        run: |
+          git -C lib/wolfSSL fetch --no-tags origin "${{ matrix.ref }}"
+          git -C lib/wolfSSL checkout --detach FETCH_HEAD
+      - name: Build wolfSSL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends automake libtool
+          cd lib/wolfSSL
+          ./autogen.sh
+          ./configure --enable-cryptonly --enable-ecc \
+            --disable-shared --enable-static \
+            --prefix="$GITHUB_WORKSPACE/.deps/wolfssl"
+          make -j2
+          make install
+      - name: Run wolfCOSE integration
+        run: |
+          make -C tests/host/wolfcose clean run \
+            WOLFSSL_PREFIX="$GITHUB_WORKSPACE/.deps/wolfssl"
+
+  wolfpsa:
+    name: wolfPSA integration (${{ matrix.name }})
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Select wolfSSL ref
+        if: matrix.ref != 'pinned'
+        run: |
+          git -C lib/wolfSSL fetch --no-tags origin "${{ matrix.ref }}"
+          git -C lib/wolfSSL checkout --detach FETCH_HEAD
+      - name: Build and test wolfPSA
+        run: |
+          set -euo pipefail
+          wolfpsa_settings="$GITHUB_WORKSPACE/lib/wolfPSA"
+          if ! grep -q 'wc_curve448_init_ex' \
+              "$GITHUB_WORKSPACE/lib/wolfSSL/wolfssl/wolfcrypt/curve448.h"; then
+            echo "wolfSSL lacks X448 devId support; disabling X448 in wolfPSA"
+            wolfpsa_settings="$GITHUB_WORKSPACE/.deps/wolfpsa-settings"
+            mkdir -p "$wolfpsa_settings"
+            sed '/^#define HAVE_CURVE448$/d' \
+              "$GITHUB_WORKSPACE/lib/wolfPSA/user_settings.h" \
+              > "$wolfpsa_settings/user_settings.h"
+          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends automake libtool
+          cd lib/wolfSSL
+          ./autogen.sh
+          ./configure --enable-shared --enable-psa --enable-pkcallbacks \
+            --with-psa-include="$GITHUB_WORKSPACE/lib/wolfPSA/wolfpsa" \
+            --disable-examples --disable-benchmark --disable-crypttests \
+            --prefix="$GITHUB_WORKSPACE/.deps/wolfssl"
+          make -j2
+          make install
+          cd ../wolfPSA
+          make WOLFSSL_PATH=../wolfSSL PSA_INCLUDE=wolfpsa \
+            USER_SETTINGS_PATH="$wolfpsa_settings" -j2
+          make -C test \
+            WOLFSSL_PATH=../wolfSSL \
+            WOLFSSL_BUILD_DIR="$GITHUB_WORKSPACE/.deps/wolfssl/lib" \
+            CPPFLAGS="-DHAVE_CONFIG_H -DWOLFSSL_HAVE_PSA -DHAVE_PK_CALLBACKS \
+              -I../wolfSSL -I../wolfSSL/wolfssl \
+              -I$GITHUB_WORKSPACE/.deps/wolfssl/lib \
+              -I$GITHUB_WORKSPACE/.deps/wolfssl/include \
+              -I.. -I../wolfpsa -I../src -I../test/psa_server" \
+            psa_api_test psa_crypto_init_test
+          ./test/psa_api_test
+          ./test/psa_crypto_init_test

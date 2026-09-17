@@ -1,3 +1,23 @@
+/* wh_settings_guest.h
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
 /* wolfHSM client configuration for wolfTrust's Zephyr non-secure guest.
  * Ported from tests/firmware/stm32h563/nonsecure/wh_settings_guest.h.
  * The wolfHSM CMake shim wires this header in as wolfhsm_cfg.h via the
@@ -10,10 +30,9 @@
  * wh_client.c is gated on this define. */
 #define WOLFHSM_CFG_ENABLE_CLIENT
 
-/* MUST match the secure-side wh_settings_local.h. CMSE shared buffer is
- * 256 B per slot; 8 B is consumed by the whTransportMemCsr header,
- * leaving 248 B for payload. */
-#define WOLFHSM_CFG_COMM_DATA_LEN 248
+/* MUST match the secure-side wh_settings_local.h. Each CMSE slot is 384 B:
+ * 8 B whTransportMemCsr + 8 B whCommHeader + 368 B payload. */
+#define WOLFHSM_CFG_COMM_DATA_LEN 368
 
 /* No RTC / port-time on this target. */
 #define WOLFHSM_CFG_NO_SYS_TIME

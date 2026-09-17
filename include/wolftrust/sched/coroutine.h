@@ -67,6 +67,24 @@ wt_co_t *wt_co_create(uint8_t *stack, size_t stack_size,
 wt_co_t *wt_co_create_blocked(uint8_t *stack, size_t stack_size,
                               wt_co_entry_fn entry, void *arg);
 
+/* Floor for _ex creation: canary + initial register frame + call headroom.
+ * Secure Partition stacks are manifest-sized and may be smaller than the
+ * WT_CO_STACK_SIZE default the HSM tasklets use. */
+#define WT_CO_STACK_MIN 1024u
+
+wt_co_t *wt_co_create_blocked_ex(uint8_t *stack, size_t stack_size,
+                                 wt_co_entry_fn entry, void *arg);
+
+/* Bind a Secure Partition protection domain to `co`. When set, the
+ * architecture switch programs the domain's MPU regions before the
+ * coroutine runs, restores the SPM whitelist when it yields, and (when
+ * unprivileged is non-zero) drops the coroutine thread to unprivileged
+ * execution. The scheduler only stores the pointer; interpretation is
+ * the architecture port's. */
+struct wt_secure_domain;
+void wt_co_set_domain(wt_co_t *co, const struct wt_secure_domain *domain,
+                      uint8_t unprivileged);
+
 /* Mark the current coroutine BLOCKED and switch away. Returns only when
  * some other code path calls wt_co_wake on this coroutine. Used by
  * wt_mutex_acquire and similar wait primitives. Calling from the
@@ -87,6 +105,10 @@ wt_co_t *wt_co_current(void);
 /* Read state — used by audit/instrumentation, not for scheduling
  * decisions in user code. */
 wt_co_state_t wt_co_state(const wt_co_t *co);
+
+/* True when a wake arrived while the coroutine was active and is latched
+ * for the next block/dispatch (see wt_co_wake). */
+bool wt_co_wake_pending(const wt_co_t *co);
 
 /* Run one specific runnable coroutine from the bootstrap context.
  * Returns 1 if `co` ran and switched back, 0 if `co` was NULL, not
@@ -117,13 +139,12 @@ bool wt_co_request_preempt(void);
  * is no preemption to fence against. */
 void wt_co_mark_faulted(wt_co_t *co);
 
-/* Recovery thunk invoked by the fault handler's fabricated exception
- * frame after EXC_RETURN. Pops the bootstrap's saved {r4-r11, lr} frame
- * from MSP_S and resumes wt_co_arch_switch's caller (do_switch →
- * wt_co_tick). Naked, noreturn. Architecture-specific (defined in
- * src/arch/<arch>/coroutine_<arch>.c). Not part of the public coroutine
- * API; declared here so the platform fault handler can take its
- * address. */
-void wt_co_fault_recovery_thunk(void);
+/* Restart a faulted (or blocked) coroutine in place: reclaim the same table
+ * slot with a fresh stack frame and BLOCKED state, preserving its id and its
+ * Secure Partition MPU domain binding. Returns 0 on success, -1 for a bad
+ * pointer or a coroutine with no stack. Used by the graceful SP fault-recovery
+ * path (WT-SYS-0008 / WT-FFM-0017) so a restartable partition resumes without
+ * consuming a new slot or resetting the platform. */
+int wt_co_reinit(wt_co_t *co, wt_co_entry_fn entry, void *arg);
 
 #endif

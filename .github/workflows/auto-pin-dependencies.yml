@@ -1,0 +1,92 @@
+name: Auto-pin dependency releases
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  pin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+
+      - name: Resolve and test upstream release pins
+        id: gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          changed=0
+          failed=0
+
+          # These dependencies publish stable release tags. wolfPSA remains
+          # manual while this branch carries fork-only runtime-devId/device-ID
+          # changes; including it here would undo the tested replacement
+          # patches on the next upstream release scan.
+          specs=(
+            "lib/wolfSSL|https://github.com/wolfSSL/wolfSSL.git|v*-stable"
+            "lib/wolfHSM|https://github.com/wolfSSL/wolfHSM.git|wolfHSM-v*"
+            "lib/wolfIP|https://github.com/wolfSSL/wolfIP.git|v*"
+          )
+
+          for spec in "${specs[@]}"; do
+            IFS='|' read -r path repo pattern <<< "$spec"
+            latest=$(git ls-remote --tags --refs "$repo" "$pattern" \
+              | awk -F/ '{print $NF}' | sort -V | tail -n 1)
+            test -n "$latest"
+            current=$(git -C "$path" rev-parse HEAD)
+            candidate=$(git ls-remote "$repo" "refs/tags/$latest" | awk '{print $1}')
+            echo "$path: current=$current latest=$latest candidate=$candidate"
+            if [ "$current" = "$candidate" ]; then
+              continue
+            fi
+
+            changed=1
+            git -C "$path" fetch --depth 1 "$repo" "$latest"
+            git -C "$path" checkout --detach FETCH_HEAD
+
+            if ! make test; then
+              failed=1
+              title="${path} ${latest} breaks wolfTrust"
+              body="wolfTrust failed its host gate with ${path} pinned to ${latest}.\n\nRun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\n\nCandidate: ${candidate}\nPrevious pin: ${current}"
+              existing=$(gh issue list --state open --search "$title in:title" \
+                --json number --jq '.[0].number' || true)
+              if [ -n "$existing" ]; then
+                gh issue comment "$existing" --body "$body"
+              else
+                gh issue create --title "$title" --body "$body"
+              fi
+              git -C "$path" checkout --detach "$current"
+            fi
+          done
+
+          if [ "$changed" -eq 0 ]; then
+            echo "No upstream release tags advanced. Pins unchanged."
+          fi
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+
+      - name: Commit green release pins
+        if: steps.gate.outputs.failed == '0'
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name wolftrust-ci
+          git config user.email aidan@wolfssl.com
+          git add lib/wolfSSL lib/wolfHSM lib/wolfIP
+          git commit -m "[ci] bump dependency release pins"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

@@ -1,0 +1,38 @@
+name: Resolve wolfSSL refs
+
+on:
+  workflow_call:
+    outputs:
+      matrix:
+        description: JSON matrix of pinned, latest stable, and master refs
+        value: ${{ jobs.resolve.outputs.matrix }}
+      latest_stable:
+        description: Latest wolfSSL v*-stable tag
+        value: ${{ jobs.resolve.outputs.latest_stable }}
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.refs.outputs.matrix }}
+      latest_stable: ${{ steps.refs.outputs.latest_stable }}
+    steps:
+      - id: refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest=$(git ls-remote --tags --refs \
+            https://github.com/wolfSSL/wolfssl.git 'v*-stable' \
+            | awk -F/ '{print $NF}' | sort -V | tail -n 1)
+          test -n "$latest"
+          jq -nc --arg latest "$latest" \
+            '{include:[{name:"pinned",ref:"pinned"},
+                      {name:"latest-stable",ref:$latest},
+                      {name:"master",ref:"master"}]}' \
+            | tee matrix.json
+          echo "matrix=$(cat matrix.json)" >> "$GITHUB_OUTPUT"
+          echo "latest_stable=$latest" >> "$GITHUB_OUTPUT"

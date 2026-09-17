@@ -19,6 +19,17 @@ MODULE_DIR="$SUBTREE_DIR/module"
 BOARD="${ZEPHYR_BOARD:-nucleo_h563zi/stm32h563xx/ns}"
 SECURE_BIN="${SECURE_BIN:-$ROOT/build/wolftrust.bin}"
 SECURE_CMSE_IMPLIB="${SECURE_CMSE_IMPLIB:-$ROOT/build/secure_cmse_implib.o}"
+WT_ZEPHYR_DTC_OVERLAY_FILE="${WT_ZEPHYR_DTC_OVERLAY_FILE:-}"
+WT_EXPECTED_MEASUREMENT_HEX="${WT_EXPECTED_MEASUREMENT_HEX:-}"
+WT_EXPECTED_LIFECYCLE="${WT_EXPECTED_LIFECYCLE:-0x3000u}"
+WT_ATTESTATION_DEVELOPMENT_PROFILE="${WT_ATTESTATION_DEVELOPMENT_PROFILE:-0}"
+WT_M33MU_EXPECT_BKPT="${WT_M33MU_EXPECT_BKPT:-0}"
+WT_GUEST_FAULT_PROBE="${WT_GUEST_FAULT_PROBE:-0}"
+WT_ATTEST_NEG_PROBE="${WT_ATTEST_NEG_PROBE:-0}"
+WT_FWU_PROBE="${WT_FWU_PROBE:-0}"
+WT_WRITE_ONCE_RESET_PROBE="${WT_WRITE_ONCE_RESET_PROBE:-0}"
+WT_HSM_ATTACK_PROBE="${WT_HSM_ATTACK_PROBE:-0}"
+WT_MPU_BYPASS_PROBE="${WT_MPU_BYPASS_PROBE:-0}"
 
 if [ ! -d "$APP_DIR" ]; then
     echo "unknown guest app: $APP_NAME" >&2
@@ -41,10 +52,70 @@ mkdir -p "$BUILD_DIR"
 
 export ZEPHYR_BASE
 
+set -- \
+    "-DZEPHYR_EXTRA_MODULES=$MODULE_DIR/wolftrust-tee;$MODULE_DIR/wolfhsm-client;$MODULE_DIR/wolfpsa;$ROOT/lib/wolfSSL" \
+    "-DWOLFTRUST_CMSE_IMPLIB=$SECURE_CMSE_IMPLIB" \
+    "-DWT_EXPECTED_LIFECYCLE=$WT_EXPECTED_LIFECYCLE" \
+    "-DWT_ATTESTATION_DEVELOPMENT_PROFILE=$WT_ATTESTATION_DEVELOPMENT_PROFILE" \
+    "-DWT_M33MU_EXPECT_BKPT=$WT_M33MU_EXPECT_BKPT" \
+    "-DWT_GUEST_FAULT_PROBE=$WT_GUEST_FAULT_PROBE" \
+    "-DWT_ATTEST_NEG_PROBE=$WT_ATTEST_NEG_PROBE" \
+    "-DWT_FWU_PROBE=$WT_FWU_PROBE" \
+    "-DWT_WRITE_ONCE_RESET_PROBE=$WT_WRITE_ONCE_RESET_PROBE" \
+    "-DWT_HSM_ATTACK_PROBE=$WT_HSM_ATTACK_PROBE" \
+    "-DWT_MPU_BYPASS_PROBE=$WT_MPU_BYPASS_PROBE"
+
+if [ -n "${ZEPHYR_TOOLCHAIN_VARIANT:-}" ]; then
+    set -- "$@" "-DZEPHYR_TOOLCHAIN_VARIANT=$ZEPHYR_TOOLCHAIN_VARIANT"
+fi
+if [ -n "${CROSS_COMPILE:-}" ]; then
+    set -- "$@" "-DCROSS_COMPILE=$CROSS_COMPILE"
+fi
+
+if [ -n "$WT_ZEPHYR_DTC_OVERLAY_FILE" ]; then
+    case "$WT_ZEPHYR_DTC_OVERLAY_FILE" in
+        /*) ;;
+        *) WT_ZEPHYR_DTC_OVERLAY_FILE="$SUBTREE_DIR/$WT_ZEPHYR_DTC_OVERLAY_FILE" ;;
+    esac
+    set -- "$@" "-DEXTRA_DTC_OVERLAY_FILE=$WT_ZEPHYR_DTC_OVERLAY_FILE"
+fi
+
+if [ -n "$WT_EXPECTED_MEASUREMENT_HEX" ]; then
+    set -- "$@" "-DWT_EXPECTED_MEASUREMENT_HEX=$WT_EXPECTED_MEASUREMENT_HEX"
+fi
+
+if [ "${WT_RUN_CONFORMANCE:-0}" = "1" ]; then
+    # Reclaim the deep attestation stack (skipped in the conformance guest) so
+    # the Arm val NSPE framework fits guest0's 32 KiB NS RAM window.
+    set -- "$@" "-DWT_RUN_CONFORMANCE=1" "-DCONFIG_MAIN_STACK_SIZE=10240"
+fi
+
+if [ -n "${WT_CONF_SUITE:-}" ]; then
+    set -- "$@" "-DWT_CONF_SUITE=$WT_CONF_SUITE"
+fi
+
+if [ -n "${WT_ATTEST_CBOR:-}" ]; then
+    set -- "$@" "-DWT_ATTEST_CBOR=$WT_ATTEST_CBOR"
+fi
+
 "$WEST_BIN" build -p auto \
     -d "$BUILD_DIR" \
     -b "$BOARD" \
     "$APP_DIR" \
-    -- \
-    -DZEPHYR_EXTRA_MODULES="$MODULE_DIR/wolftrust-tee;$MODULE_DIR/wolfhsm-client;$MODULE_DIR/wolfpsa;$ROOT/lib/wolfSSL" \
-    -DWOLFTRUST_CMSE_IMPLIB="$SECURE_CMSE_IMPLIB"
+    -- "$@"
+
+# Mediated-path proof (WT-FFM-0054): no retired direct veneer may appear in
+# any NS guest image, and the SPM-mediated wolfHSM transport must be linked.
+NM_OUT=$(arm-none-eabi-nm "$BUILD_DIR/zephyr/zephyr.elf") || {
+    echo "FAIL: nm on the $APP_NAME image failed" >&2
+    exit 1
+}
+if printf '%s\n' "$NM_OUT" | \
+        grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)|WolfTrust_Attest_'; then
+    echo "FAIL: retired direct veneers linked into $APP_NAME" >&2
+    exit 1
+fi
+if ! printf '%s\n' "$NM_OUT" | grep -q 'wt_hsm_psa_transport_cb'; then
+    echo "FAIL: $APP_NAME is not wired to the SPM-mediated wolfHSM transport" >&2
+    exit 1
+fi

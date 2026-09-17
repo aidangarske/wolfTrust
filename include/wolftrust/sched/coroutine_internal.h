@@ -24,7 +24,7 @@
 
 #include "wolftrust/sched/coroutine.h"
 
-#define WT_CO_MAX 8u
+#define WT_CO_MAX 12u
 
 /* Magic sentinel placed at the bottom of the stack to detect overflow.
  * Checked at every switch; mismatch causes wt_platform_panic(). */
@@ -56,6 +56,28 @@ struct wt_co {
      * Owned by whichever wait queue currently holds this coroutine.
      * NULL when not waiting. */
     struct wt_co *next_wait;
+
+    /* Secure Partition protection domain (NULL for plain tasklets). The
+     * ARMv8-M port programs these MPU regions around every switch-in and,
+     * when unprivileged is set, returns to the coroutine thread with
+     * CONTROL.nPRIV=1. PendSV asm reads unprivileged by fixed offset. */
+    const struct wt_secure_domain *domain;
+    uint8_t unprivileged;
+
+    /* Sticky wake token: set when wt_co_wake targets a coroutine that is
+     * already RUNNABLE/RUNNING (e.g. tick-preempted between a NOTREADY poll
+     * and its block) so the wake survives until the next block/dispatch
+     * instead of being discarded — the lost-wakeup behind the multi-chunk
+     * HSM RNG hang. Placed after unprivileged: PendSV asm reads earlier
+     * fields by fixed offset. */
+    volatile uint8_t wake_pending;
+
+    /* EXC_RETURN captured by PendSV when this coroutine is switched out and
+     * replayed on switch-in. An NS exception that preempts the coroutine
+     * stacks the extended signed secure context; resuming through a
+     * hardcoded basic-frame EXC_RETURN unstacks it as an 8-word frame and
+     * faults INVPC (H563 silicon). PendSV asm reads this by fixed offset. */
+    uint32_t exc_return;
 };
 
 /* Exposed to the ARMv8-M exception-based switch path. */

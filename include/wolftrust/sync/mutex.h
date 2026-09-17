@@ -77,4 +77,16 @@ struct wt_co *wt_mutex_holder(const wt_mutex_t *m);
  * does not block or reschedule. */
 void wt_mutex_release_if_holder(wt_mutex_t *m, struct wt_co *co);
 
+/* Unlink `co` from `m`'s wait queue if it is parked there. Used by the fault
+ * path when a coroutine dies while blocked as a waiter: without this it would
+ * be handed the mutex on the next release and deadlock every later acquirer
+ * behind a dead holder. No-op if `co` is not queued on `m`. Handler-mode safe. */
+void wt_mutex_remove_waiter(wt_mutex_t *m, struct wt_co *co);
+
+/* Handler-mode half of a gated acquire on behalf of `self`: fast-acquire or
+ * enqueue without blocking. Returns 0 when `self` holds the mutex (including
+ * the re-issue after a release handed it over) and 1 when enqueued — the
+ * caller then pends the block and re-issues on wake. */
+int wt_mutex_acquire_queued(wt_mutex_t *m, struct wt_co *self);
+
 #endif

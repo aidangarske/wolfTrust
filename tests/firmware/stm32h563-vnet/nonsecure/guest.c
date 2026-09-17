@@ -35,6 +35,7 @@
 
 #include "memory_map.h"
 #include "wolftrust/vnet/vnet_abi.h"
+#include "wolftrust/vnet_psa_transport.h"
 #include "wolfip.h"
 
 #ifndef WT_GUEST_CORE_CLOCK_HZ
@@ -189,31 +190,53 @@ static void wt_zero_bss(void)
     while (dst < &_ebss) *dst++ = 0u;
 }
 
-/* ---------- vnet driver shim plugged into wolfIP_ll_dev ----------------- */
+/* ---------- vnet driver shim plugged into wolfIP_ll_dev -----------------
+ * All switch traffic rides psa_call to SERVICE_VNET; the raw
+ * WolfTrust_VNet_* veneers are retired from this guest. */
+
+static wt_vnet_psa_ctx_t g_vnet;
+static int g_tx_err_logged;
+static int g_rx_err_logged;
+/* SWD-readable first-failure latches: the shared UART interleaves both
+ * guests' digits, so printed rc values are unreliable. */
+static volatile uint32_t g_first_rx_status;
+static volatile uint32_t g_first_tx_status;
+static volatile uint32_t g_rx_ok_count;
 
 static int vnet_ll_send(struct wolfIP_ll_dev *ll, void *buf, uint32_t len)
 {
     (void)ll;
     if (len < 14u || len > 1536u) return -1;
-    int rc = WolfTrust_VNet_Tx(buf, (uint16_t)len, 0u);
+    int rc = wt_vnet_psa_tx(&g_vnet, buf, (uint16_t)len);
+    if (rc != 0 && !g_tx_err_logged) {
+        g_tx_err_logged = 1;
+        g_first_tx_status = (uint32_t)rc;
+        wt_uart_puts("vnet tx err rc=-");
+        wt_uart_put_u32((uint32_t)(-rc));
+        wt_uart_puts("\r\n");
+    }
     return (rc == 0) ? (int)len : -1;
 }
 
 static int vnet_ll_poll(struct wolfIP_ll_dev *ll, void *buf, uint32_t len)
 {
     (void)ll;
-    vnet_rx_meta_t meta;
-    int n;
-    int rc = WolfTrust_VNet_RxPoll(&meta);
-    if (rc != 0) return 0;
-    if (meta.len > len) {
-        /* Caller buffer too small — drop the frame to keep the queue moving.
-         * wolfIP gives us LINK_MTU each call so this only fires on bugs. */
-        (void)WolfTrust_VNet_RxRelease(meta.token_slot, meta.token_gen);
-        return 0;
+    /* Static meta: silicon CMSE range checks are the real thing, so keep
+     * the outvec targets in plain guest .bss while the RX path is brought
+     * up (the emulator accepts the stack address either way). */
+    static vnet_rx_meta_t meta;
+    int n = wt_vnet_psa_rx_fetch(&g_vnet, &meta, buf,
+                                 (uint16_t)((len > 0xFFFFu) ? 0xFFFFu : len));
+    if (n >= 0 || n == WT_VNET_E_EMPTY) {
+        g_rx_ok_count++;
     }
-    n = WolfTrust_VNet_RxRead(meta.token_slot, meta.token_gen, buf, (uint16_t)len);
-    (void)WolfTrust_VNet_RxRelease(meta.token_slot, meta.token_gen);
+    if (n < 0 && n != WT_VNET_E_EMPTY && !g_rx_err_logged) {
+        g_rx_err_logged = 1;
+        g_first_rx_status = (uint32_t)n;
+        wt_uart_puts("vnet rx err rc=-");
+        wt_uart_put_u32((uint32_t)(-n));
+        wt_uart_puts("\r\n");
+    }
     return (n < 0) ? 0 : n;
 }
 
@@ -291,20 +314,34 @@ static int run_guest(uint32_t guest_id)
 
     wt_uart_puts(id->banner);
 
-    rc = WolfTrust_VNet_Open(&info);
+    /* SERVICE_VNET may be mid-quarantine (a faulted partition restarting
+     * under its manifest policy); a transient failure heals, so retry. */
+    {
+        int tries;
+        volatile uint32_t spin;
+
+        rc = -1;
+        for (tries = 0; tries < 50 && rc != 0; tries++) {
+            rc = wt_vnet_psa_open(&g_vnet, WT_VNET_SERVICE_SID,
+                                  WT_VNET_SERVICE_VERSION, &info);
+            if (rc != 0) {
+                for (spin = 0; spin < 200000u; spin++) { }
+            }
+        }
+    }
     if (rc != 0) { wt_uart_puts("vnet open failed\r\n"); return -1; }
     wt_uart_puts("vnet open ok, rx_irq=");
     wt_uart_put_u32((uint32_t)info.rx_irq);
     wt_uart_puts("\r\n");
 
     /* Stage the MAC in RAM. m33mu returns zero on secure-side reads of NS
-     * flash, so passing &id->mac (which lives in .rodata) into the veneer
+     * flash, so passing &id->mac (which lives in .rodata) into the call
      * would feed the switch a zeroed MAC. The on-target wolfTrust build
      * works either way; this is the emulator-compatible path. */
     {
         uint8_t mac_ram[6];
         memcpy(mac_ram, id->mac, 6);
-        rc = WolfTrust_VNet_SetMac(mac_ram, 0u);
+        rc = wt_vnet_psa_set_mac(&g_vnet, mac_ram);
     }
     if (rc != 0) {
         wt_uart_puts("vnet set_mac failed rc=");
@@ -379,6 +416,10 @@ static int run_guest(uint32_t guest_id)
                         wt_uart_put_u32(seq);
                         wt_uart_puts("\r\n");
                         last_seq = (int)seq;
+#if defined(WT_VNET_EXIT_BKPT) && (WT_VNET_EXIT_BKPT == 1)
+                        /* Emulator harness end-marker; never on hardware. */
+                        __asm volatile("bkpt 0x7f");
+#endif
                     }
                 }
             }

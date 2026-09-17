@@ -1,15 +1,14 @@
 menuconfig WOLFTRUST_WOLFHSM_CLIENT
-	bool "wolfTrust non-secure wolfHSM client (CMSE transport)"
+	bool "wolfTrust non-secure wolfHSM client (SPM-mediated transport)"
 	depends on ARM
 	depends on DT_HAS_ZEPHYR_MEMORY_REGION_ENABLED
 	help
 	  Link a non-secure wolfHSM client into the Zephyr image and route
 	  wolfCrypt operations through it via wolfCrypt's crypto_cb hook.
-	  The client uses the CMSE veneers WolfTrust_HSM_Submit / _Poll /
-	  _Cancel published by the wolfTrust secure image (delivered as
-	  WOLFTRUST_CMSE_IMPLIB) and a shared transport CSR placed in the
-	  WOLFTRUST_HSM_TRANSPORT memory region (carved out of guest-a's
-	  SRAM by the nucleo_h563zi /ns board variant).
+	  Every wolfHSM wire packet is one synchronous psa_call to the
+	  SERVICE_HSM relay through the OS-neutral FF-M client core and the
+	  WolfTrust_FFM_* veneers published by the wolfTrust secure image
+	  (delivered as WOLFTRUST_CMSE_IMPLIB).
 
 if WOLFTRUST_WOLFHSM_CLIENT
 

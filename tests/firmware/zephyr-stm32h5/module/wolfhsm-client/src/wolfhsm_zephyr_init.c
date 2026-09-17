@@ -1,3 +1,23 @@
+/* wolfhsm_zephyr_init.c
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
 /* Zephyr SYS_INIT wrapper for the wolfTrust wolfHSM client. Brings up the
  * client at POST_KERNEL so SYS_INIT consumers running later (wolfPSA's own
  * init, an app's main()) find wc_CryptoCb_RegisterDevice() already done
@@ -16,21 +36,22 @@
 LOG_MODULE_REGISTER(wolftrust_wolfhsm_client, LOG_LEVEL_INF);
 
 int  wolfhsm_guest_init(void);
+int  wolfhsm_guest_cryptocb(int devId, wc_CryptoInfo *info, void *ctx);
 whClientContext *wolfhsm_guest_client(void);
 
 static int wolftrust_wolfhsm_client_sys_init(void)
 {
-    whClientContext *ctx;
     int rc;
 
+    /* Boot can race a Secure Partition restart window; the glue cryptocb
+     * heals by retrying the connect on demand, so a failed init here is a
+     * warning, not a terminal error. */
     rc = wolfhsm_guest_init();
     if (rc != WH_ERROR_OK) {
-        LOG_ERR("wolfhsm_guest_init failed rc=%d", rc);
-        return -EIO;
+        LOG_WRN("wolfhsm_guest_init rc=%d (will retry on demand)", rc);
     }
 
-    ctx = wolfhsm_guest_client();
-    rc = wc_CryptoCb_RegisterDevice(WH_DEV_ID, wh_Client_CryptoCb, ctx);
+    rc = wc_CryptoCb_RegisterDevice(WH_DEV_ID, wolfhsm_guest_cryptocb, NULL);
     if (rc != 0) {
         LOG_ERR("wc_CryptoCb_RegisterDevice failed rc=%d", rc);
         return -EIO;

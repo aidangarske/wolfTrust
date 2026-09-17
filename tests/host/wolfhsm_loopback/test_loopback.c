@@ -15,8 +15,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
 /*
@@ -310,6 +309,8 @@ static int test_ecc(whClientContext* client, whServerContext* server)
  * ---------------------------------------------------------------------- */
 int main(void)
 {
+    uint32_t client_id = 0;
+    uint32_t server_id = 0;
     int rc;
 
     /* === Transport ======================================================== */
@@ -443,23 +444,19 @@ int main(void)
     }
 
     /* Comm-layer handshake: CommInit tells the server about this client */
-    {
-        uint32_t client_id = 0, server_id = 0;
-
-        rc = wh_Client_CommInitRequest(client);
-        if (rc != WH_ERROR_OK) {
-            fprintf(stderr, "CommInitRequest: %d\n", rc);
-            return 1;
-        }
-        rc = pump_server(server);
-        if (rc != WH_ERROR_OK) {
-            return 1;
-        }
-        rc = wh_Client_CommInitResponse(client, &client_id, &server_id);
-        if (rc != WH_ERROR_OK) {
-            fprintf(stderr, "CommInitResponse: %d\n", rc);
-            return 1;
-        }
+    rc = wh_Client_CommInitRequest(client);
+    if (rc != WH_ERROR_OK) {
+        fprintf(stderr, "CommInitRequest: %d\n", rc);
+        return 1;
+    }
+    rc = pump_server(server);
+    if (rc != WH_ERROR_OK) {
+        return 1;
+    }
+    rc = wh_Client_CommInitResponse(client, &client_id, &server_id);
+    if (rc != WH_ERROR_OK) {
+        fprintf(stderr, "CommInitResponse: %d\n", rc);
+        return 1;
     }
 
     /* Register wolfHSM as a crypto callback device so wolfCrypt operations
@@ -487,6 +484,7 @@ int main(void)
     /* === Cleanup =========================================================== */
     wh_Client_Cleanup(client);
     wh_Server_Cleanup(server);
+    wc_FreeRng(crypto_ctx.rng);
     wh_Nvm_Cleanup(&nvm_ctx);
     wolfCrypt_Cleanup();
 

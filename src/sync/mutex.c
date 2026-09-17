@@ -80,9 +80,13 @@ int wt_mutex_acquire(wt_mutex_t *m)
         m->wait_tail = self;
     }
 
-    wt_co_block();
+    /* Re-check on every resume: a latched wake for an unrelated condition
+     * can end the block spuriously, and release() assigns m->holder = self
+     * before waking, so the loop condition is exact. */
+    do {
+        wt_co_block();
+    } while (m->holder != self);
 
-    /* Resumed — release() has already set m->holder = self. */
     m->acquire_count++;
     return 0;
 }
@@ -128,6 +132,66 @@ bool wt_mutex_try_acquire(wt_mutex_t *m)
 struct wt_co *wt_mutex_holder(const wt_mutex_t *m)
 {
     return m->holder;
+}
+
+int wt_mutex_acquire_queued(wt_mutex_t *m, struct wt_co *self)
+{
+    if (m == NULL || self == NULL) {
+        return -1;
+    }
+    if (m->holder == NULL) {
+        m->holder = self;
+        m->acquire_count++;
+        return 0;
+    }
+    /* Includes the gated re-issue after release handed the mutex over. */
+    if (m->holder == self) {
+        return 0;
+    }
+
+    m->contend_count++;
+    self->next_wait = NULL;
+    if (m->wait_head == NULL) {
+        m->wait_head = self;
+        m->wait_tail = self;
+    } else {
+        m->wait_tail->next_wait = self;
+        m->wait_tail = self;
+    }
+    return 1;
+}
+
+void wt_mutex_remove_waiter(wt_mutex_t *m, struct wt_co *co)
+{
+    wt_co_t *prev;
+    wt_co_t *cur;
+
+    if (m == NULL || co == NULL) {
+        return;
+    }
+
+    /* Unlink co from the wait queue if parked there. A coroutine that faults
+     * while blocked as a waiter would otherwise be handed the mutex on the
+     * next release (m->holder = dead co, wt_co_wake a no-op for FAULTED) and
+     * every later acquirer would block forever behind the dead holder. */
+    prev = NULL;
+    cur = m->wait_head;
+    while (cur != NULL) {
+        if (cur == co) {
+            if (prev == NULL) {
+                m->wait_head = cur->next_wait;
+            } else {
+                prev->next_wait = cur->next_wait;
+            }
+            if (m->wait_tail == cur) {
+                m->wait_tail = prev;
+            }
+            cur->next_wait = NULL;
+            return;
+        }
+        prev = cur;
+        cur = cur->next_wait;
+    }
 }
 
 void wt_mutex_release_if_holder(wt_mutex_t *m, struct wt_co *co)

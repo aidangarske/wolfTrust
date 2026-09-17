@@ -2,13 +2,14 @@
 set -eu
 
 # Build the FreeRTOS NS guest1 image: FreeRTOS kernel + ARM_CM33_NTZ port +
-# wolfHSM client glue + wolfHSM + wolfCrypt + wolfPKCS11, all linked
-# against the secure-side CMSE veneer import library. Output:
+# wolfCrypt + wolfPSA + the OS-neutral FF-M client core, linked against the
+# secure-side CMSE veneer import library. Every secure request goes through
+# the SPM-mediated SERVICE_HSM relay — there is no raw wolfHSM transport.
+# Output:
 #   build/freertos_guest1/freertos_guest1.{elf,bin}
 #
 # The clone of FreeRTOS is owned by scripts/clone_freertos.sh (idempotent;
-# this script just verifies the workspace is there). lib/wolfPKCS11 is a
-# submodule of the wolftrust superproject.
+# this script just verifies the workspace is there).
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 SUBTREE_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
@@ -22,14 +23,15 @@ BUILD_DIR="${SUBTREE_DIR}/build/freertos_guest1"
 SECURE_CMSE_IMPLIB="${SECURE_CMSE_IMPLIB:-${ROOT}/build/secure_cmse_implib.o}"
 
 WT_GUEST1_FLASH_BASE="${WT_GUEST1_FLASH_BASE:-0x08040000}"
-WT_GUEST1_RAM_BASE="${WT_GUEST1_RAM_BASE:-0x20008000}"
+WT_GUEST1_RAM_BASE="${WT_GUEST1_RAM_BASE:-0x20010000}"
 WT_GUEST_FLASH_SIZE="${WT_GUEST_FLASH_SIZE:-0x00020000}"
 WT_GUEST_RAM_SIZE="${WT_GUEST_RAM_SIZE:-0x00008000}"
 
-WOLFHSM_DIR="${ROOT}/lib/wolfHSM"
 WOLFSSL_DIR="${ROOT}/lib/wolfSSL"
-WOLFPKCS11_DIR="${ROOT}/lib/wolfPKCS11"
+WOLFPSA_DIR="${ROOT}/lib/wolfPSA"
+WOLFHSM_DIR="${ROOT}/lib/wolfHSM"
 BAREMETAL_NS_DIR="${ROOT}/tests/firmware/stm32h563/nonsecure"
+WOLFHSM_MODULE_DIR="${SUBTREE_DIR}/module/wolfhsm-client"
 
 if [ ! -d "${FREERTOS_KERNEL}" ]; then
     echo "missing FreeRTOS workspace: ${FREERTOS_KERNEL}" >&2
@@ -56,21 +58,6 @@ ${FREERTOS_PORT}/port.c \
 ${FREERTOS_PORT}/portasm.c \
 ${FREERTOS_KERNEL}/portable/MemMang/heap_4.c"
 
-WOLFHSM_GUEST_SRCS="\
-${WOLFHSM_DIR}/src/wh_client.c \
-${WOLFHSM_DIR}/src/wh_client_crypto.c \
-${WOLFHSM_DIR}/src/wh_client_cryptocb.c \
-${WOLFHSM_DIR}/src/wh_comm.c \
-${WOLFHSM_DIR}/src/wh_crypto.c \
-${WOLFHSM_DIR}/src/wh_keyid.c \
-${WOLFHSM_DIR}/src/wh_message_comm.c \
-${WOLFHSM_DIR}/src/wh_message_crypto.c \
-${WOLFHSM_DIR}/src/wh_message_keystore.c \
-${WOLFHSM_DIR}/src/wh_message_nvm.c \
-${WOLFHSM_DIR}/src/wh_message_customcb.c \
-${WOLFHSM_DIR}/src/wh_message_counter.c \
-${WOLFHSM_DIR}/src/wh_utils.c"
-
 WOLFCRYPT_GUEST_SRCS="\
 ${WOLFSSL_DIR}/wolfcrypt/src/aes.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/cryptocb.c \
@@ -91,15 +78,53 @@ ${WOLFSSL_DIR}/wolfcrypt/src/wc_port.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-aes-asm_c.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c"
 
-WOLFPKCS11_SRCS="\
-${WOLFPKCS11_DIR}/src/crypto.c \
-${WOLFPKCS11_DIR}/src/internal.c \
-${WOLFPKCS11_DIR}/src/slot.c \
-${WOLFPKCS11_DIR}/src/wolfpkcs11.c"
+# wolfPSA subset for the PSA Crypto front-end (psa_crypto_init /
+# psa_generate_random / psa_hash_compute); the rest of the API rides the
+# neutral FF-M client directly.
+WOLFPSA_SRCS="\
+${WOLFPSA_DIR}/src/psa_engine.c \
+${WOLFPSA_DIR}/src/psa_crypto.c \
+${WOLFPSA_DIR}/src/psa_random.c \
+${WOLFPSA_DIR}/src/psa_hash_engine.c"
+
+# wolfHSM client subset: the same single mediated crypto path guest0 uses —
+# wolfCrypt (WH_DEV_ID) -> cryptocb -> wh_Client -> the SERVICE_HSM relay
+# (WT-FFM-0054). No raw WolfTrust_HSM_* CMSE transport.
+WOLFHSM_CLIENT_SRCS="\
+${WOLFHSM_DIR}/src/wh_client.c \
+${WOLFHSM_DIR}/src/wh_client_crypto.c \
+${WOLFHSM_DIR}/src/wh_client_cryptocb.c \
+${WOLFHSM_DIR}/src/wh_comm.c \
+${WOLFHSM_DIR}/src/wh_crypto.c \
+${WOLFHSM_DIR}/src/wh_keyid.c \
+${WOLFHSM_DIR}/src/wh_message_comm.c \
+${WOLFHSM_DIR}/src/wh_message_crypto.c \
+${WOLFHSM_DIR}/src/wh_message_keystore.c \
+${WOLFHSM_DIR}/src/wh_message_nvm.c \
+${WOLFHSM_DIR}/src/wh_message_customcb.c \
+${WOLFHSM_DIR}/src/wh_message_counter.c \
+${WOLFHSM_DIR}/src/wh_utils.c"
+
+# OS-neutral wolfTrust NS client core: psa_connect/call/close over the
+# WolfTrust_FFM_* veneers, plus the wolfHSM-over-psa_call transport and the
+# guest glue that registers the wolfHSM crypto-callback device.
+WT_CLIENT_SRCS="\
+${ROOT}/src/client/psa_ffm_client.c \
+${ROOT}/src/client/hsm_psa_transport.c"
 
 GUEST_GLUE_SRCS="\
-${BAREMETAL_NS_DIR}/wolfhsm_client_glue.c \
-${BAREMETAL_NS_DIR}/libc_stubs_guest.c"
+${BAREMETAL_NS_DIR}/libc_stubs_guest.c \
+${WOLFHSM_MODULE_DIR}/src/wolfhsm_client_glue.c"
+
+# wh_settings.h picks up config via `#ifdef WOLFHSM_CFG / #include
+# "wolfhsm_cfg.h"`; generate the trampolines pointing at the shared guest
+# settings (mirrors tests/firmware/stm32h563/Makefile).
+WH_CFG_DIR="${BUILD_DIR}/wh_include"
+mkdir -p "${WH_CFG_DIR}"
+printf '#include "%s"\n' "${BAREMETAL_NS_DIR}/wh_settings_guest.h" \
+    > "${WH_CFG_DIR}/wolfhsm_cfg.h"
+printf '#include "%s"\n' "${BAREMETAL_NS_DIR}/wh_settings_guest.h" \
+    > "${WH_CFG_DIR}/wolfhsm_guest_cfg.h"
 
 APP_SRCS="${APP_DIR}/main.c"
 
@@ -112,36 +137,30 @@ CFLAGS="\
 -I${APP_DIR} \
 -I${FREERTOS_KERNEL}/include \
 -I${FREERTOS_PORT} \
--I${WOLFHSM_DIR} \
+-I${ROOT}/include \
 -I${WOLFSSL_DIR} \
--I${WOLFPKCS11_DIR} \
+-I${WOLFHSM_DIR} \
+-I${WOLFPSA_DIR} \
+-I${WOLFPSA_DIR}/wolfpsa \
+-I${WOLFPSA_DIR}/src \
 -I${BAREMETAL_NS_DIR} \
--I${ROOT}/src/port/stm32h563 \
+-I${WH_CFG_DIR} \
+-I${ROOT}/port/stm32h563 \
 -DWOLFSSL_USER_SETTINGS \
--DWOLFPKCS11_USER_SETTINGS \
+-DWOLFSSL_PSA_ENGINE \
+-DWOLFPSA_NO_TRACE \
 -DWOLFHSM_CFG \
--DWOLFHSM_CFG_ENABLE_CLIENT \
 -DWOLF_CRYPTO_CB \
--DWC_RESEED_INTERVAL=1000000 \
 -DWT_ENGINE_HSM=1 \
+-DWC_RESEED_INTERVAL=1000000 \
+-include ${SUBTREE_DIR}/module/wolfpsa/wolfpsa_no_trace.h \
 -DWOLFSSL_SP_ASM -DWOLFSSL_SP_ARM_CORTEX_M_ASM -DWOLFSSL_ARM_ARCH=8 \
 -DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO -DWOLFSSL_ARMASM_INLINE \
 -DWOLFSSL_ARMASM_NO_NEON -DWOLFSSL_ARMASM_THUMB2 \
 -DNO_ERROR_STRINGS \
--DWOLFSSL_WOLFHSM_DEVID=0x5748534D \
 -DWOLFSSL_PUBLIC_MP \
 -DWC_RSA_DIRECT \
--DWT_HSM_BUF_SIZE=0x200 \
 -include ${APP_DIR}/user_settings.h"
-
-# The wolfhsm_cfg.h trampoline that wolfssl headers pull in when
-# WOLFHSM_CFG is defined — point it at the same wh_settings_guest.h
-# the baremetal NS guest uses.
-CFG_DIR="${BUILD_DIR}/include"
-mkdir -p "${CFG_DIR}"
-printf '#include "%s/wh_settings_guest.h"\n' "${BAREMETAL_NS_DIR}" \
-    > "${CFG_DIR}/wolfhsm_cfg.h"
-CFLAGS="${CFLAGS} -I${CFG_DIR}"
 
 LDFLAGS="\
 -Wl,-T${APP_DIR}/freertos_guest1.ld \
@@ -149,7 +168,6 @@ LDFLAGS="\
 -Wl,--defsym=GUEST_FLASH_LENGTH=${WT_GUEST_FLASH_SIZE} \
 -Wl,--defsym=GUEST_RAM_ORIGIN=${WT_GUEST1_RAM_BASE} \
 -Wl,--defsym=GUEST_RAM_LENGTH=${WT_GUEST_RAM_SIZE} \
--Wl,--defsym=_hsm_transport_base=$((WT_GUEST1_RAM_BASE + 0x100)) \
 -Wl,--gc-sections"
 
 # shellcheck disable=SC2086
@@ -157,12 +175,30 @@ ${GUEST_CC} ${CFLAGS} ${LDFLAGS} \
     -o "${BUILD_DIR}/freertos_guest1.elf" \
     ${APP_SRCS} \
     ${FREERTOS_KERNEL_SRCS} \
-    ${WOLFHSM_GUEST_SRCS} \
     ${WOLFCRYPT_GUEST_SRCS} \
-    ${WOLFPKCS11_SRCS} \
+    ${WOLFPSA_SRCS} \
+    ${WOLFHSM_CLIENT_SRCS} \
+    ${WT_CLIENT_SRCS} \
     ${GUEST_GLUE_SRCS} \
     "${SECURE_CMSE_IMPLIB}" \
     -lgcc
+
+# Mediated-path proof (WT-FFM-0054): the wolfHSM client must reach the secure
+# side ONLY through the SPM-mediated psa_call transport — assert the transport
+# is linked and the retired direct veneers are absent.
+NM_OUT=$(arm-none-eabi-nm "${BUILD_DIR}/freertos_guest1.elf") || {
+    echo "FAIL: nm on the guest1 image failed" >&2
+    exit 1
+}
+if ! printf '%s\n' "${NM_OUT}" | grep -q "wt_hsm_psa_transport_cb"; then
+    echo "guest1 is not wired to the SPM-mediated wolfHSM transport" >&2
+    exit 1
+fi
+if printf '%s\n' "${NM_OUT}" | \
+        grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)|WolfTrust_Attest_'; then
+    echo "FAIL: retired direct veneers linked into guest1" >&2
+    exit 1
+fi
 
 "${GUEST_OBJCOPY}" -O binary \
     "${BUILD_DIR}/freertos_guest1.elf" \

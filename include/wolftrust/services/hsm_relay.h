@@ -1,0 +1,62 @@
+/* hsm_relay.h
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+#ifndef WOLFTRUST_SERVICES_HSM_RELAY_H
+#define WOLFTRUST_SERVICES_HSM_RELAY_H
+
+#include "wolftrust/ffm.h"
+#include "wolftrust/spm_gate.h"
+
+/* SERVICE_HSM: the single mediated door to the wolfHSM server (WT-FFM-0054).
+ * A non-secure client's wolfHSM wire packet arrives as invec[0] of one
+ * psa_call, is handed opaquely to the platform's submit hook (on target, the
+ * monitor's per-guest server tasklet), and the server's response packet is
+ * written back as outvec[0]. The relay never parses packet contents — the
+ * wolfHSM comm layer owns the protocol; the SPM owns caller identity and the
+ * copied-transfer bounds (WT-FFM-0041/0047). */
+
+/* One wolfHSM wire packet: whCommHeader (8) + WOLFHSM_CFG_COMM_DATA_LEN (368)
+ * = 376 bytes on this platform; bound with headroom, under the FF-M copied
+ * transfer limit so a packet always fits one psa_call. */
+#define WT_HSM_RELAY_MSG_MAX 512U
+
+/* Platform submit hook: process one request packet and produce the response.
+ * client_id is the SPM-stamped caller identity, never caller-supplied. A
+ * negative return maps to a generic error on the client's psa_call. */
+typedef int (*wt_hsm_relay_submit_fn)(void* submit_ctx, int32_t client_id,
+                                      const uint8_t* req, size_t req_len,
+                                      uint8_t* resp, size_t resp_cap,
+                                      size_t* resp_len);
+
+/* Install the submit hook. NULL restores the fail-closed default, which
+ * refuses every packet with PSA_ERROR_NOT_SUPPORTED. */
+void wt_hsm_relay_set_submit(wt_hsm_relay_submit_fn fn, void* submit_ctx);
+
+/* Transport seam, mirroring the other services: direct gate calls on the
+ * host, the SVC transport when scheduled on target. NULL restores default. */
+void wt_hsm_relay_set_transport(wt_spm_transport_fn fn);
+
+/* SERVICE_HSM's dispatch loop: wait, get, relay one packet, reply.
+ * Architecture-neutral so the same code is host-tested through a real
+ * psa_connect/psa_call round trip and scheduled on target. */
+int wt_hsm_relay_dispatch(void* context, wt_ffm_runtime_t* runtime,
+                          int32_t partition_id);
+
+#endif /* WOLFTRUST_SERVICES_HSM_RELAY_H */

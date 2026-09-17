@@ -24,7 +24,9 @@
 
 #ifdef CONFIG_VNET
 
+#include <stdint.h>
 #include "wolftrust/types.h"
+#include "wolftrust/vnet/vnet_switch.h"
 
 /* Initialise the monitor-owned VNET subsystem. Called once at boot
  * from wt_monitor_init() when CONFIG_VNET is on. Wires the static
@@ -32,6 +34,10 @@
  * synthetic RX IRQ as NS-targeted in the NVIC's ITNS register
  * (enable bit comes from the per-guest partition irq_mask). */
 void wt_vnet_service_init(void);
+/* Band-local state rebuild (no privileged IRQ programming): safe from the
+ * confined partition, so the restarted entry re-initializes the scrubbed
+ * RESTART_CLEAR data band before serving (WT-FFM-0051). */
+void wt_vnet_service_init_state(void);
 
 /* Reflect the switch's per-vnic rx_irq_pending bit into the NS NVIC
  * for the guest about to resume. Called from wt_dispatch_guest just
@@ -40,6 +46,10 @@ void wt_vnet_service_init(void);
  * that don't enable the IRQ in their partition irq_mask still see
  * the underlying state via vnet_rx_poll and can poll. */
 void wt_vnet_service_refresh_irq(wt_guest_id_t guest_id);
+
+/* The monitor-owned switch instance for the SERVICE_VNET relay; NULL until
+ * wt_vnet_service_init succeeds, which keeps the relay fail-closed. */
+vnet_switch_t* wt_vnet_service_switch(void);
 
 #endif /* CONFIG_VNET */
 

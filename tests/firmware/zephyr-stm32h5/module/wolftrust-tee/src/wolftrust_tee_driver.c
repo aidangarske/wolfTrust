@@ -1,19 +1,40 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later
+/* wolftrust_tee_driver.c
  *
- * Zephyr TEE driver binding for wolfTrust. Translates the standard
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+/* Zephyr TEE driver binding for wolfTrust. Translates the standard
  * Zephyr `tee` subsystem calls into CMSE veneer calls into the
  * wolfTrust secure side.
  *
- * Only get_version is implemented for now; invoke_func is wired to
- * the wolfHSM poll/cancel veneers that the wolfTrust secure side
- * already exposes.
+ * Only get_version is implemented for now; invoke_func's poll/cancel
+ * probes ride the mediated FF-M gateway veneer (WT-FFM-0054) — the raw
+ * WolfTrust_HSM_* transport is retired.
  */
 
 #include <errno.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/tee.h>
+
+#include <wolftrust/ffm_veneer.h>
 
 #define DT_DRV_COMPAT wolfssl_wolftrust_tee
 
@@ -25,8 +46,26 @@
 #define WOLFTRUST_FN_HSM_POLL   1u
 #define WOLFTRUST_FN_HSM_CANCEL 2u
 
-extern int WolfTrust_HSM_Poll(uint16_t seq);
-extern int WolfTrust_HSM_Cancel(uint16_t seq);
+/* Item 3c: stopgap NS-to-Secure carrier for wolfTrust's own FF-M client
+ * API, reusing this TEE transport until purpose-built FF-M veneers exist
+ * (task-list.md item 3c-followup). param[0].a/b/c carry scalar value
+ * parameters, not real Zephyr shared-memory memrefs — the secure veneers
+ * do their own CMSE validation of any pointer that crosses. */
+#define WOLFTRUST_FN_FFM_CONNECT 3u
+#define WOLFTRUST_FN_FFM_CALL    4u
+#define WOLFTRUST_FN_FFM_CLOSE   5u
+
+extern uint32_t WolfTrust_FFM_FrameworkVersion(void);
+
+/* The FF-M client API (psa_connect/call/close/framework_version/version) now
+ * lives in the OS-neutral src/client/psa_ffm_client.c; the guest no longer
+ * routes FF-M through this TEE driver (P7-S2, closes #16 for the FF-M path).
+ * The poll/cancel function ids remain as SPM liveness probes. */
+
+static int wolftrust_spm_alive(void)
+{
+	return WolfTrust_FFM_FrameworkVersion() == 0x0100u ? 0 : -EIO;
+}
 
 static int wolftrust_get_version(const struct device *dev,
 				 struct tee_version_info *info)
@@ -58,10 +97,8 @@ static int wolftrust_invoke_func(const struct device *dev,
 
 	switch (arg->func) {
 	case WOLFTRUST_FN_HSM_POLL:
-		arg->ret = (uint32_t)WolfTrust_HSM_Poll(0u);
-		break;
 	case WOLFTRUST_FN_HSM_CANCEL:
-		arg->ret = (uint32_t)WolfTrust_HSM_Cancel(0u);
+		arg->ret = (uint32_t)wolftrust_spm_alive();
 		break;
 	default:
 		arg->ret = (uint32_t)-ENOSYS;
@@ -79,9 +116,7 @@ static const struct tee_driver_api wolftrust_tee_api = {
 static int wolftrust_tee_init(const struct device *dev)
 {
 	ARG_UNUSED(dev);
-	/* Probe the secure side. Cancel(0) is a soft no-op that returns
-	 * WH_ERROR_OK; any other value means the veneer is unreachable. */
-	return WolfTrust_HSM_Cancel(0u) == 0 ? 0 : -EIO;
+	return wolftrust_spm_alive();
 }
 
 #define WOLFTRUST_TEE_INST(inst)                                              \

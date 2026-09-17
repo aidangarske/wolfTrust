@@ -1,0 +1,29 @@
+name: Sanitizers
+
+on:
+  push:
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3, wolfTrust-dev]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  host-sanitizers:
+    name: Host tests (ASan and UBSan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize test dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Run aggregate sanitized host suite
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: make test-sanitize

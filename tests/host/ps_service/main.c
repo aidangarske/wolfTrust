@@ -1,0 +1,527 @@
+/* main.c
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+/* Host proof of the PS partition (P4-S3, WT-FFM-0048): the full sealed
+ * storage chain — a Non-secure client calling SERVICE_PS, the PS dispatch
+ * forcing WT_VAULT_FLAG_SEALED and forwarding over SP-to-SP FF-M IPC to
+ * SERVICE_VAULT, the real wt_hsm_vault backend AES-GCM-sealing every object
+ * under the device-unique wolfHSM key with the persisted rollback counter as
+ * nonce, over the real wolfHSM NVM stack on the RAM flash simulator.
+ * Negative evidence: plaintext never at rest, a rolled-back ciphertext fails
+ * authentication, and key + counters survive a simulated reboot. */
+
+#include "wolftrust/ffm.h"
+#include "wolftrust/services/storage_service.h"
+#include "wolftrust/services/vault_service.h"
+#include "wolftrust/services/hsm.h"
+
+#include "wolfhsm/wh_error.h"
+#include "wolfhsm/wh_nvm.h"
+#include "wolfhsm/wh_nvm_flash.h"
+#include "wolfhsm/wh_flash_ramsim.h"
+
+#include <stdio.h>
+#include <string.h>
+
+#define TEST_VAULT_PARTITION 5
+#define TEST_VAULT_SID       4098U
+#define TEST_PS_PARTITION    7
+#define TEST_PS_SID          4100U
+#define TEST_NS_GUEST0       (-1)
+#define TEST_NS_GUEST1       (-2)
+
+#define TEST_VAULT_ID_BASE  0x0100U
+#define TEST_VAULT_ID_COUNT 32U
+
+#define RAMSIM_SIZE   (64 * 1024)
+#define RAMSIM_SECTOR 4096
+#define RAMSIM_PAGE   8
+
+static uint8_t g_flash_memory[RAMSIM_SIZE];
+static uint8_t g_flash_snapshot[RAMSIM_SIZE];
+
+static whFlashRamsimCfg g_ramsim_cfg;
+static whFlashRamsimCtx g_ramsim_ctx;
+static const whFlashCb g_ramsim_cb[1] = {WH_FLASH_RAMSIM_CB};
+static whNvmFlashConfig g_nvm_flash_cfg;
+static whNvmFlashContext g_nvm_flash_ctx;
+static const whNvmCb g_nvm_cb[1] = {WH_NVM_FLASH_CB};
+static whNvmConfig g_nvm_cfg;
+static whNvmContext g_nvm_ctx;
+
+static int g_failures;
+
+static void check(int ok, const char* what)
+{
+    if (ok) {
+        (void)printf("PASS: %s\n", what);
+    } else {
+        (void)printf("FAIL: %s\n", what);
+        g_failures++;
+    }
+}
+
+static int test_check_read(void* context, psa_client_id_t caller,
+                           const void* address, size_t size)
+{
+    (void)context;
+    (void)caller;
+    return size == 0U || address != NULL;
+}
+
+static int test_check_write(void* context, psa_client_id_t caller,
+                            void* address, size_t size)
+{
+    (void)context;
+    (void)caller;
+    return size == 0U || address != NULL;
+}
+
+static void test_panic(void* context, int32_t partition_id)
+{
+    (void)context;
+    (void)partition_id;
+}
+
+static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
+                         int32_t partition_id)
+{
+    (void)context;
+    (void)runtime;
+    (void)partition_id;
+    return WT_FFM_ERROR_STATE;
+}
+
+static const wt_ffm_port_ops_t g_port_ops = {
+    test_check_read,
+    test_check_write,
+    test_dispatch,
+    test_panic
+};
+
+static const wt_service_descriptor_t g_vault_services[] = {
+    {
+        "SERVICE_VAULT", TEST_VAULT_SID, 1U, WT_SERVICE_VERSION_RELAXED,
+        0x10U, 0U, 0U, 1U
+    }
+};
+
+static const wt_service_descriptor_t g_ps_services[] = {
+    {
+        "SERVICE_PS", TEST_PS_SID, 1U, WT_SERVICE_VERSION_RELAXED,
+        0x10U, 0U, 1U, 1U
+    }
+};
+
+static const uint32_t g_ps_deps[] = { TEST_VAULT_SID };
+
+static const wt_partition_manifest_t g_partitions[] = {
+    {
+        "PARTITION_VAULT", TEST_VAULT_PARTITION, WT_FFM_VERSION_1_0,
+        WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
+        g_vault_services, 1U, NULL, 0U, NULL, 0U
+    },
+    {
+        "PARTITION_PS", TEST_PS_PARTITION, WT_FFM_VERSION_1_0,
+        WT_PARTITION_MODEL_IPC, WT_PARTITION_PRIORITY_NORMAL,
+        g_ps_services, 1U, g_ps_deps, 1U, NULL, 0U
+    }
+};
+
+static const wt_system_manifest_t g_manifest = {
+    .format_version = WT_MANIFEST_FORMAT_VERSION,
+    .generator_version = "ps-service-test",
+    .features = WT_MANIFEST_FEATURE_IPC,
+    .partitions = g_partitions,
+    .partition_count = sizeof(g_partitions) / sizeof(g_partitions[0])
+};
+
+/* Bring up (or re-bring-up) the NVM stack over the SAME flash contents and
+ * bind the vault backend + sealer — the "reboot" seam for persistence.
+ * whFlashRamsim_Init erases its memory unless initData is provided, so a
+ * reboot re-seeds the sim from a snapshot of the pre-reset flash image. */
+static int test_nvm_up(int reboot)
+{
+    (void)memset(&g_ramsim_cfg, 0, sizeof(g_ramsim_cfg));
+    g_ramsim_cfg.memory = g_flash_memory;
+    g_ramsim_cfg.size = RAMSIM_SIZE;
+    g_ramsim_cfg.sectorSize = RAMSIM_SECTOR;
+    g_ramsim_cfg.pageSize = RAMSIM_PAGE;
+    g_ramsim_cfg.erasedByte = 0xFF;
+    if (reboot != 0) {
+        (void)memcpy(g_flash_snapshot, g_flash_memory, RAMSIM_SIZE);
+        g_ramsim_cfg.initData = g_flash_snapshot;
+    }
+    (void)memset(&g_ramsim_ctx, 0, sizeof(g_ramsim_ctx));
+    (void)memset(&g_nvm_flash_cfg, 0, sizeof(g_nvm_flash_cfg));
+    g_nvm_flash_cfg.cb = g_ramsim_cb;
+    g_nvm_flash_cfg.context = &g_ramsim_ctx;
+    g_nvm_flash_cfg.config = &g_ramsim_cfg;
+    (void)memset(&g_nvm_flash_ctx, 0, sizeof(g_nvm_flash_ctx));
+    (void)memset(&g_nvm_cfg, 0, sizeof(g_nvm_cfg));
+    g_nvm_cfg.cb = (whNvmCb*)g_nvm_cb;
+    g_nvm_cfg.context = &g_nvm_flash_ctx;
+    g_nvm_cfg.config = &g_nvm_flash_cfg;
+    (void)memset(&g_nvm_ctx, 0, sizeof(g_nvm_ctx));
+    if (wh_Nvm_Init(&g_nvm_ctx, &g_nvm_cfg) != WH_ERROR_OK) {
+        return -1;
+    }
+    if (wt_hsm_vault_init(&g_nvm_ctx) != 0) {
+        return -1;
+    }
+    wt_vault_service_set_backend(&wt_hsm_vault_backend);
+    if (wt_hsm_seal_init(&g_nvm_ctx) != 0) {
+        return -1;
+    }
+    wt_hsm_vault_set_sealer(&wt_hsm_sealer);
+    return 0;
+}
+
+static int test_runtime_up(wt_ffm_runtime_t* runtime,
+                           wt_storage_service_ctx_t* ps_ctx)
+{
+    if (wt_ffm_init(runtime, &g_manifest, &g_port_ops, NULL) !=
+            WT_FFM_SUCCESS) {
+        return -1;
+    }
+    if (wt_ffm_register_partition(runtime, TEST_VAULT_PARTITION,
+                                  wt_vault_service_dispatch, NULL) !=
+            WT_FFM_SUCCESS) {
+        return -1;
+    }
+    (void)memset(ps_ctx, 0, sizeof(*ps_ctx));
+    ps_ctx->transport = wt_spm_transport_direct;
+    ps_ctx->vault_sid = TEST_VAULT_SID;
+    ps_ctx->vault_handle = 0;
+    ps_ctx->client_flags_mask = WT_VAULT_FLAG_WRITE_ONCE |
+                                WT_VAULT_FLAG_NO_CONFIDENTIALITY |
+                                WT_VAULT_FLAG_NO_REPLAY;
+    ps_ctx->vault_flags = WT_VAULT_FLAG_SEALED;
+    ps_ctx->caps = 0U;
+    if (wt_ffm_register_partition(runtime, TEST_PS_PARTITION,
+                                  wt_storage_service_dispatch, ps_ctx) !=
+            WT_FFM_SUCCESS) {
+        return -1;
+    }
+    return 0;
+}
+
+/* PS client-face helpers: [wt_its_req_t][data] in one input vector. */
+static psa_status_t ps_set(wt_ffm_runtime_t* runtime, int32_t caller,
+                           psa_handle_t handle, uint64_t uid, uint32_t flags,
+                           const void* data, size_t len)
+{
+    uint8_t buffer[sizeof(wt_its_req_t) + 128U];
+    wt_its_req_t req;
+    psa_invec in_vec[1];
+
+    if (len > 128U) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    (void)memset(&req, 0, sizeof(req));
+    req.uid = uid;
+    req.flags = flags;
+    (void)memcpy(buffer, &req, sizeof(req));
+    (void)memcpy(buffer + sizeof(req), data, len);
+    in_vec[0].base = buffer;
+    in_vec[0].len = sizeof(req) + len;
+    return wt_ffm_call(runtime, caller, handle, WT_ITS_OP_SET,
+                       in_vec, 1U, NULL, 0U);
+}
+
+static psa_status_t ps_get(wt_ffm_runtime_t* runtime, int32_t caller,
+                           psa_handle_t handle, uint64_t uid,
+                           uint32_t offset, void* data, size_t size,
+                           size_t* out_len)
+{
+    wt_its_req_t req;
+    psa_invec in_vec[1];
+    psa_outvec out_vec[1];
+    psa_status_t status;
+
+    (void)memset(&req, 0, sizeof(req));
+    req.uid = uid;
+    req.offset = offset;
+    in_vec[0].base = &req;
+    in_vec[0].len = sizeof(req);
+    out_vec[0].base = data;
+    out_vec[0].len = size;
+    status = wt_ffm_call(runtime, caller, handle, WT_ITS_OP_GET,
+                         in_vec, 1U, out_vec, 1U);
+    if (out_len != NULL) {
+        *out_len = out_vec[0].len;
+    }
+    return status;
+}
+
+static psa_status_t ps_get_info(wt_ffm_runtime_t* runtime, int32_t caller,
+                                psa_handle_t handle, uint64_t uid,
+                                wt_vault_info_t* info)
+{
+    wt_its_req_t req;
+    psa_invec in_vec[1];
+    psa_outvec out_vec[1];
+
+    (void)memset(&req, 0, sizeof(req));
+    req.uid = uid;
+    in_vec[0].base = &req;
+    in_vec[0].len = sizeof(req);
+    out_vec[0].base = info;
+    out_vec[0].len = sizeof(*info);
+    return wt_ffm_call(runtime, caller, handle, WT_ITS_OP_GET_INFO,
+                       in_vec, 1U, out_vec, 1U);
+}
+
+static psa_status_t ps_remove(wt_ffm_runtime_t* runtime, int32_t caller,
+                              psa_handle_t handle, uint64_t uid)
+{
+    wt_its_req_t req;
+    psa_invec in_vec[1];
+
+    (void)memset(&req, 0, sizeof(req));
+    req.uid = uid;
+    in_vec[0].base = &req;
+    in_vec[0].len = sizeof(req);
+    return wt_ffm_call(runtime, caller, handle, WT_ITS_OP_REMOVE,
+                       in_vec, 1U, NULL, 0U);
+}
+
+static psa_status_t ps_create(wt_ffm_runtime_t* runtime, int32_t caller,
+                              psa_handle_t handle, uint64_t uid)
+{
+    wt_its_req_t req;
+    psa_invec in_vec[1];
+
+    (void)memset(&req, 0, sizeof(req));
+    req.uid = uid;
+    in_vec[0].base = &req;
+    in_vec[0].len = sizeof(req);
+    return wt_ffm_call(runtime, caller, handle, WT_PS_OP_CREATE,
+                       in_vec, 1U, NULL, 0U);
+}
+
+static psa_status_t ps_get_support(wt_ffm_runtime_t* runtime, int32_t caller,
+                                   psa_handle_t handle, uint32_t* caps)
+{
+    psa_outvec out_vec[1];
+
+    out_vec[0].base = caps;
+    out_vec[0].len = sizeof(*caps);
+    return wt_ffm_call(runtime, caller, handle, WT_PS_OP_GET_SUPPORT,
+                       NULL, 0U, out_vec, 1U);
+}
+
+static int test_flash_contains(const uint8_t* needle, size_t needle_len)
+{
+    size_t i;
+
+    for (i = 0U; i + needle_len <= sizeof(g_flash_memory); i++) {
+        if (memcmp(g_flash_memory + i, needle, needle_len) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Locate the stored NVM object for a sealed payload of plain length
+ * plain_len by scanning the vault id window — the at-rest inspection seam. */
+static int test_find_stored(size_t plain_len, whNvmId* out_id,
+                            whNvmMetadata* out_meta)
+{
+    whNvmMetadata meta;
+    whNvmId id;
+    uint32_t i;
+    int rc;
+
+    for (i = 0U; i < TEST_VAULT_ID_COUNT; i++) {
+        id = (whNvmId)(TEST_VAULT_ID_BASE + i);
+        rc = wh_Nvm_GetMetadata(&g_nvm_ctx, id, &meta);
+        if (rc == WH_ERROR_OK &&
+                meta.len == plain_len + WT_VAULT_SEAL_TAG_LEN) {
+            *out_id = id;
+            *out_meta = meta;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+int main(void)
+{
+    static const uint8_t secret_v1[] = "ps-secret-version-one";
+    static const uint8_t secret_v2[] = "ps-secret-version-TWO";
+    static const uint8_t secret_wo[] = "ps-write-once-secret";
+    uint8_t old_ct[sizeof(secret_v1) + WT_VAULT_SEAL_TAG_LEN];
+    whNvmMetadata old_meta;
+    whNvmMetadata meta;
+    whNvmId stored_id = 0U;
+    wt_ffm_runtime_t runtime;
+    wt_storage_service_ctx_t ps_ctx;
+    psa_handle_t handle_g0;
+    psa_handle_t handle_g1;
+    psa_handle_t handle_direct;
+    wt_vault_info_t info;
+    uint8_t buffer[64];
+    uint32_t caps = 0xFFFFFFFFU;
+    size_t got = 0U;
+    psa_status_t status;
+
+    (void)memset(g_flash_memory, 0xFF, sizeof(g_flash_memory));
+    if (test_nvm_up(0) != 0) {
+        (void)fprintf(stderr, "NVM/sealer bring-up failed\n");
+        return 1;
+    }
+    if (test_runtime_up(&runtime, &ps_ctx) != 0) {
+        (void)fprintf(stderr, "runtime bring-up failed\n");
+        return 1;
+    }
+
+    /* WT-FFM-0047: the vault stays SP-only with PS in front of it. */
+    handle_direct = wt_ffm_connect(&runtime, TEST_NS_GUEST0, TEST_VAULT_SID,
+                                   1U);
+    check(!PSA_HANDLE_IS_VALID(handle_direct),
+          "WT-FFM-0047 direct NS access to SERVICE_VAULT still refused");
+
+    handle_g0 = wt_ffm_connect(&runtime, TEST_NS_GUEST0, TEST_PS_SID, 1U);
+    check(PSA_HANDLE_IS_VALID(handle_g0), "NS guest0 connects to SERVICE_PS");
+    handle_g1 = wt_ffm_connect(&runtime, TEST_NS_GUEST1, TEST_PS_SID, 1U);
+    check(PSA_HANDLE_IS_VALID(handle_g1), "NS guest1 connects to SERVICE_PS");
+    if (!PSA_HANDLE_IS_VALID(handle_g0) || !PSA_HANDLE_IS_VALID(handle_g1)) {
+        return 1;
+    }
+
+    /* The sealed chain: NS -> PS -> gate -> vault -> AES-GCM -> NVM. */
+    status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+                    secret_v1, sizeof(secret_v1));
+    check(status == PSA_SUCCESS,
+          "WT-FFM-0048 guest0 ps_set seals through the gate");
+    (void)memset(buffer, 0, sizeof(buffer));
+    status = ps_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+                    buffer, sizeof(buffer), &got);
+    check(status == PSA_SUCCESS && got == sizeof(secret_v1) &&
+          memcmp(buffer, secret_v1, sizeof(secret_v1)) == 0,
+          "guest0 ps_get unseals the stored object");
+
+    /* WT-FFM-0048: plaintext is never at rest — the stored NVM object is
+     * ciphertext + tag, and the secret bytes appear nowhere in flash. */
+    check(test_find_stored(sizeof(secret_v1), &stored_id, &meta) == 0,
+          "stored object is plain length + GCM tag");
+    if (stored_id != 0U) {
+        check(test_flash_contains(secret_v1, sizeof(secret_v1)) == 0,
+              "WT-FFM-0048 secret plaintext absent from flash at rest");
+    }
+
+    status = ps_get_info(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL,
+                         &info);
+    check(status == PSA_SUCCESS && info.size == sizeof(secret_v1) &&
+          info.flags == 0U,
+          "ps_get_info reports plaintext size and client-visible flags");
+
+    /* Offset read decrypts the whole object, then slices. */
+    (void)memset(buffer, 0, sizeof(buffer));
+    status = ps_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 4U,
+                    buffer, sizeof(buffer), &got);
+    check(status == PSA_SUCCESS && got == sizeof(secret_v1) - 4U &&
+          memcmp(buffer, secret_v1 + 4U, got) == 0,
+          "guest0 ps_get(offset 4) returns the tail");
+
+    /* WT-FFM-0044 at end-client granularity on the PS face. */
+    status = ps_get(&runtime, TEST_NS_GUEST1, handle_g1, 0x5001ULL, 0U,
+                    buffer, sizeof(buffer), &got);
+    check(status == PSA_ERROR_DOES_NOT_EXIST,
+          "WT-FFM-0044 guest1 cannot see guest0's sealed uid");
+
+    /* Rollback protection: capture the v1 ciphertext, update to v2, then
+     * replay the v1 bytes at the NVM layer — authentication must fail. */
+    old_meta = meta;
+    check(wh_Nvm_Read(&g_nvm_ctx, stored_id, 0U, old_meta.len, old_ct) ==
+              WH_ERROR_OK, "captured v1 ciphertext for replay");
+    status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+                    secret_v2, sizeof(secret_v2));
+    check(status == PSA_SUCCESS, "guest0 ps_set updates to v2");
+    check(wh_Nvm_AddObject(&g_nvm_ctx, &old_meta, old_meta.len, old_ct) ==
+              WH_ERROR_OK, "replayed v1 ciphertext into the NVM object");
+    status = ps_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+                    buffer, sizeof(buffer), &got);
+    check(status == PSA_ERROR_INVALID_SIGNATURE,
+          "WT-FFM-0048 rolled-back ciphertext fails authentication");
+    status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+                    secret_v2, sizeof(secret_v2));
+    check(status == PSA_SUCCESS, "guest0 recovers by rewriting v2");
+
+    /* WT-FFM-0045 on the sealed face. */
+    status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL,
+                    WT_VAULT_FLAG_WRITE_ONCE, secret_wo, sizeof(secret_wo));
+    check(status == PSA_SUCCESS, "guest0 ps_set(WRITE_ONCE) sealed");
+    status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL, 0U,
+                    secret_v1, sizeof(secret_v1));
+    check(status == PSA_ERROR_NOT_PERMITTED,
+          "WT-FFM-0045 sealed WRITE_ONCE uid refuses a second ps_set");
+    status = ps_remove(&runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL);
+    check(status == PSA_ERROR_NOT_PERMITTED,
+          "WT-FFM-0045 sealed WRITE_ONCE uid refuses ps_remove");
+
+    /* Optional-feature gating: nothing advertised, nothing silently faked. */
+    status = ps_get_support(&runtime, TEST_NS_GUEST0, handle_g0, &caps);
+    check(status == PSA_SUCCESS && caps == 0U,
+          "psa_ps_get_support advertises no optional features");
+    status = ps_create(&runtime, TEST_NS_GUEST0, handle_g0, 0x5003ULL);
+    check(status == PSA_ERROR_NOT_SUPPORTED,
+          "psa_ps_create refused NOT_SUPPORTED");
+
+    /* Reboot persistence: tear the runtime + NVM stack down, re-init over
+     * the same flash — device key and rollback counters must survive. */
+    if (wt_ffm_close(&runtime, TEST_NS_GUEST0, handle_g0) != WT_FFM_SUCCESS ||
+            wt_ffm_close(&runtime, TEST_NS_GUEST1, handle_g1) !=
+                WT_FFM_SUCCESS) {
+        (void)fprintf(stderr, "psa_close(SERVICE_PS) failed\n");
+        return 1;
+    }
+    if (test_nvm_up(1) != 0 || test_runtime_up(&runtime, &ps_ctx) != 0) {
+        (void)fprintf(stderr, "reboot bring-up failed\n");
+        return 1;
+    }
+    handle_g0 = wt_ffm_connect(&runtime, TEST_NS_GUEST0, TEST_PS_SID, 1U);
+    check(PSA_HANDLE_IS_VALID(handle_g0),
+          "guest0 reconnects to SERVICE_PS after reboot");
+    (void)memset(buffer, 0, sizeof(buffer));
+    status = ps_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+                    buffer, sizeof(buffer), &got);
+    check(status == PSA_SUCCESS && got == sizeof(secret_v2) &&
+          memcmp(buffer, secret_v2, sizeof(secret_v2)) == 0,
+          "WT-FFM-0048 sealed object unseals after reboot (key + counters persist)");
+    (void)memset(buffer, 0, sizeof(buffer));
+    status = ps_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL, 0U,
+                    buffer, sizeof(buffer), &got);
+    check(status == PSA_SUCCESS &&
+          memcmp(buffer, secret_wo, sizeof(secret_wo)) == 0,
+          "WT-FFM-0045 WRITE_ONCE sealed object survives reboot");
+
+    if (wt_ffm_close(&runtime, TEST_NS_GUEST0, handle_g0) != WT_FFM_SUCCESS) {
+        (void)fprintf(stderr, "psa_close after reboot failed\n");
+        return 1;
+    }
+
+    if (g_failures != 0) {
+        return 1;
+    }
+    (void)printf("PASS: PS partition sealed chain through the gated vault\n");
+    return 0;
+}

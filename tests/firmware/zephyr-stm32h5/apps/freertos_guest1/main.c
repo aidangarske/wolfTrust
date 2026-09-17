@@ -1,13 +1,11 @@
 /* freertos_guest1 — wolfTrust NS guest running FreeRTOS, exercising the
- * wolfHSM secure-side server through the wolfPKCS11 PKCS#11 surface.
+ * FF-M SPM through the OS-neutral PSA client core (P7-S3).
  *
- *   FreeRTOS task → C_*() → wolfPKCS11 → wolfCrypt(WH_DEV_ID) → crypto_cb
- *                → wh_Client_CryptoCb → CMSE Submit/Poll → wolfHSM server
+ *   FreeRTOS task → psa_* (wolfPSA) / psa_connect+psa_call (neutral core)
+ *                → WolfTrust_FFM_* veneers → SPM → SERVICE_CRYPTO → vault
  *
- * Mirrors the Zephyr guest's flow but using PKCS#11 as the front-end
- * (vs PSA in Zephyr) because mainline FreeRTOS expects PKCS#11 via
- * corePKCS11, and wolfPKCS11 already threads a runtime devId through
- * every wc_*Init() — no upstream patch needed (compare with wolfPSA).
+ * Every secure request is mediated by the SPM (WT-FFM-0054); the wolfCrypt
+ * DRBG seeds from SERVICE_CRYPTO's vault-backed RNG over the same path.
  *
  * Cortex-M33 NTZ port: TrustZone-unaware FreeRTOS port. The secure side
  * still owns CMSE, the secure SysTick, and the per-guest MPU window.
@@ -26,16 +24,27 @@
 #include "task.h"
 
 #include "wolfssl/wolfcrypt/settings.h"
+#include "wolfssl/wolfcrypt/random.h"
 #include "wolfssl/wolfcrypt/cryptocb.h"
 
+#include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_client.h"
 #include "wolfhsm/wh_client_cryptocb.h"
 
-#include "wolfpkcs11/pkcs11.h"
+#include <psa/crypto.h>
+#include "wolfpsa/psa_engine.h"
 
-/* External glue. */
-int  wolfhsm_guest_init(void);
+#include "psa/client.h"
+
+/* SERVICE_HSM (port/stm32h563/manifest.json): the single mediated door to
+ * the wolfHSM server — the same path guest0 uses. */
+#define WT_SERVICE_HSM_SID 4102u
+
+/* wolfHSM client glue (module/wolfhsm-client/src/wolfhsm_client_glue.c). */
+int wolfhsm_guest_init(void);
+int wolfhsm_guest_cryptocb(int devId, wc_CryptoInfo *info, void *ctx);
 whClientContext *wolfhsm_guest_client(void);
+int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz);
 
 extern uint32_t _sidata;
 extern uint32_t _sdata;
@@ -171,98 +180,253 @@ static void busy_delay(uint32_t iters)
 
 /* ---- the crypto task -------------------------------------------------- */
 
-static const uint8_t k_hash_input[] =
-    "wolfTrust/FreeRTOS/wolfPKCS11/wolfHSM/CMSE chain test";
-
-static void run_pkcs11_smoke(void)
+static void uart_put_i32(int32_t value)
 {
-    CK_RV               rv;
-    CK_SLOT_ID          slot_id = 0;
-    CK_ULONG            slot_count = 0;
-    CK_SESSION_HANDLE   session = CK_INVALID_HANDLE;
-    CK_MECHANISM        mech = { CKM_SHA256, NULL, 0 };
-    CK_BYTE             digest[32];
-    CK_ULONG            digest_len = sizeof(digest);
-
-    rv = C_Initialize(NULL);
-    uart_puts("freertos_guest1: C_Initialize rv=");
-    uart_put_u32((uint32_t)rv);
-    uart_puts("\r\n");
-    if (rv != CKR_OK) {
-        return;
+    if (value < 0) {
+        uart_putc('-');
+        uart_put_u32((uint32_t)(-value));
+    } else {
+        uart_put_u32((uint32_t)value);
     }
+}
 
-    rv = C_GetSlotList(CK_TRUE, NULL, &slot_count);
-    if (rv == CKR_OK && slot_count > 0) {
-        CK_SLOT_ID slots[4];
-        CK_ULONG   take = slot_count > 4 ? 4 : slot_count;
-        rv = C_GetSlotList(CK_TRUE, slots, &take);
-        if (rv == CKR_OK) {
-            slot_id = slots[0];
+static int buf_is_zero(const uint8_t *buf, size_t len)
+{
+    size_t i;
+
+    for (i = 0u; i < len; i++) {
+        if (buf[i] != 0u) {
+            return 0;
         }
     }
-    uart_puts("freertos_guest1: C_GetSlotList rv=");
-    uart_put_u32((uint32_t)rv);
-    uart_puts(" slot_count=");
-    uart_put_u32((uint32_t)slot_count);
-    uart_puts("\r\n");
-    if (rv != CKR_OK) {
-        (void)C_Finalize(NULL);
-        return;
-    }
+    return 1;
+}
 
-    rv = C_OpenSession(slot_id, CKF_SERIAL_SESSION, NULL, NULL, &session);
-    uart_puts("freertos_guest1: C_OpenSession rv=");
-    uart_put_u32((uint32_t)rv);
-    uart_puts("\r\n");
-    if (rv != CKR_OK) {
-        (void)C_Finalize(NULL);
-        return;
-    }
+/* The same KAT guest0's exercise_ffm_crypto proves: SHA-256 through
+ * SERVICE_CRYPTO's mediated dispatch, now from the FreeRTOS client. */
+static const uint8_t k_hash_input[] =
+    "wolfTrust FF-M SERVICE_CRYPTO dispatch test";
+static const uint8_t k_hash_expected[32] = {
+    0x20, 0x03, 0xdf, 0x15, 0x2a, 0x52, 0x8a, 0x06,
+    0xc8, 0xd3, 0x48, 0xb8, 0xfa, 0x8b, 0x2f, 0x87,
+    0xf7, 0x1f, 0xae, 0xc6, 0x24, 0x6c, 0x7e, 0x72,
+    0x8e, 0x27, 0xa4, 0xb5, 0x0a, 0x49, 0x84, 0x66
+};
 
-    rv = C_DigestInit(session, &mech);
-    if (rv == CKR_OK) {
-        rv = C_DigestUpdate(session, (CK_BYTE_PTR)k_hash_input,
-                             sizeof(k_hash_input) - 1);
-    }
-    if (rv == CKR_OK) {
-        rv = C_DigestFinal(session, digest, &digest_len);
-    }
-    uart_puts("freertos_guest1: C_Digest(SHA-256) rv=");
-    uart_put_u32((uint32_t)rv);
-    uart_puts(" len=");
-    uart_put_u32((uint32_t)digest_len);
-    uart_puts(" first=0x");
-    if (rv == CKR_OK && digest_len > 0) {
+/* SHA-256 through the mediated path (wolfPSA -> wolfCrypt(WH_DEV_ID) ->
+ * cryptocb -> wh_Client -> SERVICE_HSM relay). No SERVICE_CRYPTO(4097). */
+static void run_ffm_sha256_kat(void)
+{
+    psa_status_t st;
+    uint8_t digest[32];
+    size_t digest_len = 0u;
+
+    memset(digest, 0, sizeof(digest));
+    st = psa_hash_compute(PSA_ALG_SHA_256, k_hash_input,
+                          sizeof(k_hash_input) - 1u, digest, sizeof(digest),
+                          &digest_len);
+    if (st == PSA_SUCCESS && digest_len == sizeof(digest) &&
+        memcmp(digest, k_hash_expected, sizeof(digest)) == 0) {
+        uart_puts("freertos_guest1: ffm sha256 ok first=0x");
         uart_put_hex_byte(digest[0]);
+        uart_puts("\r\n");
     } else {
-        uart_puts("??");
+        uart_puts("freertos_guest1: ffm sha256 FAILED st=");
+        uart_put_i32((int32_t)st);
+        uart_puts("\r\n");
     }
-    uart_puts("\r\n");
+}
 
-    (void)C_CloseSession(session);
-    (void)C_Finalize(NULL);
+/* Randomness through the mediated path: the wolfHSM client draws entropy from
+ * the secure side over SERVICE_HSM — never a raw NS-to-HSM transport. */
+static void run_ffm_rng(void)
+{
+    uint8_t buf[32];
+    int rc;
+
+    memset(buf, 0, sizeof(buf));
+    rc = wolftrust_guest_rng_stub(buf, sizeof(buf));
+    if (rc == 0 && buf_is_zero(buf, sizeof(buf)) == 0) {
+        uart_puts("freertos_guest1: ffm rng ok\r\n");
+    } else {
+        uart_puts("freertos_guest1: ffm rng FAILED\r\n");
+    }
+}
+
+/* PSA Crypto API parity with guest0 (wolfPSA front-end): the DRBG behind
+ * psa_generate_random seeds through the FF-M RNG hook below, so the
+ * entropy crossing is SPM-mediated too. */
+static void run_psa_smoke(void)
+{
+    psa_status_t st;
+    uint8_t buf[32];
+    uint8_t digest[32];
+    size_t digest_len = 0u;
+
+    st = psa_crypto_init();
+    uart_puts("freertos_guest1: psa_crypto_init st=");
+    uart_put_i32((int32_t)st);
+    uart_puts("\r\n");
+    if (st != PSA_SUCCESS) {
+        return;
+    }
+
+    memset(buf, 0, sizeof(buf));
+    st = psa_generate_random(buf, sizeof(buf));
+    if (st == PSA_SUCCESS && buf_is_zero(buf, sizeof(buf)) == 0) {
+        uart_puts("freertos_guest1: psa rng ok\r\n");
+    } else {
+        uart_puts("freertos_guest1: psa rng FAILED st=");
+        uart_put_i32((int32_t)st);
+        uart_puts("\r\n");
+    }
+
+    memset(digest, 0, sizeof(digest));
+    st = psa_hash_compute(PSA_ALG_SHA_256, k_hash_input,
+                          sizeof(k_hash_input) - 1u, digest, sizeof(digest),
+                          &digest_len);
+    if (st == PSA_SUCCESS && digest_len == sizeof(digest) &&
+        memcmp(digest, k_hash_expected, sizeof(digest)) == 0) {
+        uart_puts("freertos_guest1: psa hash ok\r\n");
+    } else {
+        uart_puts("freertos_guest1: psa hash FAILED st=");
+        uart_put_i32((int32_t)st);
+        uart_puts("\r\n");
+    }
+}
+
+/* FF-M isolation negatives from the FreeRTOS client: the SPM must reject a
+ * forged handle, an oversized input vector, and a connect to an unknown SID —
+ * the same rejections guest0 proves — and none of them faults this guest. */
+/* SWD-readable negative-result latch: the shared H5 console interleaves
+ * guest lines char-by-char, so silicon asserts this mask by symbol instead of
+ * UART markers. Bits: 1 forged handle, 2 oversized vector, 4 cross-guest
+ * vector, 8 unknown SID — set only when the SPM rejected the abuse. */
+volatile uint32_t g_guest1_ffm_neg;
+
+static void run_ffm_negatives(void)
+{
+    psa_handle_t handle;
+    psa_handle_t bad;
+    psa_invec in_vec;
+    psa_outvec out_vec;
+    psa_status_t st;
+    uint8_t digest[32];
+
+    handle = psa_connect(WT_SERVICE_HSM_SID, 1u);
+    if (handle <= 0) {
+        uart_puts("freertos_guest1: ffm neg setup FAILED\r\n");
+        return;
+    }
+
+    /* Forged handle: not mapped to this caller's connection. */
+    in_vec.base = k_hash_input;
+    in_vec.len = sizeof(k_hash_input) - 1u;
+    out_vec.base = digest;
+    out_vec.len = sizeof(digest);
+    st = psa_call((psa_handle_t)(handle + 0x1000), 0, &in_vec, 1u,
+                  &out_vec, 1u);
+    if (st != PSA_SUCCESS) {
+        g_guest1_ffm_neg |= 1u;
+    }
+    uart_puts(st != PSA_SUCCESS ?
+              "freertos_guest1: ffm forged-handle rejected\r\n" :
+              "freertos_guest1: ffm forged-handle NOT rejected\r\n");
+
+    /* Oversized input vector: a length beyond the secure transfer bound is
+     * refused on validation, before any copy. */
+    in_vec.base = k_hash_input;
+    in_vec.len = 2048u;
+    out_vec.base = digest;
+    out_vec.len = sizeof(digest);
+    st = psa_call(handle, 0, &in_vec, 1u, &out_vec, 1u);
+    if (st != PSA_SUCCESS) {
+        g_guest1_ffm_neg |= 2u;
+    }
+    uart_puts(st != PSA_SUCCESS ?
+              "freertos_guest1: ffm oversized-vector rejected\r\n" :
+              "freertos_guest1: ffm oversized-vector NOT rejected\r\n");
+
+    /* Cross-guest vector: a base inside guest0's NS RAM window must be
+     * refused by the caller-banded memcheck — guests are isolated from each
+     * other through the SPM, not merely NS from Secure (WT-FFM-0011). */
+    in_vec.base = (const void *)0x20000000u; /* guest0 NS RAM, not ours */
+    in_vec.len = 16u;
+    out_vec.base = digest;
+    out_vec.len = sizeof(digest);
+    st = psa_call(handle, 0, &in_vec, 1u, &out_vec, 1u);
+    if (st != PSA_SUCCESS) {
+        g_guest1_ffm_neg |= 4u;
+    }
+    uart_puts(st != PSA_SUCCESS ?
+              "freertos_guest1: ffm cross-guest vector rejected\r\n" :
+              "freertos_guest1: ffm cross-guest vector NOT rejected\r\n");
+
+    psa_close(handle);
+
+    /* Connect to an unknown SID: refused, no handle handed back. */
+    bad = psa_connect(0x4200u, 1u);
+    if (bad <= 0) {
+        g_guest1_ffm_neg |= 8u;
+        uart_puts("freertos_guest1: ffm wrong-sid refused\r\n");
+    } else {
+        uart_puts("freertos_guest1: ffm wrong-sid NOT refused\r\n");
+        psa_close(bad);
+    }
+}
+
+/* Bring up the single mediated crypto path: the wolfHSM client over the
+ * SPM-mediated psa_call transport, its cryptocb registered on WH_DEV_ID, and
+ * wolfPSA threading that devId through wolfCrypt — exactly guest0's wiring,
+ * minus the Zephyr SYS_INIT hooks it does not have. */
+static int guest_crypto_init(void)
+{
+    int rc;
+
+    /* Boot can race a Secure Partition restart window; the glue cryptocb
+     * heals by retrying the connect on demand, so a failed init here is a
+     * warning, not a terminal error. */
+    rc = wolfhsm_guest_init();
+    if (rc != WH_ERROR_OK) {
+        uart_puts("freertos_guest1: hsm client init deferred rc=");
+        uart_put_i32((int32_t)rc);
+        uart_puts("\r\n");
+    }
+    rc = wc_CryptoCb_RegisterDevice(WH_DEV_ID, wolfhsm_guest_cryptocb, NULL);
+    if (rc != 0) {
+        uart_puts("freertos_guest1: cryptocb register FAILED\r\n");
+        return -1;
+    }
+    (void)wolfPSA_SetDefaultDevID(WH_DEV_ID);
+    /* PSA requires psa_crypto_init before any other psa_* call; guest0 gets
+     * this from wolfPSA's Zephyr SYS_INIT, the bare FreeRTOS guest does it
+     * here so the first mediated psa_hash_compute is not BAD_STATE. */
+    rc = (int)psa_crypto_init();
+    if (rc != PSA_SUCCESS) {
+        uart_puts("freertos_guest1: psa_crypto_init FAILED st=");
+        uart_put_i32((int32_t)rc);
+        uart_puts("\r\n");
+        return -1;
+    }
+    return 0;
 }
 
 static void crypto_task(void *arg)
 {
-    int rc;
     uint32_t count = 0u;
 
     (void)arg;
 
-    rc = wolfhsm_guest_init();
-    uart_puts("freertos_guest1: wolfhsm_guest_init rc=");
-    uart_put_u32((uint32_t)rc);
-    uart_puts("\r\n");
-    if (rc == 0) {
-        (void)wc_CryptoCb_RegisterDevice(WH_DEV_ID, wh_Client_CryptoCb,
-                                          wolfhsm_guest_client());
-        uart_puts("freertos_guest1: wolfHSM client up; devId=0x5748534d\r\n");
+    if (guest_crypto_init() != 0) {
+        goto heartbeat;
     }
 
-    run_pkcs11_smoke();
+    run_ffm_sha256_kat();
+    run_ffm_rng();
+    run_psa_smoke();
+    run_ffm_negatives();
 
+heartbeat:
     for (;;) {
         busy_delay(WT_FREERTOS_HEARTBEAT_SPIN);
         uart_puts("freertos_guest1: heartbeat ");
@@ -282,10 +446,10 @@ void Reset_Handler(void)
     uart_init();
     uart_puts("freertos_guest1: alive\r\n");
 
-    /* 2048 stack words = 8 KiB. wolfPKCS11's C_Initialize + the
-     * first wolfCrypt RNG init through the secure side burns ~5 KiB
-     * in peak call depth; 4 KiB triggers a STKOF on the FreeRTOS
-     * port's PSPLIM guard. */
+    /* 2048 stack words = 8 KiB. The first wolfCrypt DRBG init through
+     * the FF-M RNG hook plus wolfPSA hash setup burns several KiB in
+     * peak call depth; 4 KiB triggered a STKOF on the FreeRTOS port's
+     * PSPLIM guard under the old transport, so keep the headroom. */
     if (xTaskCreate(crypto_task, "crypto", 2048, NULL,
                     tskIDLE_PRIORITY + 1, NULL) != pdPASS) {
         uart_puts("freertos_guest1: xTaskCreate failed\r\n");
@@ -324,34 +488,13 @@ void vApplicationStackOverflowHook(TaskHandle_t task, char *name)
     for (;;) {}
 }
 
-/* wolfPKCS11 exposes WP11_PBKDF2 / WP11_PKCS12_PBKDF wrappers that call
- * into wolfCrypt's pwdbased / pkcs12 implementations. Our wolfCrypt
- * subset omits both (NO_PWDBASED / NO_PKCS12 in user_settings.h), and
- * the wrappers are never reached at runtime because the demo never
- * touches token storage / PIN derivation paths. Provide local stubs so
- * the link resolves; --gc-sections is expected to drop them as dead
- * code in practice. */
-typedef unsigned char byte;
-int wc_PBKDF2(byte *output, const byte *passwd, int pLen,
-              const byte *salt, int sLen, int iterations, int kLen,
-              int hashType);
-int wc_PBKDF2(byte *output, const byte *passwd, int pLen,
-              const byte *salt, int sLen, int iterations, int kLen,
-              int hashType)
+/* Entropy hook (WT-FFM-0054): wolfCrypt's random.c references wc_GenerateSeed
+ * for DRBG reseed; it draws from the wolfHSM client's RNG over the SERVICE_HSM
+ * relay (wolftrust_guest_rng_stub -> wh_Client_RngGenerate). This guest has no
+ * raw transport to the secure side — every crossing is SPM-mediated. */
+int wc_GenerateSeed(OS_Seed *os, byte *output, word32 sz)
 {
-    (void)output; (void)passwd; (void)pLen; (void)salt; (void)sLen;
-    (void)iterations; (void)kLen; (void)hashType;
-    return -1;
-}
-
-int wc_PKCS12_PBKDF(byte *output, const byte *passwd, int pLen,
-                    const byte *salt, int sLen, int iterations, int kLen,
-                    int hashType, int purpose);
-int wc_PKCS12_PBKDF(byte *output, const byte *passwd, int pLen,
-                    const byte *salt, int sLen, int iterations, int kLen,
-                    int hashType, int purpose)
-{
-    (void)output; (void)passwd; (void)pLen; (void)salt; (void)sLen;
-    (void)iterations; (void)kLen; (void)hashType; (void)purpose;
-    return -1;
+    (void)os;
+    return wolftrust_guest_rng_stub((unsigned char *)output,
+                                    (unsigned int)sz);
 }

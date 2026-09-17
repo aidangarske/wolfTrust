@@ -1,0 +1,312 @@
+name: M33MU
+
+on:
+  # Heavy M33MU emulator matrix: integration-branch pushes, the nightly
+  # schedule (via workflow_call from nightly.yml), and manual dispatch only.
+  # Not on pull_request — PRs get the fast lane; M33MU verifies on merge/nightly.
+  push:
+    branches: [master, main, wolfTrust-dev]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wolfboot-m33mu:
+    name: wolfBoot signed boot and rollback
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: stm32h5-tz-psa
+            board: nucleo_h563zi/stm32h563xx/ns
+    timeout-minutes: 30
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    env:
+      # Upstream wolfBoot master, including the merged wolfCOSE-backed
+      # PSA/DICE attestation integration.
+      WOLFBOOT_REF: 0dfad2dbc1d7107ebfa7a41375e0f7c13ff7e6cc
+      ZEPHYR_BOARD: ${{ matrix.config.board }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: Fetch pinned wolfBoot and dependencies
+        run: |
+          git clone --no-checkout https://github.com/wolfSSL/wolfBoot.git wolfBoot
+          git -C wolfBoot fetch --depth 1 origin "$WOLFBOOT_REF"
+          git -C wolfBoot checkout --detach "$WOLFBOOT_REF"
+          git -C wolfBoot submodule update --init --single-branch
+
+      - name: Build signed STM32H5 TrustZone wolfBoot image
+        working-directory: wolfBoot
+        run: |
+          cp "config/examples/${{ matrix.config.name }}.config" .config
+          make -j2
+
+      - name: Boot signed image under M33MU
+        working-directory: wolfBoot
+        run: |
+          m33mu wolfboot.bin \
+            test-app/image_v1_signed.bin:0x60000 \
+            --uart-stdout --expect-bkpt 0x7f --timeout 600 \
+            | tee "$RUNNER_TEMP/wolfboot-m33mu.log"
+          grep -q "\\[BKPT\\] imm=0x7f" "$RUNNER_TEMP/wolfboot-m33mu.log"
+          grep -q "\\[EXPECT BKPT\\] Success" "$RUNNER_TEMP/wolfboot-m33mu.log"
+
+      - name: Run wolfBoot update and rollback lifecycle
+        working-directory: wolfBoot
+        env:
+          SCENARIOS: A,B,C
+          TARGET: stm32h5
+          BOOT_TIMEOUT: 30
+          UPDATE_TIMEOUT: 30
+          REBOOT_TIMEOUT: 30
+        run: |
+          ./test-app/emu-test-apps/test.sh
+
+  wolfboot-wolftrust-m33mu:
+    name: wolfTrust ${{ matrix.guest }} lifecycle
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        guest: [zephyr, freertos]
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    env:
+      # Keep the validated H5 secure-app handoff until that configuration is
+      # upstreamed; upstream master does not yet ship this wolfTrust config.
+      WOLFBOOT_REF: d85fa9dbdf6c36f47b7e96eba5c9df750ad3c963
+      CROSS_COMPILE: /usr/local/bin/arm-none-eabi-
+      ZEPHYR_TOOLCHAIN_VARIANT: cross-compile
+      # The wolfBoot configuration reserves the wolfTrust partition at the
+      # first 128-KiB-aligned secure slot.
+      WT_SECURE_FLASH_BASE: 0x0C060000
+      WT_SECURE_FLASH_SIZE: 0x00040000
+      WOLFBOOT_PARTITION_SIZE: 0x40000
+      WOLFBOOT_PARTITION_SWAP_ADDRESS: 0x0C140000
+      WT_SECURE_IMAGE_HEADER_SIZE: 0x400
+      WT_GUEST0_FLASH_BASE: 0x080A0000
+      WT_GUEST1_FLASH_BASE: 0x080E0000
+      WT_GUEST0_FLASH_SIZE: 0x00040000
+      WT_GUEST_RAM_SIZE: 0x00010000
+      WT_GUEST1_RAM_BASE: 0x20010000
+      WT_ZEPHYR_DTC_OVERLAY_FILE: boards/wolfboot-stm32h563.overlay
+      WT_MAX_GUESTS: 2
+      ZEPHYR_BOARD: nucleo_h563zi/stm32h563xx/ns
+      WT_TEST_GUEST: ${{ matrix.guest }}
+      # Upstream merge of danielinux/m33mu PR #13.
+      M33MU_REF: c84792f7f9e9ce24cf94ffc492c36231de1854c2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: Build pinned upstream M33MU
+        run: |
+          git clone --no-checkout https://github.com/danielinux/m33mu.git m33mu
+          git -C m33mu fetch --depth 1 origin "$M33MU_REF"
+          git -C m33mu checkout --detach "$M33MU_REF"
+          # Carry the tb-sec-chain (SPSEL + ITSTATE) fix like run_m33mu_scenario.sh
+          # until M33MU_REF includes it; without it wolfTrust key-ops fault (#63).
+          git -C m33mu apply "$GITHUB_WORKSPACE/tests/target/m33mu-tb-sec-chain.patch"
+          cmake -S m33mu -B m33mu/build -DM33MU_ENABLE_WOLFSSL=OFF
+          cmake --build m33mu/build --target m33mu -j2
+          echo "M33MU=$GITHUB_WORKSPACE/m33mu/build/m33mu" >> "$GITHUB_ENV"
+
+      - name: Initialize wolfTrust dependencies
+        run: git submodule update --init --single-branch
+
+      - name: Prepare Zephyr and FreeRTOS workspaces
+        working-directory: tests/firmware/zephyr-stm32h5
+        run: make clone
+
+      - name: Fetch secure-app wolfBoot
+        run: |
+          git clone --no-checkout https://github.com/aidangarske/wolfBoot.git wolfBoot
+          git -C wolfBoot fetch --depth 1 origin "$WOLFBOOT_REF"
+          git -C wolfBoot checkout --detach "$WOLFBOOT_REF"
+          git -C wolfBoot submodule update --init --single-branch
+
+      - name: Build wolfBoot secure first stage
+        working-directory: wolfBoot
+        run: |
+          cp config/examples/stm32h5-tz-wolftrust.config .config
+          # keytools serially first: wolfBoot's host keytools Makefile has a
+          # parallel dependency race (sp_ModExp_*, sp_Rsa* link before their
+          # objects), so a -j build intermittently fails to link.
+          make keytools
+          make -j2 wolfboot.bin wolfboot_signing_private_key.der
+
+      - name: Build relocated wolfTrust
+        run: |
+          make build/wolftrust.bin build/secure_cmse_implib.o
+
+      - name: Build Zephyr and FreeRTOS PSA guests
+        run: |
+          make -C tests/firmware/zephyr-stm32h5 \
+            WT_REUSE_SECURE_BUILD=1 \
+            WT_EXPECTED_LIFECYCLE=0x1000u \
+            WT_ATTESTATION_DEVELOPMENT_PROFILE=1 \
+            WT_M33MU_EXPECT_BKPT=1 \
+            build-guest0-psa build-freertos-guest1
+
+      - name: Pin guest measurements into the secure image
+        run: |
+          python3 tools/measure/patch_guest_digests.py build/wolftrust.bin \
+            "0:1:tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin" \
+            "1:1:tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
+
+      - name: Sign wolfTrust secure runtime
+        working-directory: wolfBoot
+        run: |
+          IMAGE_HEADER_SIZE=1024 \
+          WOLFBOOT_PARTITION_SIZE=0x40000 \
+          WOLFBOOT_SECTOR_SIZE=0x2000 \
+            ./tools/keytools/sign --ecc256 \
+              "$GITHUB_WORKSPACE/build/wolftrust.bin" \
+              wolfboot_signing_private_key.der 1
+          test -s "$GITHUB_WORKSPACE/build/wolftrust_v1_signed.bin"
+
+      - name: Read the wolfBoot authenticated measurement
+        run: |
+          measurement=$(python3 tests/scripts/read_wolfboot_measurement.py \
+            build/wolftrust_v1_signed.bin)
+          echo "WT_EXPECTED_MEASUREMENT_HEX=$measurement" >> "$GITHUB_ENV"
+
+      - name: Boot the authenticated wolfBoot → wolfTrust → guests chain
+        run: |
+          echo "Guest vector tables (SP, reset PC):"
+          od -An -tx4 -N8 tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin
+          od -An -tx4 -N8 tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin
+          guest0_entry=$(arm-none-eabi-readelf -h \
+            tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.elf \
+            | awk '/Entry point address:/ { print $4 }')
+          guest1_entry=$(arm-none-eabi-readelf -h \
+            tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.elf \
+            | awk '/Entry point address:/ { print $4 }')
+          case "$guest0_entry" in
+            0x80a*) ;;
+            *) echo "Zephyr entry $guest0_entry is outside 0x080A0000 slot" >&2; exit 1 ;;
+          esac
+          case "$guest1_entry" in
+            0x80e*) ;;
+            *) echo "FreeRTOS entry $guest1_entry is outside 0x080E0000 slot" >&2; exit 1 ;;
+          esac
+          set +e
+          rc_file=$(mktemp)
+          ( stdbuf -oL -eL "$M33MU" wolfBoot/wolfboot.bin \
+              build/wolftrust_v1_signed.bin:0x60000 \
+              tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0xA0000 \
+              tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xE0000 \
+              --uart-stdout --expect-bkpt 0x7f --quit-on-faults --timeout 60; \
+            echo $? > "$rc_file" ) \
+            | tee "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          emu_status=$(cat "$rc_file")
+          rm -f "$rc_file"
+          echo "wolfBoot/wolfTrust M33MU exit status: $emu_status"
+          set -e
+          if [ "$emu_status" -ne 0 ] && [ "$emu_status" -ne 127 ]; then
+            exit "$emu_status"
+          fi
+          log="$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
+          if grep -Eq '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)' "$log"; then
+            exit 1
+          fi
+          # Both guests raw-write the same UART, so guest1 can splice into the
+          # middle of a secure/guest0 marker line. Flatten (strip guest1 text,
+          # rejoin the split line) before matching those markers; match guest1's
+          # own markers against the raw log. Mirrors run_m33mu_scenario.sh's
+          # expect_flat.
+          flat=$(sed 's/freertos_guest1:.*$//' "$log" | tr -d '\r\n')
+          need()     { printf '%s' "$flat" | grep -Fq "$1" || { echo "missing: $1" >&2; exit 1; }; }
+          need_raw() { grep -Fq "$1" "$log" || { echo "missing: $1" >&2; exit 1; }; }
+          need "wolfTrust TEE client initialized"
+          need "wolfTrust FF-M mediated crypto dispatch verified"
+          need "wolfTrust ITS set/get verified"
+          need "wolfTrust PS sealed set/get verified"
+          need "wolfTrust key-ops sign/verify verified"
+          need "wolfTrust key negatives verified"
+          need "wolfTrust FF-M forged-handle call rejected"
+          need "wolfTrust FF-M oversized-vector call rejected"
+          need "psa_initial_attestation short-buffer rejected correctly"
+          need "psa_hash_compute(SHA-256) KAT verified"
+          need "psa_cipher_encrypt(AES-CTR) st=0"
+          need "psa_initial_attestation st=0"
+          need "wolfTrust attestation: wolfCOSE COSE_Sign1 signed by wolfHSM"
+          need "wolfTrust attestation: COSE_Sign1 verified"
+          need "wolfTrust attestation: token measurement=$WT_EXPECTED_MEASUREMENT_HEX"
+          need "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256"
+          need "secured lifecycle policy rejected development token"
+          need "[EXPECT BKPT] Success"
+          if [ "$WT_TEST_GUEST" = "zephyr" ]; then
+            need "psa_generate_random st=0"
+            need "psa_hash_compute(SHA-256) KAT verified"
+            need "psa_cipher_encrypt(AES-CTR) st=0"
+          else
+            need_raw "freertos_guest1: ffm sha256 ok"
+            need_raw "freertos_guest1: ffm rng ok"
+            need_raw "freertos_guest1: psa_crypto_init st=0"
+            need_raw "freertos_guest1: psa rng ok"
+            need_raw "freertos_guest1: psa hash ok"
+          fi
+
+  wolfboot-wolftrust-m33mu-scenarios:
+    name: ${{ matrix.scenario.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - { key: positive,        name: "Positive lifecycle" }
+          - { key: bothpsa,         name: "Both-OS PSA parity (Zephyr + FreeRTOS)" }
+          - { key: bothiso,         name: "Both-OS FF-M isolation negatives" }
+          - { key: restart,         name: "Guest restart recovery" }
+          - { key: crossdomain,     name: "Cross-domain isolation (L3)" }
+          - { key: keystoreneg,     name: "Keystore-band isolation (L3)" }
+          - { key: spfaultneg,      name: "Graceful SP fault recovery" }
+          - { key: panicneg,        name: "Secure-caller misuse panic" }
+          - { key: confboot,        name: "FF-M IPC conformance (85/4)" }
+          - { key: devstorage,      name: "dev_apis Storage (s001-s017)" }
+          - { key: devcrypto,       name: "dev_apis Crypto (c001-c080)" }
+          - { key: devattest,       name: "dev_apis Initial Attestation (a001, shim)" }
+          - { key: devattestqcbor,  name: "dev_apis Initial Attestation (a001, QCBOR)" }
+          - { key: attestneg,       name: "Attestation negatives (IPC + tamper)" }
+          - { key: hsmattackneg,    name: "wolfHSM cross-namespace + NVM relay negatives" }
+          - { key: authneg,         name: "Authenticated launch fail-closed" }
+          - { key: rollbackneg,     name: "Anti-rollback downgrade refused" }
+          - { key: vaultrecover,    name: "Vault recovery self-heal" }
+          - { key: vaultrecoversec, name: "Vault recovery fail-closed" }
+          - { key: fwustage,        name: "PSA Firmware Update staging" }
+          - { key: remeasureneg,    name: "Runtime re-measurement quarantine" }
+          - { key: bootupdate,      name: "Full boot-and-update swap gate" }
+          - { key: vnet,            name: "wolfIP virtual network (mediated ping)" }
+          - { key: vnetneg,         name: "Confined VNET isolation negatives" }
+          - { key: manifestneg,     name: "Corrupted-manifest activation refused" }
+          - { key: gtzcneg,         name: "NS MPU bypass cannot reach peer guest RAM" }
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: Run FF-M target scenario
+        run: tests/target/run_m33mu_scenario.sh ${{ matrix.scenario.key }}

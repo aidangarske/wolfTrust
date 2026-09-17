@@ -1,0 +1,133 @@
+name: PR M33MU (label-selected)
+
+# Pull heavy M33MU coverage onto a PR on demand, without editing code.
+# Add a label to the PR:
+#   ci:<scenario>  run that one scenario on the PR branch — one of
+#                  positive bothpsa bothiso restart crossdomain spfaultneg
+#                  confboot devstorage devcrypto devattest devattestqcbor
+#                  attestneg authneg rollbackneg vaultrecover vaultrecoversec
+#                  fwustage. Add several to run several.
+#   ci:m33mu       run the full heavy workflow (wolfBoot + both guest
+#   ci:all         lifecycles + all 15 scenarios) on the PR branch.
+#   (no label)     nothing runs — a normal PR is unaffected.
+# Fires only on label change. Re-add a label to re-run after a push.
+# workflow_dispatch `jobs` is the off-PR equivalent (space list, or "all"):
+#   gh workflow run pr-m33mu-select.yml --ref <branch> -f jobs="positive devcrypto"
+#   gh workflow run pr-m33mu-select.yml --ref <branch> -f jobs="all"
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: "space-separated scenario names, 'm33mu'/'all' for everything"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: pr-m33mu-select-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.p.outputs.run }}
+      scenarios: ${{ steps.p.outputs.scenarios }}
+    steps:
+      - id: p
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          DISPATCH: ${{ github.event.inputs.jobs }}
+        run: |
+          sel=""
+          for l in $LABELS; do
+            case "$l" in
+              ci:*) sel="$sel ${l#ci:}" ;;
+            esac
+          done
+          [ -n "$DISPATCH" ] && sel="$sel $DISPATCH"
+          echo "run= $sel " >> "$GITHUB_OUTPUT"
+          # Individually-picked scenarios become a dynamic matrix of
+          # {key,name} objects (same shape/names as stm32h563-build.yml).
+          # 'all'/'m33mu' are handled by the full job below, not expanded here.
+          all="positive bothpsa bothiso restart crossdomain spfaultneg confboot devstorage devcrypto devattest devattestqcbor attestneg authneg rollbackneg vaultrecover vaultrecoversec fwustage remeasureneg bootupdate vnet vnetneg manifestneg gtzcneg"
+          picked=""
+          for s in $all; do
+            case " $sel " in
+              *" $s "*) ;;
+              *) continue ;;
+            esac
+            case "$s" in
+              positive)        n="Positive lifecycle" ;;
+              bothpsa)         n="Both-OS PSA parity (Zephyr + FreeRTOS)" ;;
+              bothiso)         n="Both-OS FF-M isolation negatives" ;;
+              restart)         n="Guest restart recovery" ;;
+              crossdomain)     n="Cross-domain isolation (L3)" ;;
+              spfaultneg)      n="Graceful SP fault recovery" ;;
+              confboot)        n="FF-M IPC conformance (85/4)" ;;
+              devstorage)      n="dev_apis Storage (s001-s017)" ;;
+              devcrypto)       n="dev_apis Crypto (c001-c080)" ;;
+              devattest)       n="dev_apis Initial Attestation (a001, shim)" ;;
+              devattestqcbor)  n="dev_apis Initial Attestation (a001, QCBOR)" ;;
+              attestneg)       n="Attestation negatives (IPC + tamper)" ;;
+              authneg)         n="Authenticated launch fail-closed" ;;
+              rollbackneg)     n="Anti-rollback downgrade refused" ;;
+              vaultrecover)    n="Vault recovery self-heal" ;;
+              vaultrecoversec) n="Vault recovery fail-closed" ;;
+              fwustage)        n="PSA Firmware Update staging" ;;
+              remeasureneg)    n="Runtime re-measurement quarantine" ;;
+              bootupdate)      n="Full boot-and-update swap gate" ;;
+              vnet)            n="wolfIP virtual network (mediated ping)" ;;
+              vnetneg)         n="Confined VNET isolation negatives" ;;
+              manifestneg)     n="Corrupted-manifest activation refused" ;;
+              gtzcneg)         n="NS MPU bypass cannot reach peer guest RAM" ;;
+            esac
+            picked="$picked {\"key\":\"$s\",\"name\":\"$n\"},"
+          done
+          # ci:all/ci:m33mu run every scenario in the full build job, so the
+          # per-scenario matrix is empty; emit a green sentinel, not a grey skip.
+          if [ -z "$picked" ]; then
+            case " $sel " in
+              *" all "*|*" m33mu "*)
+                picked='{"key":"__full__","name":"FF-M scenarios (run in the full build)"},' ;;
+            esac
+          fi
+          echo "scenarios={\"scenario\":[${picked%,}]}" >> "$GITHUB_OUTPUT"
+
+  scenario:
+    needs: select
+    if: ${{ needs.select.outputs.scenarios != '{"scenario":[]}' }}
+    name: ${{ matrix.scenario.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.select.outputs.scenarios) }}
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: Run FF-M target scenario
+        run: |
+          if [ "${{ matrix.scenario.key }}" = "__full__" ]; then
+            echo "ci:all/ci:m33mu selected; every scenario runs in the full build job."
+            exit 0
+          fi
+          tests/target/run_m33mu_scenario.sh ${{ matrix.scenario.key }}
+
+  full:
+    needs: select
+    if: contains(needs.select.outputs.run, ' all ') || contains(needs.select.outputs.run, ' m33mu ')
+    uses: ./.github/workflows/stm32h563-build.yml

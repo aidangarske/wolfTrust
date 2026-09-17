@@ -1,4 +1,24 @@
-/* wolfCrypt user_settings.h for the wolfTrust Zephyr non-secure guest.
+/* user_settings.h
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+/* wolfCrypt settings for the wolfTrust Zephyr non-secure guest.
  *
  * Compiled in via -DWOLFSSL_USER_SETTINGS. wolfPSA pulls in its own
  * user_settings (wolfPSA's wolfpsa/user_settings.h is loaded by the
@@ -38,11 +58,20 @@
  * wc_AesCtrEncrypt code path it uses for CBC. */
 #define WOLFSSL_AES_COUNTER
 
+/* AEAD for the PSA aead_* surface (dev_apis crypto); same GCM code the
+ * secure-side vault sealer already runs on this core. */
+#define HAVE_AESGCM
+#define HAVE_AESCCM
+
 /* SHA-256 only. */
 #define NO_SHA
 
-/* HMAC enabled (NO_HMAC absent); HKDF too. */
+/* HMAC enabled (NO_HMAC absent); HKDF too. HAVE_PBKDF2 is wolfPSA's KDF
+ * gate — wc_PBKDF2 itself is already in via pwdbased.c. WOLFSSL_HAVE_PRF
+ * backs wolfPSA's TLS-1.2 PRF KDF, whose wc_PRF_TLS call is unguarded. */
 #define HAVE_HKDF
+#define HAVE_PBKDF2
+#define WOLFSSL_HAVE_PRF
 
 /* HashDRBG with secure-side entropy. The wolfHSM client crypto_cb routes
  * RNG requests to the secure HSM; for the CUSTOM_RAND_GENERATE_BLOCK
@@ -66,7 +95,6 @@ int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz);
 #define NO_DSA
 #define NO_DES3
 #define NO_MD5
-#define NO_PWDBASED
 #define NO_PKCS12
 #define NO_ASN_TIME
 

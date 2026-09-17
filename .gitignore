@@ -6,7 +6,20 @@ tests/firmware/stm32h563-vnet/stm32h563_OTP.bin
 *.o
 /wolftrust
 tests/host/wolfhsm_loopback/test_loopback
+tests/host/domain/build/
+tests/host/manifest/build/
+tests/host/lifecycle/build/
+tests/host/ipc/build/
+tests/host/spm/build/
+tests/host/build/
+tests/host/*/build/
 tests/host/vnet/test_vnet
+tests/host/wolfcose/test_wolfcose_integration
+tests/fuzz/build/
+tests/fuzz/corpus/
+tests/fuzz/crash-*
+tests/fuzz/oom-*
+tests/fuzz/timeout-*
 
 # Stray duplicate at repo root
 /stm32h563_OTP.bin
@@ -14,3 +27,5 @@ tests/host/vnet/test_vnet
 # Tool-specific files
 .claude/
 .codex
+/logs/
+/SESSION_WRAPUP.md

@@ -1,0 +1,250 @@
+/* production_main.c
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+#include "wolftrust/spm.h"
+#include "wolftrust/partition.h"
+#include "wolftrust/ffm.h"
+#include "wolftrust/ffm_domain.h"
+#include "wolftrust_manifest_generated.h"
+#include "psa_manifest/sid.h"
+#include "psa_manifest/pid.h"
+#include "memory_map.h"
+
+#include <stdio.h>
+#include <string.h>
+
+static int production_ffm_check(void* context, psa_client_id_t caller,
+                                const void* address, size_t size)
+{
+    (void)context;
+    (void)caller;
+    (void)address;
+    (void)size;
+    return 0;
+}
+
+static int production_ffm_check_write(void* context, psa_client_id_t caller,
+                                      void* address, size_t size)
+{
+    (void)context;
+    (void)caller;
+    (void)address;
+    (void)size;
+    return 0;
+}
+
+static int production_ffm_dispatch(void* context, wt_ffm_runtime_t* runtime,
+                                   int32_t partition_id)
+{
+    (void)context;
+    (void)runtime;
+    (void)partition_id;
+    return WT_FFM_ERROR_STATE;
+}
+
+static void production_ffm_panic(void* context, int32_t partition_id)
+{
+    (void)context;
+    (void)partition_id;
+}
+
+static const wt_ffm_port_ops_t g_production_ffm_ops = {
+    production_ffm_check,
+    production_ffm_check_write,
+    production_ffm_dispatch,
+    production_ffm_panic
+};
+
+int main(void)
+{
+    wt_ffm_runtime_t ffm_runtime;
+    wt_spm_t spm;
+    wt_system_manifest_t invalid_manifest;
+    wt_domain_descriptor_t invalid_domains[WT_MANIFEST_MAX_PARTITIONS];
+    wt_profile_capabilities_t limited_platform;
+    wt_guest_config_t invalid_config;
+    const wt_guest_config_t* configs;
+    const wt_domain_descriptor_t* guest_domain;
+    wt_secure_domain_t crypto_domain;
+    size_t config_count;
+    size_t domain_count;
+    int result;
+
+    result = wt_spm_init(&spm, wt_generated_manifest_get(),
+                         WT_MANIFEST_FEATURE_IPC,
+                         wt_partitions_profile_capabilities());
+    if (result != WT_SPM_VALID || !wt_spm_ready(&spm)) {
+        (void)fprintf(stderr, "production manifest rejected: %d\n", result);
+        return 1;
+    }
+
+    limited_platform = *wt_partitions_profile_capabilities();
+    limited_platform.capabilities &= ~WT_CAPABILITY_MEMORY_PROTECTION;
+    result = wt_spm_init(&spm, wt_generated_manifest_get(),
+                         WT_MANIFEST_FEATURE_IPC, &limited_platform);
+    if (result != WT_SPM_ERROR_VALIDATION ||
+            wt_spm_validation_result(&spm) != WT_MANIFEST_ERROR_DOMAIN ||
+            wt_spm_ready(&spm)) {
+        (void)fprintf(stderr,
+                      "missing immutable platform capability was accepted\n");
+        return 1;
+    }
+
+    result = wt_spm_init(&spm, wt_generated_manifest_get(),
+                         WT_MANIFEST_FEATURE_IPC,
+                         wt_partitions_profile_capabilities());
+    if (result != WT_SPM_VALID || !wt_spm_ready(&spm)) {
+        (void)fprintf(stderr, "production manifest restore rejected: %d\n",
+                      result);
+        return 1;
+    }
+
+    if (wt_partitions_bind_manifest(wt_spm_manifest(&spm)) != 0) {
+        (void)fprintf(stderr, "production partition binding rejected\n");
+        return 1;
+    }
+
+    configs = wt_partitions_config_table(&config_count);
+    if (config_count == 0U || spm.manifest->domain_count < 2U) {
+        return 1;
+    }
+    guest_domain = &spm.manifest->domains[1];
+    if (wt_partition_validate_port_binding(&configs[0], guest_domain) !=
+            WT_PORT_VALID) {
+        (void)fprintf(stderr, "production port binding rejected\n");
+        return 1;
+    }
+
+    invalid_config = configs[0];
+    invalid_config.port.provided_capabilities &=
+        ~WT_PORT_CAPABILITY_VECTOR_READ_ALIAS;
+    if (wt_partition_validate_port_binding(&invalid_config, guest_domain) !=
+            WT_PORT_ERROR_CAPABILITY) {
+        (void)fprintf(stderr, "missing port capability was accepted\n");
+        return 1;
+    }
+
+    invalid_config = configs[0];
+    invalid_config.port.vector_read_address = invalid_config.vector_table;
+    if (wt_partition_validate_port_binding(&invalid_config, guest_domain) !=
+            WT_PORT_ERROR_VECTOR_ALIAS) {
+        (void)fprintf(stderr, "direct vector address was accepted as alias\n");
+        return 1;
+    }
+
+    if (wt_ffm_init(&ffm_runtime, wt_spm_manifest(&spm),
+                    &g_production_ffm_ops, NULL) != WT_FFM_SUCCESS) {
+        (void)fprintf(stderr,
+                      "production manifest rejected by FF-M runtime\n");
+        return 1;
+    }
+    if (wt_ffm_service_version(&ffm_runtime, -1,
+                               SERVICE_ATTEST_SID) != SERVICE_ATTEST_VERSION) {
+        (void)fprintf(stderr, "SERVICE_ATTEST not registered by SID\n");
+        return 1;
+    }
+    if (wt_ffm_service_version(&ffm_runtime, -1,
+                               SERVICE_HSM_SID) != SERVICE_HSM_VERSION) {
+        (void)fprintf(stderr, "SERVICE_HSM not registered by SID\n");
+        return 1;
+    }
+
+    /* WT-FFM-0011 Phase B: the crypto Secure Partition now resolves to its own
+     * secure private RAM, not the Non-secure guest memory it was conflated
+     * with before. */
+    if (wt_ffm_resolve_secure_domain(wt_spm_manifest(&spm), PARTITION_HSM_ID,
+                                     &crypto_domain) != WT_SECURE_DOMAIN_OK) {
+        (void)fprintf(stderr, "crypto Secure Partition domain not resolved\n");
+        return 1;
+    }
+    if (!wt_secure_domain_contains(&crypto_domain, WT_SP_CRYPTO_STACK_BASE,
+                                   4U, 1)) {
+        (void)fprintf(stderr, "crypto SP does not own its secure stack\n");
+        return 1;
+    }
+    if (wt_secure_domain_contains(&crypto_domain, WT_GUEST0_RAM_BASE, 4U, 0)) {
+        (void)fprintf(stderr, "crypto SP still reaches Non-secure guest RAM\n");
+        return 1;
+    }
+
+    domain_count = wt_spm_manifest(&spm)->domain_count;
+    if (domain_count > sizeof(invalid_domains) / sizeof(invalid_domains[0])) {
+        return 1;
+    }
+
+    /* WT-FFM: the restart policy is authoritative. Binding a manifest whose
+     * guest restart_limit differs from the compiled-in default must flow that
+     * value into the runtime config -- proving the SPM reads the manifest, not
+     * a hardcoded copy. */
+    (void)memcpy(invalid_domains, wt_spm_manifest(&spm)->domains,
+                 domain_count * sizeof(invalid_domains[0]));
+    invalid_manifest = *wt_spm_manifest(&spm);
+    invalid_manifest.domains = invalid_domains;
+    invalid_domains[1].restart_policy.restart_limit = 7U;
+    if (wt_partitions_bind_manifest(&invalid_manifest) != 0) {
+        (void)fprintf(stderr, "authoritative restart policy bind rejected\n");
+        return 1;
+    }
+    configs = wt_partitions_config_table(&config_count);
+    if (config_count == 0U ||
+            configs[0].restart_policy.restart_limit != 7U) {
+        (void)fprintf(stderr, "restart limit not bound from manifest\n");
+        return 1;
+    }
+
+    /* WT-FFM: the manifest's initial lifecycle is authoritative -- a guest
+     * domain declared STOPPED binds to a non-runnable runtime state. */
+    invalid_domains[1].initial_lifecycle = WT_DOMAIN_LIFECYCLE_STOPPED;
+    if (wt_partitions_bind_manifest(&invalid_manifest) != 0) {
+        (void)fprintf(stderr, "authoritative lifecycle bind rejected\n");
+        return 1;
+    }
+    configs = wt_partitions_config_table(&config_count);
+    if (configs[0].initial_state != WT_GUEST_STOPPED) {
+        (void)fprintf(stderr, "initial lifecycle not bound from manifest\n");
+        return 1;
+    }
+
+    /* An unsupported restart action still fails closed. */
+    invalid_domains[1].restart_policy.restart_limit = 3U;
+    invalid_domains[1].restart_policy.action = WT_RESTART_ACTION_NEVER;
+    if (wt_partitions_bind_manifest(&invalid_manifest) == 0) {
+        (void)fprintf(stderr, "unsupported restart action was accepted\n");
+        return 1;
+    }
+
+    /* Restore the real, authoritative binding: the guest domains declare
+     * READY, so the bound runtime state is runnable. */
+    if (wt_partitions_bind_manifest(wt_spm_manifest(&spm)) != 0) {
+        (void)fprintf(stderr, "restart policy rebind rejected\n");
+        return 1;
+    }
+    configs = wt_partitions_config_table(&config_count);
+    if (configs[0].initial_state != WT_GUEST_READY) {
+        (void)fprintf(stderr, "restored guest lifecycle not READY\n");
+        return 1;
+    }
+
+    (void)printf("production manifest and port capabilities accepted: "
+                 "profile=%u domains=%zu\n",
+                 (unsigned int)spm.manifest->isolation_profile,
+                 spm.manifest->domain_count);
+    return 0;
+}

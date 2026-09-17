@@ -20,10 +20,12 @@
 
 ROOT := ../../..
 
-CC := gcc
+CC ?= cc
+BUILD_DIR ?= build
 CFLAGS := -O0 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
     -I. \
     -I$(ROOT)/include
+CFLAGS += $(EXTRA_CFLAGS)
 
 VNET_SRCS := \
     $(ROOT)/src/vnet/vnet_mac.c    \
@@ -40,24 +42,42 @@ TEST_SRCS := \
     test_fdb.c    \
     test_switch.c
 
-VNET_OBJS := $(patsubst %.c,vnet_%.o,$(notdir $(VNET_SRCS)))
-TEST_OBJS := $(patsubst %.c,%.o,$(notdir $(TEST_SRCS)))
+VNET_OBJS := $(patsubst %.c,$(BUILD_DIR)/vnet_%.o,$(notdir $(VNET_SRCS)))
+TEST_OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(notdir $(TEST_SRCS)))
+TEST_BIN := $(BUILD_DIR)/test_vnet
 
-.PHONY: all run clean
+.PHONY: all run compilers sanitize valgrind clean
 
-all: test_vnet
+all: $(TEST_BIN)
 
-vnet_%.o: $(ROOT)/src/vnet/%.c
+$(BUILD_DIR):
+	mkdir -p $@
+
+$(BUILD_DIR)/vnet_%.o: $(ROOT)/src/vnet/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-%.o: %.c
+$(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-test_vnet: $(VNET_OBJS) $(TEST_OBJS)
-	$(CC) $(CFLAGS) -o $@ $(VNET_OBJS) $(TEST_OBJS)
+$(TEST_BIN): $(VNET_OBJS) $(TEST_OBJS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(EXTRA_LDFLAGS) -o $@ $(VNET_OBJS) $(TEST_OBJS)
 
-run: test_vnet
-	./test_vnet
+run: $(TEST_BIN)
+	$(TEST_BIN)
+
+compilers:
+	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc
+	$(MAKE) clean run CC=clang BUILD_DIR=$(BUILD_DIR)/clang
+
+sanitize:
+	$(MAKE) clean run CC=clang \
+		BUILD_DIR=$(BUILD_DIR)/sanitize \
+		EXTRA_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+		EXTRA_LDFLAGS="-fsanitize=address,undefined"
+
+valgrind: clean $(TEST_BIN)
+	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+		$(TEST_BIN)
 
 clean:
-	rm -f test_vnet $(VNET_OBJS) $(TEST_OBJS)
+	rm -rf $(BUILD_DIR)

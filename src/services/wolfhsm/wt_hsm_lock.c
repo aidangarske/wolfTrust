@@ -35,6 +35,7 @@
 
 #include "wolfhsm/wh_error.h"          /* WH_ERROR_OK, WH_ERROR_BADARGS, WH_ERROR_ABORTED */
 #include "wolfhsm/wh_lock.h"           /* whLockCb */
+#include "wolftrust/spm_gate.h"        /* wt_spm_thread_unprivileged, lock gate */
 #include "wolftrust/sync/mutex.h"      /* wt_mutex_t, wt_mutex_init/acquire/release */
 
 static int wt_hsm_lock_init(void *context, const void *config)
@@ -59,6 +60,16 @@ static int wt_hsm_lock_cleanup(void *context)
 static int wt_hsm_lock_acquire(void *context)
 {
     if (context == NULL) return WH_ERROR_BADARGS;
+#if defined(__ARM_FEATURE_CMSE)
+    /* A confined keystore partition cannot touch the scheduler state the
+     * blocking path needs; the SVC gate acquires on its behalf. */
+    if (wt_spm_thread_unprivileged()) {
+        if (wt_spm_keystore_lock_call(WT_SPM_KS_LOCK_ACQUIRE) != 0) {
+            return WH_ERROR_ABORTED;
+        }
+        return WH_ERROR_OK;
+    }
+#endif
     if (wt_mutex_acquire((wt_mutex_t *)context) != 0) {
         return WH_ERROR_ABORTED;
     }
@@ -68,6 +79,14 @@ static int wt_hsm_lock_acquire(void *context)
 static int wt_hsm_lock_release(void *context)
 {
     if (context == NULL) return WH_ERROR_BADARGS;
+#if defined(__ARM_FEATURE_CMSE)
+    if (wt_spm_thread_unprivileged()) {
+        if (wt_spm_keystore_lock_call(WT_SPM_KS_LOCK_RELEASE) != 0) {
+            return WH_ERROR_ABORTED;
+        }
+        return WH_ERROR_OK;
+    }
+#endif
     if (wt_mutex_release((wt_mutex_t *)context) != 0) {
         return WH_ERROR_ABORTED;
     }

@@ -1,0 +1,46 @@
+/* attestation_service.h
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+#ifndef WOLFTRUST_SERVICES_ATTESTATION_SERVICE_H
+#define WOLFTRUST_SERVICES_ATTESTATION_SERVICE_H
+
+#include "wolftrust/ffm.h"
+#include "wolftrust/spm_gate.h"
+
+/* psa_call types SERVICE_ATTEST accepts. PSA_IPC_CALL (0) carries the
+ * caller's challenge in the input vector and returns the Initial Attestation
+ * token in the output vector; the query types below replace the retired
+ * direct WolfTrust_Attest_* veneers so every attestation request is
+ * SPM-mediated (WT-SYS-0014). */
+#define WT_ATTEST_OP_TOKEN_SIZE 1
+#define WT_ATTEST_OP_PUBLIC_KEY 2
+
+/* SERVICE_ATTEST's dispatch loop: wait, get, service one message, reply.
+ * Architecture-neutral (no Armv8-M/CMSE dependency) so it is host-testable
+ * through a real wt_ffm_connect/wt_ffm_call round trip. The token itself is
+ * produced by the existing wt_initial_attest_get_token backend. */
+int wt_attestation_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
+                                    int32_t partition_id);
+
+/* Transport seam, mirroring vault_service: direct gate calls on the host,
+ * the SVC transport when scheduled on target. NULL restores the default. */
+void wt_attestation_service_set_transport(wt_spm_transport_fn fn);
+
+#endif /* WOLFTRUST_SERVICES_ATTESTATION_SERVICE_H */

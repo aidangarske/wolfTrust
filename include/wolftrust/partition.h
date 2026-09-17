@@ -22,17 +22,18 @@
 #ifndef WOLFTRUST_PARTITION_H
 #define WOLFTRUST_PARTITION_H
 
+#include "wolftrust/manifest.h"
 #include "wolftrust/types.h"
 
-/* Per-guest CMSE shared-buffer descriptor for the wolfHSM transport.
- * The buffer lives in the guest's NS RAM. The secure side validates
- * every byte access against this descriptor + cmse_check_address_range.
- * Both base and size are required; size==0 means this guest does not
- * have an HSM transport configured. */
-typedef struct wt_hsm_transport_window {
-    uintptr_t base;
-    size_t    size;
-} wt_hsm_transport_window_t;
+#define WT_PORT_CAPABILITY_VECTOR_READ_ALIAS (1U << 0)
+#define WT_PORT_CAPABILITY_ALL \
+    (WT_PORT_CAPABILITY_VECTOR_READ_ALIAS)
+
+typedef struct wt_guest_port_binding {
+    uint32_t required_capabilities;
+    uint32_t provided_capabilities;
+    uintptr_t vector_read_address;
+} wt_guest_port_binding_t;
 
 typedef struct wt_guest_config {
     wt_guest_id_t guest_id;
@@ -47,11 +48,18 @@ typedef struct wt_guest_config {
     size_t mpu_region_count;
     wt_restart_policy_t restart_policy;
     uint32_t timeslice_ms;
-    wt_hsm_transport_window_t hsm_transport;
+    wt_guest_port_binding_t port;
+    wt_guest_state_t initial_state;
+    uint32_t launch_required;
+    uint32_t launch_min_version;
 } wt_guest_config_t;
 
+/* Per-guest scheduler runtime. The execution context is an architecture-port
+ * type held by POINTER: the port owns the concrete storage and wires it in
+ * wt_partition_reset_runtime / the runtime table, so the core never needs the
+ * arch layout. */
 typedef struct wt_guest_runtime {
-    wt_guest_context_t context;
+    struct wt_guest_context* context;
     wt_guest_state_t state;
     uint32_t remaining_delay_ticks;
     uint32_t restart_count;
@@ -59,13 +67,21 @@ typedef struct wt_guest_runtime {
     wt_fault_reason_t last_fault;
 } wt_guest_runtime_t;
 
-typedef struct wt_guest_partition {
-    wt_guest_config_t config;
-    wt_guest_runtime_t runtime;
-} wt_guest_partition_t;
+typedef enum wt_port_validation_result {
+    WT_PORT_VALID = 0,
+    WT_PORT_ERROR_ARGUMENT = -500,
+    WT_PORT_ERROR_CAPABILITY = -501,
+    WT_PORT_ERROR_VECTOR_ALIAS = -502
+} wt_port_validation_result_t;
 
 const wt_guest_config_t* wt_partitions_config_table(size_t* count);
 wt_guest_runtime_t* wt_partitions_runtime_table(size_t* count);
+const wt_profile_capabilities_t* wt_partitions_profile_capabilities(void);
+/* Bind the platform scheduler table to the validated generated manifest. */
+int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest);
+int wt_partition_validate_port_binding(
+    const wt_guest_config_t* config,
+    const wt_domain_descriptor_t* domain);
 void wt_partition_reset_runtime(const wt_guest_config_t* config,
                                 wt_guest_runtime_t* runtime);
 

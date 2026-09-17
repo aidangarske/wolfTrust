@@ -64,6 +64,11 @@ static inline wt_tasklet_state_t wt_tasklet_state(const wt_tasklet_t *tasklet)
     return wt_co_state(tasklet);
 }
 
+static inline bool wt_tasklet_wake_pending(const wt_tasklet_t *tasklet)
+{
+    return wt_co_wake_pending(tasklet);
+}
+
 static inline uint32_t wt_tasklet_resume(wt_tasklet_t *tasklet)
 {
     return wt_co_run(tasklet);
@@ -83,7 +88,5 @@ static inline void wt_tasklet_mark_faulted(wt_tasklet_t *tasklet)
 {
     wt_co_mark_faulted(tasklet);
 }
-
-void wt_co_fault_recovery_thunk(void);
 
 #endif /* WOLFTRUST_SCHED_TASKLET_H */

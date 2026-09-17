@@ -28,7 +28,8 @@ WOLFSSL   := $(ROOT)/lib/wolfSSL
 # ---------------------------------------------------------------------------
 # Toolchain
 # ---------------------------------------------------------------------------
-CC := gcc
+CC ?= cc
+BUILD_DIR ?= build
 
 # ---------------------------------------------------------------------------
 # Compile flags
@@ -43,6 +44,7 @@ CFLAGS := \
     -I$(WOLFHSM) \
     -I$(WOLFSSL) \
     -O0 -g -Wall -Wno-unused-function -Wno-unused-parameter
+CFLAGS += $(EXTRA_CFLAGS)
 
 # ---------------------------------------------------------------------------
 # Source lists (full paths; flat object output with a prefix to avoid
@@ -109,36 +111,55 @@ _WH_PORT_OBJS := $(patsubst %.c,whport_%.o,$(notdir $(_WH_PORT_SRCS)))
 _WC_OBJS      := $(patsubst %.c,wc_%.o,$(notdir $(_WC_SRCS)))
 _TEST_OBJS    := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
 
-ALL_OBJS := $(_WH_OBJS) $(_WH_PORT_OBJS) $(_WC_OBJS) $(_TEST_OBJS)
+ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WH_OBJS) $(_WH_PORT_OBJS) $(_WC_OBJS) $(_TEST_OBJS))
+TEST_BIN := $(BUILD_DIR)/test_loopback
 
 # ---------------------------------------------------------------------------
 # Compilation rules — explicit pattern per directory
 # ---------------------------------------------------------------------------
-wh_%.o: $(WOLFHSM)/src/%.c
+
+$(BUILD_DIR):
+	mkdir -p $@
+
+$(BUILD_DIR)/wh_%.o: $(WOLFHSM)/src/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-whport_%.o: $(WOLFHSM)/port/posix/%.c
+$(BUILD_DIR)/whport_%.o: $(WOLFHSM)/port/posix/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-wc_%.o: $(WOLFSSL)/wolfcrypt/src/%.c
+$(BUILD_DIR)/wc_%.o: $(WOLFSSL)/wolfcrypt/src/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-%.o: %.c
+$(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # ---------------------------------------------------------------------------
 # Targets
 # ---------------------------------------------------------------------------
-.PHONY: all run clean
+.PHONY: all run compilers sanitize valgrind clean
 
-all: test_loopback
+all: $(TEST_BIN)
 
-test_loopback: $(ALL_OBJS)
-	$(CC) $(CFLAGS) -o $@ $(ALL_OBJS) -lm
+$(TEST_BIN): $(ALL_OBJS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(EXTRA_LDFLAGS) -o $@ $(ALL_OBJS) -lm
 
-run: test_loopback
-	./test_loopback
+run: $(TEST_BIN)
+	$(TEST_BIN)
 	@exit $$?
 
+compilers:
+	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc
+	$(MAKE) clean run CC=clang BUILD_DIR=$(BUILD_DIR)/clang
+
+sanitize:
+	$(MAKE) clean run CC=clang \
+		BUILD_DIR=$(BUILD_DIR)/sanitize \
+		EXTRA_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+		EXTRA_LDFLAGS="-fsanitize=address,undefined"
+
+valgrind: clean $(TEST_BIN)
+	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+		$(TEST_BIN)
+
 clean:
-	rm -f test_loopback $(ALL_OBJS)
+	rm -rf $(BUILD_DIR)

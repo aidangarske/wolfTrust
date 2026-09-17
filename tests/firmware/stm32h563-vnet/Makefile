@@ -29,7 +29,7 @@ SIZE       := $(TOOLPREFIX)size
 M33MU      ?= m33mu
 
 ROOT       := ../../..
-PORT_DIR   := $(ROOT)/src/port/stm32h563
+PORT_DIR   := $(ROOT)/port/stm32h563
 WOLFIP_DIR := $(ROOT)/lib/wolfIP
 
 CONFIG_VNET ?= y
@@ -72,6 +72,7 @@ GUEST_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -O2 -g \
     -DWT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ) \
     -DWT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_ORIGIN)u \
     -DWT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_ORIGIN)u
+GUEST_CFLAGS += $(GUEST_EXTRA_CFLAGS)
 
 BUILD_DIR     := build
 TOP_BUILD_DIR := $(ROOT)/build
@@ -86,12 +87,24 @@ GUEST1_BIN := $(BUILD_DIR)/guest1.bin
 GUEST_SRCS := \
     nonsecure/guest.c \
     nonsecure/libc_stubs.c \
+    $(ROOT)/src/client/psa_ffm_client.c \
+    $(ROOT)/src/client/vnet_psa_transport.c \
     $(WOLFIP_DIR)/src/wolfip.c
 
 .PHONY: all secure clean run run-uarts
 
 all: secure $(GUEST0_BIN) $(GUEST1_BIN)
 	@$(SIZE) $(GUEST0_ELF) $(GUEST1_ELF)
+	@for elf in $(GUEST0_ELF) $(GUEST1_ELF); do \
+		NM_OUT=$$($(TOOLPREFIX)nm $$elf) || \
+			{ echo "FAIL: nm on $$elf failed" >&2; exit 1; }; \
+		if printf '%s\n' "$$NM_OUT" | grep -q 'WolfTrust_VNet_'; then \
+			echo "FAIL: retired raw vnet veneer referenced by $$elf (WT-FFM-0057)" >&2; \
+			exit 1; \
+		fi; \
+		printf '%s\n' "$$NM_OUT" | grep -q 'wt_vnet_psa_tx' || \
+			{ echo "FAIL: mediated vnet transport missing from $$elf" >&2; exit 1; }; \
+	done
 
 secure:
 	rm -rf $(TOP_BUILD_DIR)

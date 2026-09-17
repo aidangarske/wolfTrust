@@ -4,7 +4,7 @@ OBJCOPY := $(TOOLPREFIX)objcopy
 SIZE := $(TOOLPREFIX)size
 M33MU ?= m33mu
 ROOT := ../../..
-PORT_DIR := $(ROOT)/src/port/stm32h563
+PORT_DIR := $(ROOT)/port/stm32h563
 WOLFHSM_RUNNER_DIR := $(ROOT)/src/services/wolfhsm/runner
 ARCH ?= armv8m
 TARGET ?= stm32h563
@@ -20,11 +20,19 @@ WT_MAX_GUESTS ?= 2
 WT_CO_STACK_SIZE ?= 24576
 WT_WOLFCRYPT_SP_ASM ?= 1
 WT_WOLFCRYPT_ARMASM ?= 1
-WT_WOLFCRYPT_STM32_HASH ?= 1
+WT_WOLFCRYPT_STM32_HASH ?= 0
 CFLAGS_COMMON += -DWT_MAX_GUESTS=$(WT_MAX_GUESTS)
 CFLAGS_COMMON += -DWT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)
 WT_SHARED_UART ?= 3
 CFLAGS_COMMON += -DWT_SHARED_UART=$(WT_SHARED_UART)
+
+# wolfHSM resumes SHA-256 operations from the portable digest and length
+# fields carried by its wire protocol. STM32 HASH uses opaque peripheral CSR
+# state instead, so enabling it here would remove the wolfHSM SHA handler and
+# make a client fallback operate on a partially modified context.
+ifneq ($(WT_WOLFCRYPT_STM32_HASH),0)
+$(error WT_WOLFCRYPT_STM32_HASH is incompatible with the wolfHSM SHA service)
+endif
 # Guests see virtual SysTick elapsed time from the monitor while still using
 # the target core clock when programming SysTick.
 WT_GUEST_CORE_CLOCK_HZ ?= 240000000
@@ -128,11 +136,6 @@ HSM_DEFS_GUEST += -DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO \
     -DWOLFSSL_ARMASM_THUMB2
 endif
 endif
-ifeq ($(WT_WOLFCRYPT_STM32_HASH),1)
-HSM_DEFS_SECURE += -DWOLFSSL_STM32H5 -DSTM32_HASH \
-    -DNO_STM32_RNG -DNO_STM32_CRYPTO -DNO_STM32_HMAC \
-    -include $(abspath $(PORT_DIR)/wolfcrypt_stm32h563.h)
-endif
 # Switch secure ELF to -Os: wolfCrypt is too slow at -O0 for embedded use.
 SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -Wall -Wextra \
@@ -233,14 +236,6 @@ WOLFCRYPT_SECURE_SRCS += \
 endif
 endif
 
-ifeq ($(WT_WOLFCRYPT_STM32_HASH),1)
-WOLFCRYPT_SECURE_SRCS += \
-    $(WOLFSSL_DIR)/wolfcrypt/src/port/st/stm32.c
-# wolfHSM's async SHA service serializes the software wc_Sha256 internals
-# across requests; STM32_HASH replaces that state with a hardware context.
-HSM_WOLFHSM_CFLAGS += -DNO_SHA256
-endif
-
 # wolftrust sources always present for the HSM build
 WT_SECURE_EXTRA_SRCS := \
     $(ROOT)/src/arch/armv8m/cmse.c \
@@ -310,8 +305,13 @@ WOLFCRYPT_GUEST_SRCS += \
 endif
 endif
 
-# Wave 5: guest glue — include only when present
+# Wave 5: guest glue — include only when present. The glue's transport is the
+# SPM-mediated PSA path, so the neutral FF-M client core and the wolfHSM psa
+# transport ride along (WT-FFM-0054).
 WOLFHSM_GUEST_SRCS += $(wildcard nonsecure/wolfhsm_client_glue.c)
+WOLFHSM_GUEST_SRCS += \
+    $(ROOT)/src/client/psa_ffm_client.c \
+    $(ROOT)/src/client/hsm_psa_transport.c
 
 # Guest-side libc stubs (memcpy/memset already inlined by gcc for guest.c,
 # but wolfCrypt sources need the full set).
@@ -457,6 +457,11 @@ $(HSM_GUEST1_MAIN_OBJ): nonsecure/guest.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(WOL
 # Wave 5: wolfhsm_client_glue.c lives in nonsecure/ but is listed under
 # WOLFHSM_GUEST_SRCS so it gets the wh_guest_ prefix and the guest lib flags.
 $(BUILD_DIR)/wh_guest_wolfhsm_client_glue.o: nonsecure/wolfhsm_client_glue.c $(WOLFHSM_CFG_H) $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(GUEST_LIB_CFLAGS) -c -o $@ $<
+
+# Neutral FF-M client core + SPM-mediated wolfHSM transport, same prefix and
+# guest lib flags as the glue that consumes them.
+$(BUILD_DIR)/wh_guest_%.o: $(ROOT)/src/client/%.c $(WOLFHSM_CFG_H) $(WOLFHSM_GUEST_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(GUEST_LIB_CFLAGS) -c -o $@ $<
 
 endif  # WT_ENGINE_HSM=1
