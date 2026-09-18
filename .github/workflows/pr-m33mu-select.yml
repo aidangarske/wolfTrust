@@ -98,12 +98,12 @@ jobs:
                 picked='{"key":"__full__","name":"FF-M scenarios (run in the full build)"},' ;;
             esac
           fi
-          echo "scenarios={\"scenario\":[${picked%,}]}" >> "$GITHUB_OUTPUT"
+          echo "scenarios={\"engine\":[\"native\",\"hsm\"],\"scenario\":[${picked%,}]}" >> "$GITHUB_OUTPUT"
 
   scenario:
     needs: select
-    if: ${{ needs.select.outputs.scenarios != '{"scenario":[]}' }}
-    name: ${{ matrix.scenario.name }}
+    if: ${{ needs.select.outputs.scenarios != '{"engine":["native","hsm"],"scenario":[]}' }}
+    name: ${{ matrix.scenario.name }} (${{ matrix.engine }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -111,6 +111,8 @@ jobs:
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    env:
+      WT_ENGINE: ${{ matrix.engine }}
     steps:
       - uses: actions/checkout@v4
 

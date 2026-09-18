@@ -32,7 +32,7 @@ WOLFPSA_DIR="${ROOT}/lib/wolfPSA"
 WOLFHSM_DIR="${ROOT}/lib/wolfHSM"
 BAREMETAL_NS_DIR="${ROOT}/tests/firmware/stm32h563/nonsecure"
 WOLFHSM_MODULE_DIR="${SUBTREE_DIR}/module/wolfhsm-client"
-WT_ENGINE="${WT_ENGINE:-hsm}"
+WT_ENGINE="${WT_ENGINE:-native}"
 
 if [ ! -d "${FREERTOS_KERNEL}" ]; then
     echo "missing FreeRTOS workspace: ${FREERTOS_KERNEL}" >&2

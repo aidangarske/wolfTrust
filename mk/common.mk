@@ -22,11 +22,15 @@ WT_MAX_GUESTS ?= 2
 # the SP_SMALL math switch; PSPLIM_S faults any real overflow, so this floor
 # is measured, not guessed.
 WT_CO_STACK_SIZE ?= 10240
-# Secure crypto engine. hsm links the wolfHSM server as a key-management add-on;
-# native calls wolfCrypt directly. Legacy WT_ENGINE_HSM=0 selects native.
-WT_ENGINE ?= hsm
+# Secure crypto engine. native (the default) calls wolfCrypt directly; hsm
+# links the wolfHSM server as a key-management add-on. Legacy WT_ENGINE_HSM
+# values map onto the selector.
+WT_ENGINE ?= native
 ifeq ($(WT_ENGINE_HSM),0)
 WT_ENGINE := native
+endif
+ifeq ($(WT_ENGINE_HSM),1)
+WT_ENGINE := hsm
 endif
 ifeq ($(WT_ENGINE),hsm)
 WT_ENGINE_HSM := 1

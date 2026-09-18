@@ -69,7 +69,7 @@ git config --global --add safe.directory "$repo"
 # --- Workflow env (wolfboot-wolftrust-m33mu job). Keep in sync with the yml. ---
 # Crypto engine under test: hsm (wolfHSM server) or native (direct wolfCrypt).
 # Flows into the secure image build and both guest builds.
-WT_ENGINE="${WT_ENGINE:-hsm}"
+WT_ENGINE="${WT_ENGINE:-native}"
 export WT_ENGINE
 export CROSS_COMPILE=/usr/local/bin/arm-none-eabi-
 export ZEPHYR_TOOLCHAIN_VARIANT=cross-compile
