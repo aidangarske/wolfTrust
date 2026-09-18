@@ -256,19 +256,19 @@ static void wt_tick_restart_backoff(void)
 
         if (runtime->remaining_delay_ticks > 0U) {
             runtime->remaining_delay_ticks--;
-            if (runtime->remaining_delay_ticks == 0U &&
-                runtime->state == WT_GUEST_RESTARTING) {
-                /* A relaunch is a launch: the image must still match its pin
-                 * before the domain is re-entered. */
-                if (wt_verify_guest_launch((wt_guest_id_t)i) ==
-                        WT_GUEST_VERIFY_OK) {
-                    wt_partition_reset_runtime(&g_scheduler.configs[i],
-                                               runtime);
-                }
-                else {
-                    runtime->state = WT_GUEST_FAULTED;
-                    g_wt_quarantine_events++;
-                }
+        }
+        if (runtime->remaining_delay_ticks == 0U &&
+            runtime->state == WT_GUEST_RESTARTING) {
+            /* A relaunch is a launch: the image must still match its pin
+             * before the domain is re-entered. */
+            if (wt_verify_guest_launch((wt_guest_id_t)i) ==
+                    WT_GUEST_VERIFY_OK) {
+                wt_partition_reset_runtime(&g_scheduler.configs[i],
+                                           runtime);
+            }
+            else {
+                runtime->state = WT_GUEST_FAULTED;
+                g_wt_quarantine_events++;
             }
         }
     }
