@@ -9,6 +9,55 @@ This register describes the code in the repository. It is not a certification
 statement, and a declaration in a vendored header does not mean every optional
 algorithm or feature is enabled in every build.
 
+## Measured Secure-image footprint
+
+The following table records local builds, not published reference figures.
+The wolfTrust rows are the full STM32H563 Level 3 configuration with ITS,
+Protected Storage, firmware update, vault services, and COSE attestation. The
+TF-M rows are the standard Small, Medium, and Large profiles built for AN521.
+
+| Secure image | Profile and enabled services | Flash | Static RAM |
+| --- | --- | ---: | ---: |
+| wolfTrust native | Level 3; Crypto, ITS, PS, FWU, vault, COSE attestation | 86,240 bytes | 27,213 bytes |
+| wolfTrust wolfHSM | Same services plus the wolfHSM server | 106,432 bytes | 59,073 bytes |
+| TF-M Small | Level 1; Crypto, ITS, Initial Attestation; PS and FWU off | 50,968 bytes | 14,296 bytes |
+| TF-M Medium | Level 2; Crypto, ITS, PS, Initial Attestation; FWU off | 67,332 bytes | 42,468 bytes |
+| TF-M Large | Level 3; Crypto, ITS, PS, Initial Attestation; FWU off | 115,460 bytes | 45,756 bytes |
+
+In these builds, native wolfTrust uses about 25% less flash than TF-M Large
+and less static RAM than TF-M Medium while also including firmware update.
+The wolfHSM engine remains smaller in flash than TF-M Large but uses more
+static RAM because it adds per-guest server state and stacks. These results do
+not imply that the projects, platforms, or enabled feature sets are identical.
+
+### Methodology
+
+All five images were built on `wolf-prec5560` with
+`arm-none-eabi-gcc` 13.2.1. Footprint was read from the linked Secure ELF with
+`arm-none-eabi-size` and calculated as:
+
+```text
+Flash      = text + data
+Static RAM = data + bss
+```
+
+The wolfTrust images used `-Os` and `make secure-image` with
+`WT_ENGINE=native` or `WT_ENGINE=hsm`. The measured file was
+`wolftrust.elf`. The TF-M source was the `TF-Mv2.1.1-LTS` tag, configured for
+`arm/mps2/an521`, `MinSizeRel`, and `profile_small`, `profile_medium`, or
+`profile_large`. The measured file in each case was `tfm_s.elf`.
+
+Only the Secure runtime ELF is counted. wolfBoot and Non-secure wolfTrust
+guests are excluded; TF-M BL2 and its Non-secure application are likewise
+excluded. Although the TF-M configurations had `BL2=ON`, the separate BL2
+image is not part of `tfm_s.elf` and therefore is not in the table.
+
+The TF-M builds target AN521 while wolfTrust targets STM32H563, and their
+profiles do not enable the same services. Treat the table as a reproducible
+local build comparison, not a platform-normalized benchmark. See
+[Crypto Engines](Crypto-Engines.md) for the measured cost within wolfTrust,
+where the platform and feature set are held constant.
+
 ## Compatibility register
 
 | API or behavior | Version | Status | Repository evidence |
@@ -64,7 +113,7 @@ guest RAM, and unprivileged Secure threads use per-partition Secure MPU regions.
 The guest Non-secure MPU and interrupt masks are scheduling policy because a
 privileged guest can reprogram them.
 
-The current single-image layout still shares Secure executable text, and HSM,
+The current single-image layout still shares Secure executable text, and crypto,
 vault, and attestation share a keystore data band. Treat the profile field as a
 requested and validated wolfTrust policy level, not by itself as proof of
 independent TF-M isolation certification. [Security Model](Security-Model.md) describes the
@@ -77,7 +126,9 @@ actual boundary.
    Storage, and Firmware Update. The lifecycle function is Secure-Partition-only.
 2. Link `src/client/psa_ffm_client.c` and
    `build/secure_cmse_implib.o`, then add the adapter required by each API:
-   wolfPSA plus `src/client/hsm_psa_transport.c` for Crypto,
+   wolfPSA plus `src/client/crypto_native_client.c` for the native Crypto
+   configuration, or wolfPSA, the wolfHSM client, and
+   `src/client/hsm_psa_transport.c` for the hsm configuration;
    `src/client/psa_storage_client.c` for ITS and Protected Storage,
    `src/client/psa_fwu_client.c` for Firmware Update, and
    `src/client/vnet_psa_transport.c` for optional VNET.

@@ -14,7 +14,8 @@ The reference trusted computing base includes:
 
 - wolfBoot and its verification key
 - the wolfTrust Secure image and generated manifest
-- wolfCrypt, wolfHSM, wolfHAL, and wolfCOSE code linked into that image
+- wolfCrypt, wolfHAL, wolfCOSE, the shared wolfHSM NVM components, and the
+  full wolfHSM server when the optional hsm engine is selected
 - Armv8-M exception, TrustZone, and MPU behavior
 - STM32H563 GTZC and flash option-byte configuration
 - privileged wolfTrust SVC and fault handlers
@@ -34,7 +35,7 @@ trusted to access arbitrary SPM or peer-partition writable state.
 | Guest to service | Manifest service policy, connection ownership, generated handles, and SPM-stamped client identity |
 | Secure Partition writable state | Unprivileged Secure threads and a per-partition Secure MPU table |
 | Secure Partition to hardware backend | Operation-specific SVC gates pinned to the expected partition identity |
-| Persistent objects | Vault ownership tuple, checked wolfHSM NVM operations, and key/storage type separation |
+| Persistent objects | Vault ownership tuple, checked NVM operations, engine-specific non-exportable key policy, and key/storage type separation |
 
 ## The only Non-secure entry path
 
@@ -111,16 +112,17 @@ operations are available only through narrow SVC operations that check the
 originating partition.
 
 This is writable-state isolation inside one linked image. Shared executable
-text is not per-partition code isolation, and the HSM, vault, and attestation
+text is not per-partition code isolation, and the crypto, vault, and attestation
 domains share the keystore data band required by their backends.
 
 ## Per-guest cryptographic keys
 
 The SERVICE_HSM door carries the selected crypto engine's wire (`WT_ENGINE`):
-the native engine (default) dispatches wolfCrypt directly, holding keys as
-sealed vault NVM objects whose private material never leaves the privileged
-vault domain; the hsm engine relays wolfHSM server packets. The FF-M surface,
-SIDs, and isolation bands are identical in both engines.
+the native engine (default) dispatches wolfCrypt directly, with explicitly
+vault-backed keys stored as `SENSITIVE` and `NONEXPORTABLE` NVM objects whose
+private material never leaves the Secure key-vault domain; the hsm engine
+relays wolfHSM server packets. The FF-M surface, SIDs, and isolation bands are
+identical in both engines.
 
 In the hsm engine the service receives one copied wolfHSM request packet
 through FF-M IPC. The SPM-stamped negative client ID selects guest `N`, and
@@ -129,10 +131,18 @@ packet. In the native engine the same SPM-stamped identity becomes the vault
 key namespace's delegated sub-owner. A client-provided communication ID
 therefore cannot select another guest's key namespace in either engine.
 
-The guest-facing HSM relay rejects wolfHSM NVM message groups. Guests can use
-the intended cryptographic protocol but cannot directly reach vault objects,
-the firmware-version floor, the Protected Storage counter table, or the
-attestation key.
+The native reference guests normally run wolfPSA and wolfCrypt locally. Their
+ordinary volatile PSA keys therefore live in Non-secure guest RAM; only DRBG
+seed requests and explicit native-wire vault-key requests cross the Secure
+boundary. In the hsm engine, supported guest PSA operations and their private
+key state are routed to the Secure wolfHSM server.
+
+The hsm engine's guest-facing relay rejects wolfHSM NVM message groups. The
+native request format exposes no general NVM operation. Guests can use the
+intended engine protocol but cannot directly reach storage objects, the
+firmware-version floor, the Protected Storage counter table, or the
+attestation key. See [Crypto Engines](Crypto-Engines.md) for the complete
+selection and key-model comparison.
 
 ## Storage protection
 
@@ -151,7 +161,7 @@ The current `psa_ps_get_info()` implementation echoes those requested hint
 flags instead of reporting the stronger protection actually applied.
 Sealing uses AES-256-GCM with:
 
-- a device-local non-exportable key stored in wolfHSM NVM;
+- a device-local non-exportable key stored in the shared Secure NVM store;
 - the object label as authenticated data;
 - a 12-byte nonce derived from a persisted per-write counter; and
 - a 16-byte authentication tag.
@@ -161,9 +171,10 @@ interrupted write. The live per-object counter also detects replay of a stale
 ciphertext unless an attacker can coherently roll back the counter store; see
 [Threat Model](Threat-Model.md).
 
-Vault storage rejects its reserved key-object type. Guest cryptographic keys
-instead use the separate wolfHSM keystore behind `SERVICE_HSM`, where the
-relay binds operations to the caller's namespace.
+Vault storage rejects its reserved key-object type. In the native engine,
+explicit key requests use the vault's separate key face. In the hsm engine,
+guest cryptographic keys instead use the wolfHSM server keystore behind
+`SERVICE_HSM`. Both paths bind operations to the SPM-stamped caller namespace.
 
 ## Authenticated guest launch
 
@@ -193,9 +204,10 @@ the option bytes as described in [STM32H5 Guide](STM32H5-Guide.md).
 ## Static memory
 
 The Secure wolfCrypt settings define both `NO_WOLFSSL_MEMORY` and
-`WOLFSSL_NO_MALLOC`. Stacks, IPC transfers, service state, HSM
+`WOLFSSL_NO_MALLOC`. Stacks, IPC transfers, service state, selected-engine
 contexts, and cryptographic scratch space use fixed storage. Oversized requests
-fail instead of allocating.
+fail instead of allocating. The link also rejects allocator symbols in both
+engine images.
 
 ## Source anchors
 
@@ -203,6 +215,8 @@ fail instead of allocating.
 - [Secure Partition scheduler and SVC gates](../src/arch/armv8m/spm_svc.c)
 - [Guest verification](../src/guest_verify.c)
 - [HSM relay binding](../src/services/wolfhsm/wt_hsm.c)
+- [Native crypto dispatch](../src/services/native/crypto_native.c)
+- [Native vault key backend](../src/services/native/keyvault.c)
 - [Vault storage](../src/services/wolfhsm/wt_hsm_vault.c)
 
 See [Threat Model](Threat-Model.md) for assumptions and residual risks.
