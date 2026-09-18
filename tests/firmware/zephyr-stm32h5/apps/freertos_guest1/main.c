@@ -25,11 +25,13 @@
 
 #include "wolfssl/wolfcrypt/settings.h"
 #include "wolfssl/wolfcrypt/random.h"
-#include "wolfssl/wolfcrypt/cryptocb.h"
 
+#if defined(WT_ENGINE_HSM)
+#include "wolfssl/wolfcrypt/cryptocb.h"
 #include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_client.h"
 #include "wolfhsm/wh_client_cryptocb.h"
+#endif
 
 #include <psa/crypto.h>
 #include "wolfpsa/psa_engine.h"
@@ -37,13 +39,15 @@
 #include "psa/client.h"
 
 /* SERVICE_HSM (port/stm32h563/manifest.json): the single mediated door to
- * the wolfHSM server — the same path guest0 uses. */
+ * the secure crypto engine — the same path guest0 uses. */
 #define WT_SERVICE_HSM_SID 4102u
 
+#if defined(WT_ENGINE_HSM)
 /* wolfHSM client glue (module/wolfhsm-client/src/wolfhsm_client_glue.c). */
 int wolfhsm_guest_init(void);
 int wolfhsm_guest_cryptocb(int devId, wc_CryptoInfo *info, void *ctx);
 whClientContext *wolfhsm_guest_client(void);
+#endif
 int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz);
 
 extern uint32_t _sidata;
@@ -383,6 +387,7 @@ static int guest_crypto_init(void)
 {
     int rc;
 
+#if defined(WT_ENGINE_HSM)
     /* Boot can race a Secure Partition restart window; the glue cryptocb
      * heals by retrying the connect on demand, so a failed init here is a
      * warning, not a terminal error. */
@@ -398,6 +403,7 @@ static int guest_crypto_init(void)
         return -1;
     }
     (void)wolfPSA_SetDefaultDevID(WH_DEV_ID);
+#endif
     /* PSA requires psa_crypto_init before any other psa_* call; guest0 gets
      * this from wolfPSA's Zephyr SYS_INIT, the bare FreeRTOS guest does it
      * here so the first mediated psa_hash_compute is not BAD_STATE. */

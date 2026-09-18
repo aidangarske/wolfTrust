@@ -34,9 +34,8 @@
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/initial_attestation.h"
 #include "wolfhsm/wh_error.h"
-#ifdef WT_ENGINE_HSM
 #include "wolftrust/sched/tasklet.h"
-#else
+#ifndef WT_ENGINE_HSM
 #include "wolftrust/services/crypto_native.h"
 #endif
 
@@ -58,14 +57,9 @@ void wt_boot_run(void)
     handoffRet = wt_boot_handoff_consume(&bootHandoff);
     wt_boot_handoff_clear();
 #endif
-#ifdef WT_ENGINE_HSM
-    /* Bring up the secure-side wolfHSM service before dispatching guests:
-     *  1. tasklet scheduler (provides the bootstrap context)
-     *  2. shared wolfCrypt + NVM + lock
-     *  3. one transport + server context + tasklet per guest
-     * Any failure here is fatal because guests require this engine. */
+    /* Coroutine runtime first: the SP scheduler and (in the hsm engine) the
+     * per-guest server tasklets both ride it. */
     wt_tasklet_init();
-#endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     /* Gate vault auto-reformat on the wolfBoot-reported lifecycle before the
      * store comes up: only unlocked development states permit a foreign-pool

@@ -52,6 +52,8 @@
 #include "wolftrust/sp_recovery.h"
 #include "wolftrust/spm_gate.h"
 
+#include <string.h>
+
 /* Generated in every secure build; the ITS entry embeds SERVICE_VAULT_SID as
  * a code constant — the unprivileged loop cannot read SPM RAM at runtime. */
 #include "psa_manifest/sid.h"
