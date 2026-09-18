@@ -68,7 +68,9 @@ HSM_DEFS_SECURE := -DWOLFSSL_USER_SETTINGS -DWOLFHSM_CFG \
 ifeq ($(WT_ENGINE),hsm)
 HSM_DEFS_SECURE += -DWOLF_CRYPTO_CB -DWT_ENGINE_HSM=1
 else
-HSM_DEFS_SECURE += -DWT_ENGINE_NATIVE=1
+# Native links only the wolfHSM NVM object store; NO_CRYPTO drops the server's
+# wolfCrypt dependency (and its WOLF_CRYPTO_CB requirement).
+HSM_DEFS_SECURE += -DWT_ENGINE_NATIVE=1 -DWOLFHSM_CFG_NO_CRYPTO
 endif
 
 ifeq ($(WT_ATTEST_COSE),1)
