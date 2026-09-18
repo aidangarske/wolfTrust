@@ -56,7 +56,7 @@ jobs:
           # Individually-picked scenarios become a dynamic matrix of
           # {key,name} objects (same shape/names as stm32h563-build.yml).
           # 'all'/'m33mu' are handled by the full job below, not expanded here.
-          all="positive bothpsa bothiso restart crossdomain spfaultneg confboot devstorage devcrypto devattest devattestqcbor attestneg authneg rollbackneg vaultrecover vaultrecoversec fwustage remeasureneg bootupdate vnet vnetneg manifestneg gtzcneg"
+          all="positive bothpsa bothiso restart crossdomain spfaultneg confboot devstorage devcrypto devattest devattestqcbor attestneg authneg rollbackneg vaultrecover vaultrecoversec fwustage remeasureneg bootupdate vnet vnetneg manifestneg gtzcneg spbudgetneg"
           picked=""
           for s in $all; do
             case " $sel " in
@@ -87,6 +87,7 @@ jobs:
               vnetneg)         n="Confined VNET isolation negatives" ;;
               manifestneg)     n="Corrupted-manifest activation refused" ;;
               gtzcneg)         n="NS MPU bypass cannot reach peer guest RAM" ;;
+              spbudgetneg)     n="SP restart-budget exhaustion escalates" ;;
             esac
             picked="$picked {\"key\":\"$s\",\"name\":\"$n\"},"
           done
