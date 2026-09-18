@@ -249,6 +249,7 @@ WT_SECURE_EXTRA_SRCS := \
     $(TARGET_EXTRA_SRCS) \
     $(wildcard $(WOLFHSM_RUNNER_DIR)/libc_stubs.c) \
     $(wildcard $(ROOT)/src/services/wolfhsm/*.c) \
+    $(ROOT)/src/services/nvm_store.c \
     $(ROOT)/src/services/boot_handoff.c \
     $(ROOT)/src/services/hsm_relay_service.c \
     $(ROOT)/src/services/storage_service.c \
@@ -256,10 +257,13 @@ WT_SECURE_EXTRA_SRCS := \
     $(ROOT)/src/services/vault_service.c
 
 # hsm-only: the wolfHSM relay dispatch and the src/services/wolfhsm/* glue that
-# drives the wolfHSM server. The native engine replaces these (S2).
+# drives the wolfHSM server. The native engine replaces these (S2) but keeps
+# the server-free NVM lock callbacks the shared store (nvm_store.c) binds.
 ifeq ($(WT_ENGINE),native)
 WT_SECURE_EXTRA_SRCS := $(filter-out %/hsm_relay_service.c,$(WT_SECURE_EXTRA_SRCS))
-WT_SECURE_EXTRA_SRCS := $(filter-out $(wildcard $(ROOT)/src/services/wolfhsm/*.c),$(WT_SECURE_EXTRA_SRCS))
+WT_SECURE_EXTRA_SRCS := $(filter-out \
+    $(filter-out %/wt_hsm_lock.c,$(wildcard $(ROOT)/src/services/wolfhsm/*.c)), \
+    $(WT_SECURE_EXTRA_SRCS))
 endif
 
 ifeq ($(WT_ATTEST_COSE),1)
