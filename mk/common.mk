@@ -16,9 +16,12 @@ WOLFHSM_CFG_H := $(BUILD_DIR)/wolfhsm_cfg.h
 
 WT_TIMESLICE_MS ?= 2
 WT_MAX_GUESTS ?= 2
-# 16K per tasklet stack: P-256 verify overflows 8K and fits 16K (see the
-# SP-stack note in secure.ld); the old 24K predates the SP_SMALL math switch.
-WT_CO_STACK_SIZE ?= 16384
+# Per-tasklet coroutine stack. 10K measured with >=2K headroom: the M33MU
+# deep set (positive, devcrypto 78-test ECC, confboot 85/4) runs clean at
+# 8K with no PSPLIM overflow, so peak use is under 8K. The old 24K predated
+# the SP_SMALL math switch; PSPLIM_S faults any real overflow, so this floor
+# is measured, not guessed.
+WT_CO_STACK_SIZE ?= 10240
 WT_ENGINE_HSM ?= 1
 WT_ATTEST_COSE ?= 1
 WT_FFM_NEGATIVE_PROBE ?= 0
