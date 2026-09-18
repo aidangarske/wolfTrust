@@ -24,7 +24,8 @@ fi
 
 build_one() {
   if [ -n "$img" ]; then
-    docker run --rm -v "$repo":/workspace -w /workspace "$img" \
+    docker run --rm -e WT_ENGINE="${WT_ENGINE:-native}" \
+      -v "$repo":/work -w /work "$img" \
       bash tests/target/run_h5_hardware.sh build "$1"
   else
     "$runner" build "$1"

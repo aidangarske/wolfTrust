@@ -12,6 +12,7 @@ selected values into C preprocessor defines. Defaults below come from
 | `TARGET` | Target build selector; default `stm32h563`. | Must match an `mk/target-<soc>.mk` fragment; the root Makefile includes it, the architecture fragment, and `mk/common.mk`. |
 | `TOOLPREFIX` | Cross-tool prefix; default `arm-none-eabi-`. | The prefixed GCC, objcopy, nm, and size tools must be available. |
 | `BUILD_DIR` | Secure build output directory; default `build`. | Must be writable. |
+| `WT_ENGINE` | Secure crypto engine: `native` (default) dispatches wolfCrypt directly behind the SERVICE_HSM door with keys held as sealed vault NVM objects; `hsm` links the wolfHSM server as a key-management add-on (server keystore semantics, external-HSM offload path). Legacy `WT_ENGINE_HSM=0/1` maps onto the selector. | Both engines share the identical FF-M surface (5 veneers, SIDs, manifest, L3 bands) and are exercised by every CI scenario. Guest builds must use the same engine as the secure image. |
 
 ## Core target configuration
 
@@ -19,7 +20,7 @@ selected values into C preprocessor defines. Defaults below come from
 | --- | --- | --- |
 | `WT_MAX_GUESTS` | Selects one or two compiled STM32H563 guest contexts; default `2`. | The current port supports only `1` or `2`. Larger values require extending the partition tables and matching manifest, linker, emulator, flash, and measurement configuration. |
 | `WT_TIMESLICE_MS` | Guest scheduler interval in milliseconds; default `2`. | Must be nonzero and supported by the target timer. |
-| `WT_CO_STACK_SIZE` | Default fixed coroutine stack size in bytes, including each per-guest wolfHSM tasklet; default `24576`. Manifest-sized Secure Partition stacks use their declared sizes instead. | Size from measured stack high-water marks and keep at least the scheduler minimum. |
+| `WT_CO_STACK_SIZE` | Default fixed coroutine stack size in bytes, including each per-guest wolfHSM tasklet in the hsm engine; default `10240` (measured: the full M33MU matrix passes at 8K with PSPLIM overflow detection armed, so 10K carries at least 2K margin). Manifest-sized Secure Partition stacks use their declared sizes instead. | Size from measured stack high-water marks and keep at least the scheduler minimum. |
 | `WT_SHARED_UART` | Reference guest UART selection; default `3`. | Guest and Secure builds must use a consistent value. |
 | `WT_GUEST_CORE_CLOCK_HZ` | Guest core-clock value; default `240000000`. | Must match the configured target clock. |
 | `WT_GUEST_UART_CLOCK_HZ` | Guest UART-clock value; default `120000000`. | Must match the selected UART clock source. |

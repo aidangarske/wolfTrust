@@ -116,11 +116,18 @@ domains share the keystore data band required by their backends.
 
 ## Per-guest cryptographic keys
 
-The HSM service receives one copied wolfHSM request packet through FF-M IPC.
-The SPM-stamped negative client ID selects guest `N`, and the relay
-forces wolfHSM server client ID `N + 1` before processing the packet.
-A client-provided communication ID therefore cannot select another guest's
-key namespace.
+The SERVICE_HSM door carries the selected crypto engine's wire (`WT_ENGINE`):
+the native engine (default) dispatches wolfCrypt directly, holding keys as
+sealed vault NVM objects whose private material never leaves the privileged
+vault domain; the hsm engine relays wolfHSM server packets. The FF-M surface,
+SIDs, and isolation bands are identical in both engines.
+
+In the hsm engine the service receives one copied wolfHSM request packet
+through FF-M IPC. The SPM-stamped negative client ID selects guest `N`, and
+the relay forces wolfHSM server client ID `N + 1` before processing the
+packet. In the native engine the same SPM-stamped identity becomes the vault
+key namespace's delegated sub-owner. A client-provided communication ID
+therefore cannot select another guest's key namespace in either engine.
 
 The guest-facing HSM relay rejects wolfHSM NVM message groups. Guests can use
 the intended cryptographic protocol but cannot directly reach vault objects,
