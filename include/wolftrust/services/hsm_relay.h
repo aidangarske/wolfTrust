@@ -35,7 +35,7 @@
 /* One wolfHSM wire packet: whCommHeader (8) + WOLFHSM_CFG_COMM_DATA_LEN (368)
  * = 376 bytes on this platform; bound with headroom, under the FF-M copied
  * transfer limit so a packet always fits one psa_call. */
-#define WT_HSM_RELAY_MSG_MAX 512U
+#define WT_HSM_RELAY_MSG_MAX 384U
 
 /* Platform submit hook: process one request packet and produce the response.
  * client_id is the SPM-stamped caller identity, never caller-supplied. A

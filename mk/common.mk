@@ -16,7 +16,9 @@ WOLFHSM_CFG_H := $(BUILD_DIR)/wolfhsm_cfg.h
 
 WT_TIMESLICE_MS ?= 2
 WT_MAX_GUESTS ?= 2
-WT_CO_STACK_SIZE ?= 24576
+# 16K per tasklet stack: P-256 verify overflows 8K and fits 16K (see the
+# SP-stack note in secure.ld); the old 24K predates the SP_SMALL math switch.
+WT_CO_STACK_SIZE ?= 16384
 WT_ENGINE_HSM ?= 1
 WT_ATTEST_COSE ?= 1
 WT_FFM_NEGATIVE_PROBE ?= 0
@@ -74,6 +76,7 @@ SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     $(ARCH_CFLAGS) \
     $(HSM_INCLUDES_SECURE) $(HSM_DEFS_SECURE) $(SECURE_CFLAGS_COSE) \
     -I$(MANIFEST_DIR)
+SECURE_CFLAGS += $(WT_EXTRA_CFLAGS)
 
 ifeq ($(CONFIG_VNET),y)
 SECURE_CFLAGS += -DCONFIG_VNET=1 \
@@ -169,7 +172,6 @@ SECURE_SRCS := \
     $(TARGET_PARTITIONS_SRC)
 
 WOLFHSM_SECURE_SRCS := \
-    $(WOLFHSM_DIR)/src/wh_client.c \
     $(WOLFHSM_DIR)/src/wh_comm.c \
     $(WOLFHSM_DIR)/src/wh_message_comm.c \
     $(WOLFHSM_DIR)/src/wh_message_crypto.c \
@@ -190,8 +192,7 @@ WOLFHSM_SECURE_SRCS := \
     $(WOLFHSM_DIR)/src/wh_lock.c \
     $(WOLFHSM_DIR)/src/wh_utils.c \
     $(WOLFHSM_DIR)/src/wh_crypto.c \
-    $(WOLFHSM_DIR)/src/wh_keyid.c \
-    $(WOLFHSM_DIR)/src/wh_log.c
+    $(WOLFHSM_DIR)/src/wh_keyid.c
 
 WOLFCRYPT_SECURE_SRCS := \
     $(WOLFSSL_DIR)/wolfcrypt/src/aes.c \
@@ -1386,7 +1387,7 @@ $(SECURE_ELF) $(ARCH_LINK_OUTPUTS) &: $(ALL_SECURE_OBJS) $(SECURE_LD) $(BUILD_MO
 		$(TARGET_LDFLAGS) \
 		-Wl,--defsym=WT_VNET_DATA_LENGTH=$(WT_VNET_DATA_LENGTH) \
 		-Wl,-T$(SECURE_LD) \
-		-Wl,--gc-sections \
+		-Wl,--gc-sections $(WT_EXTRA_LDFLAGS) \
 		$(ARCH_LDFLAGS) \
 		-o $(SECURE_ELF) $(ALL_SECURE_OBJS) -lgcc
 	$(arch_image_checks)
@@ -1399,3 +1400,11 @@ $(SECURE_BIN): $(SECURE_ELF)
 ARCH_DEFAULT_GOALS ?= secure-image
 secure-image: $(SECURE_BIN) $(SECURE_ELF)
 	@$(SIZE) $(SECURE_ELF)
+
+# Footprint evidence for size tracking: totals plus the section and largest
+# .bss breakdown of the secure image.
+size-report: $(SECURE_ELF)
+	@$(SIZE) $(SECURE_ELF)
+	@$(SIZE) -A -d $(SECURE_ELF) | grep -vE '^(Total|section| *$$)' | sort -k2 -nr | head -12
+	@$(TOOLPREFIX)nm --print-size --size-sort --radix=d $(SECURE_ELF) | \
+		awk '$$3 ~ /^[bB]$$/' | tail -10

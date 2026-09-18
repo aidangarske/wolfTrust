@@ -21,7 +21,7 @@ include mk/common.mk
 
 .DEFAULT_GOAL := all
 
-.PHONY: all secure-image test test-conformance test-target test-hardware fetch-psa-ff-tests \
+.PHONY: all secure-image size-report test test-conformance test-target test-hardware fetch-psa-ff-tests \
 		clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
 		test-domain-host test-domain-compilers test-domain-sanitize \
 		test-domain-valgrind test-manifest-host test-manifest-compilers \
