@@ -25,12 +25,29 @@ WT_CO_STACK_SIZE ?= 10240
 # Secure crypto engine. native (the default) calls wolfCrypt directly; hsm
 # links the wolfHSM server as a key-management add-on. Legacy WT_ENGINE_HSM
 # values map onto the selector.
-WT_ENGINE ?= native
+WT_ENGINE_LEGACY :=
 ifeq ($(WT_ENGINE_HSM),0)
-WT_ENGINE := native
+WT_ENGINE_LEGACY := native
 endif
 ifeq ($(WT_ENGINE_HSM),1)
-WT_ENGINE := hsm
+WT_ENGINE_LEGACY := hsm
+endif
+ifneq ($(WT_ENGINE_HSM),)
+ifeq ($(WT_ENGINE_LEGACY),)
+$(error unsupported WT_ENGINE_HSM='$(WT_ENGINE_HSM)' (want 0 or 1))
+endif
+endif
+ifneq ($(WT_ENGINE_LEGACY),)
+ifneq ($(WT_ENGINE),)
+ifneq ($(WT_ENGINE),$(WT_ENGINE_LEGACY))
+$(error conflicting engine selectors: WT_ENGINE=$(WT_ENGINE) but WT_ENGINE_HSM=$(WT_ENGINE_HSM) selects $(WT_ENGINE_LEGACY))
+endif
+endif
+WT_ENGINE := $(WT_ENGINE_LEGACY)
+endif
+WT_ENGINE ?= native
+ifneq ($(words $(WT_ENGINE))/$(filter native hsm,$(WT_ENGINE)),1/$(WT_ENGINE))
+$(error unsupported WT_ENGINE='$(WT_ENGINE)' (want native or hsm))
 endif
 ifeq ($(WT_ENGINE),hsm)
 WT_ENGINE_HSM := 1

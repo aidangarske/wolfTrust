@@ -30,7 +30,7 @@ WT_FWU_PROBE="${WT_FWU_PROBE:-0}"
 WT_WRITE_ONCE_RESET_PROBE="${WT_WRITE_ONCE_RESET_PROBE:-0}"
 WT_HSM_ATTACK_PROBE="${WT_HSM_ATTACK_PROBE:-0}"
 WT_MPU_BYPASS_PROBE="${WT_MPU_BYPASS_PROBE:-0}"
-WT_ENGINE="${WT_ENGINE:-native}"
+. "$ROOT/tests/target/lib/engine.sh"
 
 if [ ! -d "$APP_DIR" ]; then
     echo "unknown guest app: $APP_NAME" >&2
