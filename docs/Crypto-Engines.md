@@ -1,15 +1,18 @@
 # Crypto Engines
 
-wolfTrust provides two Secure crypto engines behind the same FF-M service
-boundary. The native crypto engine is the default. The wolfHSM engine is an
-opt-in add-on for deployments that need the wolfHSM client/server key model or
-its external-HSM integration path.
+wolfTrust provides two Secure crypto engines behind the same Platform Security
+Architecture (PSA) Firmware Framework for M (FF-M) service boundary. The native
+crypto engine is the default. The wolfHSM engine is an opt-in add-on for
+deployments that need the wolfHSM client/server key model or its external-HSM
+integration path.
 
-The engine choice does not change the Non-secure-to-Secure trust boundary.
+The engine choice does not change the actual Non-secure-to-Secure boundary.
 Both builds use the same five CMSE veneers, generated manifest, service IDs,
-SPM-owned caller identity, copied IOVEC rules, Level 3 isolation domains,
-storage services, attestation service, firmware-update service, and Secure
-Partition recovery path.
+SPM-owned caller identity, copied IOVEC rules, isolation bands, storage
+services, attestation service, firmware-update service, and Secure Partition
+recovery path. The STM32H563 manifest requests isolation profile 3 in both
+builds. That value is wolfTrust's validated policy profile, not proof of
+independent TF-M Level 3 code and data isolation.
 
 ## At a glance
 
@@ -75,13 +78,15 @@ The reference guest configuration behaves as follows:
 - clients that need a vault-backed key can use the native request format
   explicitly.
 
-Vault-backed P-256 and AES-256 key objects are indexed by the
+Guest-created vault-backed P-256 and AES-256 key objects are indexed by the
 `SERVICE_HSM` partition identity, the SPM-stamped client identity, and a
 64-bit UID. They are stored with the wolfHSM NVM library's `SENSITIVE` and
 `NONEXPORTABLE` flags. The storage face refuses key-flagged objects, checked
 NVM reads reject non-exportable objects, and the native request format has no
 private-key export operation. Private-key computations run in the Secure
 key-vault domain and temporary plaintext key buffers are zeroized after use.
+The attestation IAK is a separate fixed vault object used only by the
+attestation path.
 
 ### Native request format
 
@@ -173,18 +178,32 @@ The Secure image and both guest images must use the same engine. See
 
 ## Measured Secure-image cost
 
-These are Secure-image measurements from `wolf-prec5560` using
-`arm-none-eabi-gcc` 13.2.1, `-Os`, and `arm-none-eabi-size`. Flash is
-`text + data`; static RAM is `data + bss`. Both images contain the full
-Level 3 reference configuration with ITS, Protected Storage, firmware update,
-vault services, and COSE attestation. wolfBoot and Non-secure guest images are
-not included.
+These Secure-image measurements were reproduced on 2026-09-18 from the source
+tree containing this page. The pinned dependency revisions and versions are
+listed in
+[TF-M Compatibility](TF-M-Compatibility.md). The builds ran on
+`wolf-prec5560` with `arm-none-eabi-gcc` 13.2.1, `-Os`, and the repository
+defaults other than the engine and output directory:
 
-| Engine | Flash | Static RAM |
-| --- | ---: | ---: |
-| Native | 86,240 bytes | 27,213 bytes |
-| wolfHSM | 106,432 bytes | 59,073 bytes |
-| wolfHSM overhead | 20,192 bytes | 31,860 bytes |
+```sh
+make BUILD_DIR=build_size_native WT_ENGINE=native secure-image
+make BUILD_DIR=build_size_hsm WT_ENGINE=hsm secure-image
+arm-none-eabi-size build_size_native/wolftrust.elf \
+    build_size_hsm/wolftrust.elf
+```
+
+Flash is `text + data`; static RAM is `data + bss`. Both images use the
+STM32H563 reference manifest with `isolation_profile` set to 3 and include two
+guests, ITS, Protected Storage, firmware update, vault services, and COSE
+attestation. The wolfHSM image also contains two per-guest wolfHSM tasklet
+stacks configured at 10 KiB each. wolfBoot and Non-secure guest images are not
+included.
+
+| Engine | `text` | `data` | `bss` | Flash | Static RAM |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Native | 86,140 bytes | 708 bytes | 26,545 bytes | 86,848 bytes | 27,253 bytes |
+| wolfHSM | 105,712 bytes | 720 bytes | 58,353 bytes | 106,432 bytes | 59,073 bytes |
+| wolfHSM overhead | 19,572 bytes | 12 bytes | 31,808 bytes | 19,584 bytes | 31,820 bytes |
 
 ### Stack contribution
 
@@ -197,15 +216,17 @@ stack slot per guest:
 
 The stack payload is therefore 20,480 bytes and the guards add 512 bytes. The
 linked wolfHSM image reports `g_co_stack_slots` as `0x5200` bytes, matching the
-calculation. A one-guest build allocates one 10,496-byte slot. The rest of the
-31,860-byte static-RAM difference is server, protocol, crypto, and per-guest
-context state.
+calculation. A one-guest build allocates one 10,496-byte slot. The remaining
+10,828 bytes of the 31,820-byte static-RAM difference are server, protocol,
+crypto, and per-guest context state.
 
 `WT_CO_STACK_SIZE` defaults to 10,240 bytes. The positive, Crypto-validation,
-and FF-M conformance M33MU workloads also passed at 8 KiB with PSPLIM overflow
-detection enabled, so the default retains at least 2 KiB of measured margin
-per wolfHSM server tasklet. This is a fixed allocation, not a heap or a claim
-that every run consumes all 10 KiB.
+and FF-M conformance M33MU workloads also passed with an 8 KiB configured stack
+and PSPLIM overflow detection enabled. That threshold test establishes a peak
+below 8 KiB for those workloads, so the 10 KiB default provides at least 2 KiB
+of allocation headroom over the tested peak. It is not a precise high-water
+measurement or a guarantee for different workloads. This is a fixed
+allocation, not a heap or a claim that every run consumes all 10 KiB.
 
 See [TF-M Compatibility](TF-M-Compatibility.md) for the complete local
 footprint comparison and methodology.
