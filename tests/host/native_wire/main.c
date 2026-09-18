@@ -410,6 +410,19 @@ static void test_malformed(void)
     check(rc == 0 && status == PSA_ERROR_NOT_SUPPORTED && got == 0U,
           "an unknown operation is refused");
 
+    (void)memset(&hdr, 0, sizeof(hdr));
+    hdr.op = WT_CRYPTO_OP_RANDOM;
+    hdr.usage = 16U;
+    hdr.reserved = 0xdeadbeefU;
+    (void)memcpy(req, &hdr, sizeof(hdr));
+    resp_len = 0U;
+    rc = wt_native_submit((void*)(intptr_t)TEST_OWNER, TEST_NS_GUEST0, req,
+                          sizeof(hdr), resp, sizeof(resp), &resp_len);
+    (void)memcpy(&wire_status, resp, sizeof(wire_status));
+    check(rc == 0 && resp_len == sizeof(wire_status) &&
+          wire_status == (int32_t)PSA_ERROR_INVALID_ARGUMENT,
+          "a nonzero reserved field is refused");
+
     /* A response buffer too small for the public point: status only. */
     (void)memset(&hdr, 0, sizeof(hdr));
     hdr.uid = 0x3001ULL;

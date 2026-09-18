@@ -101,7 +101,7 @@ Each complete request and response is bounded by the 384-byte
 | `op` | `uint32_t` | Operation number |
 | `usage` | `uint32_t` | Key-usage bits, or requested length for `RANDOM` |
 | `key_type` | `uint32_t` | Native P-256 or AES-256 key encoding |
-| `reserved` | `uint32_t` | Reserved; clients set it to zero |
+| `reserved` | `uint32_t` | Reserved; must be zero. The Secure parser rejects a nonzero value with `PSA_ERROR_INVALID_ARGUMENT` |
 | payload | bytes | Imported key, digest, signature, plaintext, ciphertext, or hash input as required by the operation |
 
 The defined operations are key generate, import, public export, sign, verify,

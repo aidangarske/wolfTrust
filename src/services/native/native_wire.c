@@ -95,7 +95,12 @@ int wt_native_submit(void* submit_ctx, int32_t client_id, const uint8_t* req,
     out = resp + sizeof(wire_status);
     out_cap = resp_cap - sizeof(wire_status);
 
-    switch (hdr.op) {
+    /* Strict parser: reserved must be zero so a future op cannot repurpose
+     * it as a flag a current client left set. Clients are told to zero it. */
+    if (hdr.reserved != 0U) {
+        status = PSA_ERROR_INVALID_ARGUMENT;
+    }
+    else switch (hdr.op) {
     case WT_CRYPTO_OP_KEY_GENERATE:
         status = wt_hsm_key_backend.generate(owner, client_id, hdr.uid,
                                              hdr.key_type, hdr.usage);
