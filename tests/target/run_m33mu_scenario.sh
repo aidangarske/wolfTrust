@@ -163,6 +163,11 @@ elif [ "$scenario" = "remeasureneg" ]; then
   secure_flags="WT_REMEASURE_PROBE=1"
 elif [ "$scenario" = "bootupdate" ]; then
   secure_flags="WT_BOOTUPDATE_PROBE=1"
+elif [ "$scenario" = "spbudgetneg" ]; then
+  # Must land in the FIRST secure build: the pre-patch stash taken right
+  # after it is what gets signed and flashed, so a probe assigned in the
+  # guest chain below never reaches the image.
+  secure_flags="WT_SP_FAULT_ALWAYS_PROBE=1"
 elif [ "$scenario" = "vnet" ]; then
   # Mediated virtual network (WT-FFM-0058): the production chain with the
   # SERVICE_VNET partition compiled in; guests are the bare-metal wolfIP pair.
@@ -212,8 +217,6 @@ elif [ "$scenario" = "fwustage" ]; then
   guest_flags="WT_FWU_PROBE=1"
 elif [ "$scenario" = "gtzcneg" ]; then
   guest_flags="WT_MPU_BYPASS_PROBE=1"
-elif [ "$scenario" = "spbudgetneg" ]; then
-  secure_flags="WT_SP_FAULT_ALWAYS_PROBE=1"
 fi
 
 # Guest images per scenario: the vnet scenario swaps the Zephyr/FreeRTOS pair
