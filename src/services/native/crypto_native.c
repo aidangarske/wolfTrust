@@ -42,6 +42,7 @@
 #include "wolftrust/services/crypto_native.h"
 
 #include "wolftrust/port_nvm.h"
+#include "psa/lifecycle.h"
 
 #include <string.h>
 #include <stdint.h>
@@ -102,48 +103,71 @@ int wt_native_init(void)
  * the privileged vault domain. Same wire forms as the hsm engine: 64-byte
  * r||s signatures, 65-byte X9.63 public point.
  * ====================================================================== */
-int wt_hsm_attest_init(void)
+static psa_status_t wt_native_iak_generate(void)
+{
+    return wt_hsm_key_backend.generate(WT_NATIVE_IAK_OWNER,
+                                       WT_NATIVE_IAK_SUB, WT_NATIVE_IAK_UID,
+                                       WT_VAULT_KEY_P256,
+                                       WT_VAULT_KEY_USAGE_SIGN |
+                                           WT_VAULT_KEY_USAGE_VERIFY);
+}
+
+static psa_status_t wt_native_iak_export(void)
 {
     uint8_t publicKey[WT_VAULT_KEY_PUB_LEN];
     size_t publicKeySize = 0U;
+
+    return wt_hsm_key_backend.export_public(WT_NATIVE_IAK_OWNER,
+                                            WT_NATIVE_IAK_SUB,
+                                            WT_NATIVE_IAK_UID, publicKey,
+                                            sizeof(publicKey),
+                                            &publicKeySize);
+}
+
+#if defined(WT_VAULT_FOREIGN_PROBE)
+/* Negative test, same contract as the hsm engine: make the first provisioning
+ * look blocked so the real recovery path runs exactly once (self-heal when
+ * unlocked, fail closed when WT_VAULT_PROBE_SECURED forces a locked
+ * lifecycle). */
+static int g_native_foreign_probe_fired;
+#endif
+
+int wt_hsm_attest_init(void)
+{
     psa_status_t status;
 
+#if defined(WT_VAULT_FOREIGN_PROBE) && defined(WT_VAULT_PROBE_SECURED)
+    wt_hsm_set_boot_lifecycle(PSA_LIFECYCLE_SECURED);
+#endif
     if (g_native_attest_ready) {
         return WH_ERROR_OK;
     }
-    status = wt_hsm_key_backend.export_public(WT_NATIVE_IAK_OWNER,
-                                              WT_NATIVE_IAK_SUB,
-                                              WT_NATIVE_IAK_UID, publicKey,
-                                              sizeof(publicKey),
-                                              &publicKeySize);
-    if (status == PSA_ERROR_DOES_NOT_EXIST) {
-        status = wt_hsm_key_backend.generate(WT_NATIVE_IAK_OWNER,
-                                             WT_NATIVE_IAK_SUB,
-                                             WT_NATIVE_IAK_UID,
-                                             WT_VAULT_KEY_P256,
-                                             WT_VAULT_KEY_USAGE_SIGN |
-                                                 WT_VAULT_KEY_USAGE_VERIFY);
-        if (status == PSA_SUCCESS) {
-            status = wt_hsm_key_backend.export_public(WT_NATIVE_IAK_OWNER,
-                                                      WT_NATIVE_IAK_SUB,
-                                                      WT_NATIVE_IAK_UID,
-                                                      publicKey,
-                                                      sizeof(publicKey),
-                                                      &publicKeySize);
+    status = wt_native_iak_export();
+#if defined(WT_VAULT_FOREIGN_PROBE)
+    if (g_native_foreign_probe_fired == 0) {
+        status = PSA_ERROR_NOT_PERMITTED;
+    }
+#endif
+    if (status != PSA_SUCCESS) {
+        /* Any unreadable IAK (absent, foreign, or corrupt) takes the same
+         * path as the hsm engine: try to provision, and if the slot is
+         * blocked reformat once in an unlocked lifecycle. A SECURED device
+         * never wipes; it fails closed and attestation degrades. */
+        status = wt_native_iak_generate();
+#if defined(WT_VAULT_FOREIGN_PROBE)
+        if (g_native_foreign_probe_fired == 0) {
+            g_native_foreign_probe_fired = 1;
+            status = PSA_ERROR_NOT_PERMITTED;
         }
-        else if (status != PSA_SUCCESS && wt_nvm_reformat_allowed()) {
-            /* A foreign or corrupt pool can hold the IAK slot; in an
-             * unlocked lifecycle reformat once and re-provision, mirroring
-             * the hsm engine's recovery. A SECURED device fails closed. */
+#endif
+        if (status != PSA_SUCCESS && wt_nvm_reformat_allowed() != 0) {
             if (wt_hsm_flash_format() == 0 && wt_native_init() == 0) {
                 wt_nvm_mark_reformatted();
-                status = wt_hsm_key_backend.generate(WT_NATIVE_IAK_OWNER,
-                                                     WT_NATIVE_IAK_SUB,
-                                                     WT_NATIVE_IAK_UID,
-                                                     WT_VAULT_KEY_P256,
-                                                     WT_VAULT_KEY_USAGE_SIGN |
-                                                     WT_VAULT_KEY_USAGE_VERIFY);
+                status = wt_native_iak_generate();
             }
+        }
+        if (status == PSA_SUCCESS) {
+            status = wt_native_iak_export();
         }
     }
     if (status != PSA_SUCCESS) {
