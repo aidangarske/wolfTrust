@@ -22,7 +22,17 @@ WT_MAX_GUESTS ?= 2
 # the SP_SMALL math switch; PSPLIM_S faults any real overflow, so this floor
 # is measured, not guessed.
 WT_CO_STACK_SIZE ?= 10240
-WT_ENGINE_HSM ?= 1
+# Secure crypto engine. hsm links the wolfHSM server as a key-management add-on;
+# native calls wolfCrypt directly. Legacy WT_ENGINE_HSM=0 selects native.
+WT_ENGINE ?= hsm
+ifeq ($(WT_ENGINE_HSM),0)
+WT_ENGINE := native
+endif
+ifeq ($(WT_ENGINE),hsm)
+WT_ENGINE_HSM := 1
+else
+WT_ENGINE_HSM := 0
+endif
 WT_ATTEST_COSE ?= 1
 WT_FFM_NEGATIVE_PROBE ?= 0
 WT_KEYSTORE_NEG_PROBE ?= 0
@@ -52,9 +62,14 @@ WT_VNET_UNKNOWN_UCAST_FLOOD ?= 0
 HSM_INCLUDES := -I$(WOLFHSM_DIR) -I$(WOLFSSL_DIR) -I$(BUILD_DIR)
 HSM_INCLUDES_SECURE := $(HSM_INCLUDES) -I$(WOLFHAL_DIR) -I$(abspath $(WOLFHSM_RUNNER_DIR))
 HSM_DEFS_SECURE := -DWOLFSSL_USER_SETTINGS -DWOLFHSM_CFG \
-    -DWOLF_CRYPTO_CB -UNO_CODING \
-    -DWC_RESEED_INTERVAL=1000000 -DWT_ENGINE_HSM=$(WT_ENGINE_HSM) \
+    -UNO_CODING \
+    -DWC_RESEED_INTERVAL=1000000 \
     $(ARCH_HSM_DEFS)
+ifeq ($(WT_ENGINE),hsm)
+HSM_DEFS_SECURE += -DWOLF_CRYPTO_CB -DWT_ENGINE_HSM=1
+else
+HSM_DEFS_SECURE += -DWT_ENGINE_NATIVE=1
+endif
 
 ifeq ($(WT_ATTEST_COSE),1)
 SECURE_CFLAGS_COSE := -I$(WOLFCOSE_DIR)/include \
@@ -197,6 +212,13 @@ WOLFHSM_SECURE_SRCS := \
     $(WOLFHSM_DIR)/src/wh_crypto.c \
     $(WOLFHSM_DIR)/src/wh_keyid.c
 
+# Native engine keeps only the self-contained NVM object store (vault/ITS/PS/FWU
+# ride it); the wolfHSM server, comm, and message layers are hsm-only.
+ifeq ($(WT_ENGINE),native)
+WOLFHSM_SECURE_SRCS := $(filter %/wh_nvm.c %/wh_nvm_flash.c %/wh_flash_unit.c \
+    %/wh_lock.c %/wh_utils.c %/wh_keyid.c,$(WOLFHSM_SECURE_SRCS))
+endif
+
 WOLFCRYPT_SECURE_SRCS := \
     $(WOLFSSL_DIR)/wolfcrypt/src/aes.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/asn.c \
@@ -230,6 +252,13 @@ WT_SECURE_EXTRA_SRCS := \
     $(ROOT)/src/services/storage_service.c \
     $(ROOT)/src/services/fwu_service.c \
     $(ROOT)/src/services/vault_service.c
+
+# hsm-only: the wolfHSM relay dispatch and the src/services/wolfhsm/* glue that
+# drives the wolfHSM server. The native engine replaces these (S2).
+ifeq ($(WT_ENGINE),native)
+WT_SECURE_EXTRA_SRCS := $(filter-out %/hsm_relay_service.c,$(WT_SECURE_EXTRA_SRCS))
+WT_SECURE_EXTRA_SRCS := $(filter-out $(wildcard $(ROOT)/src/services/wolfhsm/*.c),$(WT_SECURE_EXTRA_SRCS))
+endif
 
 ifeq ($(WT_ATTEST_COSE),1)
 WT_SECURE_EXTRA_SRCS += \
