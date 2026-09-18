@@ -256,14 +256,14 @@ WT_SECURE_EXTRA_SRCS := \
     $(ROOT)/src/services/fwu_service.c \
     $(ROOT)/src/services/vault_service.c
 
-# hsm-only: the wolfHSM relay dispatch and the src/services/wolfhsm/* glue that
-# drives the wolfHSM server. The native engine replaces these (S2) but keeps
-# the server-free NVM lock callbacks the shared store (nvm_store.c) binds.
+# Engine split: wt_hsm.c drives the wolfHSM server (hsm engine only); the
+# native engine dispatches wolfCrypt directly behind the same SERVICE_HSM
+# door and keeps the server-free vault/seal/lock glue over the shared store.
 ifeq ($(WT_ENGINE),native)
-WT_SECURE_EXTRA_SRCS := $(filter-out %/hsm_relay_service.c,$(WT_SECURE_EXTRA_SRCS))
-WT_SECURE_EXTRA_SRCS := $(filter-out \
-    $(filter-out %/wt_hsm_lock.c,$(wildcard $(ROOT)/src/services/wolfhsm/*.c)), \
-    $(WT_SECURE_EXTRA_SRCS))
+WT_SECURE_EXTRA_SRCS := $(filter-out %/wolfhsm/wt_hsm.c,$(WT_SECURE_EXTRA_SRCS))
+WT_SECURE_EXTRA_SRCS += \
+    $(ROOT)/src/services/native/crypto_native.c \
+    $(ROOT)/src/services/native/keyvault.c
 endif
 
 ifeq ($(WT_ATTEST_COSE),1)
@@ -1378,6 +1378,9 @@ $(BUILD_DIR)/wt_sec_%.o: $(WOLFHAL_DIR)/src/rng/%.c $(WOLFHSM_CFG_H) $(BUILD_MOD
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/wolfhsm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/native/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/vnet/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
