@@ -517,6 +517,31 @@ static psa_status_t wt_hsm_kv_decrypt(int32_t owner, int32_t sub,
     return PSA_SUCCESS;
 }
 
+/* Key destruction is key-typed on purpose: the storage-face remove applies
+ * PSA storage semantics to the label's low bits, where a key object keeps its
+ * usage mask, so it would read a signing key's usage bit as WRITE_ONCE. */
+psa_status_t wt_hsm_keyvault_destroy(int32_t owner, int32_t sub, uint64_t uid)
+{
+    whNvmMetadata meta;
+    whNvmId id = WH_NVM_ID_INVALID;
+    psa_status_t status;
+
+    if (g_kv_nvm == NULL) {
+        return PSA_ERROR_NOT_SUPPORTED;
+    }
+    status = wt_hsm_vault_lookup(owner, sub, uid, &id, &meta, NULL);
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
+    if ((wt_hsm_vault_flags_of(meta.label) & WT_VAULT_FLAG_KEY) == 0U) {
+        return PSA_ERROR_NOT_PERMITTED;
+    }
+    if (wh_Nvm_DestroyObjectsChecked(g_kv_nvm, 1U, &id) != WH_ERROR_OK) {
+        return PSA_ERROR_STORAGE_FAILURE;
+    }
+    return PSA_SUCCESS;
+}
+
 const wt_vault_key_backend_t wt_hsm_key_backend = {
     wt_hsm_kv_generate,
     wt_hsm_kv_import,

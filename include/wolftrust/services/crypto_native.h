@@ -79,6 +79,10 @@ struct whNvmContext_t;
 int wt_hsm_keyvault_init(struct whNvmContext_t* nvm);
 extern const wt_vault_key_backend_t wt_hsm_key_backend;
 
+/* Destroy one key object in the caller's namespace. Refuses anything that
+ * is not a key, so the key wire can never delete a storage object. */
+psa_status_t wt_hsm_keyvault_destroy(int32_t owner, int32_t sub, uint64_t uid);
+
 /* Vault-domain DRBG for the RANDOM face and key generation. */
 psa_status_t wt_hsm_keyvault_random(uint8_t* out, size_t len);
 

@@ -284,6 +284,7 @@ ifeq ($(WT_ENGINE),native)
 WT_SECURE_EXTRA_SRCS := $(filter-out %/wolfhsm/wt_hsm.c,$(WT_SECURE_EXTRA_SRCS))
 WT_SECURE_EXTRA_SRCS += \
     $(ROOT)/src/services/native/crypto_native.c \
+    $(ROOT)/src/services/native/native_wire.c \
     $(ROOT)/src/services/native/keyvault.c
 endif
 
