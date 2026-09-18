@@ -75,8 +75,11 @@ psa_status_t wt_crypto_native_call(const wt_crypto_wire_req_t* hdr,
     size_t got;
     int attempt;
 
+    /* Subtraction, not sizeof(*hdr) + payload_len, so a payload_len near
+     * SIZE_MAX cannot wrap the bound and let the memcpy overrun req. The
+     * header always fits, so sizeof(req) - sizeof(*hdr) never underflows. */
     if (hdr == NULL || (payload == NULL && payload_len != 0U) ||
-            sizeof(*hdr) + payload_len > sizeof(req)) {
+            payload_len > sizeof(req) - sizeof(*hdr)) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
     (void)memcpy(req, hdr, sizeof(*hdr));
