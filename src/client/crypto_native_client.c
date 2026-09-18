@@ -40,6 +40,15 @@
 #define WT_CRYPTO_NATIVE_SID_VERSION 1u
 #endif
 
+/* A Secure Partition restart window (WT-SYS-0008 graceful recovery) makes
+ * the door refuse connects and calls for a short while; every consumer of
+ * this client — including a wc_InitRng seed fetch mid-keygen — must ride it
+ * out, so the round trip below retries with bounded patience, mirroring the
+ * wolfHSM client glue's heal-on-demand. */
+#ifndef WT_CRYPTO_NATIVE_RETRIES
+#define WT_CRYPTO_NATIVE_RETRIES 64
+#endif
+
 static psa_handle_t g_native_handle;
 
 static int wt_crypto_native_ensure_connected(void)
@@ -64,7 +73,7 @@ psa_status_t wt_crypto_native_call(const wt_crypto_wire_req_t* hdr,
     psa_status_t status;
     int32_t wire_status;
     size_t got;
-    int retried = 0;
+    int attempt;
 
     if (hdr == NULL || (payload == NULL && payload_len != 0U) ||
             sizeof(*hdr) + payload_len > sizeof(req)) {
@@ -75,9 +84,10 @@ psa_status_t wt_crypto_native_call(const wt_crypto_wire_req_t* hdr,
         (void)memcpy(req + sizeof(*hdr), payload, payload_len);
     }
 
-    for (;;) {
+    status = PSA_ERROR_CONNECTION_REFUSED;
+    for (attempt = 0; attempt < WT_CRYPTO_NATIVE_RETRIES; attempt++) {
         if (wt_crypto_native_ensure_connected() != 0) {
-            return PSA_ERROR_CONNECTION_REFUSED;
+            continue;
         }
         in_vec.base = req;
         in_vec.len = sizeof(*hdr) + payload_len;
@@ -85,13 +95,11 @@ psa_status_t wt_crypto_native_call(const wt_crypto_wire_req_t* hdr,
         out_vec.len = sizeof(resp);
         status = psa_call(g_native_handle, PSA_IPC_CALL, &in_vec, 1U,
                           &out_vec, 1U);
-        if (status == PSA_SUCCESS || retried != 0) {
+        if (status == PSA_SUCCESS) {
             break;
         }
-        /* One heal: a partition restart window invalidates the handle. */
         psa_close(g_native_handle);
         g_native_handle = 0;
-        retried = 1;
     }
     if (status != PSA_SUCCESS) {
         return status;
