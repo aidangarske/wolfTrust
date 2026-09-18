@@ -2,14 +2,14 @@
 
 The STM32H563 build is configured through GNU Make variables. The build turns
 selected values into C preprocessor defines. Defaults below come from
-`mk/secure-armv8m-stm32h563.mk`.
+`mk/target-stm32h563.mk`, `mk/arch-armv8m.mk`, and `mk/common.mk`.
 
 ## Build selection
 
 | Define | Description | Requirement |
 | --- | --- | --- |
-| `ARCH` | Architecture build selector; default `armv8m`. | The root Makefile currently accepts only `armv8m` with `stm32h563`. |
-| `TARGET` | Target build selector; default `stm32h563`. | Must match an included `mk/secure-<arch>-<target>.mk` file. |
+| `ARCH` | Architecture build selector; default `armv8m`. | Must match an `mk/arch-<arch>.mk` fragment; `armv8m` is the only architecture today. |
+| `TARGET` | Target build selector; default `stm32h563`. | Must match an `mk/target-<soc>.mk` fragment; the root Makefile includes it, the architecture fragment, and `mk/common.mk`. |
 | `TOOLPREFIX` | Cross-tool prefix; default `arm-none-eabi-`. | The prefixed GCC, objcopy, nm, and size tools must be available. |
 | `BUILD_DIR` | Secure build output directory; default `build`. | Must be writable. |
 

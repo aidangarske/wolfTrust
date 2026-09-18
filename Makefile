@@ -1,15 +1,27 @@
 ARCH ?= armv8m
 TARGET ?= stm32h563
 
-ifeq ($(ARCH)-$(TARGET),armv8m-stm32h563)
-include mk/secure-armv8m-stm32h563.mk
-else
-$(error unsupported secure build tuple ARCH=$(ARCH) TARGET=$(TARGET))
+ROOT := .
+BUILD_DIR ?= build
+WOLFHSM_RUNNER_DIR := $(ROOT)/src/services/wolfhsm/runner
+WOLFHSM_DIR := $(ROOT)/lib/wolfHSM
+WOLFSSL_DIR := $(ROOT)/lib/wolfSSL
+WOLFHAL_DIR := $(ROOT)/lib/wolfhal
+WOLFCOSE_DIR := $(ROOT)/lib/wolfCOSE
+
+ifeq ($(wildcard mk/target-$(TARGET).mk),)
+$(error unsupported secure build target TARGET=$(TARGET))
 endif
+ifeq ($(wildcard mk/arch-$(ARCH).mk),)
+$(error unsupported secure build architecture ARCH=$(ARCH))
+endif
+include mk/target-$(TARGET).mk
+include mk/arch-$(ARCH).mk
+include mk/common.mk
 
 .DEFAULT_GOAL := all
 
-.PHONY: all test test-conformance test-target test-hardware fetch-psa-ff-tests \
+.PHONY: all secure-image test test-conformance test-target test-hardware fetch-psa-ff-tests \
 		clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
 		test-domain-host test-domain-compilers test-domain-sanitize \
 		test-domain-valgrind test-manifest-host test-manifest-compilers \
@@ -25,8 +37,7 @@ endif
 		test-wolfcose-host \
 		run-stm32h563-vnet
 
-all: $(SECURE_BIN) $(SECURE_ELF)
-	@$(SIZE) $(SECURE_ELF)
+all: $(ARCH_DEFAULT_GOALS)
 
 test:
 	@$(MAKE) --no-print-directory -C tests/host test
@@ -40,26 +51,7 @@ test-target:
 	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
 		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh 2>&1))"; \
 	else \
-		mkdir -p logs; rc=0; \
-		for s in positive restart crossdomain confboot; do \
-			echo "RUN: target/$$s"; \
-			if tests/target/run_m33mu_scenario.sh $$s \
-					> logs/target-$$s.log 2>&1; then \
-				grep -F '  [check] ' logs/target-$$s.log || true; \
-				echo "PASS: target/$$s"; \
-			else \
-				grep -F '  [check] ' logs/target-$$s.log || true; \
-				echo "FAIL: target/$$s (tail of logs/target-$$s.log):"; \
-				tail -20 logs/target-$$s.log; rc=1; \
-			fi; \
-			echo "LOG: logs/target-$$s.log"; \
-		done; \
-		if [ $$rc -eq 0 ]; then \
-			echo "PASS: target/all"; \
-		else \
-			echo "FAIL: target/all"; \
-			exit 1; \
-		fi; \
+		tests/target/run_suite.sh m33mu positive restart crossdomain confboot; \
 	fi
 
 # Real STM32H563 hardware equivalence suite: positive lifecycle + restart
@@ -231,17 +223,7 @@ test-vnet-target:
 	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
 		echo "SKIP: wolfIP vnet target scenario ($$(tests/target/detect_m33mu.sh 2>&1))"; \
 	else \
-		mkdir -p logs; \
-		echo "RUN: target/vnet (wolfIP virtual network)"; \
-		if tests/target/run_m33mu_scenario.sh vnet > logs/target-vnet.log 2>&1; then \
-			grep -F '  [check] ' logs/target-vnet.log || true; \
-			echo "PASS: target/vnet"; \
-		else \
-			grep -F '  [check] ' logs/target-vnet.log || true; \
-			echo "FAIL: target/vnet (tail of logs/target-vnet.log):"; \
-			tail -20 logs/target-vnet.log; exit 1; \
-		fi; \
-		echo "LOG: logs/target-vnet.log"; \
+		tests/target/run_suite.sh m33mu vnet; \
 	fi
 
 # wolfIP virtual network end-to-end scenario on real STM32H563 silicon: the

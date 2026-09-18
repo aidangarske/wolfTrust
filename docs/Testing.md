@@ -30,7 +30,8 @@ Current suites cover domain and manifest validation, lifecycle, guest
 verification, rollback decisions, IPC and FF-M behavior, SPM policy, gateway
 vectors, Secure Partition layout and recovery, HSM relay and key isolation,
 vault and storage services, attestation and COSE integration, firmware update,
-runtime remeasurement, VNET, public PSA headers, and negative paths.
+runtime remeasurement, VNET, public PSA headers, boot-handoff record
+consumption, and negative paths.
 
 Additional host checks:
 
@@ -174,7 +175,8 @@ The workflows under `.github/workflows/` separately run:
 - compiler variants, sanitizers, and Valgrind;
 - Cortex-M33 cross-compilation;
 - dependency integration;
-- the core/port split guard;
+- the core/port split guard and the docs guard (no internal-ledger or
+  home-directory references in the published docs);
 - fuzz targets; and
 - selected and nightly M33MU scenarios.
 

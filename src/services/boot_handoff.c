@@ -20,15 +20,15 @@
 
 #include "wolftrust/boot_handoff.h"
 #include "wolftrust/platform.h"
+#include "wolftrust/arch.h"
 
 #include <stddef.h>
 
 int wt_boot_handoff_consume(wt_boot_handoff_t* handoff)
 {
-    volatile wt_boot_handoff_t* source =
-        (volatile wt_boot_handoff_t*)WT_BOOT_HANDOFF_ADDRESS;
-    volatile uint8_t* sourceBytes = (volatile uint8_t*)source;
+    volatile uint8_t* sourceBytes;
     uint8_t* outputBytes = (uint8_t*)handoff;
+    size_t regionSize = 0u;
     size_t i;
     int ret = -1;
 
@@ -36,7 +36,15 @@ int wt_boot_handoff_consume(wt_boot_handoff_t* handoff)
         return -1;
     }
 
-    wt_platform_dmb();
+    sourceBytes = (volatile uint8_t*)wt_platform_boot_handoff_region(&regionSize);
+    if (sourceBytes == NULL || regionSize < sizeof(*handoff)) {
+        for (i = 0u; i < sizeof(*handoff); ++i) {
+            outputBytes[i] = 0u;
+        }
+        return -1;
+    }
+
+    wt_arch_dmb();
     for (i = 0u; i < sizeof(*handoff); ++i) {
         outputBytes[i] = sourceBytes[i];
     }
@@ -53,7 +61,7 @@ int wt_boot_handoff_consume(wt_boot_handoff_t* handoff)
     for (i = 0u; i < sizeof(*handoff); ++i) {
         sourceBytes[i] = 0u;
     }
-    wt_platform_dsb();
+    wt_arch_dsb();
 
     if (ret != 0) {
         for (i = 0u; i < sizeof(*handoff); ++i) {
@@ -62,4 +70,19 @@ int wt_boot_handoff_consume(wt_boot_handoff_t* handoff)
     }
 
     return ret;
+}
+
+void wt_boot_handoff_clear(void)
+{
+    size_t regionSize = 0u;
+    volatile uint8_t* regionBytes =
+        (volatile uint8_t*)wt_platform_boot_handoff_region(&regionSize);
+    size_t i;
+
+    if (regionBytes != NULL) {
+        for (i = 0u; i < regionSize; ++i) {
+            regionBytes[i] = 0u;
+        }
+        wt_arch_dsb();
+    }
 }

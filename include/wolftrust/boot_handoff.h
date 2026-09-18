@@ -25,7 +25,6 @@
 
 #define WT_BOOT_HANDOFF_MAGIC        0x5742484Fu
 #define WT_BOOT_HANDOFF_VERSION      1u
-#define WT_BOOT_HANDOFF_ADDRESS      0x30020000u
 #define WT_BOOT_HANDOFF_HASH_SHA256  1u
 #define WT_BOOT_HANDOFF_DIGEST_SIZE  32u
 
@@ -44,5 +43,9 @@ typedef struct wt_boot_handoff {
 /* Consume the wolfBoot record from Secure RAM. The source record is cleared
  * before return so it cannot be replayed by a later service request. */
 int wt_boot_handoff_consume(wt_boot_handoff_t* handoff);
+
+/* Zero and barrier the boot-handoff scratch region. A no-op when the port
+ * reports no handoff region (wt_platform_boot_handoff_region returns NULL). */
+void wt_boot_handoff_clear(void);
 
 #endif /* WOLFTRUST_BOOT_HANDOFF_H */

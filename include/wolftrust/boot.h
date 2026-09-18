@@ -1,4 +1,4 @@
-/* ffm_nsc.h
+/* boot.h
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *
@@ -18,13 +18,10 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef WOLFTRUST_ARCH_ARMV8M_FFM_NSC_H
-#define WOLFTRUST_ARCH_ARMV8M_FFM_NSC_H
+#ifndef WOLFTRUST_BOOT_H
+#define WOLFTRUST_BOOT_H
 
-/* Install the Armv8-M CMSE NS-window checks into the neutral FF-M boot core
- * (wt_ffm_boot_set_memcheck). Call at platform init, before any NS guest can
- * reach the WolfTrust_FFM_* secure-gateway veneers; until installed the core
- * fails closed and rejects every NS window. */
-void wt_ffm_nsc_install(void);
+/* Entered by the arch reset handler once data and bss are initialized. */
+void wt_boot_run(void) __attribute__((noreturn));
 
-#endif /* WOLFTRUST_ARCH_ARMV8M_FFM_NSC_H */
+#endif /* WOLFTRUST_BOOT_H */
