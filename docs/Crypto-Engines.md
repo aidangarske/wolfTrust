@@ -169,17 +169,26 @@ Use the native crypto engine when:
   interface, and the other wolfTrust Secure services; or
 - the deployment does not need the wolfHSM client/server protocol.
 
-Use the wolfHSM engine when:
+Choose the wolfHSM engine (`WT_ENGINE=hsm`) over the native engine for one of
+three reasons, in rough order of how often they apply:
 
-- guest PSA operations and their private key state must execute in the Secure
-  wolfHSM server rather than in guest RAM;
-- existing code depends on the wolfHSM client wire or server-keystore
-  semantics; or
-- the deployment needs wolfHSM's external-HSM integration path.
+- **External hardware-HSM or secure-element offload.** This is the main reason
+  to enable it: the wolfHSM server can front an external device, so crypto and
+  keys are delegated off-core rather than run by on-chip wolfCrypt. The native
+  engine has no such path.
+- **The full wolfHSM server-keystore key-management model**, when a
+  deployment's tooling or provisioning flow already expects wolfHSM key
+  lifecycle, namespaces, and non-exportable-key semantics as the server
+  presents them.
+- **Backward compatibility** with existing Non-secure guest code built against
+  the wolfHSM client wire (`wh_Client_CryptoCb`), where reworking the guest to
+  the native request format is not worth it.
 
-The wolfHSM engine adds a key-management and offload model on top of the same
-isolation boundary. The native engine is not a weaker FF-M gateway or a
-reduced-isolation build.
+If none of those apply, prefer the native engine: it is smaller, keeps keys
+non-exportable in the vault, and needs no wolfHSM server. The wolfHSM engine
+adds this key-management and offload model on top of the same isolation
+boundary. The native engine is not a weaker FF-M gateway or a reduced-isolation
+build.
 
 ## Selecting the engine
 
