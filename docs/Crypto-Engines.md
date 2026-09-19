@@ -116,6 +116,31 @@ Secure image. This is a target-local ABI, not a versioned network protocol.
 The header and operation values are declared in
 `include/wolftrust/services/crypto_native.h`.
 
+## Shared NVM object store
+
+wolfHSM is not removed in the native engine. Its self-contained flash-backed
+object store is linked in **both** engines and owns every persistent object:
+the vault, Internal Trusted Storage, Protected Storage, the firmware-update
+staging metadata, the anti-rollback version floors, and the native engine's
+vault key objects. Only wolfHSM's server, communication, and message layers
+are dropped in native. The store's on-flash format is identical in both
+engines, so a device provisioned under one engine boots under the other.
+
+| Source | Role |
+| --- | --- |
+| `wh_nvm.c` | Object-store API: add, read, metadata, destroy, and the access-policy checks (`WRITE_ONCE`, `SENSITIVE`, `NONEXPORTABLE`) |
+| `wh_nvm_flash.c` | Log-structured object store implemented over a flash callback |
+| `wh_flash_unit.c` | Program-unit-aligned read, program, erase, and blank-check helpers under the store |
+| `wh_lock.c` | Serialization lock so the shared store is safe across the confined keystore partitions |
+| `wh_utils.c` | Endian, constant-time compare, and force-zero helpers the store depends on |
+| `wh_keyid.c` | Key-id namespace translation between client and server key identifiers |
+
+These files carry no server, communication, message, or wolfCrypt dependency,
+so linking them costs only the store itself. Reusing the proven store rather
+than reimplementing it keeps the on-flash format stable and avoids re-testing a
+storage rewrite; the flash-backed object store is not where either engine's
+size difference lives.
+
 ## wolfHSM engine
 
 The wolfHSM engine links the wolfHSM client/server protocol and creates one
