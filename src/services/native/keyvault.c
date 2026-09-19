@@ -136,6 +136,13 @@ static psa_status_t wt_hsm_kv_store(int32_t owner, int32_t sub, uint64_t uid,
     if (free_id == WH_NVM_ID_INVALID) {
         return PSA_ERROR_INSUFFICIENT_STORAGE;
     }
+    /* Reserve and reclaim before the add, exactly like wt_hsm_vault_set: key
+     * generate/destroy churn over the native wire must not fill the shared log
+     * or eat the headroom the seal-counter table and rollback floor need. */
+    status = wt_hsm_vault_reserve_object((whNvmSize)obj_len);
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
     (void)memset(&meta, 0, sizeof(meta));
     meta.id = free_id;
     meta.access = WH_NVM_ACCESS_ANY;

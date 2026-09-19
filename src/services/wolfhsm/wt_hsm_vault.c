@@ -152,6 +152,16 @@ static psa_status_t wt_hsm_vault_reserve(whNvmSize len, whNvmSize headroom)
     return PSA_SUCCESS;
 }
 
+/* Object-add reservation for every shared-store writer, native and hsm: the
+ * standard headroom is the counter table so a sealed remove's table rewrite
+ * always fits. Exported so the native key backend gates its adds the same way
+ * wt_hsm_vault_set does. */
+psa_status_t wt_hsm_vault_reserve_object(whNvmSize len)
+{
+    return wt_hsm_vault_reserve(len,
+                                (whNvmSize)sizeof(wt_hsm_vault_table_t));
+}
+
 static psa_status_t wt_hsm_vault_table_store(const wt_hsm_vault_table_t* table)
 {
     whNvmMetadata meta;
