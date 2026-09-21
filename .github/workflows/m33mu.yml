@@ -1,13 +1,18 @@
 name: M33MU
 
 on:
-  # Heavy M33MU emulator matrix: integration-branch pushes, the nightly
-  # schedule (via workflow_call from nightly.yml), and manual dispatch only.
-  # Not on pull_request — PRs get the fast lane; M33MU verifies on merge/nightly.
+  # Full M33MU emulator matrix on every pull request, plus integration-branch
+  # pushes, the nightly schedule (workflow_call from nightly.yml), and manual
+  # dispatch.
+  pull_request:
   push:
     branches: [master, main, wolfTrust-dev]
   workflow_dispatch:
   workflow_call:
+
+permissions:
+  contents: read
+  packages: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
