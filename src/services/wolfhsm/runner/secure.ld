@@ -90,6 +90,7 @@ SECTIONS {
   } > FLASH
 
   .text (WT_SECURE_FLASH_ORIGIN + WT_SECURE_IMAGE_HEADER_SIZE + 0x800) : {
+    _s_secure_text = .;
     *(.text*)
     *(.glue_7)
     *(.glue_7t)
@@ -158,6 +159,18 @@ SECTIONS {
   .keystore_data : {
     . = ALIGN(32);
     _s_keystore = .;
+    /* LTO emits anonymous ltrans objects, so preserve the writable state by
+     * its -fdata-sections names before the non-LTO object selectors below. */
+    *(.data.g_attest_* .data.g_vault_* .data.g_relay_* .data.g_nvm_*)
+    *(.data.g_seal_* .data.g_flash_ecc_* .data.g_fwu_*)
+    *(.data.g_wt_flash_* .data.g_hsm_flash_ctx*)
+    *(.data.g_hsm_fault_notify* .data.g_active_image_version*)
+    *(.data.g_foreign_probe_fired*)
+    *(.data.g_boot_lifecycle* .data.g_boot_seed* .data.g_boot_handoff*)
+    *(.data.g_handoff_ready* .data.g_implementation_id*)
+    *(.data.g_signer_id* .data.g_ueid*)
+    *(.data.g_guests* .data.g_co_stack_slots*)
+    *(.data.gCryptoDev* .data.sha256DrbgDisabled* .data.initRefCount*)
     *wt_hsm.o(.data .data.*)
     *wt_hsm_lock.o(.data .data.*)
     *wt_hsm_seal.o(.data .data.*)
@@ -179,6 +192,16 @@ SECTIONS {
 
   .keystore_bss (NOLOAD) : {
     _s_keystore_bss = .;
+    *(.bss.g_attest_* .bss.g_vault_* .bss.g_relay_* .bss.g_nvm_*)
+    *(.bss.g_seal_* .bss.g_flash_ecc_* .bss.g_fwu_*)
+    *(.bss.g_wt_flash_* .bss.g_hsm_flash_ctx*)
+    *(.bss.g_hsm_fault_notify* .bss.g_active_image_version*)
+    *(.bss.g_foreign_probe_fired*)
+    *(.bss.g_boot_lifecycle* .bss.g_boot_seed* .bss.g_boot_handoff*)
+    *(.bss.g_handoff_ready* .bss.g_implementation_id*)
+    *(.bss.g_signer_id* .bss.g_ueid*)
+    *(.bss.g_guests* .bss.g_co_stack_slots*)
+    *(.bss.gCryptoDev* .bss.sha256DrbgDisabled* .bss.initRefCount*)
     *wt_hsm.o(.bss .bss.* COMMON)
     *wt_hsm_lock.o(.bss .bss.* COMMON)
     *wt_hsm_seal.o(.bss .bss.* COMMON)

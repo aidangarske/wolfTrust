@@ -64,4 +64,6 @@ define arch_image_checks
 		echo "FAIL: expected $(NSC_COUNT) FF-M veneers, found $$n (WT-FFM-0057)" >&2; \
 		exit 1; \
 	fi
+	@python3 $(ROOT)/tools/check_secure_layout.py \
+		--nm $(TOOLPREFIX)nm $(SECURE_ELF)
 endef
