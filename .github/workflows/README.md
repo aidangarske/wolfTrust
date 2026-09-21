@@ -12,14 +12,14 @@ onto a PR before merge.
 | **Nightly M33MU** | `cron: 0 8 * * *`, or `workflow_dispatch` | full M33MU emulator matrix — 11 concurrent jobs (see below) |
 | **PR opt-in** | add a `ci:*` label to a PR | run one M33MU scenario, or the whole matrix, on the PR branch |
 
-The heavy M33MU workflow (`stm32h563-build.yml`) does **not** run on
+The heavy M33MU workflow (`m33mu.yml`) does **not** run on
 `pull_request` — PRs stay fast. It runs on push to `master`/`main`/
 `wolfTrust-dev`, on the nightly schedule (via `nightly.yml`), and by
 label opt-in.
 
 ## Nightly M33MU matrix (11 concurrent jobs)
 
-`nightly.yml` calls `stm32h563-build.yml` (workflow name **M33MU**), which
+`nightly.yml` calls `m33mu.yml` (workflow name **M33MU**), which
 fans out into one named check per test — each renders as `M33MU / <name>`:
 
 | Check name | Label key | What it proves |

@@ -32,4 +32,4 @@ jobs:
     uses: ./.github/workflows/core-port-split.yml
 
   m33mu:
-    uses: ./.github/workflows/stm32h563-build.yml
+    uses: ./.github/workflows/m33mu.yml

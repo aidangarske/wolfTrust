@@ -54,7 +54,7 @@ jobs:
           [ -n "$DISPATCH" ] && sel="$sel $DISPATCH"
           echo "run= $sel " >> "$GITHUB_OUTPUT"
           # Individually-picked scenarios become a dynamic matrix of
-          # {key,name} objects (same shape/names as stm32h563-build.yml).
+          # {key,name} objects (same shape/names as m33mu.yml).
           # 'all'/'m33mu' are handled by the full job below, not expanded here.
           all="positive bothpsa bothiso restart crossdomain spfaultneg confboot devstorage devcrypto devattest devattestqcbor attestneg authneg rollbackneg vaultrecover vaultrecoversec fwustage remeasureneg bootupdate vnet vnetneg manifestneg gtzcneg"
           picked=""
@@ -130,4 +130,4 @@ jobs:
   full:
     needs: select
     if: contains(needs.select.outputs.run, ' all ') || contains(needs.select.outputs.run, ' m33mu ')
-    uses: ./.github/workflows/stm32h563-build.yml
+    uses: ./.github/workflows/m33mu.yml
