@@ -130,7 +130,10 @@ cp "$repo/wolfBoot/config/examples/stm32h5-tz-wolftrust.config" .config
 # Build keytools serially first: a parallel keytools link races on the shared
 # sp_* objects and intermittently fails "undefined reference".
 make keytools
-make -j"$(nproc)" wolfboot.bin wolfboot_signing_private_key.der
+# Force -j1 for wolfboot.bin: wolfBoot FORCE-regenerates include/target.h in
+# place and its objects don't depend on it, so any -j (including a jobserver
+# inherited from `make test-target`) reads it half-written.
+make -j1 wolfboot.bin wolfboot_signing_private_key.der
 cd "$repo"
 
 # --- Relocated wolfTrust secure runtime, signed for the reserved slot. The

@@ -188,27 +188,20 @@ target also runs on pull requests as a 60-second libFuzzer smoke pass; the
 nightly schedule and manual dispatch run the 600-second soak instead.
 
 The full M33MU matrix (the `M33MU` workflow: wolfBoot plus both guest lifecycles
-and every scenario) is heavy, so it does not run on a plain pull request. It
-runs on a push to `master`, `main`, or `wolfTrust-dev`, on the nightly schedule,
-and on manual dispatch. A pull request whose branch is not one of those receives
-no M33MU coverage until it is requested.
+and every scenario) runs on every pull request, on a push to `master`, `main`,
+or `wolfTrust-dev`, on the nightly schedule, and on manual dispatch. Every PR
+gets the full emulator matrix automatically — no label or opt-in step.
 
-### Requesting M33MU on a pull request
+### Running M33MU off a pull request
 
-Add a label to pull the emulator matrix onto a pull request without editing code
-(the `PR M33MU (label-selected)` workflow):
-
-- `ci:<scenario>` runs one scenario, for example `ci:positive` or
-  `ci:crossdomain`. Add several labels to run several.
-- `ci:m33mu` or `ci:all` runs the full M33MU matrix.
-
-The workflow fires on the label event, so re-add a label to re-run after a new
-push. The off-branch equivalent is a manual dispatch:
+To run the matrix against a branch without a PR, dispatch the workflow:
 
 ```sh
-gh workflow run pr-m33mu-select.yml --ref <branch> -f jobs="positive devcrypto"
-gh workflow run pr-m33mu-select.yml --ref <branch> -f jobs="all"
+gh workflow run m33mu.yml --ref <branch>
 ```
+
+To run a single scenario locally, use `tests/target/run_m33mu_scenario.sh <key>`
+(for example `positive` or `crossdomain`).
 
 The GitHub-hosted workflows do not establish a physical-board result. Hardware
 output must come from the STM32H563 runner attached to a board.
