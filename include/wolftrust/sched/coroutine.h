@@ -29,7 +29,7 @@
 /* Default per-coroutine stack size (bytes). Target builds may override this
  * after measuring stack high-water marks for their HSM workload. */
 #ifndef WT_CO_STACK_SIZE
-#define WT_CO_STACK_SIZE (24u * 1024u)
+#define WT_CO_STACK_SIZE (16u * 1024u)
 #endif
 
 /* Coroutine lifecycle states. Internal scheduler state, exposed because
