@@ -25,14 +25,14 @@ full scenario list lives in the `matrix` of `m33mu.yml`:
 | `M33MU / wolfBoot signed boot and rollback` | — | upstream wolfBoot signed boot + update/rollback |
 | `M33MU / wolfTrust zephyr lifecycle` | — | full FF-M chain, Zephyr guest |
 | `M33MU / wolfTrust freertos lifecycle` | — | full FF-M chain, FreeRTOS guest |
-| `M33MU / Positive lifecycle` | `ci:positive` | lifecycle green, no faults |
-| `M33MU / Guest restart recovery` | `ci:restart` | guest faults → monitor restarts it |
-| `M33MU / Cross-domain isolation (L3)` | `ci:crossdomain` | SP-internal probe read blocked |
-| `M33MU / FF-M IPC conformance (85/4)` | `ci:confboot` | full Arm FF-M IPC suite |
-| `M33MU / dev_apis Storage (s001-s017)` | `ci:devstorage` | PSA ITS/PS conformance |
-| `M33MU / dev_apis Crypto (c001-c080)` | `ci:devcrypto` | PSA Crypto conformance |
-| `M33MU / Vault recovery self-heal` | `ci:vaultrecover` | #95 foreign pool reformatted |
-| `M33MU / Vault recovery fail-closed` | `ci:vaultrecoversec` | #95 SECURED never wipes |
+| `M33MU / Positive lifecycle` | `positive` | lifecycle green, no faults |
+| `M33MU / Guest restart recovery` | `restart` | guest faults → monitor restarts it |
+| `M33MU / Cross-domain isolation (L3)` | `crossdomain` | SP-internal probe read blocked |
+| `M33MU / FF-M IPC conformance (85/4)` | `confboot` | full Arm FF-M IPC suite |
+| `M33MU / dev_apis Storage (s001-s017)` | `devstorage` | PSA ITS/PS conformance |
+| `M33MU / dev_apis Crypto (c001-c080)` | `devcrypto` | PSA Crypto conformance |
+| `M33MU / Vault recovery self-heal` | `vaultrecover` | #95 foreign pool reformatted |
+| `M33MU / Vault recovery fail-closed` | `vaultrecoversec` | #95 SECURED never wipes |
 
 Every job runs automatically on every PR — no labels, nothing to add. To run a
 single scenario locally, use `tests/target/run_m33mu_scenario.sh <key>`; to run
