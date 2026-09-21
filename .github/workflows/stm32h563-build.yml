@@ -50,7 +50,9 @@ jobs:
         working-directory: wolfBoot
         run: |
           cp "config/examples/${{ matrix.config.name }}.config" .config
-          make -j2
+          # Serial build: wolfBoot FORCE-regenerates include/target.h in place and
+          # its objects don't depend on it, so -j can read it half-written.
+          make
 
       - name: Boot signed image under M33MU
         working-directory: wolfBoot
@@ -149,7 +151,9 @@ jobs:
           # parallel dependency race (sp_ModExp_*, sp_Rsa* link before their
           # objects), so a -j build intermittently fails to link.
           make keytools
-          make -j2 wolfboot.bin wolfboot_signing_private_key.der
+          # Serial wolfboot.bin too: wolfBoot FORCE-regenerates include/target.h
+          # in place and its objects don't depend on it, so -j reads it half-written.
+          make wolfboot.bin wolfboot_signing_private_key.der
 
       - name: Build relocated wolfTrust
         run: |
