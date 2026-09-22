@@ -15,11 +15,16 @@ BUILD ?= build
 TOP_BUILD_DIR := $(ROOT)/build
 SECURE_CMSE_IMPLIB := $(TOP_BUILD_DIR)/secure_cmse_implib.o
 
-# guest0 links inside the Non-secure guest0 window (port/mimxrt700/memory_map.h).
+# The same guest links into both Non-secure windows (port/mimxrt700/memory_map.h);
+# the monitor refuses to start unless every configured guest has an image.
 GUEST0_FLASH_ORIGIN ?= 0x28080000
 GUEST0_FLASH_LENGTH ?= 0x00080000
 GUEST0_RAM_ORIGIN ?= 0x20100000
 GUEST0_RAM_LENGTH ?= 0x00040000
+GUEST1_FLASH_ORIGIN ?= 0x28100000
+GUEST1_FLASH_LENGTH ?= 0x00040000
+GUEST1_RAM_ORIGIN ?= 0x20140000
+GUEST1_RAM_LENGTH ?= 0x00040000
 
 CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only -ffreestanding \
     -fno-builtin -nostdlib -Os -g -Wall -Wextra \
@@ -28,7 +33,7 @@ CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only -ffreestanding \
 
 OBJS := $(BUILD)/guest0.o $(BUILD)/psa_ffm_client.o
 
-all: $(BUILD)/guest0.bin
+all: $(BUILD)/guest0.bin $(BUILD)/guest1.bin
 
 $(SECURE_CMSE_IMPLIB): FORCE
 	$(MAKE) -C $(ROOT) ARCH=$(ARCH) TARGET=$(TARGET) TOOLPREFIX=$(TOOLPREFIX) \
@@ -51,7 +56,18 @@ $(BUILD)/guest0.elf: $(OBJS) $(SECURE_CMSE_IMPLIB) guest0.ld | $(BUILD)
 	    -o $@ $(OBJS) $(SECURE_CMSE_IMPLIB) -lgcc
 	$(SIZE) $@
 
-$(BUILD)/guest0.bin: $(BUILD)/guest0.elf
+$(BUILD)/guest1.elf: $(OBJS) $(SECURE_CMSE_IMPLIB) guest0.ld | $(BUILD)
+	$(CC) $(CFLAGS) \
+	    -Wl,-Tguest0.ld \
+	    -Wl,--defsym=GUEST_FLASH_ORIGIN=$(GUEST1_FLASH_ORIGIN) \
+	    -Wl,--defsym=GUEST_FLASH_LENGTH=$(GUEST1_FLASH_LENGTH) \
+	    -Wl,--defsym=GUEST_RAM_ORIGIN=$(GUEST1_RAM_ORIGIN) \
+	    -Wl,--defsym=GUEST_RAM_LENGTH=$(GUEST1_RAM_LENGTH) \
+	    -Wl,--gc-sections \
+	    -o $@ $(OBJS) $(SECURE_CMSE_IMPLIB) -lgcc
+	$(SIZE) $@
+
+$(BUILD)/%.bin: $(BUILD)/%.elf
 	$(OBJCOPY) -O binary $< $@
 
 $(BUILD):

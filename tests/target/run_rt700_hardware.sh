@@ -10,6 +10,12 @@
 #             tests/firmware/mimxrt700-smoke, wrap it (EVK FCB + plain MBI at
 #             flash+0x4000), flash with pyOCD, hard-reset through the pi4 line,
 #             then assert the SRAM marker and a moving counter over SWD.
+#   positive  the full chain: wolfBoot (TrustZone loader) authenticates the
+#             wolfTrust Secure image, which launches the Non-secure guest0.
+#             Builds wolfTrust + guest0, pins the guest measurement, wolfBoot-
+#             signs the Secure image, flashes wolfBoot + signed wolfTrust +
+#             guest0 at their XSPI0 offsets, resets, and asserts the guest0
+#             mailbox over SWD.
 set -euo pipefail
 
 scenario="${1:-}"
@@ -18,17 +24,39 @@ repo="$(cd "$here/../.." && pwd)"
 work="${RT700_WORK:-$repo/build/rt700}"
 target="${RT700_TARGET:-mimxrt798sgfob}"
 fcb="${RT700_FCB:-$HOME/rt700-boot/fcb.bin}"
+wolfboot_dir="${RT700_WOLFBOOT_DIR:-$HOME/wolfBoot-rt700}"
+spsdk_venv="${RT700_SPSDK_VENV:-$HOME/spsdk-venv}"
 xspi0_base=0x28000000
 mbi_offset=0x4000
+secure_flash_addr=0x28040000
+guest0_flash_addr=0x28080000
+guest1_flash_addr=0x28100000
+hsm_nvm_addr=0x281E0000
+hsm_nvm_size=0x2000
+guest_build="$repo/tests/firmware/mimxrt700-baremetal/build"
 
 log() { printf '%s\n' "$*"; }
+stage() { printf '  ... %s\n' "$*"; }
 fail() { log "FAIL: $*"; exit 1; }
 check() {
     if [ "$1" -eq 0 ]; then log "  [check] PASS  $2"; else log "  [check] FAIL  $2"; fail "$2"; fi
 }
 
+# SPSDK (nxpimage) and pyOCD live in a virtualenv; put it on PATH when the bare
+# tools are not already resolvable.
+ensure_spsdk() {
+    if ! command -v pyocd >/dev/null 2>&1 || ! command -v nxpimage >/dev/null 2>&1; then
+        [ -x "$spsdk_venv/bin/pyocd" ] || fail "pyocd/nxpimage not found (set RT700_SPSDK_VENV)"
+        PATH="$spsdk_venv/bin:$PATH"
+        export PATH
+    fi
+}
+
+# Observation uses the generic Cortex-M attach: the device-pack target resets
+# the chip on connect, so a read would land in a fresh boot, not the one under
+# test.
 dap() {
-    timeout 60 pyocd cmd -t "$target" "$@" 2>&1 |
+    timeout 60 pyocd cmd -t cortex_m "$@" 2>&1 |
         grep -viE "rom table|APB-AP|coresight|cidr"
 }
 
@@ -59,23 +87,67 @@ YAML
     nxpimage bootable-image export -c "$work/bootimg.yaml" >/dev/null
 }
 
-flash_xspi0() {
-    timeout 300 pyocd flash -t "$target" -a "$xspi0_base" -e sector "$1" 2>&1 |
-        grep -E "Erased|programmed|rror" || true
+# Read an image back through XIP once the chain has booted and compare it.
+verify_at() {
+    local addr="$1" image="$2" size
+    size="$(wc -c < "$image" | tr -d ' ')"
+    timeout 120 pyocd cmd -t cortex_m -c "savemem $addr $size $work/readback.bin" \
+        >/dev/null 2>&1 || fail "readback of $addr failed"
+    cmp -s "$work/readback.bin" "$image" || \
+        fail "flash verify mismatch at $addr ($(basename "$image"))"
+    log "  [flash] verified $(basename "$image") @ $addr"
 }
 
+# Park the core before wolfTrust owns it: pyOCD's flash algorithm runs in RAM
+# and faults under wolfTrust's Secure MPU whitelist. A running wolfTrust sets
+# AIRCR.SYSRESETREQS, so only the probe's hardware reset is honoured; the halt
+# can still land after boot code starts, so the MPU is disabled explicitly.
+park_core() {
+    timeout 60 pyocd cmd -t "$target" -O resume_on_disconnect=false \
+        -O reset_type=hw -c "reset halt" -c "write32 0xE000ED94 0" \
+        >/dev/null 2>&1 || fail "could not park the core"
+}
+
+# A failed or partial flash must stop the run: a stale image either boots old
+# code or fails its pinned measurement and looks like a port bug.
+flash_at() {
+    local addr="$1" image="$2" out
+    [ -s "$image" ] || fail "flash image missing: $image"
+    park_core
+    if ! out="$(timeout 300 pyocd flash -t "$target" -O resume_on_disconnect=false \
+            --no-reset -a "$addr" -e sector "$image" 2>&1)"; then
+        printf '%s\n' "$out" | grep -vE "AP#3 IDR" | tail -6
+        fail "flash of $(basename "$image") at $addr failed"
+    fi
+}
+
+# Erase a sector range with the core parked; the board keeps NVM state across
+# runs where the emulator starts fresh (mirrors the H5 runner's vault erase).
+erase_range() {
+    local range="$1"
+    park_core
+    timeout 120 pyocd erase -t "$target" -O resume_on_disconnect=false \
+        -s "$range" >/dev/null 2>&1 || fail "erase of $range failed"
+}
+
+# Parking leaves the reset vector catch armed; a resuming reset clears it so
+# the warm reset below boots the chain instead of halting in the BootROM.
 reset_board() {
+    timeout 60 pyocd reset -t "$target" -m hw >/dev/null 2>&1 || \
+        fail "could not release the core"
     "$here/lib/rt700_reset.sh" reset
 }
 
 case "$scenario" in
 romsmoke)
     mkdir -p "$work"
+    ensure_spsdk
     make -s -C "$repo/tests/firmware/mimxrt700-smoke" BUILD="$work/smoke" all
     wrap_xip "$work/smoke/smoke.bin" "$work/flash_smoke.bin" \
         "$(printf '0x%08x' $((xspi0_base + mbi_offset)))"
-    flash_xspi0 "$work/flash_smoke.bin"
+    flash_at "$xspi0_base" "$work/flash_smoke.bin"
     reset_board
+    verify_at "$xspi0_base" "$work/flash_smoke.bin"
     s1="$(dap -c 'read32 0x20180000 8' | tail -1)"
     sleep 1
     s2="$(dap -c 'read32 0x20180000 8' | tail -1)"
@@ -88,8 +160,65 @@ romsmoke)
     check "$(case "$pc" in 0x2800[4-9]*|0x2800[a-f]*) echo 0;; *) echo 1;; esac)" "PC inside the XIP image ($pc)"
     log "PASS: hardware/romsmoke"
     ;;
+positive)
+    ensure_spsdk
+    [ -s "$wolfboot_dir/wolfboot.bin" ] || \
+        fail "wolfBoot TZ image missing at $wolfboot_dir/wolfboot.bin (RT700_WOLFBOOT_DIR)"
+
+    # RT700 wolfBoot uses a 1024-byte image header, so wolfTrust links at the
+    # boot base + 0x400 and is signed with a matching header. Exported so the
+    # secure image and the guest0 CMSE import library agree (mirrors the H5 runner).
+    export WT_SECURE_IMAGE_HEADER_SIZE=0x400
+    rm -rf "$repo/build"
+    mkdir -p "$work"
+
+    stage "build wolfTrust secure image + CMSE import library"
+    make -s -C "$repo" TARGET=mimxrt700 WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi-
+
+    stage "build the Non-secure guests"
+    make -s -C "$repo/tests/firmware/mimxrt700-baremetal" TARGET=mimxrt700
+
+    stage "pin both guest measurements, then wolfBoot-sign wolfTrust"
+    python3 "$repo/tools/measure/patch_guest_digests.py" "$repo/build/wolftrust.bin" \
+        "0:1:$guest_build/guest0.bin" "1:1:$guest_build/guest1.bin"
+    IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x40000 WOLFBOOT_SECTOR_SIZE=0x1000 \
+        "$wolfboot_dir/tools/keytools/sign" --ecc256 \
+        "$repo/build/wolftrust.bin" \
+        "$wolfboot_dir/wolfboot_signing_private_key.der" 1
+
+    stage "wrap wolfBoot (FCB + MBI) and flash the chain"
+    wrap_xip "$wolfboot_dir/wolfboot.bin" "$work/flash_wolfboot.bin" \
+        "$(printf '0x%08x' $((xspi0_base + mbi_offset)))"
+    flash_at "$xspi0_base" "$work/flash_wolfboot.bin"
+    flash_at "$secure_flash_addr" "$repo/build/wolftrust_v1_signed.bin"
+    flash_at "$guest0_flash_addr" "$guest_build/guest0.bin"
+    flash_at "$guest1_flash_addr" "$guest_build/guest1.bin"
+    stage "erase the wolfHSM NVM store so the run starts from a fresh vault"
+    erase_range "$(printf '0x%08x-0x%08x' "$hsm_nvm_addr" $((hsm_nvm_addr + hsm_nvm_size)))"
+
+    reset_board
+    sleep 2
+    verify_at "$xspi0_base" "$work/flash_wolfboot.bin"
+    verify_at "$secure_flash_addr" "$repo/build/wolftrust_v1_signed.bin"
+    verify_at "$guest0_flash_addr" "$guest_build/guest0.bin"
+    verify_at "$guest1_flash_addr" "$guest_build/guest1.bin"
+
+    # Each guest records its progress at the base of its own RAM window.
+    for g in 0:0x20100000 1:0x20140000; do
+        id="${g%%:*}"
+        base="${g##*:}"
+        sig="$(dap -c "read32 $base" | grep -oiE '[0-9a-f]{8}' | tail -1)"
+        fw="$(dap -c "read32 $(printf '0x%x' $((base + 8)))" | grep -oiE '[0-9a-f]{8}' | tail -1)"
+        st="$(dap -c "read32 $(printf '0x%x' $((base + 20)))" | grep -oiE '[0-9a-f]{8}' | tail -1)"
+        check "$([ "$sig" = "47543030" ]; echo $?)" "guest$id launched: signature 0x47543030 ($sig)"
+        check "$([ "$fw" = "00000100" ]; echo $?)" "guest$id psa_framework_version 0x0100 ($fw)"
+        check "$(case "$st" in 600[dD]600[dD]) echo 0;; *) echo 1;; esac)" \
+            "guest$id done: FF-M connect verified, status 0x600D600D ($st)"
+    done
+    log "PASS: hardware/positive"
+    ;;
 *)
-    log "usage: $0 romsmoke"
+    log "usage: $0 romsmoke|positive"
     exit 2
     ;;
 esac
