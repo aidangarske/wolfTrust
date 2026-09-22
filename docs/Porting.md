@@ -211,6 +211,16 @@ worked examples above give a concrete map for each board.
 - Cross-build the Secure image with warnings enabled.
 - On the current Armv8-M port, inspect `nm` output and confirm only the five
   FF-M veneers are Non-secure-callable.
+- On silicon, prove a Non-secure call reaches the Secure side. An IDAU can
+  override an SAU Non-secure-callable region (the MIMXRT700 honours NSC only in
+  the Code region), which shows up as an INVEP SecureFault despite a correct SG
+  instruction.
+- Budget the Secure MPU regions against the part's `MPU_TYPE.DREGION`; the
+  whitelist, any executable RAM (for example code that must run while the boot
+  NOR is busy), and Secure Partition domains share them.
+- On a hardware runner, verify every flashed image by readback, start from a
+  fresh vault store, and reset through a line the running Secure image cannot
+  veto; a stale image or persisted rollback floor looks like a port bug.
 - Test invalid manifests, memory overlap, pointer ranges, stale handles,
   cross-owner access, and unsupported capabilities.
 - Run authenticated boot, guest tamper, rollback, restart, Secure Partition

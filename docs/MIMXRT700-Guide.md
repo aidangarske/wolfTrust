@@ -51,11 +51,12 @@ only `port/mimxrt700/` and one build fragment:
 | --- | --- |
 | `memory_map.h` | The bit-28 Secure-alias map: XSPI0 NOR windows, Secure and guest RAM, the boot-handoff address, and the per-partition RAM bands. |
 | `mimxrt798_regs.h` | Register bases for CLKCTL, SYSCON, IOPCTL, LPUART0, XSPI0, TRNG, the AHBSC fabric controllers, and their GLIKEY unlock state machines. |
-| `platform_mimxrt700.c` | Every `wt_platform_*` operation: clocks, the SAU table, the Secure MPU whitelist, the fabric memory windows, the boot-handoff region, fault logging, panic, and reset. |
-| `partitions.c` | The guest and capability tables, the profile capability bitmap, and the pinned guest-measurement slot. |
-| `hsm_flash.c/.h` | The `port_nvm.h` octal-NOR backend for the wolfHSM store (page program, 4 KiB erase, cache invalidate, foreign-media detection). |
+| `platform_mimxrt700.c` | Every `wt_platform_*` operation: clocks, the SAU table, the Secure MPU whitelist, the per-dispatch AHBSC curtain over the guest RAM windows, staging of the RAM code band, the boot-handoff region, fault logging, panic, and reset. |
+| `partitions.c` | The guest and capability tables, the profile capability bitmap (including the fabric filter), and the pinned guest-measurement slot. |
+| `xspi_nor.c/.h` | The XSPI0 octal-DTR NOR program and erase driver: bounded target-group IP commands on its own LUT sequences, run from the RAM code band with interrupts masked, flushing the XSPI read cache afterwards. |
+| `hsm_flash.c/.h` | The `port_nvm.h` backend for the wolfHSM store: reads through the Secure XIP alias, program and erase through `xspi_nor.c`. |
 | `rng_entropy.c` | The `CUSTOM_RAND_GENERATE_BLOCK` entropy source over the on-die TRNG, preserving the unprivileged-to-privileged trap. |
-| `secure.ld` | The port's own Secure linker script (the runtime never shares a linker script across ports). |
+| `secure.ld` | The port's own Secure linker script, including the RAM code band: the SG veneers, the `cmse_nonsecure_entry` bodies, and the NOR driver, loaded from flash and executed from SRAM. |
 | `manifest.json` | The service partitions (attestation, HSM, vault, ITS, PS, FWU) and their resources. |
 | `mk/target-mimxrt700.mk` | `WT_CPU`, the flash and RAM defaults, the linker `--defsym` set, and the source lists. |
 
@@ -84,6 +85,10 @@ XSPI0 octal NOR is aliased at `0x28000000` (Non-secure) and `0x38000000`
 | Guest 1 RAM (`0x40000`) | `0x20140000` |
 | Boot-handoff record | `0x30180000` |
 | Secure runtime RAM | `0x30188000` |
+| RAM code band (`0x4000`, NSC gateway and NOR driver) | executes at `0x10200000`, staged through `0x30200000` |
+
+SRAM appears at four aliases with the same offset: `0x0` Non-secure code,
+`0x1` Secure code, `0x2` Non-secure data, `0x3` Secure data.
 
 These constants come from `port/mimxrt700/memory_map.h` and
 `mk/target-mimxrt700.mk`. Use the hardware runner for image assembly so the
@@ -99,16 +104,45 @@ run time by three mechanisms the port programs before any guest launches:
   windows (the guest flash and RAM, the shared console) and leaves everything
   else Secure.
 - **Secure MPU:** a per-partition whitelist confines each Secure Partition to
-  its own RAM band.
-- **AHBSC fabric:** the AHB Secure Controller denies every other bus master
-  (the sense M33, the DSPs, the NPU, and DMA) from the Secure SRAM and
-  peripheral bands. Each controller instance is unlocked through its GLIKEY
-  code-word sequence.
+  its own RAM band. The core implements eight Secure regions; the port merges
+  the Secure alias of the guest images, the update partition, and the NVM
+  stores into one read-only region (the NOR is only written through XSPI IP
+  commands) to leave one region for the executable RAM code band.
+- **AHBSC fabric:** AHBSC0 SRAM rules require a minimum security and privilege
+  tier per sub-region. The port pins the Secure runtime partition and the RAM
+  code band Secure-only, and on every dispatch closes the guest partition and
+  reopens only the dispatched guest's writable windows (the fabric filter the
+  port claims). Rule writes need no GLIKEY unlock on this part.
 
-Only the compute Cortex-M33 (cpu0) is trusted; every other core and master is
-fenced. A port declares what it actually enforces through the capability bitmap
-in `partitions.c`, and the manifest validator refuses a domain that requires a
-capability the port does not provide.
+A port declares what it actually enforces through the capability bitmap in
+`partitions.c`, and the manifest validator refuses a domain that requires a
+capability the port does not provide: a writable Non-secure guest window is
+refused unless the port claims the fabric filter. Fencing other bus masters
+(the sense M33, the DSPs, the NPU, and DMA) per master is not implemented yet.
+
+## Silicon constraints for this port
+
+These properties of the MIMXRT700 shaped the port and apply to any port on a
+similar bit-28 IDAU part:
+
+- **NSC is honoured only in the Code region.** An SAU Non-secure-callable
+  region over the XSPI0 Secure alias (`0x38000000`) is overridden to Secure by
+  the IDAU, so a Non-secure call faults with INVEP even though the SG
+  instruction is present. XSPI0 has no Code-region alias, so the gateway (the
+  SG veneers and the entry bodies they branch to) runs from SRAM through the
+  Secure Code alias, as NXP's own TrustZone examples do.
+- **SRAM partitions are not uniform.** AHBSC0 partitions range from 32 KiB to
+  1 MiB; each carries 32 rule fields, so the rule granularity is the partition
+  size divided by 32 (16 KiB for the 512 KiB partition holding both guest
+  windows).
+- **There is no ROM flash API and the code runs from the same NOR.** A program
+  or erase leaves the NOR unable to serve instruction fetches, so the driver
+  and everything it calls execute from the RAM code band with interrupts
+  masked, and the XSPI read cache is flushed before returning.
+- **The first loader's image header sets the Secure link address.** wolfBoot
+  on this part uses a 1024-byte image header, so wolfTrust links at the boot
+  base plus `0x400` (`WT_SECURE_IMAGE_HEADER_SIZE=0x400`) and is signed with
+  `IMAGE_HEADER_SIZE=1024`.
 
 ## Required tools
 
@@ -129,19 +163,21 @@ proves the BootROM XIP path; the `positive` scenario is the wolfTrust chain.
 
 The full chain build and flash performs:
 
-1. build wolfBoot for `imx-rt700-tz.config` and wrap it with the EVK FCB and a
-   boot header (`nxpimage`);
-2. build the wolfTrust Secure image and its CMSE import library
-   (`make TARGET=mimxrt700 secure-image`);
-3. build `guest0`, linked against the Secure image's CMSE import library so the
-   `WolfTrust_FFM_*` veneers resolve;
-4. patch the guest measurement records into the unsigned `wolftrust.bin`
+1. wrap the wolfBoot TrustZone image (`imx-rt700-tz.config`) with the EVK FCB
+   and a boot header (`nxpimage`);
+2. build the wolfTrust Secure image and its CMSE import library with
+   `WT_SECURE_IMAGE_HEADER_SIZE=0x400`;
+3. build the bare-metal guest for both guest windows, linked against the
+   Secure image's CMSE import library so the `WolfTrust_FFM_*` veneers resolve;
+4. patch both guest measurement records into the unsigned `wolftrust.bin`
    (`tools/measure/patch_guest_digests.py`);
-5. sign `wolftrust.bin` with the wolfBoot key tools;
+5. sign `wolftrust.bin` with the wolfBoot key tools (`IMAGE_HEADER_SIZE=1024`);
 6. flash wolfBoot at `0x28000000`, the signed Secure image at `0x28040000`, and
-   `guest0` at `0x28080000` over XSPI0 with verification;
-7. reset the board through the runner's reset line, capture UART, and check the
-   expected markers.
+   the guests at `0x28080000` and `0x28100000`, each with the core parked by a
+   hardware reset;
+7. erase the wolfHSM NVM store so the run starts from a fresh vault;
+8. reset the board, read every image back through XIP, and check both guests'
+   markers.
 
 Because the Secure image pins each guest's SHA-256 before it is signed, an
 unpatched or corrupted guest fails launch closed: the wolfBoot signature covers
@@ -150,20 +186,22 @@ match its record.
 
 ### Bring-up markers
 
-`guest0` records progress in an SWD-readable mailbox at the base of its
-Non-secure RAM (`0x20100000`) and echoes it on LPUART0:
+Each guest records progress in an SWD-readable mailbox at the base of its own
+Non-secure RAM window (`0x20100000` for guest 0, `0x20140000` for guest 1) and
+echoes it on LPUART0:
 
-| Mailbox word | Address | Pass value |
+| Mailbox word | Offset | Pass value |
 | --- | ---: | ---: |
-| signature | `0x20100000` | `0x47543030` |
-| step | `0x20100004` | `0x00000005` |
-| `psa_framework_version()` | `0x20100008` | `0x00000100` |
-| `psa_connect(SERVICE_HSM)` handle | `0x20100010` | > 0 |
-| status | `0x20100014` | `0x600D600D` |
+| signature | `+0x00` | `0x47543030` |
+| step | `+0x04` | `0x00000005` |
+| `psa_framework_version()` | `+0x08` | `0x00000100` |
+| `psa_connect(SERVICE_HSM)` handle | `+0x10` | > 0, distinct per guest |
+| status | `+0x14` | `0x600D600D` |
 
-A `status` of `0x600D600D` proves the wolfBoot to wolfTrust to Non-secure-guest
-chain booted and that the Secure runtime serviced a Non-secure PSA client
-through the veneers. `0xBAD00000` records a failed check at the `step` reached.
+A `status` of `0x600D600D` in both mailboxes proves the wolfBoot to wolfTrust to
+Non-secure-guest chain booted and that the Secure runtime serviced both
+Non-secure PSA clients through the veneers. `0xBAD00000` records a failed check
+at the `step` reached.
 
 ## Recovery rules
 
@@ -177,6 +215,19 @@ through the veneers. `0xBAD00000` records a failed check at the `step` reached.
 - If the guest mailbox never leaves `0x00000000`, halt over SWD and sample the
   program counter: an identical value each time is a spin, not progress. Confirm
   the Secure image launched the Non-secure guest before assuming a veneer fault.
+- If a guest is quarantined before it ever runs while its image and pinned
+  digest match, suspect persisted vault state such as a guest rollback floor:
+  erase the wolfHSM NVM store and boot again.
+- A running wolfTrust sets `AIRCR.SYSRESETREQS`, so a debugger's software reset
+  is ignored and a "reset halt" can leave the core running under the Secure MPU,
+  where the flash algorithm faults. Park the core with the probe's hardware
+  reset before flashing.
+- The device-pack debug target resets the chip on connect; read live state with
+  a plain Cortex-M attach, or the read lands in a fresh boot. SRAM survives a
+  warm reset, so a stale mailbox can look like a result.
+- An aborted attach can leave the reset vector catch armed, so every warm reset
+  halts in the BootROM with no UART output; a resuming hardware reset clears
+  it. A persistent `WAIT ACK` on attach is a wedged bus: `pyocd reset -m hw`.
 - Never reuse another NXP part's FCB, clock, or pin table without checking its
   reference manual and NOR geometry.
 
