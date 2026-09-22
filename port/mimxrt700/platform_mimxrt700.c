@@ -57,7 +57,7 @@ static const wt_armv8m_sau_region_t g_sau_regions[] = {
       WT_GUEST1_FLASH_BASE + WT_GUEST1_FLASH_SIZE - 1u, false },
     { WT_RAM_NS_BASE,
       WT_RAM_NS_BASE + WT_PLATFORM_GUEST_STACK_WINDOW_SIZE - 1u, false },
-    { WT_FLASH_NSC_BASE, WT_FLASH_NSC_END, true },
+    { WT_NSC_BASE, WT_NSC_END, true },
     { WT_PERIPH_NS_BASE, WT_PERIPH_NS_BASE + WT_PERIPH_ALIAS_SIZE - 1u,
       false },
 };
@@ -71,10 +71,12 @@ static const wt_armv8m_mpu_region_t g_mpu_s_whitelist[] = {
       WT_MPU_RLAR_ATTRIDX_NORMAL },
 
     /* Region 1: XSPI0 update partition + wolfHSM NVM + conformance NVM,
-     * RW-NX and non-cacheable so a verify after a program reads the NOR. */
-    { WT_FWU_UPDATE_FLASH_BASE_S,
+     * plus the Secure alias of the guest images: read-only XN (the NOR is
+     * only ever written through XSPI IP commands) and non-cacheable so a
+     * verify after a program reads the NOR. */
+    { WT_FLASH_TO_S_ALIAS(WT_GUEST0_FLASH_BASE),
       WT_CONF_NVM_FLASH_BASE_S + WT_CONF_NVM_FLASH_SIZE - 1u,
-      WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW | WT_MPU_RBAR_SH_INNER,
+      WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RO | WT_MPU_RBAR_SH_INNER,
       WT_MPU_RLAR_ATTRIDX_NOCACHE },
 
     /* Region 2: secure RAM RW-NX from the boot handoff record up. */
@@ -106,13 +108,17 @@ static const wt_armv8m_mpu_region_t g_mpu_s_whitelist[] = {
       WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW,
       WT_MPU_RLAR_ATTRIDX_DEVICE },
 
-    /* Region 7: Secure alias of the guest images, RO-XN for vector reads
-     * and re-measurement. */
-    { WT_FLASH_TO_S_ALIAS(WT_GUEST0_FLASH_BASE),
-      WT_FLASH_TO_S_ALIAS(WT_GUEST1_FLASH_BASE + WT_GUEST1_FLASH_SIZE - 1u),
-      WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RO | WT_MPU_RBAR_SH_INNER,
+    /* Region 7: RAM code band through the Secure Code alias (NSC gateway
+     * and NOR program/erase code), privileged read-execute; the only
+     * executable RAM in the Secure map. */
+    { WT_RAMFUNC_BASE, WT_RAMFUNC_BASE + WT_RAMFUNC_SIZE - 1u,
+      WT_MPU_RBAR_AP_RO | WT_MPU_RBAR_SH_INNER,
       WT_MPU_RLAR_ATTRIDX_NORMAL },
 };
+
+extern uint32_t _siramfunc[];
+extern uint32_t _sramfunc[];
+extern uint32_t _eramfunc[];
 
 /* The XSPI0 NOR has no hardware write-protect claim wired yet, so a guest
  * window is never reported as protected. */
@@ -131,6 +137,25 @@ volatile void* wt_platform_boot_handoff_region(size_t* size)
 
 void wt_platform_init(void)
 {
+    size_t i;
+    uint32_t* src;
+    uint32_t* dst;
+
+    /* Pin the Secure runtime bank (P11) and the RAM code band (first rule of
+     * P12) Secure-only at the fabric before staging the band, so no
+     * Non-secure master can rewrite code the Secure side will run. The band
+     * is written through the Secure data alias of its execution address. */
+    for (i = 0u; i < 4u; ++i) {
+        WT_AHBSC0_SRAM11_RULE(i) = WT_AHBSC_RULE_ALL_SECURE;
+    }
+    WT_AHBSC0_SRAM12_RULE(0u) = WT_AHBSC_RULE_ALL_SECURE;
+    src = _siramfunc;
+    for (dst = _sramfunc; dst < _eramfunc; ++dst) {
+        *(uint32_t*)((uintptr_t)dst + WT_SRAM_CODE_TO_DATA) = *src;
+        ++src;
+    }
+    wt_dsb();
+    wt_isb();
     wt_ffm_gateway_install();
     WT_SCB_VTOR_S = WT_FLASH_IMAGE_BASE;
     wt_armv8m_sau_init(g_sau_regions,
@@ -145,14 +170,53 @@ void wt_platform_init(void)
     g_hsm_wait_skip_count = 0u;
 }
 
-/* Fabric curtain: not programmed until the AHBSC SRAM rules are driven per
- * dispatch, which is why the port does not claim WT_PORT_CAPABILITY_TZ_FILTER
- * and the core never calls this. */
+#if defined(WT_LAUNCH_DEBUG)
+/* Per-guest boot launch-verification result, read over the debug port. */
+volatile int32_t g_wt_launch_debug[2] __attribute__((used));
+
+void wt_platform_launch_debug(int code, uint32_t guest)
+{
+    if (guest < (sizeof(g_wt_launch_debug) / sizeof(g_wt_launch_debug[0]))) {
+        g_wt_launch_debug[guest] = (int32_t)code;
+    }
+}
+#endif
+
+/* Fabric curtain, the GTZC twin: AHBSC0 RAM partition 10 is exactly the two
+ * 256 KiB guest windows. Close it to Secure-only, then open the dispatched
+ * guest's writable windows one 16 KiB rule field at a time. */
 void wt_platform_program_memory_windows(const wt_memory_window_t* windows,
                                         size_t count)
 {
-    (void)windows;
-    (void)count;
+    uintptr_t extent_base = WT_PLATFORM_GUEST_STACK_WINDOW_BASE;
+    uintptr_t extent_end = extent_base + WT_PLATFORM_GUEST_STACK_WINDOW_SIZE;
+    size_t i;
+    size_t w;
+
+    for (i = 0u; i < 4u; ++i) {
+        WT_AHBSC0_SRAM10_RULE(i) = WT_AHBSC_RULE_ALL_SECURE;
+    }
+    for (w = 0u; windows != NULL && w < count; ++w) {
+        uintptr_t base = windows[w].base;
+        uintptr_t end = base + windows[w].size;
+        size_t block;
+        size_t first;
+        size_t last;
+
+        if ((windows[w].attributes & WT_MEM_ATTR_WRITE) == 0u ||
+                base < extent_base || end > extent_end || end <= base) {
+            continue;
+        }
+        first = (base - extent_base) / WT_AHBSC_RULE_BLOCK;
+        last = (end - extent_base + (WT_AHBSC_RULE_BLOCK - 1u)) /
+               WT_AHBSC_RULE_BLOCK;
+        for (block = first; block < last; ++block) {
+            WT_AHBSC0_SRAM10_RULE(block / 8u) &=
+                ~(0x3u << (4u * (block % 8u)));
+        }
+    }
+    wt_dsb();
+    wt_isb();
 }
 
 extern char _e_secure_text[];

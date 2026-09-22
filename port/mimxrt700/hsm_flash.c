@@ -18,10 +18,9 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* wolfHSM NVM backend on the XSPI0 octal NOR (Secure alias, memory mapped).
- * Reads go through the XIP window; program and erase need the XSPI
- * controller sequences and report WH_ERROR_NOTIMPL until they are proven on
- * the board, so no caller can mistake an unprogrammed store for a written one. */
+/* wolfHSM NVM backend on the XSPI0 octal NOR. Reads go through the Secure
+ * alias of the XIP window; program and erase issue XSPI IP commands through
+ * the RAM-resident NOR driver (xspi_nor.c). */
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -30,6 +29,7 @@
 
 #include "hsm_flash.h"
 #include "memory_map.h"
+#include "xspi_nor.h"
 #include "mimxrt798_regs.h"
 #include "wolftrust/arch.h"
 #include "wolftrust/spm_transport.h"
@@ -61,6 +61,26 @@ static const wt_hsm_flash_config_t g_hsm_flash_cfg = {
 
 static wt_hsm_flash_context_t g_hsm_flash_ctx;
 volatile uint32_t g_wt_flash_gate_aborts __attribute__((used));
+/* Last NOR driver failure, read over the debug port by the hardware harness. */
+volatile int32_t g_wt_nor_last_error __attribute__((used));
+
+/* The store is read through the Secure alias; the NOR controller addresses
+ * it in the Non-secure aperture numbering. */
+static uint32_t wt_hsm_flash_device_address(const wt_hsm_flash_context_t *ctx,
+                                            uint32_t offset)
+{
+    return (uint32_t)(ctx->base - WT_FLASH_S_ALIAS_BASE + WT_FLASH_NS_BASE) +
+           offset;
+}
+
+static int wt_hsm_flash_nor_result(int rc)
+{
+    if (rc != WT_XSPI_NOR_OK) {
+        g_wt_nor_last_error = (int32_t)rc;
+        return WH_ERROR_ABORTED;
+    }
+    return WH_ERROR_OK;
+}
 volatile uint32_t g_wt_flash_gate_abort_info __attribute__((used));
 
 static int wt_flash_range_ok(const wt_hsm_flash_context_t *ctx,
@@ -221,7 +241,9 @@ static int wt_hsm_flash_program(void *context, uint32_t offset, uint32_t size,
     if (size == 0u) {
         return WH_ERROR_OK;
     }
-    return WH_ERROR_NOTIMPL;
+    return wt_hsm_flash_nor_result(
+        wt_xspi_nor_program(wt_hsm_flash_device_address(ctx, offset), data,
+                            size));
 }
 
 static int wt_hsm_flash_erase(void *context, uint32_t offset, uint32_t size)
@@ -243,7 +265,8 @@ static int wt_hsm_flash_erase(void *context, uint32_t offset, uint32_t size)
     if (size == 0u) {
         return WH_ERROR_OK;
     }
-    return WH_ERROR_NOTIMPL;
+    return wt_hsm_flash_nor_result(
+        wt_xspi_nor_erase(wt_hsm_flash_device_address(ctx, offset), size));
 }
 
 static int wt_hsm_flash_verify(void *context, uint32_t offset, uint32_t size,
@@ -319,8 +342,9 @@ int wt_hsm_flash_format(void)
     return wt_hsm_flash_erase(&g_hsm_flash_ctx, 0u, g_hsm_flash_ctx.size);
 }
 
-/* SERVICE_FWU staging into the wolfBoot update partition: same NOR path, so
- * every write-side entry reports NOTIMPL until the XSPI sequences land. */
+/* SERVICE_FWU staging into the wolfBoot update partition: the NOR driver can
+ * write it, but arming the wolfBoot trailer is not ported yet, so every
+ * write-side entry reports NOTIMPL rather than stage an image nothing boots. */
 static int wt_fwu_backend_begin(void *ctx)
 {
     (void)ctx;

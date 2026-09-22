@@ -22,6 +22,7 @@
 #include "wolftrust/guest_verify.h"
 #include "wolftrust/partition.h"
 #include "memory_map.h"
+#include "mimxrt798_regs.h"
 
 #include <string.h>
 
@@ -33,14 +34,12 @@
 #define WT_GUEST_MEAS_SLOT_UNPATCHED 0xFFFFFFFFu
 
 /* Enforcement the MIMXRT700 port really provides today (WT-PORT-0008): the
- * AHBSC fabric filter is not programmed yet, so TZ_FILTER stays unclaimed. */
+ * AHBSC curtain in wt_platform_program_memory_windows drives the guest RAM
+ * partitions per dispatch, so the fabric filter is claimed. */
 #define WT_MIMXRT700_PORT_CAPABILITIES \
     (WT_PORT_CAPABILITY_VECTOR_READ_ALIAS | \
-     WT_PORT_CAPABILITY_NS_DOMAIN_PROGRAMMING)
-
-/* AHBSC SRAM rules attribute 8 KiB sub-regions, so two guest windows sharing
- * one sub-region cannot be separated by the fabric filter. */
-#define WT_AHBSC_RULE_BLOCK 8192u
+     WT_PORT_CAPABILITY_NS_DOMAIN_PROGRAMMING | \
+     WT_PORT_CAPABILITY_TZ_FILTER)
 #if defined(__ARM_EABI__)
 #define WT_GUEST_MEAS_SECTION \
     __attribute__((section(".wt_guest_meas"), used, aligned(4)))
@@ -124,10 +123,9 @@ static wt_guest_config_t g_partition_configs[] = {
             {WT_GUEST0_USART_BASE, WT_USART_REGION_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE},
             /* NSC window: NS guests must be able to fetch the SG veneers.
-             * Without this region the NS MPU blocks BL into 0x0C000400+
-             * (the gateway). Per ARMv8-M, NSC fetches succeed when SAU
-             * marks them NSC AND the NS MPU grants execute permission. */
-            {WT_FLASH_NSC_BASE, (WT_FLASH_NSC_END - WT_FLASH_NSC_BASE + 1U),
+             * Per ARMv8-M, NSC fetches succeed when SAU marks them NSC AND
+             * the NS MPU grants execute permission. */
+            {WT_NSC_BASE, (WT_NSC_END - WT_NSC_BASE + 1U),
              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC}
         },
         .memory_region_count = 4U,
@@ -170,7 +168,7 @@ static wt_guest_config_t g_partition_configs[] = {
             {WT_GUEST1_USART_BASE, WT_USART_REGION_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE},
             /* NSC window — see guest-a above. */
-            {WT_FLASH_NSC_BASE, (WT_FLASH_NSC_END - WT_FLASH_NSC_BASE + 1U),
+            {WT_NSC_BASE, (WT_NSC_END - WT_NSC_BASE + 1U),
              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC}
         },
         .memory_region_count = 4U,
@@ -396,9 +394,9 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
         }
         /* NSC veneer fetch window: a platform policy object every NS domain
          * needs to reach the SG gateway (SAU NSC + NS MPU execute). */
-        config->memory_regions[region_count].base = WT_FLASH_NSC_BASE;
+        config->memory_regions[region_count].base = WT_NSC_BASE;
         config->memory_regions[region_count].size =
-            WT_FLASH_NSC_END - WT_FLASH_NSC_BASE + 1U;
+            WT_NSC_END - WT_NSC_BASE + 1U;
         config->memory_regions[region_count].attributes =
             WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
         region_count++;

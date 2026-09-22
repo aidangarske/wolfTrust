@@ -52,4 +52,5 @@ TARGET_PLATFORM_SRC := $(PORT_DIR)/platform_mimxrt700.c
 TARGET_PARTITIONS_SRC := $(PORT_DIR)/partitions.c
 TARGET_EXTRA_SRCS := \
     $(wildcard $(PORT_DIR)/rng_entropy.c) \
-    $(wildcard $(PORT_DIR)/hsm_flash.c)
+    $(wildcard $(PORT_DIR)/hsm_flash.c) \
+    $(wildcard $(PORT_DIR)/xspi_nor.c)

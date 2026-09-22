@@ -82,4 +82,90 @@
 #define WT_AHBSC3_COMPUTE_AIPS_ACCESS    WT_REG32(WT_AHBSC3_BASE_S + 0xFB0u)
 #define WT_AHBSC3_SENSE_AIPS_ACCESS      WT_REG32(WT_AHBSC3_BASE_S + 0xFB4u)
 
+/* AHB secure controller RAM-partition rules. Compute SRAM partitions are not
+ * uniform: P10 and P11 are the 512 KiB partitions at 0x20100000 (both guest
+ * windows) and 0x20180000 (the Secure runtime bank), P12 the 1 MiB partition
+ * at 0x20200000 (the RAM code band). Four rule words per partition, eight
+ * two-bit minimum-tier fields per word (0 NS-user .. 3 S-priv), so one P10
+ * field covers 16 KiB. Rule writes need no GLIKEY unlock; reset MISC_CTRL
+ * already enables checking with writes unlocked. */
+#define WT_AHBSC_RULE_BLOCK           16384u
+#define WT_AHBSC_RULE_ALL_SECURE      0x22222222u
+#define WT_AHBSC0_SRAM10_RULE(index)  WT_REG32(WT_AHBSC0_BASE_S + 0x1F0u + 4u * (index))
+#define WT_AHBSC0_SRAM11_RULE(index)  WT_REG32(WT_AHBSC0_BASE_S + 0x200u + 4u * (index))
+#define WT_AHBSC0_SRAM12_RULE(index)  WT_REG32(WT_AHBSC0_BASE_S + 0x220u + 4u * (index))
+
+/* XSPI0 controller, target group 0 (the only group this port drives). */
+#define WT_XSPI0_MCR          WT_REG32(WT_XSPI0_BASE_S + 0x000u)
+#define WT_XSPI0_RBSR         WT_REG32(WT_XSPI0_BASE_S + 0x10Cu)
+#define WT_XSPI0_RBCT         WT_REG32(WT_XSPI0_BASE_S + 0x110u)
+#define WT_XSPI0_TBDR         WT_REG32(WT_XSPI0_BASE_S + 0x154u)
+#define WT_XSPI0_TBCT         WT_REG32(WT_XSPI0_BASE_S + 0x158u)
+#define WT_XSPI0_SR           WT_REG32(WT_XSPI0_BASE_S + 0x15Cu)
+#define WT_XSPI0_FR           WT_REG32(WT_XSPI0_BASE_S + 0x160u)
+#define WT_XSPI0_SPTRCLR      WT_REG32(WT_XSPI0_BASE_S + 0x16Cu)
+#define WT_XSPI0_RBDR0        WT_REG32(WT_XSPI0_BASE_S + 0x200u)
+#define WT_XSPI0_LUTKEY       WT_REG32(WT_XSPI0_BASE_S + 0x300u)
+#define WT_XSPI0_LCKCR        WT_REG32(WT_XSPI0_BASE_S + 0x304u)
+#define WT_XSPI0_LUT(index)   WT_REG32(WT_XSPI0_BASE_S + 0x310u + 4u * (index))
+#define WT_XSPI0_TG0MDAD      WT_REG32(WT_XSPI0_BASE_S + 0x900u)
+#define WT_XSPI0_TGSFARS      WT_REG32(WT_XSPI0_BASE_S + 0x908u)
+#define WT_XSPI0_TGIPCRS      WT_REG32(WT_XSPI0_BASE_S + 0x90Cu)
+#define WT_XSPI0_MGC          WT_REG32(WT_XSPI0_BASE_S + 0x920u)
+#define WT_XSPI0_FSMSTAT      WT_REG32(WT_XSPI0_BASE_S + 0x930u)
+#define WT_XSPI0_ERRSTAT      WT_REG32(WT_XSPI0_BASE_S + 0x938u)
+#define WT_XSPI0_SFP_TG_IPCR  WT_REG32(WT_XSPI0_BASE_S + 0x958u)
+#define WT_XSPI0_SFP_TG_SFAR  WT_REG32(WT_XSPI0_BASE_S + 0x95Cu)
+
+#define WT_XSPI_MCR_SWRSTSD      0x00000001u
+#define WT_XSPI_MCR_SWRSTHD      0x00000002u
+#define WT_XSPI_MCR_IPS_TG_RST   0x00000200u
+#define WT_XSPI_MCR_CLR_RXF      0x00000400u
+#define WT_XSPI_MCR_CLR_TXF      0x00000800u
+#define WT_XSPI_MCR_MDIS         0x00004000u
+#define WT_XSPI_SR_BUSY          0x00000001u
+#define WT_XSPI_SR_IP_ACC        0x00000002u
+#define WT_XSPI_SR_RXWE          0x00010000u
+#define WT_XSPI_SR_TXFULL        0x08000000u
+#define WT_XSPI_FR_TBFF          0x08000000u
+#define WT_XSPI_SPTRCLR_ABRT_CLR 0x00010000u
+#define WT_XSPI_TGSFARS_CLR      0x20000000u
+#define WT_XSPI_TGSFARS_ERR      0x40000000u
+#define WT_XSPI_TGSFARS_VLD      0x80000000u
+#define WT_XSPI_TGIPCRS_CLR      0x10000000u
+#define WT_XSPI_MGC_GVLDMDAD     0x20000000u
+#define WT_XSPI_TG0MDAD_VLD      0x80000000u
+#define WT_XSPI_FSMSTAT_STATE    0x00000003u
+#define WT_XSPI_FSMSTAT_VLD      0x80000000u
+#define WT_XSPI_RBSR_RDBFL       0x000000FFu
+#define WT_XSPI_ERRSTAT_TG0SFAR  0x00000400u
+#define WT_XSPI_ERRSTAT_TG0IPCR  0x00001000u
+#define WT_XSPI_ERRSTAT_TO_ERR   0x00004000u
+#define WT_XSPI_ERRSTAT_ERRORS   0x00007FFFu
+#define WT_XSPI_ERRSTAT_ARB_WIN  0x10000000u
+#define WT_XSPI_IPCR_SEQID(seq)  (((uint32_t)(seq) & 0xFu) << 24)
+#define WT_XSPI_IPCR_IDATSZ(sz)  ((uint32_t)(sz) & 0xFFFFu)
+#define WT_XSPI_LUT_KEY          0x5AF05AF0u
+#define WT_XSPI_LCKCR_LOCK       0x00000001u
+#define WT_XSPI_LCKCR_UNLOCK     0x00000002u
+
+/* LUT instruction words: two instructions per word, each opcode:pad:operand. */
+#define WT_XSPI_LUT_SEQ(cmd0, pad0, op0, cmd1, pad1, op1) \
+    (((uint32_t)(op0) & 0xFFu) | (((uint32_t)(pad0) & 0x3u) << 8) | \
+     (((uint32_t)(cmd0) & 0x3Fu) << 10) | (((uint32_t)(op1) & 0xFFu) << 16) | \
+     (((uint32_t)(pad1) & 0x3u) << 24) | (((uint32_t)(cmd1) & 0x3Fu) << 26))
+#define WT_XSPI_CMD_STOP       0x00u
+#define WT_XSPI_CMD_DUMMY_SDR  0x03u
+#define WT_XSPI_CMD_RADDR_DDR  0x0Au
+#define WT_XSPI_CMD_READ_DDR   0x0Eu
+#define WT_XSPI_CMD_WRITE_DDR  0x0Fu
+#define WT_XSPI_CMD_DDR        0x11u
+#define WT_XSPI_PAD_8          0x03u
+
+/* CACHE64_CTRL0 sits in the XSPI0 read path; flush it after NOR changes. */
+#define WT_CACHE64_CTRL0_CCR   WT_REG32(0x50035000u)
+#define WT_CACHE64_CCR_INVW0   0x01000000u
+#define WT_CACHE64_CCR_INVW1   0x04000000u
+#define WT_CACHE64_CCR_GO      0x80000000u
+
 #endif /* WOLFTRUST_MIMXRT798_REGS_H */

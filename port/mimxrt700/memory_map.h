@@ -37,8 +37,6 @@
 #define WT_FLASH_S_BASE          WT_SECURE_FLASH_BASE
 #define WT_FLASH_S_SIZE          WT_SECURE_FLASH_SIZE
 #define WT_FLASH_IMAGE_BASE      (WT_FLASH_S_BASE + WT_SECURE_IMAGE_HEADER_SIZE)
-#define WT_FLASH_NSC_BASE        (WT_FLASH_IMAGE_BASE + 0x00000400u)
-#define WT_FLASH_NSC_END         (WT_FLASH_NSC_BASE + 0x000003FFu)
 
 #define WT_FLASH_NS_BASE         0x28000000u
 #define WT_FLASH_S_ALIAS_BASE    0x38000000u
@@ -138,6 +136,18 @@
 #define WT_CONF_DRV_MMIO_SIZE    0x00000100u
 
 #define WT_SHARED_STATUS_ADDR    0x20100000u
+
+/* RAM code band: the Non-secure-callable gateway (SG veneers and entry
+ * bodies) and the XSPI0 NOR program/erase code. It executes through the
+ * Secure Code-region alias of SRAM because the IDAU honours NSC only in the
+ * Code region, and the NOR serves no XIP fetches while busy. The SRAM is
+ * aliased at 0x0/0x1/0x2/0x3 (NS code / S code / NS data / S data) with the
+ * same offset; the band is copied through the Secure data alias. */
+#define WT_RAMFUNC_BASE          0x10200000u
+#define WT_RAMFUNC_SIZE          0x00004000u
+#define WT_SRAM_CODE_TO_DATA     0x20000000u
+#define WT_NSC_BASE              WT_RAMFUNC_BASE
+#define WT_NSC_END               (WT_NSC_BASE + 0x000003FFu)
 
 #ifndef WT_PLATFORM_CORE_CLOCK_HZ
 #define WT_PLATFORM_CORE_CLOCK_HZ 237500000u
