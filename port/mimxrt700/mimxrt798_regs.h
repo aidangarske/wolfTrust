@@ -91,9 +91,11 @@
 #define WT_AHBSC_MISC_CTRL_REG(base)     WT_REG32((base) + 0xFFCu)
 #define WT_AHBSC_MISC_CTRL_DP_REG(base)  WT_REG32((base) + 0xFF8u)
 /* Bits 11:2 as one field: secure checking on (restrictive), privilege checks
- * off, a violation latched and flagged instead of aborting, tier mode. */
+ * off, a violation aborts (DISABLE_VIOLATION_ABORT=10b, not the detect-only
+ * 01b), tier mode. This governs the non-CPU masters the AHBSC checks; CPU0
+ * isolation is the SAU (RT700 RM 7.2.8, SRM 11.3.3.3). */
 #define WT_AHBSC_MISC_CTRL_CHECK_MASK    0x00000FFCu
-#define WT_AHBSC_MISC_CTRL_CHECK_ON      0x000005A4u
+#define WT_AHBSC_MISC_CTRL_CHECK_ON      0x000006A4u
 #define WT_AHBSC_MISC_CTRL_SECURE_CHECK_MASK 0x0000000Cu
 #define WT_AHBSC_MISC_CTRL_SECURE_CHECK_ON   0x00000004u
 /* AHBSC0 peripheral rule holding LP_FLEXCOMM0 (the LPUART0 console) in 1:0. */

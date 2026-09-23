@@ -32,12 +32,15 @@
 #define WT_GUEST_MEAS_SLOT_MAGIC_LEN 16u
 #define WT_GUEST_MEAS_SLOT_UNPATCHED 0xFFFFFFFFu
 
-/* Enforcement the MIMXRT700 port really provides today (WT-PORT-0008). The
- * fabric filter is not claimed: on silicon the AHBSC SRAM rules did not stop a
- * Non-secure store into the peer guest's RAM window. */
+/* Enforcement the MIMXRT700 port provides (WT-PORT-0008). The fabric filter is
+ * the per-dispatch SAU window: the RT700 reference manual (7.2.8, 11.3.3.3)
+ * gives CPU0 no AHBSC master wrapper, so the SAU is the CPU's guest-isolation
+ * layer, not the AHBSC SRAM rules. The silicon negative (run_rt700_hardware.sh
+ * ahbscneg) is the proof this claim rides on. */
 #define WT_MIMXRT700_PORT_CAPABILITIES \
     (WT_PORT_CAPABILITY_VECTOR_READ_ALIAS | \
-     WT_PORT_CAPABILITY_NS_DOMAIN_PROGRAMMING)
+     WT_PORT_CAPABILITY_NS_DOMAIN_PROGRAMMING | \
+     WT_PORT_CAPABILITY_TZ_FILTER)
 #if defined(__ARM_EABI__)
 #define WT_GUEST_MEAS_SECTION \
     __attribute__((section(".wt_guest_meas"), used, aligned(4)))

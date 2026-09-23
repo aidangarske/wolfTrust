@@ -34,6 +34,8 @@
 #include "memory_map.h"
 #include "mimxrt798_regs.h"
 
+#include "wolftrust/fabric_windows.h"
+
 #include "wolftrust/ffm_gateway.h"
 #include "wolftrust/spm_transport.h"
 #include "wolftrust/ffm.h"
@@ -51,16 +53,26 @@ static volatile uint32_t g_secure_service_depth;
 static volatile uint32_t g_hsm_wait_skip_count;
 
 /* The IDAU already marks every bit-28-clear alias Non-secure; the SAU must
- * agree or the more secure attribute wins. */
+ * agree or the more secure attribute wins. The guest RAM extent is NOT a
+ * static Non-secure region: per the RT700 reference manual the AHB secure
+ * controller does not gate CPU0, so the SAU is the CPU's guest-isolation layer.
+ * Each dispatch marks only the arriving guest's RAM window Non-secure through
+ * the dynamic regions below, leaving the peer's window Secure by SAU default. */
 static const wt_armv8m_sau_region_t g_sau_regions[] = {
     { WT_GUEST0_FLASH_BASE,
       WT_GUEST1_FLASH_BASE + WT_GUEST1_FLASH_SIZE - 1u, false },
-    { WT_RAM_NS_BASE,
-      WT_RAM_NS_BASE + WT_PLATFORM_GUEST_STACK_WINDOW_SIZE - 1u, false },
     { WT_NSC_BASE, WT_NSC_END, true },
     { WT_PERIPH_NS_BASE, WT_PERIPH_NS_BASE + WT_PERIPH_ALIAS_SIZE - 1u,
       false },
 };
+
+/* Dynamic SAU regions for the per-dispatch guest RAM windows, above the static
+ * table (three entries above). CM33 implements eight SAU regions; a guest
+ * declares one writable RAM window, so this headroom covers every manifest. */
+#define WT_SAU_DYN_FIRST  3u
+#define WT_SAU_DYN_LAST   6u
+
+static uint32_t g_sau_dyn_next;
 
 /* Secure-side MPU whitelist, programmed with PRIVDEFENA off by the arch
  * layer and replayed after every Secure Partition domain. */
@@ -264,13 +276,48 @@ void wt_platform_launch_debug(int code, uint32_t guest)
 }
 #endif
 
-/* The fabric filter is not claimed, so no guest with a writable window binds
- * and there is no per-dispatch fabric state to program. */
+/* SAU guest-isolation back-end. close_all disables the dynamic regions so the
+ * whole guest RAM extent falls to the SAU default (Secure); open_window marks
+ * one guest window Non-secure in the next free dynamic region. A Non-secure
+ * store into the peer's now-Secure window raises a SecureFault the monitor
+ * contains. Mirrors the STM32H5 GTZC path through the shared window helper. */
+static void wt_sau_close_all(void)
+{
+    uint32_t rnr;
+
+    for (rnr = WT_SAU_DYN_FIRST; rnr <= WT_SAU_DYN_LAST; ++rnr) {
+        wt_armv8m_sau_program_region(rnr, 0u, 0u, false, false);
+    }
+    g_sau_dyn_next = WT_SAU_DYN_FIRST;
+}
+
+static void wt_sau_open_window(uintptr_t base, size_t size)
+{
+    if (g_sau_dyn_next <= WT_SAU_DYN_LAST) {
+        wt_armv8m_sau_program_region(g_sau_dyn_next, (uint32_t)base,
+                                     (uint32_t)(base + size - 1u), false, true);
+        ++g_sau_dyn_next;
+    }
+}
+
+static void wt_sau_commit(void)
+{
+    wt_dsb();
+    wt_isb();
+}
+
 void wt_platform_program_memory_windows(const wt_memory_window_t* windows,
                                         size_t count)
 {
-    (void)windows;
-    (void)count;
+    static const wt_fabric_windows_t fabric = {
+        WT_RAM_NS_BASE,
+        WT_RAM_NS_BASE + WT_PLATFORM_GUEST_STACK_WINDOW_SIZE,
+        wt_sau_close_all,
+        wt_sau_open_window,
+        wt_sau_commit
+    };
+
+    wt_fabric_apply_windows(&fabric, windows, count);
 }
 
 extern char _e_secure_text[];
