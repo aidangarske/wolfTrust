@@ -43,6 +43,7 @@
 /* LPUART0 through its Non-secure alias. The first loader configured the clock,
  * pins, and baud, so the guest only polls TDRE and writes DATA. */
 #define GUEST0_LPUART0_BASE      0x40110000u
+#define GUEST0_LPUART0_VERID     (*(volatile uint32_t*)(GUEST0_LPUART0_BASE + 0x00u))
 #define GUEST0_LPUART0_STAT      (*(volatile uint32_t*)(GUEST0_LPUART0_BASE + 0x14u))
 #define GUEST0_LPUART0_DATA      (*(volatile uint32_t*)(GUEST0_LPUART0_BASE + 0x1Cu))
 #define GUEST0_LPUART0_STAT_TDRE 0x00800000u
@@ -55,10 +56,45 @@ typedef struct wt_guest0_mailbox {
     uint32_t hsm_version;
     int32_t  hsm_handle;
     uint32_t status;
+    uint32_t console;
+    uint32_t probe;
+    uint32_t probe_read;
 } wt_guest0_mailbox_t;
 
 __attribute__((section(".shared"), used))
 volatile wt_guest0_mailbox_t g_guest0_mailbox;
+
+#if defined(WT_AHBSC_PROBE)
+/* Fabric isolation probe: GUEST_PROBE_ADDR is memory the AHBSC must keep from
+ * this guest (the peer guest's RAM, or the fabric's own rule registers through
+ * their Non-secure alias). A privileged guest can switch off the Non-secure MPU
+ * wolfTrust programs for it, so the fabric alone must stop the store. Latch:
+ * 1 attempted (the store faulted), 2 blocked, 3 leaked. */
+#define GUEST0_MPU_CTRL          (*(volatile uint32_t*)0xE000ED94u)
+#define GUEST0_PROBE_ATTEMPTED   1u
+#define GUEST0_PROBE_BLOCKED     2u
+#define GUEST0_PROBE_LEAKED      3u
+
+static void guest0_fabric_probe(volatile wt_guest0_mailbox_t* mb)
+{
+    volatile uint32_t* target = (volatile uint32_t*)GUEST_PROBE_ADDR;
+    uint32_t readback;
+
+    mb->probe = GUEST0_PROBE_ATTEMPTED;
+    GUEST0_MPU_CTRL = 0u;
+    __asm volatile("dsb\n isb" ::: "memory");
+    *target = GUEST_PROBE_VALUE;
+    __asm volatile("dsb" ::: "memory");
+    readback = *target;
+    mb->probe_read = readback;
+    if (readback == GUEST_PROBE_VALUE) {
+        mb->probe = GUEST0_PROBE_LEAKED;
+    }
+    else {
+        mb->probe = GUEST0_PROBE_BLOCKED;
+    }
+}
+#endif
 
 extern uint32_t _estack;
 extern uint32_t _sidata;
@@ -141,6 +177,9 @@ void Reset_Handler(void)
     mb->hsm_version = 0u;
     mb->hsm_handle = 0;
     mb->status = GUEST0_STATUS_RUNNING;
+    mb->console = GUEST0_LPUART0_VERID;
+    mb->probe = 0u;
+    mb->probe_read = 0u;
 
     guest0_uart_puts("wolfTrust RT700 guest0: start\r\n");
 
@@ -173,6 +212,10 @@ void Reset_Handler(void)
         mb->status = GUEST0_STATUS_FAIL;
         guest0_uart_puts("wolfTrust RT700 guest0: FAIL\r\n");
     }
+
+#if defined(WT_AHBSC_PROBE)
+    guest0_fabric_probe(mb);
+#endif
 
     for (;;) {
         __asm volatile("nop");

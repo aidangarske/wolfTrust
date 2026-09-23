@@ -72,11 +72,33 @@
 #define WT_GLIKEY_CODEWORD_STEP2 0x0F1DF0E2u
 #define WT_GLIKEY_CODEWORD_STEP3 0xF0B00F4Fu
 #define WT_GLIKEY_CODEWORD_EN    0x0FFFF000u
+#define WT_GLIKEY_CODEWORD_SEL_CTRL_1  0xF0u
+#define WT_GLIKEY_CTRL_WR_EN_SHIFT     16u
+#define WT_GLIKEY_CTRL_WR_EN_MASK      (0x3u << WT_GLIKEY_CTRL_WR_EN_SHIFT)
+#define WT_GLIKEY_CTRL_0_SFT_RST       (1u << 18)
+#define WT_GLIKEY_CTRL_0_INDEX_MASK    0xFFu
+#define WT_GLIKEY_CTRL_1_SFR_LOCK_SHIFT 18u
+#define WT_GLIKEY_CTRL_1_SFR_LOCK_MASK (0xFu << WT_GLIKEY_CTRL_1_SFR_LOCK_SHIFT)
+#define WT_GLIKEY_SFR_UNLOCKED         0xAu
+#define WT_GLIKEY_STATUS_ERROR_MASK    0x1Cu
+#define WT_GLIKEY_STATUS_FSM_SHIFT     19u
+#define WT_GLIKEY_FSM_WR_EN            0x1802u
+/* GLIKEY0 write index guarding AHBSC0 MISC_CTRL bits 11:2. */
+#define WT_GLIKEY0_INDEX_MISC_CTRL     1u
 
 /* AHB secure controller: per-bus-master SRAM access enables and the global
  * check switch (secure control register at the end of each instance). */
 #define WT_AHBSC_MISC_CTRL_REG(base)     WT_REG32((base) + 0xFFCu)
 #define WT_AHBSC_MISC_CTRL_DP_REG(base)  WT_REG32((base) + 0xFF8u)
+/* Bits 11:2 as one field: secure checking on (restrictive), privilege checks
+ * off, a violation latched and flagged instead of aborting, tier mode. */
+#define WT_AHBSC_MISC_CTRL_CHECK_MASK    0x00000FFCu
+#define WT_AHBSC_MISC_CTRL_CHECK_ON      0x000005A4u
+#define WT_AHBSC_MISC_CTRL_SECURE_CHECK_MASK 0x0000000Cu
+#define WT_AHBSC_MISC_CTRL_SECURE_CHECK_ON   0x00000004u
+/* AHBSC0 peripheral rule holding LP_FLEXCOMM0 (the LPUART0 console) in 1:0. */
+#define WT_AHBSC0_AHB_PERIPHERAL0_SLAVE_RULE1 WT_REG32(WT_AHBSC0_BASE_S + 0x3C4u)
+#define WT_AHBSC0_RULE_LP_FLEXCOMM0_MASK      0x3u
 #define WT_AHBSC3_COMPUTE_APB_ACCESS     WT_REG32(WT_AHBSC3_BASE_S + 0xFA0u)
 #define WT_AHBSC3_SENSE_APB_ACCESS       WT_REG32(WT_AHBSC3_BASE_S + 0xFA4u)
 #define WT_AHBSC3_COMPUTE_AIPS_ACCESS    WT_REG32(WT_AHBSC3_BASE_S + 0xFB0u)
@@ -86,12 +108,10 @@
  * uniform: P10 and P11 are the 512 KiB partitions at 0x20100000 (both guest
  * windows) and 0x20180000 (the Secure runtime bank), P12 the 1 MiB partition
  * at 0x20200000 (the RAM code band). Four rule words per partition, eight
- * two-bit minimum-tier fields per word (0 NS-user .. 3 S-priv), so one P10
- * field covers 16 KiB. Rule writes need no GLIKEY unlock; reset MISC_CTRL
- * already enables checking with writes unlocked. */
-#define WT_AHBSC_RULE_BLOCK           16384u
+ * two-bit minimum-tier fields per word (0 NS-user .. 3 S-priv). Rule writes
+ * need no GLIKEY unlock. Even with secure checking on, P10 rules did not stop a
+ * Non-secure CPU store on silicon, so no isolation is claimed from them. */
 #define WT_AHBSC_RULE_ALL_SECURE      0x22222222u
-#define WT_AHBSC0_SRAM10_RULE(index)  WT_REG32(WT_AHBSC0_BASE_S + 0x1F0u + 4u * (index))
 #define WT_AHBSC0_SRAM11_RULE(index)  WT_REG32(WT_AHBSC0_BASE_S + 0x200u + 4u * (index))
 #define WT_AHBSC0_SRAM12_RULE(index)  WT_REG32(WT_AHBSC0_BASE_S + 0x220u + 4u * (index))
 

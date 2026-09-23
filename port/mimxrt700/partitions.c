@@ -22,7 +22,6 @@
 #include "wolftrust/guest_verify.h"
 #include "wolftrust/partition.h"
 #include "memory_map.h"
-#include "mimxrt798_regs.h"
 
 #include <string.h>
 
@@ -33,13 +32,12 @@
 #define WT_GUEST_MEAS_SLOT_MAGIC_LEN 16u
 #define WT_GUEST_MEAS_SLOT_UNPATCHED 0xFFFFFFFFu
 
-/* Enforcement the MIMXRT700 port really provides today (WT-PORT-0008): the
- * AHBSC curtain in wt_platform_program_memory_windows drives the guest RAM
- * partitions per dispatch, so the fabric filter is claimed. */
+/* Enforcement the MIMXRT700 port really provides today (WT-PORT-0008). The
+ * fabric filter is not claimed: on silicon the AHBSC SRAM rules did not stop a
+ * Non-secure store into the peer guest's RAM window. */
 #define WT_MIMXRT700_PORT_CAPABILITIES \
     (WT_PORT_CAPABILITY_VECTOR_READ_ALIAS | \
-     WT_PORT_CAPABILITY_NS_DOMAIN_PROGRAMMING | \
-     WT_PORT_CAPABILITY_TZ_FILTER)
+     WT_PORT_CAPABILITY_NS_DOMAIN_PROGRAMMING)
 #if defined(__ARM_EABI__)
 #define WT_GUEST_MEAS_SECTION \
     __attribute__((section(".wt_guest_meas"), used, aligned(4)))
@@ -370,15 +368,6 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
             }
             else {
                 if (window_count >= config->memory_window_count) {
-                    return -1;
-                }
-                /* A writable guest window must own whole AHBSC sub-regions: a base
-                 * or exclusive end falling mid-block would round outward and
-                 * hand an adjacent guest's memory to whoever is scheduled. */
-                if ((manifest_resource->attributes & WT_MEM_ATTR_WRITE) != 0U &&
-                        ((manifest_resource->base % WT_AHBSC_RULE_BLOCK) != 0U ||
-                         ((manifest_resource->base + manifest_resource->size) %
-                              WT_AHBSC_RULE_BLOCK) != 0U)) {
                     return -1;
                 }
                 config->memory_windows[window_count] = *manifest_resource;

@@ -14,9 +14,12 @@ Read the current state first and keep a development board recoverable.
   and the TrustZone measured handoff into a Secure payload), and the wolfTrust
   Secure image cross-build (`make TARGET=mimxrt700 secure-image`) with the port
   split, veneer, and manifest checks green.
-- **In bring-up:** the wolfTrust Non-secure guest `positive` scenario on the
-  EVK. The bare-metal `guest0` links and its Non-secure to Secure call path
-  resolves; the on-silicon launch is the current step.
+- **In bring-up:** Non-secure guests on the EVK. Both bare-metal guests booted
+  and completed their PSA calls through the veneers while the port claimed the
+  fabric filter, but the isolation negative (`ahbscneg`) then showed a guest can
+  write the other guest's RAM once it disables its own Non-secure MPU. The claim
+  is withdrawn, so wolfTrust now refuses the two-guest manifest (its writable
+  guest windows need the fabric filter) until guest RAM isolation is enforced.
 
 Record emulator, cross-build, and physical-board evidence separately. There is
 no MIMXRT700 emulator, so all target evidence for this port is real silicon.
@@ -51,8 +54,8 @@ only `port/mimxrt700/` and one build fragment:
 | --- | --- |
 | `memory_map.h` | The bit-28 Secure-alias map: XSPI0 NOR windows, Secure and guest RAM, the boot-handoff address, and the per-partition RAM bands. |
 | `mimxrt798_regs.h` | Register bases for CLKCTL, SYSCON, IOPCTL, LPUART0, XSPI0, TRNG, the AHBSC fabric controllers, and their GLIKEY unlock state machines. |
-| `platform_mimxrt700.c` | Every `wt_platform_*` operation: clocks, the SAU table, the Secure MPU whitelist, the per-dispatch AHBSC curtain over the guest RAM windows, staging of the RAM code band, the boot-handoff region, fault logging, panic, and reset. |
-| `partitions.c` | The guest and capability tables, the profile capability bitmap (including the fabric filter), and the pinned guest-measurement slot. |
+| `platform_mimxrt700.c` | Every `wt_platform_*` operation: clocks, the SAU table, the Secure MPU whitelist, enabling AHBSC secure checking behind its GLIKEY unlock, staging of the RAM code band, the boot-handoff region, fault logging, panic, and reset. |
+| `partitions.c` | The guest and capability tables, the profile capability bitmap (the fabric filter is not claimed), and the pinned guest-measurement slot. |
 | `xspi_nor.c/.h` | The XSPI0 octal-DTR NOR program and erase driver: bounded target-group IP commands on its own LUT sequences, run from the RAM code band with interrupts masked, flushing the XSPI read cache afterwards. |
 | `hsm_flash.c/.h` | The `port_nvm.h` backend for the wolfHSM store: reads through the Secure XIP alias, program and erase through `xspi_nor.c`. |
 | `rng_entropy.c` | The `CUSTOM_RAND_GENERATE_BLOCK` entropy source over the on-die TRNG, preserving the unprivileged-to-privileged trap. |
@@ -108,17 +111,22 @@ run time by three mechanisms the port programs before any guest launches:
   the Secure alias of the guest images, the update partition, and the NVM
   stores into one read-only region (the NOR is only written through XSPI IP
   commands) to leave one region for the executable RAM code band.
-- **AHBSC fabric:** AHBSC0 SRAM rules require a minimum security and privilege
-  tier per sub-region. The port pins the Secure runtime partition and the RAM
-  code band Secure-only, and on every dispatch closes the guest partition and
-  reopens only the dispatched guest's writable windows (the fabric filter the
-  port claims). Rule writes need no GLIKEY unlock on this part.
+- **AHBSC fabric:** reset leaves AHBSC0 secure checking off. The port turns it
+  on (MISC_CTRL and its duplicate, behind GLIKEY0) and opens only the LPUART0
+  console to the Non-secure side. With checking on, a guest's write to the
+  AHBSC rule registers through their Non-secure alias is blocked. The port also
+  marks the Secure runtime partition and the RAM code band Secure-only, as
+  NXP's TrustZone setup does, without claiming isolation from those rules.
 
 A port declares what it actually enforces through the capability bitmap in
 `partitions.c`, and the manifest validator refuses a domain that requires a
 capability the port does not provide: a writable Non-secure guest window is
-refused unless the port claims the fabric filter. Fencing other bus masters
-(the sense M33, the DSPs, the NPU, and DMA) per master is not implemented yet.
+refused unless the port claims the fabric filter. This port does not claim it:
+on silicon, the AHBSC SRAM rules for the guest partition did not stop a
+Non-secure store into the other guest's window, so the only barrier between
+the guests is each guest's own Non-secure MPU, which a privileged guest can
+disable. Fencing other bus masters (the sense M33, the DSPs, the NPU, and DMA)
+per master is not implemented either.
 
 ## Silicon constraints for this port
 
@@ -135,6 +143,11 @@ similar bit-28 IDAU part:
   1 MiB; each carries 32 rule fields, so the rule granularity is the partition
   size divided by 32 (16 KiB for the 512 KiB partition holding both guest
   windows).
+- **The fabric does not check at reset, and its rules are not a guest
+  filter.** AHBSC secure checking is off until MISC_CTRL bits 11:2 are
+  rewritten behind GLIKEY0 write index 1. Even with checking on, the SRAM
+  partition rules did not stop a Non-secure CPU store into a closed guest
+  window on the EVK, so they cannot back the fabric-filter capability.
 - **There is no ROM flash API and the code runs from the same NOR.** A program
   or erase leaves the NOR unable to serve instruction fetches, so the driver
   and everything it calls execute from the RAM code band with interrupts
@@ -159,7 +172,10 @@ similar bit-28 IDAU part:
 
 The hardware runner (`tests/target/run_rt700_hardware.sh`) drives image
 assembly and flashing so the addresses stay paired. The `romsmoke` scenario
-proves the BootROM XIP path; the `positive` scenario is the wolfTrust chain.
+proves the BootROM XIP path; the `positive` scenario is the wolfTrust chain;
+`ahbscneg` adds the guest isolation negative. While the port does not claim the
+fabric filter, wolfTrust refuses the two-guest manifest, so both chain
+scenarios stop before any guest runs.
 
 The full chain build and flash performs:
 
@@ -197,11 +213,17 @@ echoes it on LPUART0:
 | `psa_framework_version()` | `+0x08` | `0x00000100` |
 | `psa_connect(SERVICE_HSM)` handle | `+0x10` | > 0, distinct per guest |
 | status | `+0x14` | `0x600D600D` |
+| LPUART0 `VERID` as the guest reads it | `+0x18` | non-zero |
+| isolation probe latch (`ahbscneg`) | `+0x1C` | `1` faulted or `2` blocked; `3` leaked |
+| isolation probe read-back (`ahbscneg`) | `+0x20` | not the stored sentinel |
 
 A `status` of `0x600D600D` in both mailboxes proves the wolfBoot to wolfTrust to
 Non-secure-guest chain booted and that the Secure runtime serviced both
 Non-secure PSA clients through the veneers. `0xBAD00000` records a failed check
-at the `step` reached.
+at the `step` reached. In `ahbscneg`, guest 0 stores a sentinel into guest 1's
+RAM and guest 1 writes an AHBSC rule through its Non-secure alias, each after
+disabling its own Non-secure MPU; the runner also reads guest 1's RAM over SWD
+and confirms the core is not parked in a fault handler.
 
 ## Recovery rules
 
@@ -228,6 +250,12 @@ at the `step` reached.
 - An aborted attach can leave the reset vector catch armed, so every warm reset
   halts in the BootROM with no UART output; a resuming hardware reset clears
   it. A persistent `WAIT ACK` on attach is a wedged bus: `pyocd reset -m hw`.
+- An isolation probe must disable the guest's Non-secure MPU before the store,
+  or that MPU stops it and the test says nothing about the fabric. Debugger
+  accesses are no substitute: they are checked against the SAU and IDAU, so
+  they cannot show what the fabric does to a guest store.
+- A guest fault the guest does not handle itself escalates to the Secure
+  HardFault, which currently stops the whole system rather than the one guest.
 - Never reuse another NXP part's FCB, clock, or pin table without checking its
   reference manual and NOR geometry.
 

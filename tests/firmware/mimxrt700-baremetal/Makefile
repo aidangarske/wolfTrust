@@ -31,7 +31,20 @@ CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only -ffreestanding \
     -ffunction-sections -fdata-sections -mno-unaligned-access \
     -I$(ROOT)/include
 
-OBJS := $(BUILD)/guest0.o $(BUILD)/psa_ffm_client.o
+# WT_AHBSC_PROBE=1 builds the fabric isolation probe: guest0 stores into
+# guest1's RAM window, guest1 into the AHBSC0 rule for guest0's window through
+# the fabric's Non-secure alias.
+WT_AHBSC_PROBE ?= 0
+GUEST0_CFLAGS :=
+GUEST1_CFLAGS :=
+ifeq ($(WT_AHBSC_PROBE),1)
+GUEST0_CFLAGS += -DWT_AHBSC_PROBE -DGUEST_PROBE_ADDR=0x20170000u \
+    -DGUEST_PROBE_VALUE=0xDEADBEEFu
+GUEST1_CFLAGS += -DWT_AHBSC_PROBE -DGUEST_PROBE_ADDR=0x4017C1F0u \
+    -DGUEST_PROBE_VALUE=0x11111111u
+endif
+
+CLIENT_OBJ := $(BUILD)/psa_ffm_client.o
 
 all: $(BUILD)/guest0.bin $(BUILD)/guest1.bin
 
@@ -40,12 +53,15 @@ $(SECURE_CMSE_IMPLIB): FORCE
 	    WT_ATTEST_COSE=0 build/secure_cmse_implib.o
 
 $(BUILD)/guest0.o: guest0.c | $(BUILD)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) $(GUEST0_CFLAGS) -c -o $@ $<
+
+$(BUILD)/guest1.o: guest0.c | $(BUILD)
+	$(CC) $(CFLAGS) $(GUEST1_CFLAGS) -c -o $@ $<
 
 $(BUILD)/psa_ffm_client.o: $(ROOT)/src/client/psa_ffm_client.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(BUILD)/guest0.elf: $(OBJS) $(SECURE_CMSE_IMPLIB) guest0.ld | $(BUILD)
+$(BUILD)/guest0.elf: $(BUILD)/guest0.o $(CLIENT_OBJ) $(SECURE_CMSE_IMPLIB) guest0.ld | $(BUILD)
 	$(CC) $(CFLAGS) \
 	    -Wl,-Tguest0.ld \
 	    -Wl,--defsym=GUEST_FLASH_ORIGIN=$(GUEST0_FLASH_ORIGIN) \
@@ -53,10 +69,10 @@ $(BUILD)/guest0.elf: $(OBJS) $(SECURE_CMSE_IMPLIB) guest0.ld | $(BUILD)
 	    -Wl,--defsym=GUEST_RAM_ORIGIN=$(GUEST0_RAM_ORIGIN) \
 	    -Wl,--defsym=GUEST_RAM_LENGTH=$(GUEST0_RAM_LENGTH) \
 	    -Wl,--gc-sections \
-	    -o $@ $(OBJS) $(SECURE_CMSE_IMPLIB) -lgcc
+	    -o $@ $(BUILD)/guest0.o $(CLIENT_OBJ) $(SECURE_CMSE_IMPLIB) -lgcc
 	$(SIZE) $@
 
-$(BUILD)/guest1.elf: $(OBJS) $(SECURE_CMSE_IMPLIB) guest0.ld | $(BUILD)
+$(BUILD)/guest1.elf: $(BUILD)/guest1.o $(CLIENT_OBJ) $(SECURE_CMSE_IMPLIB) guest0.ld | $(BUILD)
 	$(CC) $(CFLAGS) \
 	    -Wl,-Tguest0.ld \
 	    -Wl,--defsym=GUEST_FLASH_ORIGIN=$(GUEST1_FLASH_ORIGIN) \
@@ -64,7 +80,7 @@ $(BUILD)/guest1.elf: $(OBJS) $(SECURE_CMSE_IMPLIB) guest0.ld | $(BUILD)
 	    -Wl,--defsym=GUEST_RAM_ORIGIN=$(GUEST1_RAM_ORIGIN) \
 	    -Wl,--defsym=GUEST_RAM_LENGTH=$(GUEST1_RAM_LENGTH) \
 	    -Wl,--gc-sections \
-	    -o $@ $(OBJS) $(SECURE_CMSE_IMPLIB) -lgcc
+	    -o $@ $(BUILD)/guest1.o $(CLIENT_OBJ) $(SECURE_CMSE_IMPLIB) -lgcc
 	$(SIZE) $@
 
 $(BUILD)/%.bin: $(BUILD)/%.elf

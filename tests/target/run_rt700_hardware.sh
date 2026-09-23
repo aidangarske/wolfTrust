@@ -11,11 +11,15 @@
 #             flash+0x4000), flash with pyOCD, hard-reset through the pi4 line,
 #             then assert the SRAM marker and a moving counter over SWD.
 #   positive  the full chain: wolfBoot (TrustZone loader) authenticates the
-#             wolfTrust Secure image, which launches the Non-secure guest0.
-#             Builds wolfTrust + guest0, pins the guest measurement, wolfBoot-
-#             signs the Secure image, flashes wolfBoot + signed wolfTrust +
-#             guest0 at their XSPI0 offsets, resets, and asserts the guest0
-#             mailbox over SWD.
+#             wolfTrust Secure image, which launches both Non-secure guests.
+#             Builds wolfTrust + the guests, pins the guest measurements,
+#             wolfBoot-signs the Secure image, flashes the chain at its XSPI0
+#             offsets, resets from a fresh vault, verifies every image by
+#             readback, and asserts both guest mailboxes over SWD.
+#   ahbscneg  positive plus the fabric isolation negative: guest0 stores into
+#             guest1's RAM and guest1 rewrites an AHBSC0 rule through the
+#             fabric's Non-secure alias; both must be blocked, guest1's RAM must
+#             not hold the sentinel, and both guests must still finish.
 set -euo pipefail
 
 scenario="${1:-}"
@@ -138,36 +142,19 @@ reset_board() {
     "$here/lib/rt700_reset.sh" reset
 }
 
-case "$scenario" in
-romsmoke)
-    mkdir -p "$work"
-    ensure_spsdk
-    make -s -C "$repo/tests/firmware/mimxrt700-smoke" BUILD="$work/smoke" all
-    wrap_xip "$work/smoke/smoke.bin" "$work/flash_smoke.bin" \
-        "$(printf '0x%08x' $((xspi0_base + mbi_offset)))"
-    flash_at "$xspi0_base" "$work/flash_smoke.bin"
-    reset_board
-    verify_at "$xspi0_base" "$work/flash_smoke.bin"
-    s1="$(dap -c 'read32 0x20180000 8' | tail -1)"
-    sleep 1
-    s2="$(dap -c 'read32 0x20180000 8' | tail -1)"
-    m1="$(printf '%s' "$s1" | awk '{print $2}')"
-    c1="$(printf '%s' "$s1" | awk '{print $3}')"
-    c2="$(printf '%s' "$s2" | awk '{print $3}')"
-    check "$([ "$m1" = "52543030" ]; echo $?)" "ROM booted the XIP image: marker RT00 at 0x20180000 ($m1)"
-    check "$([ "$c1" != "$c2" ]; echo $?)" "smoke loop alive: counter $c1 -> $c2"
-    pc="$(dap -c halt -c 'reg pc' -c go | sed -n 's/^pc = //p')"
-    check "$(case "$pc" in 0x2800[4-9]*|0x2800[a-f]*) echo 0;; *) echo 1;; esac)" "PC inside the XIP image ($pc)"
-    log "PASS: hardware/romsmoke"
-    ;;
-positive)
+
+# Build wolfTrust and both guests, pin the guest measurements, sign, flash the
+# whole chain, boot it from a fresh vault, and verify every image by readback.
+run_chain() {
+    local guest_flags="$1"
+
     ensure_spsdk
     [ -s "$wolfboot_dir/wolfboot.bin" ] || \
         fail "wolfBoot TZ image missing at $wolfboot_dir/wolfboot.bin (RT700_WOLFBOOT_DIR)"
 
     # RT700 wolfBoot uses a 1024-byte image header, so wolfTrust links at the
     # boot base + 0x400 and is signed with a matching header. Exported so the
-    # secure image and the guest0 CMSE import library agree (mirrors the H5 runner).
+    # secure image and the guest CMSE import library agree (mirrors the H5 runner).
     export WT_SECURE_IMAGE_HEADER_SIZE=0x400
     rm -rf "$repo/build"
     mkdir -p "$work"
@@ -175,8 +162,10 @@ positive)
     stage "build wolfTrust secure image + CMSE import library"
     make -s -C "$repo" TARGET=mimxrt700 WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi-
 
-    stage "build the Non-secure guests"
-    make -s -C "$repo/tests/firmware/mimxrt700-baremetal" TARGET=mimxrt700
+    stage "build the Non-secure guests ${guest_flags:-(no probes)}"
+    make -s -C "$repo/tests/firmware/mimxrt700-baremetal" clean
+    # shellcheck disable=SC2086
+    make -s -C "$repo/tests/firmware/mimxrt700-baremetal" TARGET=mimxrt700 $guest_flags
 
     stage "pin both guest measurements, then wolfBoot-sign wolfTrust"
     python3 "$repo/tools/measure/patch_guest_digests.py" "$repo/build/wolftrust.bin" \
@@ -202,23 +191,93 @@ positive)
     verify_at "$secure_flash_addr" "$repo/build/wolftrust_v1_signed.bin"
     verify_at "$guest0_flash_addr" "$guest_build/guest0.bin"
     verify_at "$guest1_flash_addr" "$guest_build/guest1.bin"
+}
 
-    # Each guest records its progress at the base of its own RAM window.
+# One 32-bit word at base+offset over SWD, as eight lowercase hex digits.
+mailbox_word() {
+    dap -c "read32 $(printf '0x%x' $(($1 + $2)))" | grep -oiE '[0-9a-f]{8}' | tail -1 |
+        tr 'A-F' 'a-f'
+}
+
+# Each guest records its progress at the base of its own RAM window.
+check_guest() {
+    local id="$1" base="$2" sig fw st uart
+    sig="$(mailbox_word "$base" 0)"
+    fw="$(mailbox_word "$base" 8)"
+    st="$(mailbox_word "$base" 20)"
+    uart="$(mailbox_word "$base" 24)"
+    check "$([ "$sig" = "47543030" ]; echo $?)" "guest$id launched: signature 0x47543030 ($sig)"
+    check "$([ "$fw" = "00000100" ]; echo $?)" "guest$id psa_framework_version 0x0100 ($fw)"
+    check "$([ "$st" = "600d600d" ]; echo $?)" \
+        "guest$id done: FF-M connect verified, status 0x600D600D ($st)"
+    check "$([ -n "$uart" ] && [ "$uart" != "00000000" ]; echo $?)" \
+        "guest$id reaches its Non-secure console (LPUART0 VERID 0x$uart)"
+}
+
+case "$scenario" in
+romsmoke)
+    mkdir -p "$work"
+    ensure_spsdk
+    make -s -C "$repo/tests/firmware/mimxrt700-smoke" BUILD="$work/smoke" all
+    wrap_xip "$work/smoke/smoke.bin" "$work/flash_smoke.bin" \
+        "$(printf '0x%08x' $((xspi0_base + mbi_offset)))"
+    flash_at "$xspi0_base" "$work/flash_smoke.bin"
+    reset_board
+    verify_at "$xspi0_base" "$work/flash_smoke.bin"
+    s1="$(dap -c 'read32 0x20180000 8' | tail -1)"
+    sleep 1
+    s2="$(dap -c 'read32 0x20180000 8' | tail -1)"
+    m1="$(printf '%s' "$s1" | awk '{print $2}')"
+    c1="$(printf '%s' "$s1" | awk '{print $3}')"
+    c2="$(printf '%s' "$s2" | awk '{print $3}')"
+    check "$([ "$m1" = "52543030" ]; echo $?)" "ROM booted the XIP image: marker RT00 at 0x20180000 ($m1)"
+    check "$([ "$c1" != "$c2" ]; echo $?)" "smoke loop alive: counter $c1 -> $c2"
+    pc="$(dap -c halt -c 'reg pc' -c go | sed -n 's/^pc = //p')"
+    check "$(case "$pc" in 0x2800[4-9]*|0x2800[a-f]*) echo 0;; *) echo 1;; esac)" "PC inside the XIP image ($pc)"
+    log "PASS: hardware/romsmoke"
+    ;;
+positive|ahbscneg)
+    guest_flags=""
+    [ "$scenario" = "ahbscneg" ] && guest_flags="WT_AHBSC_PROBE=1"
+    run_chain "$guest_flags"
+
     for g in 0:0x20100000 1:0x20140000; do
-        id="${g%%:*}"
-        base="${g##*:}"
-        sig="$(dap -c "read32 $base" | grep -oiE '[0-9a-f]{8}' | tail -1)"
-        fw="$(dap -c "read32 $(printf '0x%x' $((base + 8)))" | grep -oiE '[0-9a-f]{8}' | tail -1)"
-        st="$(dap -c "read32 $(printf '0x%x' $((base + 20)))" | grep -oiE '[0-9a-f]{8}' | tail -1)"
-        check "$([ "$sig" = "47543030" ]; echo $?)" "guest$id launched: signature 0x47543030 ($sig)"
-        check "$([ "$fw" = "00000100" ]; echo $?)" "guest$id psa_framework_version 0x0100 ($fw)"
-        check "$(case "$st" in 600[dD]600[dD]) echo 0;; *) echo 1;; esac)" \
-            "guest$id done: FF-M connect verified, status 0x600D600D ($st)"
+        check_guest "${g%%:*}" "${g##*:}"
     done
-    log "PASS: hardware/positive"
+
+    if [ "$scenario" = "ahbscneg" ]; then
+        # guest0 stores a sentinel into guest1's RAM; guest1 rewrites the AHBSC0
+        # rule for guest0's window through the fabric's Non-secure alias. Both
+        # windows are Non-secure to the SAU, so only the fabric can stop them.
+        for g in 0:0x20100000:"guest1 RAM" 1:0x20140000:"AHBSC0 rule registers"; do
+            id="${g%%:*}"
+            rest="${g#*:}"
+            base="${rest%%:*}"
+            what="${rest#*:}"
+            probe="$(mailbox_word "$base" 28)"
+            seen="$(mailbox_word "$base" 32)"
+            check "$(case "$probe" in 00000001|00000002) echo 0;; *) echo 1;; esac)" \
+                "guest$id store into $what blocked by the fabric (latch $probe, read 0x$seen)"
+        done
+        peer="$(mailbox_word 0x20170000 0)"
+        check "$([ "$peer" != "deadbeef" ]; echo $?)" \
+            "guest1 RAM never received guest0's sentinel (0x$peer)"
+        ipsr="$(dap -c halt -c 'reg xpsr' -c go | sed -n 's/^xpsr = 0x\([0-9a-fA-F]*\).*/\1/p')"
+        ipsr=$((0x${ipsr:-3} & 0x1ff))
+        check "$([ "$ipsr" -lt 2 ] || [ "$ipsr" -gt 7 ]; echo $?)" \
+            "system still scheduling after the probes (IPSR $ipsr, not a fault handler)"
+        valid="$(mailbox_word 0x5017CF00 0)"
+        log "  [fabric] AHBSC0 violation latches valid 0x$valid"
+        for port in $(seq 0 28); do
+            [ $(((0x$valid >> port) & 1)) -eq 1 ] || continue
+            log "  [fabric]   port $port addr 0x$(mailbox_word 0x5017CE00 $((4 * port)))" \
+                "info 0x$(mailbox_word 0x5017CE80 $((4 * port)))"
+        done
+    fi
+    log "PASS: hardware/$scenario"
     ;;
 *)
-    log "usage: $0 romsmoke|positive"
+    log "usage: $0 romsmoke|positive|ahbscneg"
     exit 2
     ;;
 esac

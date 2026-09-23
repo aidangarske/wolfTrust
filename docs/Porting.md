@@ -221,6 +221,10 @@ worked examples above give a concrete map for each board.
 - On a hardware runner, verify every flashed image by readback, start from a
   fresh vault store, and reset through a line the running Secure image cannot
   veto; a stale image or persisted rollback floor looks like a port bug.
+- Claim the fabric filter only after a silicon negative passes: a privileged
+  guest disables its own Non-secure MPU and stores into another guest's RAM,
+  and the store must not land. Programming the fabric rules is not evidence
+  that they govern those addresses.
 - Test invalid manifests, memory overlap, pointer ranges, stale handles,
   cross-owner access, and unsupported capabilities.
 - Run authenticated boot, guest tamper, rollback, restart, Secure Partition

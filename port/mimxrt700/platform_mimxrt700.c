@@ -135,16 +135,94 @@ volatile void* wt_platform_boot_handoff_region(size_t* size)
     return (volatile void*)WT_BOOT_HANDOFF_ADDRESS;
 }
 
+static int wt_glikey_write_enable(uintptr_t base, uint32_t index)
+{
+    static const uint32_t codewords[] = {
+        WT_GLIKEY_CODEWORD_STEP1, WT_GLIKEY_CODEWORD_STEP2,
+        WT_GLIKEY_CODEWORD_STEP3, WT_GLIKEY_CODEWORD_EN
+    };
+    uint32_t value;
+    size_t i;
+    int ret = 0;
+
+    if (((WT_GLIKEY_CTRL_1(base) & WT_GLIKEY_CTRL_1_SFR_LOCK_MASK) >>
+            WT_GLIKEY_CTRL_1_SFR_LOCK_SHIFT) != WT_GLIKEY_SFR_UNLOCKED) {
+        ret = -1;
+    }
+    if (ret == 0) {
+        WT_GLIKEY_CTRL_0(base) |= WT_GLIKEY_CTRL_0_SFT_RST;
+        WT_GLIKEY_CTRL_0(base) = (index & WT_GLIKEY_CTRL_0_INDEX_MASK) |
+                                 (1u << WT_GLIKEY_CTRL_WR_EN_SHIFT);
+        WT_GLIKEY_CTRL_1(base) &= ~WT_GLIKEY_CTRL_WR_EN_MASK;
+    }
+    for (i = 0u; ret == 0 && i < sizeof(codewords) / sizeof(codewords[0]);
+         ++i) {
+        /* The top byte selects the control register the 2-bit step lands in. */
+        if ((codewords[i] >> 24) == WT_GLIKEY_CODEWORD_SEL_CTRL_1) {
+            value = ((codewords[i] >> 16) & 0x3u) << WT_GLIKEY_CTRL_WR_EN_SHIFT;
+            WT_GLIKEY_CTRL_1(base) = (WT_GLIKEY_CTRL_1(base) &
+                                      ~WT_GLIKEY_CTRL_WR_EN_MASK) | value;
+        }
+        else {
+            value = (codewords[i] & 0x3u) << WT_GLIKEY_CTRL_WR_EN_SHIFT;
+            WT_GLIKEY_CTRL_0(base) = (WT_GLIKEY_CTRL_0(base) &
+                                      ~WT_GLIKEY_CTRL_WR_EN_MASK) | value;
+        }
+        if ((WT_GLIKEY_STATUS(base) & WT_GLIKEY_STATUS_ERROR_MASK) != 0u) {
+            ret = -1;
+        }
+    }
+    if (ret == 0 && (WT_GLIKEY_STATUS(base) >> WT_GLIKEY_STATUS_FSM_SHIFT) !=
+            WT_GLIKEY_FSM_WR_EN) {
+        ret = -1;
+    }
+    return ret;
+}
+
+/* Reset leaves AHBSC0 secure checking off, so no memory or peripheral rule is
+ * enforced until MISC_CTRL (and its duplicate) turn it on behind GLIKEY0. */
+static int wt_ahbsc_enable_checking(void)
+{
+    uint32_t misc;
+    uint32_t misc_dp;
+    int ret;
+
+    WT_AHBSC0_AHB_PERIPHERAL0_SLAVE_RULE1 &= ~WT_AHBSC0_RULE_LP_FLEXCOMM0_MASK;
+    ret = wt_glikey_write_enable(WT_GLIKEY0_BASE_S,
+                                 WT_GLIKEY0_INDEX_MISC_CTRL);
+    if (ret == 0) {
+        WT_AHBSC_MISC_CTRL_REG(WT_AHBSC0_BASE_S) =
+            (WT_AHBSC_MISC_CTRL_REG(WT_AHBSC0_BASE_S) &
+             ~WT_AHBSC_MISC_CTRL_CHECK_MASK) | WT_AHBSC_MISC_CTRL_CHECK_ON;
+        WT_AHBSC_MISC_CTRL_DP_REG(WT_AHBSC0_BASE_S) =
+            (WT_AHBSC_MISC_CTRL_DP_REG(WT_AHBSC0_BASE_S) &
+             ~WT_AHBSC_MISC_CTRL_CHECK_MASK) | WT_AHBSC_MISC_CTRL_CHECK_ON;
+    }
+    WT_GLIKEY_CTRL_0(WT_GLIKEY0_BASE_S) |= WT_GLIKEY_CTRL_0_SFT_RST;
+    wt_dsb();
+    wt_isb();
+    misc = WT_AHBSC_MISC_CTRL_REG(WT_AHBSC0_BASE_S);
+    misc_dp = WT_AHBSC_MISC_CTRL_DP_REG(WT_AHBSC0_BASE_S);
+    if (ret == 0 &&
+            ((misc & WT_AHBSC_MISC_CTRL_CHECK_MASK) !=
+                 WT_AHBSC_MISC_CTRL_CHECK_ON ||
+             (misc_dp & WT_AHBSC_MISC_CTRL_CHECK_MASK) !=
+                 WT_AHBSC_MISC_CTRL_CHECK_ON)) {
+        ret = -1;
+    }
+    return ret;
+}
+
 void wt_platform_init(void)
 {
     size_t i;
     uint32_t* src;
     uint32_t* dst;
 
-    /* Pin the Secure runtime bank (P11) and the RAM code band (first rule of
-     * P12) Secure-only at the fabric before staging the band, so no
-     * Non-secure master can rewrite code the Secure side will run. The band
-     * is written through the Secure data alias of its execution address. */
+    /* Mark the Secure runtime bank (P11) and the RAM code band (first rule of
+     * P12) Secure-only at the fabric, as NXP's TrustZone setup does; not yet
+     * proven to stop other bus masters. The band is written through the
+     * Secure data alias of its execution address. */
     for (i = 0u; i < 4u; ++i) {
         WT_AHBSC0_SRAM11_RULE(i) = WT_AHBSC_RULE_ALL_SECURE;
     }
@@ -166,6 +244,10 @@ void wt_platform_init(void)
     wt_arch_init();
     wt_arch_zero_guest_memory(WT_GUEST0_RAM_BASE, WT_GUEST_RAM_SIZE);
     wt_arch_zero_guest_memory(WT_GUEST1_RAM_BASE, WT_GUEST_RAM_SIZE);
+    /* Checking keeps the guests off the fabric's own rule registers. */
+    if (wt_ahbsc_enable_checking() != 0) {
+        wt_platform_panic();
+    }
     g_secure_service_depth = 0u;
     g_hsm_wait_skip_count = 0u;
 }
@@ -182,41 +264,13 @@ void wt_platform_launch_debug(int code, uint32_t guest)
 }
 #endif
 
-/* Fabric curtain, the GTZC twin: AHBSC0 RAM partition 10 is exactly the two
- * 256 KiB guest windows. Close it to Secure-only, then open the dispatched
- * guest's writable windows one 16 KiB rule field at a time. */
+/* The fabric filter is not claimed, so no guest with a writable window binds
+ * and there is no per-dispatch fabric state to program. */
 void wt_platform_program_memory_windows(const wt_memory_window_t* windows,
                                         size_t count)
 {
-    uintptr_t extent_base = WT_PLATFORM_GUEST_STACK_WINDOW_BASE;
-    uintptr_t extent_end = extent_base + WT_PLATFORM_GUEST_STACK_WINDOW_SIZE;
-    size_t i;
-    size_t w;
-
-    for (i = 0u; i < 4u; ++i) {
-        WT_AHBSC0_SRAM10_RULE(i) = WT_AHBSC_RULE_ALL_SECURE;
-    }
-    for (w = 0u; windows != NULL && w < count; ++w) {
-        uintptr_t base = windows[w].base;
-        uintptr_t end = base + windows[w].size;
-        size_t block;
-        size_t first;
-        size_t last;
-
-        if ((windows[w].attributes & WT_MEM_ATTR_WRITE) == 0u ||
-                base < extent_base || end > extent_end || end <= base) {
-            continue;
-        }
-        first = (base - extent_base) / WT_AHBSC_RULE_BLOCK;
-        last = (end - extent_base + (WT_AHBSC_RULE_BLOCK - 1u)) /
-               WT_AHBSC_RULE_BLOCK;
-        for (block = first; block < last; ++block) {
-            WT_AHBSC0_SRAM10_RULE(block / 8u) &=
-                ~(0x3u << (4u * (block % 8u)));
-        }
-    }
-    wt_dsb();
-    wt_isb();
+    (void)windows;
+    (void)count;
 }
 
 extern char _e_secure_text[];
