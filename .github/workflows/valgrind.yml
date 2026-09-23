@@ -15,6 +15,8 @@ jobs:
     name: Host tests (Valgrind)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    container:
+      image: ghcr.io/wolfssl/wolftrust-ci:latest
     steps:
       - uses: actions/checkout@v4
       - name: Initialize test dependencies
@@ -22,12 +24,5 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://github.com/".insteadOf git@github.com:
           git submodule update --init --recursive
-      - name: Install Valgrind
-        run: |
-          sudo apt-get update \
-            -o Dir::Etc::sourcelist="sources.list.d/ubuntu.sources" \
-            -o Dir::Etc::sourceparts="-" \
-            -o APT::Get::List-Cleanup="0"
-          sudo apt-get install -y --no-install-recommends valgrind
       - name: Run aggregate host suite under Valgrind
         run: make test-valgrind

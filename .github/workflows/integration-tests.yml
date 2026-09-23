@@ -18,6 +18,8 @@ jobs:
     name: wolfCOSE integration (${{ matrix.name }})
     needs: resolve
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftrust-ci:latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -36,8 +38,6 @@ jobs:
           git -C lib/wolfSSL checkout --detach FETCH_HEAD
       - name: Build wolfSSL
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends automake libtool
           cd lib/wolfSSL
           ./autogen.sh
           ./configure --enable-cryptonly --enable-ecc \
@@ -54,6 +54,8 @@ jobs:
     name: wolfPSA integration (${{ matrix.name }})
     needs: resolve
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftrust-ci:latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -83,8 +85,6 @@ jobs:
               "$GITHUB_WORKSPACE/lib/wolfPSA/user_settings.h" \
               > "$wolfpsa_settings/user_settings.h"
           fi
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends automake libtool
           cd lib/wolfSSL
           ./autogen.sh
           ./configure --enable-shared --enable-psa --enable-pkcallbacks \
