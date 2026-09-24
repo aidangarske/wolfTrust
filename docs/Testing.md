@@ -189,7 +189,8 @@ wolfBoot is `WOLFBOOT_REF` built from `config/examples/imx-rt700-tz.config`
 linked at the NOR base, the same offset the wolfBoot emulator tests use, so
 building it needs the MCUXpresso SDK or DFP like any RT700 wolfBoot build;
 set `RT700_WOLFBOOT_DIR` to reuse an existing one (the runner stops if that
-tree has no `wolfboot.bin`, rather than replace it). Both scenarios end on the
+tree has no `wolfboot.bin`, rather than replace it). `WT_ENGINE` selects the
+crypto engine as for any build. Both scenarios end on the
 emulator's wall-clock budget because the guests idle once done; M33MU reports
 that as exit status 127 and the checks judge the run.
 
@@ -301,7 +302,7 @@ lifecycles, both crypto engines, and every scenario) runs on every pull
 request, on a push to `master`, `main`, or `wolfTrust-dev`, on the nightly
 schedule, and on manual dispatch. Every PR gets the full emulator matrix
 automatically — no label or opt-in step. The same workflow carries the two
-MIMXRT700 emulator scenarios as `RT700` checks.
+MIMXRT700 emulator scenarios as `RT700` checks, once per crypto engine.
 
 ### Running M33MU off a pull request
 

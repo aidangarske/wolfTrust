@@ -331,17 +331,20 @@ jobs:
         run: tests/target/run_m33mu_scenario.sh ${{ matrix.scenario.key }}
 
   wolfboot-wolftrust-rt700-m33mu:
-    name: RT700 ${{ matrix.scenario.name }}
+    name: RT700 ${{ matrix.scenario.name }} (${{ matrix.engine }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        engine: [native, hsm]
         scenario:
           - { key: positive, name: "positive lifecycle (SAU guest windows)" }
           - { key: ahbscneg, name: "cross-guest store faults and is contained" }
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25
+    env:
+      WT_ENGINE: ${{ matrix.engine }}
     steps:
       - uses: actions/checkout@v4
 
