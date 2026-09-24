@@ -140,23 +140,27 @@ IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x40000 WOLFBOOT_SECTOR_SIZE=0x10
     "$wolfboot_dir/wolfboot_signing_private_key.der" 1
 [ -s build/wolftrust_v1_signed.bin ] || fail "signing produced no image"
 
-# The guests idle forever once done, so every boot ends on the wall-clock
-# budget, which M33MU reports as 127; the checks judge the run itself.
+# The guests idle forever once done, so a console boot ends on the wall-clock
+# budget (M33MU status 127) and a --quit-on-faults boot at the fault (0).
 boot_chain() {
-    local out="$1"
-    shift
+    local want="$1"
+    local out="$2"
+    local status
+    shift 2
     set +e
     "$M33MU" --cpu imxrt700 "$wolfboot_dir/wolfboot.bin" \
         build/wolftrust_v1_signed.bin:0x40000 \
         "$guest_build/guest0.bin:0x80000" \
         "$guest_build/guest1.bin:0x100000" \
         --timeout "$timeout_s" "$@" > "$out" 2>&1
-    log "M33MU exit status: $? (127 = wall-clock budget, the expected end)"
+    status=$?
     set -e
+    check "$([ "$status" -eq "$want" ]; echo $?)" \
+        "M33MU exited with status $want (got $status)"
 }
 
 stage "boot the chain under M33MU (--cpu imxrt700, ${timeout_s}s budget)"
-boot_chain "$log" --uart-stdout
+boot_chain 127 "$log" --uart-stdout
 
 expect "wolfBoot brought up the SoC" "wolfBoot HAL init: MIMXRT798S"
 expect "wolfBoot verified the wolfTrust image signature" "Verifying signature...done"
@@ -196,7 +200,7 @@ case "$scenario" in
     # is deterministic, so that is guest0's first store.
     stage "boot again with the protection-unit trace, stopping at the first fault"
     log="$repo/build/rt700_m33mu_${scenario}_trace.log"
-    M33MU_PROT_TRACE=1 boot_chain "$log" --quit-on-faults
+    M33MU_PROT_TRACE=1 boot_chain 0 "$log" --quit-on-faults
     expect "the traced run stopped at a delivered fault" "Execution stopped"
     refused="\[MEMFAULT_CAUSE\] sec=NS type=WRITE addr=$probe_addr reason=secure-attr"
     expect_n_re "the fault was guest0's store into guest1's RAM, refused as Secure" \

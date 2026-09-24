@@ -192,7 +192,8 @@ set `RT700_WOLFBOOT_DIR` to reuse an existing one (the runner stops if that
 tree has no `wolfboot.bin`, rather than replace it). `WT_ENGINE` selects the
 crypto engine as for any build. Both scenarios end on the
 emulator's wall-clock budget because the guests idle once done; M33MU reports
-that as exit status 127 and the checks judge the run.
+that as exit status 127, the traced `ahbscneg` boot stops at the fault with
+status 0, and any other status fails the run.
 
 These are emulator results. They prove the SAU attribution and the monitor's
 containment on a faithful core model; the silicon `ahbscneg` run on the EVK is
