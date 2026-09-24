@@ -21,7 +21,7 @@ include mk/common.mk
 
 .DEFAULT_GOAL := all
 
-.PHONY: all secure-image size-report test c99-check test-conformance test-target test-hardware fetch-psa-ff-tests \
+.PHONY: all secure-image size-report test c99-check test-conformance test-target test-target-rt700 test-hardware fetch-psa-ff-tests \
 		clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
 		test-domain-host test-domain-compilers test-domain-sanitize \
 		test-domain-valgrind test-manifest-host test-manifest-compilers \
@@ -72,6 +72,12 @@ test-target:
 	else \
 		tests/target/run_suite.sh m33mu positive restart crossdomain confboot; \
 	fi
+
+# i.MX RT700 emulator scenarios (M33MU --cpu imxrt700): the SAU guest-window
+# positive lifecycle and the cross-guest isolation negative. Builds its own
+# pinned emulator and wolfBoot first stage (tests/target/run_rt700_m33mu.sh).
+test-target-rt700:
+	@tests/target/run_suite.sh rt700-m33mu positive ahbscneg
 
 # Real STM32H563 hardware equivalence suite: positive lifecycle + restart
 # recovery + cross-domain isolation on a Nucleo-H563ZI, the on-silicon
