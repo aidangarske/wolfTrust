@@ -4,15 +4,14 @@
 WT_CPU ?= cortex-m33
 PORT_DIR := $(ROOT)/port/mimxrt700
 PORT_HEADERS := $(wildcard $(PORT_DIR)/*.h)
-TARGET_CONF_DIR := $(PORT_DIR)/conformance
 
 ifeq ($(WT_CONFORMANCE),1)
-MANIFEST_INPUT := $(PORT_DIR)/manifest-conformance.json
-else ifeq ($(CONFIG_VNET),y)
-MANIFEST_INPUT := $(PORT_DIR)/manifest-vnet.json
-else
-MANIFEST_INPUT := $(PORT_DIR)/manifest.json
+$(error TARGET=mimxrt700 has no conformance manifest; build with WT_CONFORMANCE=0)
 endif
+ifeq ($(CONFIG_VNET),y)
+$(error TARGET=mimxrt700 has no SERVICE_VNET manifest; build with CONFIG_VNET=n)
+endif
+MANIFEST_INPUT := $(PORT_DIR)/manifest.json
 
 # Guests share LPUART0 (LP_FLEXCOMM0), the EVK MCU-Link VCOM console.
 WT_SHARED_UART ?= 0

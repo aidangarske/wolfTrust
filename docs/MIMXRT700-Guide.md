@@ -27,6 +27,11 @@ Read the current state first and keep a development board recoverable.
   a guest with its Non-secure MPU disabled write the other guest's RAM). The
   silicon `ahbscneg` run is the remaining step before the isolation claim rests
   on board evidence as well.
+- **Not yet ported:** firmware update, conformance, and `SERVICE_VNET`.
+  `SERVICE_FWU` is in the manifest, but its begin, write, arm, disarm, and
+  verify operations return `WH_ERROR_NOTIMPL` until arming the wolfBoot update
+  trailer is ported. The target has no conformance or VNET manifest, so
+  `WT_CONFORMANCE=1` and `CONFIG_VNET=y` stop the build with an error.
 
 Record emulator, cross-build, and physical-board evidence separately: M33MU's
 RT700 model gives emulator evidence, the EVK gives silicon evidence, and
