@@ -37,51 +37,62 @@ int wolftrust_rng_generate_block_direct(unsigned char *output,
 
 static bool s_rng_ready;
 
-static int wt_trng_init(void)
+/* A latched ERR voids the source even while an older page is still valid. */
+static int wt_trng_wait_page(void)
 {
     uint32_t spins = 0u;
+    uint32_t mctl = WT_TRNG_MCTL;
 
-    /* Leave the ROM's ring-oscillator tuning in place; a generation is
-     * requested by dropping PRGM and waiting for the entropy-valid flag. */
-    WT_TRNG_MCTL &= ~WT_TRNG_MCTL_PRGM;
-    while ((WT_TRNG_MCTL & WT_TRNG_MCTL_ENT_VAL) == 0u) {
-        if ((WT_TRNG_MCTL & WT_TRNG_MCTL_ERR) != 0u ||
-                ++spins > WT_TRNG_ENT_SPINS) {
-            return -1;
-        }
+    while ((mctl & (WT_TRNG_MCTL_ENT_VAL | WT_TRNG_MCTL_ERR)) == 0u &&
+            spins < WT_TRNG_ENT_SPINS) {
+        ++spins;
+        mctl = WT_TRNG_MCTL;
+    }
+    if ((mctl & WT_TRNG_MCTL_ERR) != 0u ||
+            (mctl & WT_TRNG_MCTL_ENT_VAL) == 0u) {
+        return -1;
     }
     return 0;
 }
 
+static int wt_trng_init(void)
+{
+    /* Leave the ROM's ring-oscillator tuning in place; a generation is
+     * requested by dropping PRGM and waiting for the entropy-valid flag. */
+    WT_TRNG_MCTL &= ~WT_TRNG_MCTL_PRGM;
+    return wt_trng_wait_page();
+}
+
+/* Every page is read whole: reading its last word starts the next
+ * generation, so words a request does not use are dropped, never served to
+ * a later request. */
 static int wt_trng_fill(unsigned char *output, unsigned int sz)
 {
+    uint32_t page[WT_TRNG_ENT_COUNT];
+    volatile uint32_t* wipe = page;
     unsigned int done = 0u;
-    uint32_t index = 0u;
-    uint32_t word;
-    uint32_t spins;
     unsigned int chunk;
+    unsigned int i;
+    int ret = 0;
 
-    while (done < sz) {
-        if (index == 0u) {
-            spins = 0u;
-            while ((WT_TRNG_MCTL & WT_TRNG_MCTL_ENT_VAL) == 0u) {
-                if ((WT_TRNG_MCTL & WT_TRNG_MCTL_ERR) != 0u ||
-                        ++spins > WT_TRNG_ENT_SPINS) {
-                    return -1;
-                }
+    while (ret == 0 && done < sz) {
+        ret = wt_trng_wait_page();
+        if (ret == 0) {
+            for (i = 0u; i < WT_TRNG_ENT_COUNT; ++i) {
+                page[i] = WT_TRNG_ENT(i);
             }
+            chunk = sz - done;
+            if (chunk > (unsigned int)sizeof(page)) {
+                chunk = (unsigned int)sizeof(page);
+            }
+            (void)memcpy(output + done, page, chunk);
+            done += chunk;
         }
-        word = WT_TRNG_ENT(index);
-        chunk = sz - done;
-        if (chunk > sizeof(word)) {
-            chunk = sizeof(word);
-        }
-        (void)memcpy(output + done, &word, chunk);
-        done += chunk;
-        /* Reading the last word restarts the generation, clearing ENT_VAL. */
-        index = (index + 1u) % WT_TRNG_ENT_COUNT;
     }
-    return 0;
+    for (i = 0u; i < WT_TRNG_ENT_COUNT; ++i) {
+        wipe[i] = 0u;
+    }
+    return ret;
 }
 
 int wolftrust_rng_generate_block_direct(unsigned char *output, unsigned int sz)
