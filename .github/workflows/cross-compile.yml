@@ -77,3 +77,10 @@ jobs:
         run: make TARGET=stm32h563 WT_ENGINE=hsm secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_hsm
       - name: Build the native-engine secure image (WT_ENGINE=native)
         run: make TARGET=stm32h563 WT_ENGINE=native secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_native
+      - name: Build the MIMXRT700 secure image (both engines, wolfBoot header)
+        run: |
+          for engine in native hsm; do
+            make TARGET=mimxrt700 WT_ENGINE=$engine WT_ATTEST_COSE=0 \
+              WT_SECURE_IMAGE_HEADER_SIZE=0x400 secure-image \
+              TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_rt700_$engine
+          done
