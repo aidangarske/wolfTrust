@@ -556,6 +556,7 @@ int wt_xspi_nor_erase(uint32_t address, uint32_t size)
 int wt_xspi_nor_program(uint32_t address, const uint8_t* data, uint32_t size)
 {
     uint8_t* page = (uint8_t*)g_wt_xspi_page;
+    volatile uint32_t* wipe = g_wt_xspi_page;
     uint32_t done = 0u;
     uint32_t chunk;
     uint32_t i;
@@ -581,6 +582,10 @@ int wt_xspi_nor_program(uint32_t address, const uint8_t* data, uint32_t size)
         rc = wt_xspi_nor_program_ram(address + done, g_wt_xspi_page, chunk);
         wt_xspi_irq_restore(primask);
         done += chunk;
+    }
+    /* The page can hold keystore records; do not leave it in Secure RAM. */
+    for (i = 0u; i < WT_XSPI_NOR_PAGE / sizeof(uint32_t); i++) {
+        wipe[i] = 0u;
     }
     return rc;
 }
