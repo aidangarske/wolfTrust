@@ -85,9 +85,11 @@ static void guest0_fabric_probe(volatile wt_guest0_mailbox_t* mb)
     volatile uint32_t* target = (volatile uint32_t*)GUEST_PROBE_ADDR;
     uint32_t readback;
 
-    mb->probe = GUEST0_PROBE_ATTEMPTED;
     GUEST0_MPU_CTRL = 0u;
     __asm volatile("dsb\n isb" ::: "memory");
+    /* Latched only once the MPU is off, so 1 means the peer store was issued. */
+    mb->probe = GUEST0_PROBE_ATTEMPTED;
+    __asm volatile("dsb" ::: "memory");
     *target = GUEST_PROBE_VALUE;
     __asm volatile("dsb" ::: "memory");
     readback = *target;
