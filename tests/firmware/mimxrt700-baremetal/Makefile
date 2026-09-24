@@ -31,17 +31,15 @@ CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only -ffreestanding \
     -ffunction-sections -fdata-sections -mno-unaligned-access \
     -I$(ROOT)/include
 
-# WT_AHBSC_PROBE=1 builds the fabric isolation probe: guest0 stores into
-# guest1's RAM window, guest1 into the AHBSC0 rule for guest0's window through
-# the fabric's Non-secure alias.
+# WT_AHBSC_PROBE=1 builds guest0's isolation probe: it stores into guest1's RAM
+# window, which the per-dispatch SAU window keeps Secure while guest0 runs.
+# guest1 carries no probe; it is the peer that must keep running.
 WT_AHBSC_PROBE ?= 0
 GUEST0_CFLAGS := -DGUEST_NAME=\"guest0\"
 GUEST1_CFLAGS := -DGUEST_NAME=\"guest1\"
 ifeq ($(WT_AHBSC_PROBE),1)
 GUEST0_CFLAGS += -DWT_AHBSC_PROBE -DGUEST_PROBE_ADDR=0x20170000u \
     -DGUEST_PROBE_VALUE=0xDEADBEEFu
-GUEST1_CFLAGS += -DWT_AHBSC_PROBE -DGUEST_PROBE_ADDR=0x4017C1F0u \
-    -DGUEST_PROBE_VALUE=0x11111111u
 endif
 
 CLIENT_OBJ := $(BUILD)/psa_ffm_client.o

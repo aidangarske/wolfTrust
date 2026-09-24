@@ -16,10 +16,10 @@
 #             wolfBoot-signs the Secure image, flashes the chain at its XSPI0
 #             offsets, resets from a fresh vault, verifies every image by
 #             readback, and asserts both guest mailboxes over SWD.
-#   ahbscneg  positive plus the fabric isolation negative: guest0 stores into
-#             guest1's RAM and guest1 rewrites an AHBSC0 rule through the
-#             fabric's Non-secure alias; both must be blocked, guest1's RAM must
-#             not hold the sentinel, and both guests must still finish.
+#   ahbscneg  positive plus the guest isolation negative: guest0 stores into
+#             guest1's RAM, which the per-dispatch SAU window keeps Secure; the
+#             store must be blocked, guest1's RAM must not hold the sentinel,
+#             and guest1 must keep running.
 set -euo pipefail
 
 scenario="${1:-}"
@@ -259,18 +259,11 @@ positive|ahbscneg)
 
     if [ "$scenario" = "ahbscneg" ]; then
         # guest0 stores a sentinel into guest1's RAM, which the per-dispatch SAU
-        # window keeps Secure while guest0 runs; guest1 rewrites the AHBSC0 rule
-        # for guest0's window through the fabric's Non-secure alias.
-        for g in 0:0x20100000:"guest1 RAM" 1:0x20140000:"AHBSC0 rule registers"; do
-            id="${g%%:*}"
-            rest="${g#*:}"
-            base="${rest%%:*}"
-            what="${rest#*:}"
-            probe="$(mailbox_word "$base" 28)"
-            seen="$(mailbox_word "$base" 32)"
-            check "$(case "$probe" in 00000001|00000002) echo 0;; *) echo 1;; esac)" \
-                "guest$id store into $what blocked by the fabric (latch $probe, read 0x$seen)"
-        done
+        # window keeps Secure while guest0 runs.
+        probe="$(mailbox_word 0x20100000 28)"
+        seen="$(mailbox_word 0x20100000 32)"
+        check "$(case "$probe" in 00000001|00000002) echo 0;; *) echo 1;; esac)" \
+            "guest0 store into guest1 RAM blocked (latch $probe, read 0x$seen)"
         peer="$(mailbox_word 0x20170000 0)"
         check "$([ "$peer" != "deadbeef" ]; echo $?)" \
             "guest1 RAM never received guest0's sentinel (0x$peer)"

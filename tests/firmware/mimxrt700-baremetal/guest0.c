@@ -71,10 +71,9 @@ __attribute__((section(".shared"), used))
 volatile wt_guest0_mailbox_t g_guest0_mailbox;
 
 #if defined(WT_AHBSC_PROBE)
-/* Fabric isolation probe: GUEST_PROBE_ADDR is memory the AHBSC must keep from
- * this guest (the peer guest's RAM, or the fabric's own rule registers through
- * their Non-secure alias). A privileged guest can switch off the Non-secure MPU
- * wolfTrust programs for it, so the fabric alone must stop the store. Latch:
+/* Isolation probe: GUEST_PROBE_ADDR is the peer guest's RAM, Secure to the SAU
+ * while this guest runs. A privileged guest can switch off the Non-secure MPU
+ * wolfTrust programs for it, so attribution alone must stop the store. Latch:
  * 1 attempted (the store faulted), 2 blocked, 3 leaked. */
 #define GUEST0_MPU_CTRL          (*(volatile uint32_t*)0xE000ED94u)
 #define GUEST0_PROBE_ATTEMPTED   1u
