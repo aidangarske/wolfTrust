@@ -134,6 +134,17 @@ erase_range() {
         -s "$range" >/dev/null 2>&1 || fail "erase of $range failed"
 }
 
+# SRAM survives a warm reset, so the last run's mailboxes and sentinel would
+# otherwise read back as this run's result if the chain never reached a guest.
+clear_mailboxes() {
+    park_core
+    timeout 60 pyocd cmd -t "$target" -O resume_on_disconnect=false \
+        -c "write32 0x20100000 0 0 0 0 0 0 0 0 0 0" \
+        -c "write32 0x20140000 0 0 0 0 0 0 0 0 0 0" \
+        -c "write32 0x20170000 0" >/dev/null 2>&1 || \
+        fail "could not clear the guest mailboxes"
+}
+
 # Parking leaves the reset vector catch armed; a resuming reset clears it so
 # the warm reset below boots the chain instead of halting in the BootROM.
 reset_board() {
@@ -184,6 +195,7 @@ run_chain() {
     flash_at "$guest1_flash_addr" "$guest_build/guest1.bin"
     stage "erase the wolfHSM NVM store so the run starts from a fresh vault"
     erase_range "$(printf '0x%08x-0x%08x' "$hsm_nvm_addr" $((hsm_nvm_addr + hsm_nvm_size)))"
+    clear_mailboxes
 
     reset_board
     sleep 2
@@ -246,9 +258,9 @@ positive|ahbscneg)
     done
 
     if [ "$scenario" = "ahbscneg" ]; then
-        # guest0 stores a sentinel into guest1's RAM; guest1 rewrites the AHBSC0
-        # rule for guest0's window through the fabric's Non-secure alias. Both
-        # windows are Non-secure to the SAU, so only the fabric can stop them.
+        # guest0 stores a sentinel into guest1's RAM, which the per-dispatch SAU
+        # window keeps Secure while guest0 runs; guest1 rewrites the AHBSC0 rule
+        # for guest0's window through the fabric's Non-secure alias.
         for g in 0:0x20100000:"guest1 RAM" 1:0x20140000:"AHBSC0 rule registers"; do
             id="${g%%:*}"
             rest="${g#*:}"
@@ -262,6 +274,17 @@ positive|ahbscneg)
         peer="$(mailbox_word 0x20170000 0)"
         check "$([ "$peer" != "deadbeef" ]; echo $?)" \
             "guest1 RAM never received guest0's sentinel (0x$peer)"
+        # Containment means the peer keeps running, not only that the mailboxes
+        # were written before the probes: an all-guests-faulted monitor also
+        # idles in thread mode.
+        beat1="$(mailbox_word 0x20140000 36)"
+        sleep 1
+        beat2="$(mailbox_word 0x20140000 36)"
+        check "$([ -n "$beat1" ] && [ "$beat1" != "$beat2" ]; echo $?)" \
+            "guest1 still running after guest0's faults (beat 0x$beat1 -> 0x$beat2)"
+        g0beat="$(mailbox_word 0x20100000 36)"
+        check "$([ "$g0beat" = "00000000" ]; echo $?)" \
+            "guest0 never got past its probe store (beat 0x$g0beat)"
         ipsr="$(dap -c halt -c 'reg xpsr' -c go | sed -n 's/^xpsr = 0x\([0-9a-fA-F]*\).*/\1/p')"
         ipsr=$((0x${ipsr:-3} & 0x1ff))
         check "$([ "$ipsr" -lt 2 ] || [ "$ipsr" -gt 7 ]; echo $?)" \

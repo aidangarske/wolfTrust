@@ -64,6 +64,7 @@ typedef struct wt_guest0_mailbox {
     uint32_t console;
     uint32_t probe;
     uint32_t probe_read;
+    uint32_t beat;          /* advances while the guest idles once done */
 } wt_guest0_mailbox_t;
 
 __attribute__((section(".shared"), used))
@@ -185,6 +186,7 @@ void Reset_Handler(void)
     mb->console = GUEST0_LPUART0_VERID;
     mb->probe = 0u;
     mb->probe_read = 0u;
+    mb->beat = 0u;
 
     guest0_uart_puts("wolfTrust RT700 " GUEST_NAME ": start\r\n");
 
@@ -224,7 +226,7 @@ void Reset_Handler(void)
 #endif
 
     for (;;) {
-        __asm volatile("nop");
+        mb->beat++;
     }
 }
 
