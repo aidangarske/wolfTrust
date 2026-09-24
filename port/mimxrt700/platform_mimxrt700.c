@@ -138,7 +138,7 @@ int wt_platform_guest_flash_wrp_ok(uintptr_t window_base, size_t window_size)
 {
     (void)window_base;
     (void)window_size;
-    return 0;
+    return WT_GUEST_VERIFY_ERROR_WRP;
 }
 
 volatile void* wt_platform_boot_handoff_region(size_t* size)

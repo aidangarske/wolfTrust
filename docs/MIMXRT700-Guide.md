@@ -31,7 +31,9 @@ Read the current state first and keep a development board recoverable.
   `SERVICE_FWU` is in the manifest, but its begin, write, arm, disarm, and
   verify operations return `WH_ERROR_NOTIMPL` until arming the wolfBoot update
   trailer is ported. The target has no conformance or VNET manifest, so
-  `WT_CONFORMANCE=1` and `CONFIG_VNET=y` stop the build with an error.
+  `WT_CONFORMANCE=1` and `CONFIG_VNET=y` stop the build with an error. The
+  NOR guest-window write-protect check is not ported either, so a
+  `WT_GUEST_FLASH_WRP=1` build refuses to launch any guest.
 
 Record emulator, cross-build, and physical-board evidence separately: M33MU's
 RT700 model gives emulator evidence, the EVK gives silicon evidence, and
