@@ -184,8 +184,9 @@
 #define WT_XSPI_CMD_DDR        0x11u
 #define WT_XSPI_PAD_8          0x03u
 
-/* CACHE64_CTRL0 sits in the XSPI0 read path; flush it after NOR changes. */
-#define WT_CACHE64_CTRL0_CCR   WT_REG32(0x50035000u)
+/* CACHE64_CTRL0 sits in the XSPI0 read path; flush it after NOR changes. Its
+ * base is shared with CACHE64_POLSEL0, so CCR is at +0x800. */
+#define WT_CACHE64_CTRL0_CCR   WT_REG32(0x50035800u)
 #define WT_CACHE64_CCR_INVW0   0x01000000u
 #define WT_CACHE64_CCR_INVW1   0x04000000u
 #define WT_CACHE64_CCR_GO      0x80000000u
