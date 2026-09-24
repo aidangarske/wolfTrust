@@ -160,25 +160,30 @@ expect "wolfBoot verified the wolfTrust image signature" "Verifying signature...
 refute_re "wolfTrust never panicked (bkpt 0x7e)" '\[BKPT\] imm=0x7e'
 refute_re "the monitor never lost every guest (bkpt 0x7d)" '\[BKPT\] imm=0x7d'
 refute_re "no HardFault escalation" '\[HARDFLT\]'
-refute_re "no guest reported a failed FF-M handshake" 'guest0: FAIL'
+refute_re "no guest reported a failed FF-M handshake" 'guest[01]: FAIL'
 expect "the run ended on the wall-clock budget, not a trap" "wall-clock limit"
 
 # A guest fault relaunches that guest, so exact launch counts also prove that
 # nothing faulted where nothing should have.
 case "$scenario" in
   positive)
-    expect_n "both guests launched exactly once (no fault, no relaunch)" 2 \
-        "wolfTrust RT700 guest0: start"
-    expect_n "both guests reached the SPM through the SG veneers and finished" 2 \
-        "wolfTrust RT700 guest0: FF-M connect ok, done"
+    for guest in guest0 guest1; do
+        expect_n "$guest launched exactly once (no fault, no relaunch)" 1 \
+            "wolfTrust RT700 $guest: start"
+        expect_n "$guest reached the SPM through the SG veneers and finished" 1 \
+            "wolfTrust RT700 $guest: FF-M connect ok, done"
+    done
     ;;
   ahbscneg)
     faults=$((restart_limit + 1))
-    launches=$((faults + 1))
-    expect_n "guest0 relaunched through its restart budget, guest1 launched once" \
-        "$launches" "wolfTrust RT700 guest0: start"
-    expect_n "every launch completed the FF-M handshake before probing" \
-        "$launches" "wolfTrust RT700 guest0: FF-M connect ok, done"
+    expect_n "guest0 relaunched through its restart budget" \
+        "$faults" "wolfTrust RT700 guest0: start"
+    expect_n "every guest0 launch completed the FF-M handshake before probing" \
+        "$faults" "wolfTrust RT700 guest0: FF-M connect ok, done"
+    expect_n "guest1 launched once, untouched by guest0's faults" 1 \
+        "wolfTrust RT700 guest1: start"
+    expect_n "guest1 completed the FF-M handshake" 1 \
+        "wolfTrust RT700 guest1: FF-M connect ok, done"
 
     # The launch count above shows every attempt faulted; why it faulted comes
     # from M33MU's protection-unit trace, which names the attribution behind a

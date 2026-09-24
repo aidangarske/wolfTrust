@@ -34,6 +34,11 @@
 #define GUEST0_SERVICE_HSM_SID   4102u
 #define GUEST0_SERVICE_VERSION   1u
 
+/* One source builds both guests; the Makefile names each on the console. */
+#ifndef GUEST_NAME
+#error "GUEST_NAME must name the guest"
+#endif
+
 /* SWD-readable status words at the base of the guest RAM window. */
 #define GUEST0_SIGNATURE         0x47543030u   /* debugger tag, "guest0 ran" */
 #define GUEST0_STATUS_RUNNING    0x00000000u
@@ -181,7 +186,7 @@ void Reset_Handler(void)
     mb->probe = 0u;
     mb->probe_read = 0u;
 
-    guest0_uart_puts("wolfTrust RT700 guest0: start\r\n");
+    guest0_uart_puts("wolfTrust RT700 " GUEST_NAME ": start\r\n");
 
     fw = psa_framework_version();
     mb->framework = fw;
@@ -206,11 +211,12 @@ void Reset_Handler(void)
 
     if (ok != 0) {
         mb->status = GUEST0_STATUS_DONE;
-        guest0_uart_puts("wolfTrust RT700 guest0: FF-M connect ok, done\r\n");
+        guest0_uart_puts("wolfTrust RT700 " GUEST_NAME
+                         ": FF-M connect ok, done\r\n");
     }
     else {
         mb->status = GUEST0_STATUS_FAIL;
-        guest0_uart_puts("wolfTrust RT700 guest0: FAIL\r\n");
+        guest0_uart_puts("wolfTrust RT700 " GUEST_NAME ": FAIL\r\n");
     }
 
 #if defined(WT_AHBSC_PROBE)

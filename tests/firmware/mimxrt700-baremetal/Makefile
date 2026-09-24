@@ -35,8 +35,8 @@ CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only -ffreestanding \
 # guest1's RAM window, guest1 into the AHBSC0 rule for guest0's window through
 # the fabric's Non-secure alias.
 WT_AHBSC_PROBE ?= 0
-GUEST0_CFLAGS :=
-GUEST1_CFLAGS :=
+GUEST0_CFLAGS := -DGUEST_NAME=\"guest0\"
+GUEST1_CFLAGS := -DGUEST_NAME=\"guest1\"
 ifeq ($(WT_AHBSC_PROBE),1)
 GUEST0_CFLAGS += -DWT_AHBSC_PROBE -DGUEST_PROBE_ADDR=0x20170000u \
     -DGUEST_PROBE_VALUE=0xDEADBEEFu
