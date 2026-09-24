@@ -60,9 +60,9 @@ expect_n()  { local n; n="$(count "$3")"; \
 expect_n_re() { local n; n="$(count_re "$3")"; \
                 check "$([ "$n" -eq "$2" ]; echo $?)" "$1 ($n)"; }
 
-# --- The pinned M33MU with the RT700 model fix this chain needs: CPU0 is
-#     attributed by the SAU, not gated by the AHBSC SRAM rules. Drop the patch
-#     once M33MU_REF carries it. ---
+# --- The pinned M33MU with the model fix this chain needs: a Secure AHBSC
+#     SRAM rule keeps the SAU's NSC veneer band callable. Drop the patch once
+#     M33MU_REF carries it. ---
 if [ -n "${M33MU:-}" ] && [ -x "$M33MU" ]; then
   log "Using prebuilt M33MU: $M33MU"
 elif [ -x /tmp/m33mu_rt700_src/build/m33mu ]; then
