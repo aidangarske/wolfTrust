@@ -341,7 +341,7 @@ jobs:
           - { key: ahbscneg, name: "cross-guest store faults and is contained" }
     timeout-minutes: 45
     container:
-      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:latest
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25
     steps:
       - uses: actions/checkout@v4
 
@@ -355,6 +355,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: nxp-mcuxpresso/CMSIS_5
+          ref: f9cf5df6d51a95f0146930d75af3d71977cf795a
           path: CMSIS_5
 
       - name: Cache MCUXpresso SDK
@@ -371,8 +372,9 @@ jobs:
         run: |
           python3 -m venv venv
           . venv/bin/activate
-          pip install west
-          west init -m https://github.com/nxp-mcuxpresso/mcuxsdk-manifests.git mcuxpresso-sdk
+          pip install west==1.5.0
+          west init -m https://github.com/nxp-mcuxpresso/mcuxsdk-manifests.git \
+            --mr v26.06.00-LTS mcuxpresso-sdk
           cd mcuxpresso-sdk
           sed -i '/se_hostlib\|emwin/d' manifests/boards/mimxrt700evk.yml
           west update_board --set board mimxrt700evk
