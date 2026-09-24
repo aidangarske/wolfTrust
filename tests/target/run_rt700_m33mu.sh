@@ -87,6 +87,9 @@ fi
 #     start of the NOR, so wolfBoot links at the NOR base instead of
 #     0x28004000, the same override the wolfBoot emulator tests apply. ---
 if [ ! -s "$wolfboot_dir/wolfboot.bin" ]; then
+  if [ -n "${RT700_WOLFBOOT_DIR:-}" ]; then
+    fail "no wolfboot.bin in RT700_WOLFBOOT_DIR=$wolfboot_dir; build it there or unset it"
+  fi
   stage "build wolfBoot $WOLFBOOT_REF (imx-rt700-tz, emulator link offset)"
   rm -rf "$wolfboot_dir"
   git clone --no-checkout https://github.com/wolfSSL/wolfBoot.git "$wolfboot_dir"

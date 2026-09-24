@@ -188,7 +188,8 @@ code-RAM band.
 wolfBoot is `WOLFBOOT_REF` built from `config/examples/imx-rt700-tz.config`
 linked at the NOR base, the same offset the wolfBoot emulator tests use, so
 building it needs the MCUXpresso SDK or DFP like any RT700 wolfBoot build;
-set `RT700_WOLFBOOT_DIR` to reuse an existing one. Both scenarios end on the
+set `RT700_WOLFBOOT_DIR` to reuse an existing one (the runner stops if that
+tree has no `wolfboot.bin`, rather than replace it). Both scenarios end on the
 emulator's wall-clock budget because the guests idle once done; M33MU reports
 that as exit status 127 and the checks judge the run.
 
