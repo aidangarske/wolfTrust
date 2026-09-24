@@ -10,6 +10,14 @@ RT700_POWER_GPIO="${RT700_POWER_GPIO:-21}"
 RT700_POWER_OFF_SECONDS="${RT700_POWER_OFF_SECONDS:-2}"
 RT700_POWER_SETTLE_SECONDS="${RT700_POWER_SETTLE_SECONDS:-4}"
 
+# The GPIO number lands in a command the remote shell parses.
+case "$RT700_POWER_GPIO" in
+    ''|*[!0-9]*)
+        echo "RT700_POWER_GPIO must be a GPIO number, got '$RT700_POWER_GPIO'" >&2
+        exit 2
+        ;;
+esac
+
 gpio() {
     ssh -o BatchMode=yes -o ConnectTimeout=8 "$RT700_POWER_HOST" \
         "raspi-gpio $*"
