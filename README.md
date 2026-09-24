@@ -124,11 +124,14 @@ Common validation entry points:
 ```sh
 make test
 make test-target
+make test-target-rt700
 make test-conformance
 WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 make test-hardware
 ```
 
 `make test-target` skips explicitly when M33MU is unavailable.
+`make test-target-rt700` runs the MIMXRT700 chain under M33MU's RT700 model
+and builds its pinned emulator and wolfBoot first stage itself.
 `make test-conformance` instead runs its 20-test host subset and warns that it
 is not full emulator or hardware evidence. `make test-hardware` skips when
 board detection fails; on hosts without `lsusb`, a missing ST-Link can instead

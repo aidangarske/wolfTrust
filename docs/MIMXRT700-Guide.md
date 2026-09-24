@@ -14,15 +14,23 @@ Read the current state first and keep a development board recoverable.
   and the TrustZone measured handoff into a Secure payload), and the wolfTrust
   Secure image cross-build (`make TARGET=mimxrt700 secure-image`) with the port
   split, veneer, and manifest checks green.
-- **In bring-up:** Non-secure guests on the EVK. Both bare-metal guests booted
-  and completed their PSA calls through the veneers while the port claimed the
-  fabric filter, but the isolation negative (`ahbscneg`) then showed a guest can
-  write the other guest's RAM once it disables its own Non-secure MPU. The claim
-  is withdrawn, so wolfTrust now refuses the two-guest manifest (its writable
-  guest windows need the fabric filter) until guest RAM isolation is enforced.
+- **Validated in emulation:** the wolfTrust chain under M33MU's RT700 model
+  (`tests/target/run_rt700_m33mu.sh`, see Testing). wolfBoot verifies the
+  Secure image and both bare-metal guests launch and complete their PSA calls
+  through the veneers (`positive`); the isolation negative (`ahbscneg`) shows a
+  guest's store into the other guest's RAM refused by the SAU, contained by the
+  monitor, and the offender quarantined after its restart budget while the peer
+  keeps running.
+- **In bring-up:** the same two scenarios on the EVK. The port isolates guest
+  RAM with a per-dispatch SAU window, because the AHB secure controller's SRAM
+  rules do not gate CPU0 on this silicon (an earlier fabric-filter attempt let
+  a guest with its Non-secure MPU disabled write the other guest's RAM). The
+  silicon `ahbscneg` run is the remaining step before the isolation claim rests
+  on board evidence as well.
 
-Record emulator, cross-build, and physical-board evidence separately. There is
-no MIMXRT700 emulator, so all target evidence for this port is real silicon.
+Record emulator, cross-build, and physical-board evidence separately: M33MU's
+RT700 model gives emulator evidence, the EVK gives silicon evidence, and
+neither substitutes for the other.
 
 ## What a MIMXRT700 port comprises
 
@@ -103,9 +111,12 @@ The MIMXRT700 has no option-byte Secure watermark. The Secure boundary is set at
 run time by three mechanisms the port programs before any guest launches:
 
 - **IDAU/SAU:** the bit-28 alias makes each address inherently Secure or
-  Non-secure; the SAU table in `platform_mimxrt700.c` opens the Non-secure
-  windows (the guest flash and RAM, the shared console) and leaves everything
-  else Secure.
+  Non-secure; the SAU table in `platform_mimxrt700.c` opens the static
+  Non-secure windows (the guest flash, the shared console) and leaves
+  everything else Secure. The guest RAM windows are not static: each dispatch
+  programs a dynamic SAU region over the arriving guest's window only, so the
+  peer's window stays Secure while it runs. The shared `fabric_windows` helper
+  drives those regions the way it drives GTZC blocks on the STM32H5.
 - **Secure MPU:** a per-partition whitelist confines each Secure Partition to
   its own RAM band. The core implements eight Secure regions; the port merges
   the Secure alias of the guest images, the update partition, and the NVM
@@ -121,12 +132,15 @@ run time by three mechanisms the port programs before any guest launches:
 A port declares what it actually enforces through the capability bitmap in
 `partitions.c`, and the manifest validator refuses a domain that requires a
 capability the port does not provide: a writable Non-secure guest window is
-refused unless the port claims the fabric filter. This port does not claim it:
-on silicon, the AHBSC SRAM rules for the guest partition did not stop a
-Non-secure store into the other guest's window, so the only barrier between
-the guests is each guest's own Non-secure MPU, which a privileged guest can
-disable. Fencing other bus masters (the sense M33, the DSPs, the NPU, and DMA)
-per master is not implemented either.
+refused unless the port claims the fabric filter. This port claims it on the
+strength of the per-dispatch SAU window. The AHBSC SRAM rules do not gate CPU0
+on this silicon (a Non-secure store into a closed guest window landed with them
+on), so the CPU's own attribution is the barrier: with the peer window Secure,
+a guest's store into it faults even after the guest disables its own
+Non-secure MPU, and the monitor contains the fault. M33MU's `ahbscneg` shows
+exactly that; the silicon run of the same negative is still to be recorded.
+Fencing other bus masters (the sense M33, the DSPs, the NPU, and DMA) per
+master is not implemented.
 
 ## Silicon constraints for this port
 
@@ -147,7 +161,8 @@ similar bit-28 IDAU part:
   filter.** AHBSC secure checking is off until MISC_CTRL bits 11:2 are
   rewritten behind GLIKEY0 write index 1. Even with checking on, the SRAM
   partition rules did not stop a Non-secure CPU store into a closed guest
-  window on the EVK, so they cannot back the fabric-filter capability.
+  window on the EVK, so they cannot back the fabric-filter capability; CPU-side
+  guest isolation is the SAU.
 - **There is no ROM flash API and the code runs from the same NOR.** A program
   or erase leaves the NOR unable to serve instruction fetches, so the driver
   and everything it calls execute from the RAM code band with interrupts
@@ -171,11 +186,11 @@ similar bit-28 IDAU part:
 ## Build, flash, and verify
 
 The hardware runner (`tests/target/run_rt700_hardware.sh`) drives image
-assembly and flashing so the addresses stay paired. The `romsmoke` scenario
-proves the BootROM XIP path; the `positive` scenario is the wolfTrust chain;
-`ahbscneg` adds the guest isolation negative. While the port does not claim the
-fabric filter, wolfTrust refuses the two-guest manifest, so both chain
-scenarios stop before any guest runs.
+assembly and flashing so the addresses stay paired; its emulator sibling
+(`tests/target/run_rt700_m33mu.sh`) runs the same chain and scenario names
+under M33MU. The `romsmoke` scenario proves the BootROM XIP path; the
+`positive` scenario is the wolfTrust chain; `ahbscneg` adds the guest
+isolation negative.
 
 The full chain build and flash performs:
 
