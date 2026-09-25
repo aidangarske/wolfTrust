@@ -21,12 +21,13 @@ Read the current state first and keep a development board recoverable.
   guest's store into the other guest's RAM refused by the SAU, contained by the
   monitor, and the offender quarantined after its restart budget while the peer
   keeps running.
-- **In bring-up:** the same two scenarios on the EVK. The port isolates guest
+- **Validated on the EVK:** the same two scenarios on both crypto engines
+  (`tests/target/run_rt700_hardware.sh`). In `ahbscneg`, guest0 disables its
+  Non-secure MPU and stores into guest1's RAM; the store faults, guest1's RAM
+  never holds the sentinel, and guest1 keeps running. The port isolates guest
   RAM with a per-dispatch SAU window, because the AHB secure controller's SRAM
   rules do not gate CPU0 on this silicon (an earlier fabric-filter attempt let
-  a guest with its Non-secure MPU disabled write the other guest's RAM). The
-  silicon `ahbscneg` run is the remaining step before the isolation claim rests
-  on board evidence as well.
+  a guest with its Non-secure MPU disabled write the other guest's RAM).
 - **Not yet ported:** firmware update, conformance, and `SERVICE_VNET`.
   `SERVICE_FWU` is in the manifest, but its begin, write, arm, disarm, and
   verify operations return `WH_ERROR_NOTIMPL` until arming the wolfBoot update
@@ -144,8 +145,8 @@ strength of the per-dispatch SAU window. The AHBSC SRAM rules do not gate CPU0
 on this silicon (a Non-secure store into a closed guest window landed with them
 on), so the CPU's own attribution is the barrier: with the peer window Secure,
 a guest's store into it faults even after the guest disables its own
-Non-secure MPU, and the monitor contains the fault. M33MU's `ahbscneg` shows
-exactly that; the silicon run of the same negative is still to be recorded.
+Non-secure MPU, and the monitor contains the fault. `ahbscneg` shows exactly
+that on the EVK and under M33MU.
 As on the STM32H563 (see [TF-M Compatibility](TF-M-Compatibility.md)), the
 manifest declares the guests unprivileged but the runtime launches them with
 `CONTROL_NS.nPRIV` clear. A guest's Non-secure MPU is therefore scheduling
