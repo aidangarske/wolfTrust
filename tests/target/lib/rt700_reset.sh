@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Reset control for the MIMXRT700-EVK rig: a Raspberry Pi 4 GPIO drives the
-# board reset line (GPIO21 high = released, low = held in reset; SRAM survives).
+# board reset line (GPIO20 high = released, low = held in reset; SRAM survives).
 # Runs from pi5 or anywhere that can ssh to the pi4.
 # Usage: rt700_reset.sh release|hold|reset|status
 set -euo pipefail
 
 RT700_POWER_HOST="${RT700_POWER_HOST:-pi4}"
-RT700_POWER_GPIO="${RT700_POWER_GPIO:-21}"
+RT700_POWER_GPIO="${RT700_POWER_GPIO:-20}"
 RT700_POWER_OFF_SECONDS="${RT700_POWER_OFF_SECONDS:-2}"
 RT700_POWER_SETTLE_SECONDS="${RT700_POWER_SETTLE_SECONDS:-4}"
 
