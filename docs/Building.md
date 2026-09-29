@@ -179,6 +179,10 @@ The same Makefile also provides:
 | `run-tui` | Same pair with the M33MU TUI |
 | `zephyr-freertos-uarts` | Zephyr and FreeRTOS PSA guests under M33MU |
 
+The M33MU targets refuse an emulator built without
+`tests/target/m33mu-tb-sec-chain.patch`, whose STM32H5 IDCODE model the
+Secure silicon-revision guard needs.
+
 ## Engine coverage in CI
 
 The cross-compile workflow links a Secure image with each engine. The M33MU

@@ -5,6 +5,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 SUBTREE_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 MODE="${1:-}"
 EMU_CMD="${M33MU:-m33mu}"
+"$SUBTREE_DIR/../../target/check_m33mu_idcode.sh" "$EMU_CMD"
 EMU_TIMEOUT="${EMU_TIMEOUT:-300}"
 SECURE_BIN="${SECURE_BIN:-$SUBTREE_DIR/../../../build/wolftrust.bin}"
 GUEST0_BIN="${GUEST0_BIN:-$SUBTREE_DIR/build/guest0/zephyr/zephyr.bin}"

@@ -551,11 +551,13 @@ $(GUEST1_BIN): $(GUEST1_ELF)
 
 run:
 	$(MAKE) all
+	$(ROOT)/tests/target/check_m33mu_idcode.sh "$(M33MU)"
 	$(M33MU) --cpu stm32h563 --timeout $(EMU_TIMEOUT) --quit-on-faults \
 		$(SECURE_BIN) $(GUEST0_BIN):$(WT_GUEST0_EMU_OFFSET) $(GUEST1_BIN):$(WT_GUEST1_EMU_OFFSET)
 
 run-tui:
 	$(MAKE) all
+	$(ROOT)/tests/target/check_m33mu_idcode.sh "$(M33MU)"
 	$(M33MU) --cpu stm32h563 --tui --timeout $(EMU_TIMEOUT) \
 		$(SECURE_BIN) $(GUEST0_BIN):$(WT_GUEST0_EMU_OFFSET) $(GUEST1_BIN):$(WT_GUEST1_EMU_OFFSET)
 

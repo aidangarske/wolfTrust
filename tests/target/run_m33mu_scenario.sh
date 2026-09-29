@@ -114,12 +114,7 @@ else
   M33MU=/tmp/m33mu_src/build/m33mu
   cd "$repo"
 fi
-# The Secure image halts on an unmodelled (zero) DBGMCU_IDCODE, so a prebuilt
-# or reused emulator must carry the IDCODE model from the patch.
-if ! grep -aq M33MU_STM32H5_IDCODE "$M33MU"; then
-  echo "FAIL: $M33MU lacks the STM32H5 DBGMCU_IDCODE model; rebuild it with tests/target/m33mu-tb-sec-chain.patch" >&2
-  exit 1
-fi
+"$repo/tests/target/check_m33mu_idcode.sh" "$M33MU"
 
 # --- wolfTrust dependencies + a clean secure build (drop any stale build/
 #     whose generated wolfhsm_cfg.h bakes in a host-absolute path). The guest

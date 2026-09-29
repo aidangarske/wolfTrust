@@ -6,6 +6,7 @@ BUILD_DIR="$SCRIPT_DIR/build"
 SECURE_BIN="${SECURE_BIN:-$SCRIPT_DIR/../../../build/wolftrust.bin}"
 LOG_FILE=$(mktemp)
 EMU_CMD="${M33MU:-m33mu}"
+"$SCRIPT_DIR/../../target/check_m33mu_idcode.sh" "$EMU_CMD"
 EMU_TIMEOUT="${EMU_TIMEOUT:-300}"
 WT_ENGINE_HSM="${WT_ENGINE_HSM:-0}"
 WT_MAX_GUESTS="${WT_MAX_GUESTS:-2}"

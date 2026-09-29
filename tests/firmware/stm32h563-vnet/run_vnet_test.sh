@@ -10,6 +10,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 EMU_CMD="${M33MU:-m33mu}"
+"$SCRIPT_DIR/../../target/check_m33mu_idcode.sh" "$EMU_CMD"
 EMU_TIMEOUT="${EMU_TIMEOUT:-60}"
 SECURE_BIN="${SECURE_BIN:-$SCRIPT_DIR/../../../build/wolftrust.bin}"
 GUEST0_BIN="${GUEST0_BIN:-$SCRIPT_DIR/build/guest0.bin}"
