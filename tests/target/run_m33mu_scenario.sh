@@ -322,7 +322,7 @@ elif [ "$scenario" = "spfaultneg" ] || [ "$scenario" = "panicneg" ] ||
 elif [ "$scenario" = "revneg" ]; then
   # Production image on revision Z silicon (ES0565 2.2.9): the emulator
   # reports the refused IDCODE through the real DBGMCU read.
-  export M33MU_STM32H5_IDCODE=0x10010484
+  export M33MU_STM32H5_IDCODE=0x10016484
 elif [ "$scenario" = "authneg" ]; then
   # Guest0 is refused at launch so the BKPT scenario end never fires; the run
   # ends on timeout with guest1's heartbeats as the survival evidence.
@@ -848,7 +848,7 @@ case "$scenario" in
     # Engineering-sample silicon must halt in wt_platform_init with the
     # refusal line and the production panic, before any partition or guest.
     expect "revision Z refused with the ES0565 2.2.9 console line" \
-      "wolfTrust: halt, STM32H563 engineering sample (ES0565 2.2.9) IDCODE 0x10010484"
+      "wolfTrust: halt, STM32H563 engineering sample (ES0565 2.2.9) IDCODE 0x10016484"
     expect "boot halted on the production panic" "[BKPT] imm=0x7e"
     refute_re "no partition or guest started on refused silicon" \
       '(Booting Zephyr|guest0_psa alive|freertos_guest1:|\[BKPT\] imm=0x7f)'
