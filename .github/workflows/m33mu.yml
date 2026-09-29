@@ -309,6 +309,7 @@ jobs:
           - { key: manifestneg,     name: "Corrupted-manifest activation refused" }
           - { key: gtzcneg,         name: "NS MPU bypass cannot reach peer guest RAM" }
           - { key: spbudgetneg,     name: "SP restart-budget exhaustion escalates" }
+          - { key: revneg,          name: "Engineering-sample silicon refused" }
         exclude:
           # hsmattackneg drives the raw wolfHSM client wire from the guest;
           # the native engine does not link that wire, so the attack surface

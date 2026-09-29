@@ -51,8 +51,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg|gtzcneg|spbudgetneg) ;;
-  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg|gtzcneg|spbudgetneg" >&2; exit 2 ;;
+  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg|gtzcneg|spbudgetneg|revneg) ;;
+  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg|gtzcneg|spbudgetneg|revneg" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -113,6 +113,12 @@ else
   cmake --build build --target m33mu -j"$(nproc)"
   M33MU=/tmp/m33mu_src/build/m33mu
   cd "$repo"
+fi
+# The Secure image halts on an unmodelled (zero) DBGMCU_IDCODE, so a prebuilt
+# or reused emulator must carry the IDCODE model from the patch.
+if ! grep -aq M33MU_STM32H5_IDCODE "$M33MU"; then
+  echo "FAIL: $M33MU lacks the STM32H5 DBGMCU_IDCODE model; rebuild it with tests/target/m33mu-tb-sec-chain.patch" >&2
+  exit 1
 fi
 
 # --- wolfTrust dependencies + a clean secure build (drop any stale build/
@@ -318,6 +324,10 @@ elif [ "$scenario" = "spfaultneg" ] || [ "$scenario" = "panicneg" ] ||
   # recovery. The rest of the lifecycle then completes normally through the
   # clean BKPT exit — the restarted SP serves the later requests.
   quit_flag=""
+elif [ "$scenario" = "revneg" ]; then
+  # Production image on revision Z silicon (ES0565 2.2.9): the emulator
+  # reports the refused IDCODE through the real DBGMCU read.
+  export M33MU_STM32H5_IDCODE=0x10010484
 elif [ "$scenario" = "authneg" ]; then
   # Guest0 is refused at launch so the BKPT scenario end never fires; the run
   # ends on timeout with guest1's heartbeats as the survival evidence.
@@ -838,6 +848,16 @@ case "$scenario" in
     refute_re "no guest scheduled off the corrupted manifest" \
       '(guest0_psa alive|freertos_guest1:|vnet-guest)'
     echo "PASS: target/manifestneg"
+    ;;
+  revneg)
+    # Engineering-sample silicon must halt in wt_platform_init with the
+    # refusal line and the production panic, before any partition or guest.
+    expect "revision Z refused with the ES0565 2.2.9 console line" \
+      "wolfTrust: halt, STM32H563 engineering sample (ES0565 2.2.9) IDCODE 0x10010484"
+    expect "boot halted on the production panic" "[BKPT] imm=0x7e"
+    refute_re "no partition or guest started on refused silicon" \
+      '(Booting Zephyr|guest0_psa alive|freertos_guest1:|\[BKPT\] imm=0x7f)'
+    echo "PASS: target/revneg"
     ;;
   gtzcneg)
     # A privileged NS guest disables its own NS MPU and stores a sentinel
