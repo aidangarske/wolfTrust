@@ -181,3 +181,74 @@ index 9b6ad4f..586bc30 100644
  }
  
  static void itstate_clear(mm_u32 *xpsr, mm_u8 *it_pattern, mm_u8 *it_remaining, mm_u8 *it_cond)
+diff --git a/cpu/stm32h533/stm32h533_mmio.c b/cpu/stm32h533/stm32h533_mmio.c
+index 45c6fc8..744a8cb 100644
+--- a/cpu/stm32h533/stm32h533_mmio.c
++++ b/cpu/stm32h533/stm32h533_mmio.c
+@@ -59,7 +59,9 @@ static const struct stm32h5_mmio_variant g_variant = {
+     0xC0000000u, /* ahb2enr_reset */
+ 
+     mm_stm32h533_usb_register_mmio,
+-    mm_stm32h533_usb_reset
++    mm_stm32h533_usb_reset,
++
++    0u           /* dbgmcu_idcode: not modelled */
+ };
+ 
+ mm_bool mm_stm32h533_register_mmio(struct mmio_bus *bus)
+diff --git a/cpu/stm32h563/stm32h563_mmio.c b/cpu/stm32h563/stm32h563_mmio.c
+index e4e3d57..e30358e 100644
+--- a/cpu/stm32h563/stm32h563_mmio.c
++++ b/cpu/stm32h563/stm32h563_mmio.c
+@@ -56,7 +56,9 @@ static const struct stm32h5_mmio_variant g_variant = {
+     0xC0000000u, /* ahb2enr_reset */
+ 
+     mm_stm32h563_usb_register_mmio,
+-    mm_stm32h563_usb_reset
++    mm_stm32h563_usb_reset,
++
++    0x100F0484u  /* dbgmcu_idcode: DEV_ID 0x484, revision W (ES0565) */
+ };
+ 
+ mm_bool mm_stm32h563_register_mmio(struct mmio_bus *bus)
+diff --git a/cpu/stm32h5_mmio.c b/cpu/stm32h5_mmio.c
+index 13e47d5..5ff627d 100644
+--- a/cpu/stm32h5_mmio.c
++++ b/cpu/stm32h5_mmio.c
+@@ -705,6 +705,7 @@ static void stm32h5_mmio_reset_impl(void)
+     memset(&crs, 0, sizeof(crs));
+     memset(&crs_sec, 0, sizeof(crs_sec));
+     memset(&dbgmcu, 0, sizeof(dbgmcu));
++    dbgmcu.regs[0] = V->dbgmcu_idcode;
+     memset(&icache, 0, sizeof(icache));
+     memset(&dcache, 0, sizeof(dcache));
+     memset(&rng, 0, sizeof(rng));
+diff --git a/cpu/stm32h5_mmio.h b/cpu/stm32h5_mmio.h
+index 15e4cea..25b695a 100644
+--- a/cpu/stm32h5_mmio.h
++++ b/cpu/stm32h5_mmio.h
+@@ -89,6 +89,9 @@ struct stm32h5_mmio_variant {
+      * variant does not model one. */
+     mm_bool (*usb_register_mmio)(struct mmio_bus *bus);
+     void (*usb_reset)(void);
++
++    /* DBGMCU_IDCODE reset value (DEV_ID | REV_ID << 16); 0 when unmodelled. */
++    mm_u32 dbgmcu_idcode;
+ };
+ 
+ /* Entry points. The four that a target can reach first each latch the
+diff --git a/cpu/stm32h5f4/stm32h5f4_mmio.c b/cpu/stm32h5f4/stm32h5f4_mmio.c
+index 9eb55ad..fca6b30 100644
+--- a/cpu/stm32h5f4/stm32h5f4_mmio.c
++++ b/cpu/stm32h5f4/stm32h5f4_mmio.c
+@@ -68,7 +68,9 @@ static const struct stm32h5_mmio_variant g_variant = {
+     0xF0000000u, /* ahb2enr_reset: SRAM2..5 clocks on */
+ 
+     0,           /* no USB block modelled */
+-    0
++    0,
++
++    0u           /* dbgmcu_idcode: not modelled */
+ };
+ 
+ mm_bool mm_stm32h5f4_register_mmio(struct mmio_bus *bus)
